@@ -1,23 +1,23 @@
 # ollama-manager
 
-Pequeño servidor web en Go para gestionar los modelos de [Ollama](https://ollama.com) que tenés instalados en una PC.
+Tiny Go web server to manage the [Ollama](https://ollama.com) models installed on a machine.
 
-- Listar modelos: nombre, familia, parámetros, cuantización, tamaño, contexto, fecha de instalación, estado (cargado en memoria).
-- Instalar modelos del registry oficial (`POST /api/pull`) con barra de progreso en vivo.
-- Desinstalar modelos.
-- Ver detalles completos: capacidades, template, parámetros, model info.
-- UI minimalista en modo oscuro, sin frameworks. Bilingüe (English / Español).
-- Binario único, multiplataforma (Windows, macOS, Linux).
-- Auth opcional con contraseña (bcrypt + cookie de sesión firmada HMAC).
-- Configuración por `config.json` o desde un panel **Settings** dentro de la UI: puerto, exposición a la red local, contraseña, idioma.
-- Ordenable por cualquier columna; preferencia persistida en `localStorage`.
+- List models: name, family, parameters, quantization, size, context, install date, loaded state.
+- Install models from the official registry (`POST /api/pull`) with a live progress bar.
+- Uninstall models.
+- View full details: capabilities, template, parameters, model info.
+- Minimalist dark UI, no frameworks. Bilingual (English / Spanish).
+- Single binary, cross-platform (Windows, macOS, Linux).
+- Optional password auth (bcrypt + HMAC-signed session cookie).
+- Configurable via `config.json` or from a **Settings** panel inside the UI: port, LAN exposure, password, language.
+- Sortable by any column; preference persisted in `localStorage`.
 
-## Requisitos
+## Requirements
 
-- Go 1.25 o superior (solo para compilar).
-- Ollama corriendo en la misma máquina (por defecto `http://localhost:11434`).
+- Go 1.25 or later (build only).
+- Ollama running on the same machine (defaults to `http://localhost:11434`).
 
-## Compilar
+## Build
 
 ```bash
 go build -o ollama-manager .
@@ -25,7 +25,7 @@ go build -o ollama-manager .
 go build -o ollama-manager.exe .
 ```
 
-Cross-compile (desde cualquier OS):
+Cross-compile (from any OS):
 
 ```bash
 GOOS=linux   GOARCH=amd64 go build -o dist/ollama-manager-linux .
@@ -33,17 +33,17 @@ GOOS=darwin  GOARCH=arm64 go build -o dist/ollama-manager-macos .
 GOOS=windows GOARCH=amd64 go build -o dist/ollama-manager.exe .
 ```
 
-## Uso
+## Usage
 
 ```bash
-./ollama-manager                      # usa ./config.json
-./ollama-manager -config /ruta/cfg.json
-./ollama-manager set-password <pwd>   # hashea y guarda contraseña
-./ollama-manager clear-password       # quita contraseña
+./ollama-manager                      # uses ./config.json
+./ollama-manager -config /path/cfg.json
+./ollama-manager set-password <pwd>   # hashes and stores password
+./ollama-manager clear-password       # removes password
 ./ollama-manager version
 ```
 
-Al primer arranque crea `config.json` con valores por defecto:
+On first launch it creates `config.json` with sensible defaults:
 
 ```json
 {
@@ -56,69 +56,69 @@ Al primer arranque crea `config.json` con valores por defecto:
 }
 ```
 
-- `port`: puerto HTTP del manager.
-- `expose_network`: `false` enlaza solo a `127.0.0.1` (acceso únicamente local).
-  Si lo ponés en `true`, escucha en `0.0.0.0` y podés entrar desde otra PC de tu LAN.
-- `password_hash`: bcrypt; vacío = sin login. Usá `set-password` o el panel Settings para configurarla.
-- `session_secret`: clave HMAC para firmar cookies (autogenerada).
-- `ollama_url`: dónde corre Ollama.
-- `language`: idioma de la UI (`en` o `es`). Cambiable desde el panel Settings.
+- `port`: HTTP port for the manager.
+- `expose_network`: `false` binds only to `127.0.0.1` (local access only).
+  Set it to `true` to listen on `0.0.0.0` and reach it from another PC on your LAN.
+- `password_hash`: bcrypt; empty = no login. Use `set-password` or the Settings panel to enable it.
+- `session_secret`: HMAC key used to sign cookies (auto-generated).
+- `ollama_url`: where Ollama is running.
+- `language`: UI language (`en` or `es`). Switchable from the Settings panel.
 
-Casi todo se puede modificar también desde el botón **⚙ Settings** en la UI sin
-tocar el archivo. Cambios de `port` y `expose_network` requieren reiniciar el
-proceso para tomar efecto (la UI lo avisa).
+Almost everything can also be changed from the **⚙ Settings** button in the UI
+without touching the file. Changes to `port` and `expose_network` require
+restarting the process to take effect (the UI warns you).
 
-### Exponer a la red
+### Exposing to the network
 
 ```bash
-# 1) Editá config.json y poné "expose_network": true
-# 2) Configurá una contraseña
-./ollama-manager set-password "miClaveSegura"
-# 3) Arrancá el servidor
+# 1) Edit config.json and set "expose_network": true
+# 2) Set a password
+./ollama-manager set-password "myStrongPass"
+# 3) Start the server
 ./ollama-manager
 ```
 
-> Si activás `expose_network` sin contraseña, el manager imprime una advertencia
-> y cualquiera en tu LAN podrá borrar/instalar modelos. Configurá una contraseña.
+> If you enable `expose_network` without a password, the manager prints a
+> warning and anyone on your LAN can delete/install models. Set a password.
 
-### Endpoints HTTP
+### HTTP endpoints
 
-| Método | Ruta | Descripción |
+| Method | Path | Description |
 | --- | --- | --- |
-| GET | `/` | UI principal |
-| GET/POST | `/login`, `/logout` | Login con contraseña (si está habilitada) |
-| GET | `/api/status` | Estado del manager y reachability de Ollama |
-| GET | `/api/models` | Lista combinada de modelos + estado loaded + context_length |
-| GET | `/api/models/{name}` | Detalle: contexto, capacidades, template, modelinfo |
-| DELETE | `/api/models/{name}` | Desinstalar modelo |
-| POST | `/api/pull` | Instalar modelo. Body `{"name":"llama3:8b"}`. Responde con stream SSE de progreso |
-| GET | `/api/config` | Lee config (sin `password_hash`) |
-| PATCH | `/api/config` | Actualiza `language`, `port`, `expose_network`, `ollama_url`. Devuelve `needs_restart` |
-| POST | `/api/config/password` | Body `{"password":"x"}` setea contraseña; `{"password":""}` la borra |
+| GET | `/` | Main UI |
+| GET/POST | `/login`, `/logout` | Password login (when enabled) |
+| GET | `/api/status` | Manager status and Ollama reachability |
+| GET | `/api/models` | Combined list of models + loaded state + context_length |
+| GET | `/api/models/{name}` | Details: context, capabilities, template, modelinfo |
+| DELETE | `/api/models/{name}` | Uninstall model |
+| POST | `/api/pull` | Install model. Body `{"name":"llama3:8b"}`. Responds with an SSE progress stream |
+| GET | `/api/config` | Read config (without `password_hash`) |
+| PATCH | `/api/config` | Update `language`, `port`, `expose_network`, `ollama_url`. Returns `needs_restart` |
+| POST | `/api/config/password` | Body `{"password":"x"}` sets the password; `{"password":""}` clears it |
 
-### SSE de instalación
+### Install SSE stream
 
-Eventos emitidos por `POST /api/pull`:
+Events emitted by `POST /api/pull`:
 
 - `event: start` — `{name}`
 - `event: progress` — `{status, digest, total, completed, percent}`
 - `event: done` — `{name}`
 - `event: error` — `{error}`
 
-## Estructura
+## Layout
 
 ```
 .
-├── main.go                  # CLI + arranque del servidor
+├── main.go                  # CLI + server bootstrap
 ├── config.example.json
 ├── internal/
-│   ├── config/              # carga/guarda config.json
-│   ├── ollama/              # cliente HTTP de Ollama
+│   ├── config/              # loads/saves config.json
+│   ├── ollama/              # Ollama HTTP client
 │   └── server/              # router, auth, handlers, SSE
-└── web/                     # HTML/CSS/JS embebido (go:embed)
+└── web/                     # embedded HTML/CSS/JS (go:embed)
 ```
 
-## Desarrollo
+## Development
 
 ```bash
 go vet ./...
@@ -126,9 +126,9 @@ go build ./...
 go run . -config dev.json
 ```
 
-El frontend está embebido con `//go:embed all:web` en `main.go`, así que cualquier
-cambio en `web/*` requiere recompilar.
+The frontend is embedded with `//go:embed all:web` in `main.go`, so any change
+under `web/*` requires recompiling.
 
-## Licencia
+## License
 
-MIT — ver [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

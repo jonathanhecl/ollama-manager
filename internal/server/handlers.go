@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gense/ollama-manager/internal/config"
+	"github.com/gense/ollama-manager/internal/jobs"
 	"github.com/gense/ollama-manager/internal/ollama"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -491,8 +492,10 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": name})
 }
 
-// ---------- pull (SSE) ----------
+// ---------- pull (enqueue) ----------
 
+// handlePull enqueues a new download. The job runs asynchronously; clients
+// should subscribe to /api/jobs/events for progress.
 func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
@@ -503,6 +506,28 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(body.Name)
 
+	job, err := s.jobs.Enqueue(name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"job_id": job.ID,
+		"status": job.Status,
+		"name":   job.Name,
+	})
+}
+
+// ---------- jobs ----------
+
+func (s *Server) handleJobsList(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.jobs.List()})
+}
+
+// handleJobsEvents streams job lifecycle updates as Server-Sent Events.
+// On connect it first emits a "snapshot" event with the current list, then
+// an "update" or "remove" event for every change until the client disconnects.
+func (s *Server) handleJobsEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, errors.New("streaming not supported"))
@@ -523,30 +548,66 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	send("start", map[string]any{"name": name})
+	send("snapshot", map[string]any{"jobs": s.jobs.List()})
 
-	err := s.ollama.Pull(r.Context(), name, func(ev ollama.PullProgress) error {
-		percent := 0.0
-		if ev.Total > 0 {
-			percent = float64(ev.Completed) / float64(ev.Total) * 100
-			if percent > 100 {
-				percent = 100
+	ch, cancel := s.jobs.Subscribe()
+	defer cancel()
+
+	// Heartbeat to keep proxies from closing idle connections.
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
 			}
+			switch ev.Kind {
+			case jobs.EventUpdate:
+				send("update", map[string]any{"job": ev.Job})
+			case jobs.EventRemove:
+				send("remove", map[string]any{"id": ev.ID})
+			}
+		case <-ticker.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
 		}
-		send("progress", map[string]any{
-			"status":    ev.Status,
-			"digest":    ev.Digest,
-			"total":     ev.Total,
-			"completed": ev.Completed,
-			"percent":   percent,
-		})
-		return nil
-	})
-	if err != nil {
-		send("error", map[string]string{"error": err.Error()})
+	}
+}
+
+func (s *Server) handleJobCancel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing id"))
 		return
 	}
-	send("done", map[string]string{"name": name})
+	if err := s.jobs.Cancel(id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleJobRemove(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing id"))
+		return
+	}
+	if err := s.jobs.Remove(id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleJobsClear(w http.ResponseWriter, r *http.Request) {
+	removed := s.jobs.ClearFinished()
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
 }
 
 // ---------- helpers ----------

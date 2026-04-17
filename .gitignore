@@ -30,6 +30,9 @@ go.work.sum
 # Local config (contains session_secret + password_hash)
 config.json
 
+# Runtime state: persisted download queue
+jobs.json
+
 # Built binary
 ollama-manager
 ollama-manager.exe

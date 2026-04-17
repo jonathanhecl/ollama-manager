@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log"
 	"net/http"
+	"path/filepath"
 	"sync"
 
 	"github.com/gense/ollama-manager/internal/config"
+	"github.com/gense/ollama-manager/internal/jobs"
 	"github.com/gense/ollama-manager/internal/ollama"
 )
 
@@ -24,6 +27,7 @@ type Server struct {
 	ollama *ollama.Client
 	web    fs.FS
 	tmpl   *template.Template
+	jobs   *jobs.Manager
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -41,11 +45,22 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	if err != nil {
 		return nil, fmt.Errorf("parse login template: %w", err)
 	}
+
+	// Store jobs.json next to config.json so "config" and "jobs" always
+	// travel together.
+	jobsPath := filepath.Join(filepath.Dir(cfg.Path()), "jobs.json")
+	jobMgr := jobs.New(jobsPath, ollamaClient, log.Default())
+	if err := jobMgr.Load(); err != nil {
+		log.Printf("jobs: could not load %s: %v", jobsPath, err)
+	}
+	jobMgr.Start()
+
 	return &Server{
 		cfg:      cfg,
 		ollama:   ollamaClient,
 		web:      webRoot,
 		tmpl:     tmpl,
+		jobs:     jobMgr,
 		ctxCache: make(map[string]int64),
 	}, nil
 }
@@ -73,6 +88,12 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/models/{name...}", s.requireAuth(s.handleDeleteModel))
 	mux.Handle("POST /api/pull", s.requireAuth(s.handlePull))
 	mux.Handle("GET /api/status", s.requireAuth(s.handleStatus))
+
+	mux.Handle("GET /api/jobs", s.requireAuth(s.handleJobsList))
+	mux.Handle("GET /api/jobs/events", s.requireAuth(s.handleJobsEvents))
+	mux.Handle("POST /api/jobs/clear", s.requireAuth(s.handleJobsClear))
+	mux.Handle("POST /api/jobs/{id}/cancel", s.requireAuth(s.handleJobCancel))
+	mux.Handle("DELETE /api/jobs/{id}", s.requireAuth(s.handleJobRemove))
 
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))

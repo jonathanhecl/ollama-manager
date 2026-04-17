@@ -75,9 +75,20 @@ input:focus { border-color: var(--accent); }
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent);
 }
-.install-form { display: flex; gap: 6px; flex: 1; max-width: 520px; margin: 0 auto; }
-.install-form input { flex: 1; }
-.topbar-actions { display: flex; gap: 6px; }
+.topbar-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+
+/* Downloads button with count badge */
+button.with-badge { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; }
+button.with-badge .dl-icon { font-size: 13px; color: var(--text-dim); }
+button.with-badge:hover .dl-icon { color: var(--accent); }
+.count-badge {
+  display: inline-grid; place-items: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent); color: #0b0b0d;
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  line-height: 1;
+}
 
 .pill {
   font-size: 11px; padding: 2px 8px; border-radius: 999px;
@@ -543,11 +554,221 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .login-card button:hover { background: var(--accent); }
 .login-card .error { color: var(--bad); margin: 0; font-size: 13px; }
 
+/* ---------- Downloads modal ---------- */
+.dl-card {
+  width: min(640px, 100%);
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: min(90vh, 860px);
+}
+
+.dl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.dl-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dl-head .gear {
+  display: inline-grid; place-items: center;
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 13px;
+}
+.dl-head .btn-icon {
+  width: 28px; height: 28px;
+  color: var(--muted);
+}
+.dl-head .btn-icon:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+.dl-add {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.dl-add form {
+  display: flex;
+  gap: 8px;
+}
+.dl-add input {
+  flex: 1;
+  min-width: 0;
+}
+.dl-add button { flex-shrink: 0; }
+
+.dl-body {
+  padding: 8px 18px 14px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dl-section {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.dl-section:last-of-type { border-bottom: none; }
+.dl-section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dl-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.dl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dl-empty,
+.dl-empty-row {
+  font-size: 12px;
+  padding: 8px 4px;
+}
+.dl-empty { text-align: center; padding: 22px 8px; }
+
+/* Individual job card */
+.dl-item {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dl-item.dl-running { border-color: var(--accent-dim); background: color-mix(in srgb, var(--accent) 6%, var(--panel-2)); }
+.dl-item.dl-error   { border-color: #5a2a2a; background: #1a1212; }
+.dl-item.dl-cancelled { opacity: .75; }
+.dl-item.dl-done    { opacity: .9; }
+
+.dl-row1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dl-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-status {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-status-running   { color: var(--accent); border-color: var(--accent-dim); }
+.dl-status-queued    { color: var(--text-dim); }
+.dl-status-done      { color: var(--good); border-color: #2c4a3a; }
+.dl-status-error     { color: var(--bad); border-color: #5a2a2a; }
+.dl-status-cancelled { color: var(--muted); }
+
+.dl-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.dl-actions .btn-icon { width: 26px; height: 26px; font-size: 14px; }
+.dl-actions .dl-retry {
+  width: 26px; height: 26px; padding: 0;
+  font-size: 13px;
+}
+
+.dl-progress {
+  height: 5px;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.dl-progress-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width .3s ease;
+}
+.dl-progress-done      { background: var(--good); }
+.dl-progress-error     { background: var(--bad); }
+.dl-progress-cancelled { background: var(--muted); }
+
+.dl-row2 {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.dl-pct { color: var(--text-dim); }
+.dl-bytes { color: var(--muted); }
+
+.dl-error {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bad);
+  background: #0e0e12;
+  border: 1px solid #3a1a1a;
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dl-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .topbar { flex-wrap: wrap; }
-  .install-form { order: 3; max-width: none; width: 100%; margin: 0; }
   /* Hide "Modificado" column (8th) on narrow screens. */
   #models-table th:nth-child(8), #models-table td:nth-child(8) { display: none; }
   .detail-panel { width: 100vw; }
+  button.with-badge span[data-i18n="downloads.button"] { display: none; }
 }

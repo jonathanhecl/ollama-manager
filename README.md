@@ -3,7 +3,8 @@
 Tiny Go web server to manage the [Ollama](https://ollama.com) models installed on a machine.
 
 - List models: name, family, parameters, quantization, size, context, install date, loaded state.
-- Install models from the official registry (`POST /api/pull`) with a live progress bar.
+- **Download queue**: enqueue multiple installs; the manager runs one at a time, persists the queue to `jobs.json`, and resumes after restart (partial layers are kept by Ollama).
+- Cancel/remove/retry individual jobs and clear finished history from the UI.
 - Uninstall models.
 - View full details: capabilities, template, parameters, model info.
 - Minimalist dark UI, no frameworks. Bilingual (English / Spanish).
@@ -91,19 +92,34 @@ restarting the process to take effect (the UI warns you).
 | GET | `/api/models` | Combined list of models + loaded state + context_length |
 | GET | `/api/models/{name}` | Details: context, capabilities, template, modelinfo |
 | DELETE | `/api/models/{name}` | Uninstall model |
-| POST | `/api/pull` | Install model. Body `{"name":"llama3:8b"}`. Responds with an SSE progress stream |
+| POST | `/api/pull` | Enqueue a download. Body `{"name":"llama3:8b"}`. Returns `{job_id, status, name}`. Progress is served via `/api/jobs/events` |
+| GET | `/api/jobs` | List all jobs (queued/running/done/error/cancelled) in insertion order |
+| GET | `/api/jobs/events` | SSE stream: one `snapshot` event with the current list, then `update`/`remove` events for every change |
+| POST | `/api/jobs/{id}/cancel` | Cancel a queued or running job |
+| DELETE | `/api/jobs/{id}` | Remove a terminal job from history |
+| POST | `/api/jobs/clear` | Remove all terminal (finished/error/cancelled) jobs |
 | GET | `/api/config` | Read config (without `password_hash`) |
 | PATCH | `/api/config` | Update `language`, `port`, `expose_network`, `ollama_url`. Returns `needs_restart` |
 | POST | `/api/config/password` | Body `{"password":"x"}` sets the password; `{"password":""}` clears it |
 
-### Install SSE stream
+### Download queue
 
-Events emitted by `POST /api/pull`:
+- Only **one** job runs at a time. Extra pulls go into a FIFO queue.
+- Jobs are persisted to `jobs.json` next to `config.json`. On startup any job
+  that was marked `running` is demoted back to `queued` and the worker picks it
+  up again. Ollama keeps completed layers, so the download effectively resumes
+  from where it left off.
+- Cancelling a running job aborts the HTTP stream to Ollama and starts the next
+  queued job. Cancelled jobs stay in the list (state `cancelled`) so you can
+  retry or remove them.
 
-- `event: start` — `{name}`
-- `event: progress` — `{status, digest, total, completed, percent}`
-- `event: done` — `{name}`
-- `event: error` — `{error}`
+### Job events stream
+
+Events emitted by `GET /api/jobs/events`:
+
+- `event: snapshot` — `{jobs: [...]}` on connect
+- `event: update` — `{job: {id, name, status, percent, completed, total, status_text, digest, error, ...}}`
+- `event: remove` — `{id}`
 
 ## Layout
 
@@ -111,8 +127,10 @@ Events emitted by `POST /api/pull`:
 .
 ├── main.go                  # CLI + server bootstrap
 ├── config.example.json
+├── jobs.json                # runtime: persisted download queue (ignored by git)
 ├── internal/
 │   ├── config/              # loads/saves config.json
+│   ├── jobs/                # download queue manager (FIFO, SSE fan-out)
 │   ├── ollama/              # Ollama HTTP client
 │   └── server/              # router, auth, handlers, SSE
 └── web/                     # embedded HTML/CSS/JS (go:embed)

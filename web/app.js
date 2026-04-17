@@ -42,8 +42,9 @@ function toast(msg, kind = "") {
 // ---------- state ----------
 let models = [];
 let activeName = null;
-let pullSource = null;
-let pullController = null; // AbortController for fetch-based SSE if needed
+let jobs = new Map();   // id -> job
+let jobsStream = null;  // EventSource for /api/jobs/events
+let jobsBackoffMs = 1000;
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
@@ -283,131 +284,261 @@ $("confirm-ok").addEventListener("click", async () => {
   }
 });
 
-// ---------- install (SSE via fetch) ----------
-$("install-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const name = $("install-name").value.trim();
-  if (!name) return;
-  startPull(name);
-});
+// ---------- downloads queue ----------
 
-async function startPull(name) {
-  $("install-modal-name").textContent = name;
-  $("install-bar").style.width = "0%";
-  $("install-percent").textContent = "0%";
-  $("install-bytes").textContent = "";
-  $("install-log").textContent = "";
-  $("install-cancel").hidden = false;
-  $("install-close").hidden = true;
-  $("install-modal").hidden = false;
-
-  pullController = new AbortController();
-  let lastStatus = "";
-
+// Open a single long-lived SSE connection to the job manager. On
+// disconnect, exponential backoff up to 30s.
+function connectJobsStream() {
+  if (jobsStream) return;
   try {
-    const res = await fetch("/api/pull", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-      signal: pullController.signal,
-    });
-    if (res.status === 401) { window.location.href = "/login"; return; }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    jobsStream = new EventSource("/api/jobs/events", { withCredentials: true });
+  } catch (e) {
+    scheduleJobsReconnect();
+    return;
+  }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
+  jobsStream.addEventListener("snapshot", (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      jobs = new Map((data.jobs || []).map((j) => [j.id, j]));
+      onJobsChanged();
+    } catch {}
+  });
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
+  jobsStream.addEventListener("update", (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      const j = data.job;
+      if (!j || !j.id) return;
+      const prev = jobs.get(j.id);
+      jobs.set(j.id, j);
+      onJobsChanged();
+      // If a job just transitioned to a terminal state, refresh the model list
+      // so a freshly installed model appears and a cancelled/failed one doesn't
+      // leave stale entries.
+      if (prev && !isTerminal(prev.status) && isTerminal(j.status) && j.status === "done") {
+        refreshModels();
+      }
+    } catch {}
+  });
 
-      let idx;
-      while ((idx = buf.indexOf("\n\n")) !== -1) {
-        const raw = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        const ev = parseSSE(raw);
-        if (!ev) continue;
+  jobsStream.addEventListener("remove", (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      if (!data.id) return;
+      jobs.delete(data.id);
+      onJobsChanged();
+    } catch {}
+  });
 
-        if (ev.event === "progress") {
-          const p = ev.data;
-          if (p.percent != null) {
-            const pct = Math.max(0, Math.min(100, p.percent));
-            $("install-bar").style.width = pct.toFixed(1) + "%";
-            $("install-percent").textContent = pct.toFixed(1) + "%";
-          }
-          if (p.total) {
-            $("install-bytes").textContent = `${fmtBytes(p.completed || 0)} / ${fmtBytes(p.total)}`;
-          } else {
-            $("install-bytes").textContent = "";
-          }
-          if (p.status && p.status !== lastStatus) {
-            appendLog(p.status);
-            lastStatus = p.status;
-          }
-        } else if (ev.event === "done") {
-          appendLog(t("install.installed"));
-          $("install-bar").style.width = "100%";
-          $("install-percent").textContent = "100%";
-          finishPull(true, name);
-        } else if (ev.event === "error") {
-          appendLog("✗ " + (ev.data?.error || "error"));
-          finishPull(false, name);
-          throw new Error(ev.data?.error || "pull failed");
-        } else if (ev.event === "start") {
-          appendLog(t("install.pulling", { name: ev.data?.name }));
+  jobsStream.onopen = () => { jobsBackoffMs = 1000; };
+  jobsStream.onerror = () => {
+    if (jobsStream) { jobsStream.close(); jobsStream = null; }
+    scheduleJobsReconnect();
+  };
+}
+
+function scheduleJobsReconnect() {
+  const delay = jobsBackoffMs;
+  jobsBackoffMs = Math.min(jobsBackoffMs * 2, 30000);
+  setTimeout(connectJobsStream, delay);
+}
+
+function isTerminal(status) {
+  return status === "done" || status === "error" || status === "cancelled";
+}
+
+function onJobsChanged() {
+  updateDownloadsBadge();
+  if (!$("downloads-modal").hidden) renderDownloads();
+}
+
+function jobsByStatus() {
+  const buckets = { active: [], queued: [], finished: [] };
+  for (const j of jobs.values()) {
+    if (j.status === "running") buckets.active.push(j);
+    else if (j.status === "queued") buckets.queued.push(j);
+    else buckets.finished.push(j);
+  }
+  // Active and queued keep their natural (creation) order; finished shows
+  // most recent first.
+  const byCreated = (a, b) => new Date(a.created_at) - new Date(b.created_at);
+  buckets.active.sort(byCreated);
+  buckets.queued.sort(byCreated);
+  buckets.finished.sort((a, b) => new Date(b.finished_at || b.created_at) - new Date(a.finished_at || a.created_at));
+  return buckets;
+}
+
+function updateDownloadsBadge() {
+  let activeCount = 0;
+  for (const j of jobs.values()) {
+    if (j.status === "running" || j.status === "queued") activeCount++;
+  }
+  const badge = $("downloads-count");
+  if (activeCount > 0) {
+    badge.textContent = String(activeCount);
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+}
+
+function renderDownloads() {
+  const buckets = jobsByStatus();
+  $("dl-count-active").textContent = String(buckets.active.length);
+  $("dl-count-queued").textContent = String(buckets.queued.length);
+  $("dl-count-finished").textContent = String(buckets.finished.length);
+  $("dl-list-active").innerHTML = buckets.active.map(jobCardHTML).join("") || emptyRow();
+  $("dl-list-queued").innerHTML = buckets.queued.map(jobCardHTML).join("") || emptyRow();
+  $("dl-list-finished").innerHTML = buckets.finished.map(jobCardHTML).join("") || emptyRow();
+  const hasAny = jobs.size > 0;
+  $("dl-empty").hidden = hasAny;
+  $("dl-total-badge").hidden = !hasAny;
+  if (hasAny) {
+    $("dl-total-badge").textContent = t("downloads.jobs_count", { n: jobs.size });
+  }
+  $("dl-clear-btn").disabled = buckets.finished.length === 0;
+
+  // Wire per-card buttons.
+  document.querySelectorAll("#downloads-modal .dl-item [data-action]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      if (!id || !action) return;
+      if (action === "cancel") {
+        try {
+          await api(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
+        }
+      } else if (action === "remove") {
+        try {
+          await api(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
+        }
+      } else if (action === "retry") {
+        const j = jobs.get(id);
+        if (!j) return;
+        try {
+          await api("/api/pull", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: j.name }),
+          });
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
         }
       }
-    }
-  } catch (e) {
-    if (e.name !== "AbortError") {
-      appendLog("✗ " + e.message);
-      toast(t("toast.error", { msg: e.message }), "error");
-    } else {
-      appendLog(t("install.cancelled"));
-    }
-    finishPull(false, name);
+    });
+  });
+}
+
+function emptyRow() {
+  return `<div class="dl-empty-row muted">${escapeHtml(t("downloads.section_empty"))}</div>`;
+}
+
+function jobCardHTML(j) {
+  const pct = Math.max(0, Math.min(100, j.percent || 0));
+  const sizeLine = j.total > 0
+    ? `${fmtBytes(j.completed || 0)} / ${fmtBytes(j.total)}`
+    : "";
+  const statusText = jobStatusLabel(j);
+  const showBar = j.status === "running" || (j.status === "done") || (j.total > 0);
+  const progress = showBar
+    ? `<div class="dl-progress"><div class="dl-progress-bar dl-progress-${j.status}" style="width:${pct.toFixed(1)}%"></div></div>`
+    : "";
+  const pctText = j.status === "running" || j.status === "done"
+    ? `<span class="dl-pct mono">${pct.toFixed(1)}%</span>`
+    : "";
+
+  let actionBtn = "";
+  if (j.status === "running" || j.status === "queued") {
+    actionBtn = `<button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
+  } else if (j.status === "error" || j.status === "cancelled") {
+    actionBtn = `
+      <button class="ghost dl-retry" data-action="retry" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.retry"))}">↻</button>
+      <button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
+  } else {
+    // done
+    actionBtn = `<button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
+  }
+
+  const errBlock = j.error ? `<div class="dl-error">${escapeHtml(j.error)}</div>` : "";
+
+  return `
+    <div class="dl-item dl-${j.status}" data-id="${escapeHtml(j.id)}">
+      <div class="dl-row1">
+        <span class="dl-name mono">${escapeHtml(j.name)}</span>
+        <span class="dl-status dl-status-${j.status}">${escapeHtml(statusText)}</span>
+        <span class="dl-actions">${actionBtn}</span>
+      </div>
+      ${progress}
+      <div class="dl-row2">
+        ${pctText}
+        <span class="dl-bytes muted">${escapeHtml(sizeLine)}</span>
+      </div>
+      ${errBlock}
+    </div>
+  `;
+}
+
+function jobStatusLabel(j) {
+  switch (j.status) {
+    case "running":
+      return j.status_text ? j.status_text : t("downloads.status.running");
+    case "queued":
+      return t("downloads.status.queued");
+    case "done":
+      return t("downloads.status.done");
+    case "error":
+      return t("downloads.status.error");
+    case "cancelled":
+      return t("downloads.status.cancelled");
+    default:
+      return j.status || "";
   }
 }
 
-function parseSSE(raw) {
-  const lines = raw.split("\n");
-  let event = "message";
-  let dataStr = "";
-  for (const line of lines) {
-    if (line.startsWith("event:")) event = line.slice(6).trim();
-    else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
-  }
-  if (!dataStr) return null;
+function openDownloads() {
+  renderDownloads();
+  $("downloads-modal").hidden = false;
+  setTimeout(() => $("dl-add-input").focus(), 20);
+}
+function closeDownloads() {
+  $("downloads-modal").hidden = true;
+}
+
+$("downloads-btn").addEventListener("click", openDownloads);
+$("downloads-close").addEventListener("click", closeDownloads);
+$("downloads-x").addEventListener("click", closeDownloads);
+
+$("dl-add-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $("dl-add-input");
+  const name = input.value.trim();
+  if (!name) return;
   try {
-    return { event, data: JSON.parse(dataStr) };
-  } catch {
-    return { event, data: dataStr };
+    await api("/api/pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    input.value = "";
+    toast(t("downloads.enqueued", { name }), "success");
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
   }
-}
-
-function appendLog(msg) {
-  const log = $("install-log");
-  log.textContent += msg + "\n";
-  log.scrollTop = log.scrollHeight;
-}
-
-function finishPull(success, name) {
-  $("install-cancel").hidden = true;
-  $("install-close").hidden = false;
-  pullController = null;
-  if (success) {
-    $("install-name").value = "";
-    refreshModels();
-  }
-}
-
-$("install-cancel").addEventListener("click", () => {
-  if (pullController) pullController.abort();
 });
-$("install-close").addEventListener("click", () => { $("install-modal").hidden = true; });
+
+$("dl-clear-btn").addEventListener("click", async () => {
+  try {
+    await api("/api/jobs/clear", { method: "POST" });
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+});
 
 // ---------- topbar buttons ----------
 $("refresh-btn").addEventListener("click", () => { refreshStatus(); refreshModels(); });
@@ -560,4 +691,5 @@ $("pwd-clear-btn").addEventListener("click", async () => {
 window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
 refreshStatus();
 refreshModels();
+connectJobsStream();
 setInterval(refreshStatus, 15000);

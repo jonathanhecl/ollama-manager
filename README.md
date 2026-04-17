@@ -34,6 +34,10 @@ GOOS=darwin  GOARCH=arm64 go build -o dist/ollama-manager-macos .
 GOOS=windows GOARCH=amd64 go build -o dist/ollama-manager.exe .
 ```
 
+```powershell
+$env:CGO_ENABLED = "0"; $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -trimpath -ldflags="-s -w" -o ollama-manager .
+```
+
 ## Usage
 
 ```bash

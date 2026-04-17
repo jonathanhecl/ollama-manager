@@ -21,6 +21,8 @@
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; }
 body { min-height: 100vh; }
 
+[hidden] { display: none !important; }
+
 button {
   font: inherit;
   color: var(--text);

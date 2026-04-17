@@ -12,9 +12,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/ollama"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// configIsValidLang is a tiny indirection to avoid importing config in tests.
+func configIsValidLang(lang string) bool { return config.IsValidLanguage(lang) }
 
 // ---------- index / login ----------
 
@@ -23,7 +27,10 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if s.cfg.HasPassword() && !s.isAuthenticated(r) {
+	s.cfgMu.RLock()
+	hasPwd := s.cfg.HasPassword()
+	s.cfgMu.RUnlock()
+	if hasPwd && !s.isAuthenticated(r) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
@@ -37,16 +44,26 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.HasPassword() {
+	s.cfgMu.RLock()
+	hasPwd := s.cfg.HasPassword()
+	lang := s.cfg.Language
+	s.cfgMu.RUnlock()
+	if !hasPwd {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]any{"Error": ""})
+	_ = s.tmpl.ExecuteTemplate(w, "login.html", loginViewData(lang, ""))
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.HasPassword() {
+	s.cfgMu.RLock()
+	hasPwd := s.cfg.HasPassword()
+	hash := s.cfg.PasswordHash
+	lang := s.cfg.Language
+	s.cfgMu.RUnlock()
+
+	if !hasPwd {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
@@ -55,13 +72,46 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pass := r.FormValue("password")
-	if err := bcrypt.CompareHashAndPassword([]byte(s.cfg.PasswordHash), []byte(pass)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)); err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]any{"Error": "Contraseña incorrecta"})
+		errMsg := "Contraseña incorrecta"
+		if lang == "en" {
+			errMsg = "Incorrect password"
+		}
+		_ = s.tmpl.ExecuteTemplate(w, "login.html", loginViewData(lang, errMsg))
 		return
 	}
+	s.cfgMu.RLock()
 	s.setSessionCookie(w)
+	s.cfgMu.RUnlock()
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// loginViewData builds the data map passed to login.html.
+func loginViewData(lang, errMsg string) map[string]any {
+	t := loginStrings(lang)
+	t["Error"] = errMsg
+	return t
+}
+
+// loginStrings returns translated labels for the login page.
+func loginStrings(lang string) map[string]any {
+	if lang == "es" {
+		return map[string]any{
+			"Title":    "Ollama Manager — Acceder",
+			"Heading":  "Ollama Manager",
+			"Subtitle": "Esta instancia requiere contraseña.",
+			"Label":    "Contraseña",
+			"Submit":   "Entrar",
+		}
+	}
+	return map[string]any{
+		"Title":    "Ollama Manager — Sign in",
+		"Heading":  "Ollama Manager",
+		"Subtitle": "This instance is password protected.",
+		"Label":    "Password",
+		"Submit":   "Sign in",
+	}
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -75,13 +125,135 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
 	resp := map[string]any{
-		"ollama_url":      s.cfg.OllamaURL,
-		"expose_network":  s.cfg.ExposeNetwork,
-		"has_password":    s.cfg.HasPassword(),
+		"ollama_url":       s.cfg.OllamaURL,
+		"expose_network":   s.cfg.ExposeNetwork,
+		"has_password":     s.cfg.HasPassword(),
+		"language":         s.cfg.Language,
 		"ollama_reachable": s.ollama.Ping(ctx) == nil,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// ---------- config ----------
+
+func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"port":           s.cfg.Port,
+		"expose_network": s.cfg.ExposeNetwork,
+		"language":       s.cfg.Language,
+		"ollama_url":     s.cfg.OllamaURL,
+		"has_password":   s.cfg.HasPassword(),
+		"bind_address":   s.cfg.BindAddress(),
+	})
+}
+
+// patchConfigBody uses pointers so callers can update only the fields they
+// care about (PATCH semantics).
+type patchConfigBody struct {
+	Port          *int    `json:"port"`
+	ExposeNetwork *bool   `json:"expose_network"`
+	Language      *string `json:"language"`
+	OllamaURL     *string `json:"ollama_url"`
+}
+
+func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
+	var body patchConfigBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+
+	needsRestart := false
+	if body.Port != nil {
+		if *body.Port < 1 || *body.Port > 65535 {
+			writeError(w, http.StatusBadRequest, errors.New("port must be 1..65535"))
+			return
+		}
+		if *body.Port != s.cfg.Port {
+			s.cfg.Port = *body.Port
+			needsRestart = true
+		}
+	}
+	if body.ExposeNetwork != nil && *body.ExposeNetwork != s.cfg.ExposeNetwork {
+		s.cfg.ExposeNetwork = *body.ExposeNetwork
+		needsRestart = true
+	}
+	if body.Language != nil {
+		if !configIsValidLang(*body.Language) {
+			writeError(w, http.StatusBadRequest, errors.New("unsupported language"))
+			return
+		}
+		s.cfg.Language = *body.Language
+	}
+	if body.OllamaURL != nil {
+		u := strings.TrimSpace(*body.OllamaURL)
+		if u == "" {
+			writeError(w, http.StatusBadRequest, errors.New("ollama_url cannot be empty"))
+			return
+		}
+		s.cfg.OllamaURL = u
+		// Note: this won't change the running client; takes effect on restart.
+		needsRestart = true
+	}
+
+	if err := s.cfg.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"needs_restart":  needsRestart,
+		"port":           s.cfg.Port,
+		"expose_network": s.cfg.ExposeNetwork,
+		"language":       s.cfg.Language,
+		"ollama_url":     s.cfg.OllamaURL,
+	})
+}
+
+// passwordBody is the payload of POST /api/config/password.
+// An empty Password clears authentication.
+type passwordBody struct {
+	Password string `json:"password"`
+}
+
+func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
+	var body passwordBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+
+	if body.Password == "" {
+		s.cfg.PasswordHash = ""
+		s.clearSessionCookie(w)
+	} else {
+		hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		s.cfg.PasswordHash = string(hash)
+		// Issue a fresh session cookie so the caller stays logged in.
+		s.setSessionCookie(w)
+	}
+	if err := s.cfg.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"has_password": s.cfg.HasPassword(),
+	})
 }
 
 // ---------- models ----------

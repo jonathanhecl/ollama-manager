@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -11,15 +11,16 @@
     <div class="brand">
       <span class="dot"></span>
       <h1>Ollama Manager</h1>
-      <span id="status-pill" class="pill pill-muted">conectando…</span>
+      <span id="status-pill" class="pill pill-muted" data-i18n="status.connecting">connecting…</span>
     </div>
     <form id="install-form" class="install-form" autocomplete="off">
-      <input id="install-name" type="text" placeholder="instalar modelo (ej. llama3:8b)" spellcheck="false">
-      <button type="submit">Pull</button>
+      <input id="install-name" type="text" data-i18n-attr="placeholder" data-i18n="install.placeholder" placeholder="install model (e.g. llama3:8b)" spellcheck="false">
+      <button type="submit" data-i18n="install.button">Pull</button>
     </form>
     <div class="topbar-actions">
-      <button id="refresh-btn" class="ghost" title="Refrescar">↻</button>
-      <button id="logout-btn" class="ghost" title="Cerrar sesión" hidden>Salir</button>
+      <button id="refresh-btn" class="ghost" data-i18n-attr="title" data-i18n="action.refresh" title="Refresh">↻</button>
+      <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">⚙</button>
+      <button id="logout-btn" class="ghost" data-i18n-attr="title" data-i18n="action.logout" title="Sign out" hidden data-i18n-text>Sign out</button>
     </div>
   </header>
 
@@ -29,18 +30,18 @@
         <thead>
           <tr>
             <th class="col-state"></th>
-            <th class="sortable" data-sort="name">Nombre</th>
-            <th class="sortable" data-sort="family">Familia</th>
-            <th class="sortable" data-sort="parameter_size">Parámetros</th>
-            <th class="sortable" data-sort="quantization">Cuant.</th>
-            <th class="sortable" data-sort="context_length">Contexto</th>
-            <th class="sortable" data-sort="size">Tamaño</th>
-            <th class="sortable" data-sort="modified_at">Modificado</th>
+            <th class="sortable" data-sort="name" data-i18n="col.name">Name</th>
+            <th class="sortable" data-sort="family" data-i18n="col.family">Family</th>
+            <th class="sortable" data-sort="parameter_size" data-i18n="col.params">Params</th>
+            <th class="sortable" data-sort="quantization" data-i18n="col.quant">Quant.</th>
+            <th class="sortable" data-sort="context_length" data-i18n="col.context">Context</th>
+            <th class="sortable" data-sort="size" data-i18n="col.size">Size</th>
+            <th class="sortable" data-sort="modified_at" data-i18n="col.modified">Modified</th>
             <th class="col-actions"></th>
           </tr>
         </thead>
         <tbody id="models-tbody">
-          <tr class="empty"><td colspan="9">Cargando…</td></tr>
+          <tr class="empty"><td colspan="9" data-i18n="state.loading">Loading…</td></tr>
         </tbody>
       </table>
     </section>
@@ -49,16 +50,16 @@
   <aside id="detail-panel" class="detail-panel" hidden>
     <div class="detail-head">
       <h2 id="detail-name">—</h2>
-      <button id="detail-close" class="ghost" title="Cerrar">×</button>
+      <button id="detail-close" class="ghost" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
     </div>
     <div id="detail-body" class="detail-body">
-      <div class="muted">Selecciona un modelo.</div>
+      <div class="muted" data-i18n="detail.empty">Select a model.</div>
     </div>
   </aside>
 
   <div id="install-modal" class="modal" hidden>
     <div class="modal-card">
-      <h2>Instalando <span id="install-modal-name" class="mono"></span></h2>
+      <h2><span data-i18n="install.installing">Installing</span> <span id="install-modal-name" class="mono"></span></h2>
       <div class="progress">
         <div id="install-bar" class="progress-bar"></div>
       </div>
@@ -68,25 +69,72 @@
       </div>
       <pre id="install-log" class="log"></pre>
       <div class="modal-actions">
-        <button id="install-cancel" class="ghost">Cancelar</button>
-        <button id="install-close" class="primary" hidden>Cerrar</button>
+        <button id="install-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
+        <button id="install-close" class="primary" hidden data-i18n="action.close">Close</button>
       </div>
     </div>
   </div>
 
   <div id="confirm-modal" class="modal" hidden>
     <div class="modal-card small">
-      <h2 id="confirm-title">Confirmar</h2>
+      <h2 id="confirm-title" data-i18n="confirm.title">Confirm</h2>
       <p id="confirm-text" class="muted"></p>
       <div class="modal-actions">
-        <button id="confirm-cancel" class="ghost">Cancelar</button>
-        <button id="confirm-ok" class="danger">Eliminar</button>
+        <button id="confirm-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
+        <button id="confirm-ok" class="danger" data-i18n="action.delete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2 data-i18n="settings.title">Settings</h2>
+
+      <div class="form-row">
+        <label for="set-language" data-i18n="settings.language">Language</label>
+        <select id="set-language">
+          <option value="en">English</option>
+          <option value="es">Español</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label for="set-port" data-i18n="settings.port">HTTP port</label>
+        <input id="set-port" type="number" min="1" max="65535" inputmode="numeric">
+      </div>
+      <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
+
+      <div class="form-row form-row-check">
+        <label for="set-expose">
+          <input id="set-expose" type="checkbox">
+          <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
+        </label>
+      </div>
+      <p class="form-hint warn" id="expose-warning" hidden data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</p>
+
+      <hr>
+      <h3 data-i18n="settings.password_section">Password</h3>
+      <p class="form-hint" id="pwd-status-text"></p>
+      <div class="form-row">
+        <label for="set-password" data-i18n="settings.new_password">New password</label>
+        <input id="set-password" type="password" autocomplete="new-password" placeholder="">
+      </div>
+      <div class="form-row form-row-buttons">
+        <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save password</button>
+        <button id="pwd-clear-btn" class="ghost danger-text" hidden data-i18n="settings.clear_password">Remove password</button>
+      </div>
+
+      <hr>
+      <div class="modal-actions">
+        <button id="settings-close" class="ghost" data-i18n="action.close">Close</button>
+        <button id="settings-save" class="primary" data-i18n="settings.save">Save</button>
       </div>
     </div>
   </div>
 
   <div id="toast"></div>
 
+  <script src="/static/i18n.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

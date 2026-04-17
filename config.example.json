@@ -3,5 +3,6 @@
   "expose_network": false,
   "password_hash": "",
   "session_secret": "",
-  "ollama_url": "http://localhost:11434"
+  "ollama_url": "http://localhost:11434",
+  "language": "en"
 }

@@ -6,10 +6,11 @@ Pequeño servidor web en Go para gestionar los modelos de [Ollama](https://ollam
 - Instalar modelos del registry oficial (`POST /api/pull`) con barra de progreso en vivo.
 - Desinstalar modelos.
 - Ver detalles completos: capacidades, template, parámetros, model info.
-- UI minimalista en modo oscuro, sin frameworks.
+- UI minimalista en modo oscuro, sin frameworks. Bilingüe (English / Español).
 - Binario único, multiplataforma (Windows, macOS, Linux).
 - Auth opcional con contraseña (bcrypt + cookie de sesión firmada HMAC).
-- Configuración por `config.json`: puerto, exposición a la red local, contraseña.
+- Configuración por `config.json` o desde un panel **Settings** dentro de la UI: puerto, exposición a la red local, contraseña, idioma.
+- Ordenable por cualquier columna; preferencia persistida en `localStorage`.
 
 ## Requisitos
 
@@ -50,16 +51,22 @@ Al primer arranque crea `config.json` con valores por defecto:
   "expose_network": false,
   "password_hash": "",
   "session_secret": "<auto>",
-  "ollama_url": "http://localhost:11434"
+  "ollama_url": "http://localhost:11434",
+  "language": "en"
 }
 ```
 
 - `port`: puerto HTTP del manager.
 - `expose_network`: `false` enlaza solo a `127.0.0.1` (acceso únicamente local).
   Si lo ponés en `true`, escucha en `0.0.0.0` y podés entrar desde otra PC de tu LAN.
-- `password_hash`: bcrypt; vacío = sin login. Usá `set-password` para configurarla.
+- `password_hash`: bcrypt; vacío = sin login. Usá `set-password` o el panel Settings para configurarla.
 - `session_secret`: clave HMAC para firmar cookies (autogenerada).
 - `ollama_url`: dónde corre Ollama.
+- `language`: idioma de la UI (`en` o `es`). Cambiable desde el panel Settings.
+
+Casi todo se puede modificar también desde el botón **⚙ Settings** en la UI sin
+tocar el archivo. Cambios de `port` y `expose_network` requieren reiniciar el
+proceso para tomar efecto (la UI lo avisa).
 
 ### Exponer a la red
 
@@ -81,10 +88,13 @@ Al primer arranque crea `config.json` con valores por defecto:
 | GET | `/` | UI principal |
 | GET/POST | `/login`, `/logout` | Login con contraseña (si está habilitada) |
 | GET | `/api/status` | Estado del manager y reachability de Ollama |
-| GET | `/api/models` | Lista combinada de modelos + estado loaded |
+| GET | `/api/models` | Lista combinada de modelos + estado loaded + context_length |
 | GET | `/api/models/{name}` | Detalle: contexto, capacidades, template, modelinfo |
 | DELETE | `/api/models/{name}` | Desinstalar modelo |
 | POST | `/api/pull` | Instalar modelo. Body `{"name":"llama3:8b"}`. Responde con stream SSE de progreso |
+| GET | `/api/config` | Lee config (sin `password_hash`) |
+| PATCH | `/api/config` | Actualiza `language`, `port`, `expose_network`, `ollama_url`. Devuelve `needs_restart` |
+| POST | `/api/config/password` | Body `{"password":"x"}` setea contraseña; `{"password":""}` la borra |
 
 ### SSE de instalación
 

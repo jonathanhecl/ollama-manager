@@ -12,11 +12,12 @@ import (
 
 // Config holds the runtime configuration for ollama-manager.
 type Config struct {
-	Port           int    `json:"port"`
-	ExposeNetwork  bool   `json:"expose_network"`
-	PasswordHash   string `json:"password_hash"`
-	SessionSecret  string `json:"session_secret"`
-	OllamaURL      string `json:"ollama_url"`
+	Port          int    `json:"port"`
+	ExposeNetwork bool   `json:"expose_network"`
+	PasswordHash  string `json:"password_hash"`
+	SessionSecret string `json:"session_secret"`
+	OllamaURL     string `json:"ollama_url"`
+	Language      string `json:"language"`
 
 	path string `json:"-"`
 }
@@ -29,8 +30,15 @@ func Defaults() *Config {
 		PasswordHash:  "",
 		SessionSecret: "",
 		OllamaURL:     "http://localhost:11434",
+		Language:      "en",
 	}
 }
+
+// validLanguages is the set of supported UI languages.
+var validLanguages = map[string]bool{"en": true, "es": true}
+
+// IsValidLanguage reports whether lang is a supported UI language.
+func IsValidLanguage(lang string) bool { return validLanguages[lang] }
 
 // Load reads the config file at path. If the file does not exist a new one
 // is created with default values. If session_secret is empty a random one is
@@ -76,6 +84,10 @@ func Load(path string) (*Config, error) {
 		if err := cfg.ensureSecret(); err != nil {
 			return nil, err
 		}
+		dirty = true
+	}
+	if !IsValidLanguage(cfg.Language) {
+		cfg.Language = Defaults().Language
 		dirty = true
 	}
 	if dirty {

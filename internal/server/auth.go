@@ -50,6 +50,8 @@ func verifySession(secret, token string) error {
 	return nil
 }
 
+// setSessionCookie issues a fresh session cookie. Caller is responsible
+// for holding any required cfg lock.
 func (s *Server) setSessionCookie(w http.ResponseWriter) {
 	expires := time.Now().Add(sessionMaxAge)
 	http.SetCookie(w, &http.Cookie{
@@ -78,12 +80,17 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 //   - no password is configured, OR
 //   - the request carries a valid session cookie.
 func (s *Server) isAuthenticated(r *http.Request) bool {
-	if !s.cfg.HasPassword() {
+	s.cfgMu.RLock()
+	hasPwd := s.cfg.HasPassword()
+	secret := s.cfg.SessionSecret
+	s.cfgMu.RUnlock()
+
+	if !hasPwd {
 		return true
 	}
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
 		return false
 	}
-	return verifySession(s.cfg.SessionSecret, c.Value) == nil
+	return verifySession(secret, c.Value) == nil
 }

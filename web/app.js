@@ -1,5 +1,7 @@
 "use strict";
 
+const t = (k, v) => window.I18n.t(k, v);
+
 // ---------- helpers ----------
 const $ = (id) => document.getElementById(id);
 const fmtBytes = (n) => {
@@ -70,17 +72,20 @@ async function api(path, opts = {}) {
 async function refreshStatus() {
   try {
     const s = await api("/api/status");
+    if (s.language && s.language !== window.I18n.getLang()) {
+      window.I18n.setLang(s.language);
+    }
     const pill = $("status-pill");
     if (s.ollama_reachable) {
-      pill.textContent = "ollama on";
+      pill.textContent = t("status.online");
       pill.className = "pill pill-good";
     } else {
-      pill.textContent = "ollama off";
+      pill.textContent = t("status.offline");
       pill.className = "pill pill-bad";
     }
     $("logout-btn").hidden = !s.has_password;
   } catch (e) {
-    $("status-pill").textContent = "offline";
+    $("status-pill").textContent = t("status.unreachable");
     $("status-pill").className = "pill pill-bad";
   }
 }
@@ -92,8 +97,8 @@ async function refreshModels() {
     models = data.models || [];
     renderTable();
   } catch (e) {
-    toast("Error: " + e.message, "error");
-    $("models-tbody").innerHTML = `<tr class="empty"><td colspan="8">Error: ${escapeHtml(e.message)}</td></tr>`;
+    toast(t("toast.error", { msg: e.message }), "error");
+    $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
   }
 }
 
@@ -137,13 +142,16 @@ function renderTable() {
   updateSortIndicators();
   const tbody = $("models-tbody");
   if (!models.length) {
-    tbody.innerHTML = `<tr class="empty"><td colspan="9">No hay modelos instalados. Usa el campo de arriba para hacer pull.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
     return;
   }
   const sorted = applySort(models);
+  const dotLoadedTxt = t("detail.dot_loaded");
+  const dotNotLoadedTxt = t("detail.dot_not_loaded");
+  const deleteTitle = t("detail.delete_title");
   tbody.innerHTML = sorted.map((m) => `
     <tr class="row${m.name === activeName ? " active" : ""}" data-name="${escapeHtml(m.name)}">
-      <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? "cargado en memoria" : "no cargado"}"></span></td>
+      <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
       <td class="cell-name">${escapeHtml(m.name)}</td>
       <td>${escapeHtml(m.family || "—")}</td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
@@ -152,7 +160,7 @@ function renderTable() {
       <td class="cell-size">${fmtBytes(m.size)}</td>
       <td class="cell-modified">${fmtDate(m.modified_at)}</td>
       <td class="col-actions">
-        <button class="btn-icon delete-btn" title="Eliminar modelo" data-name="${escapeHtml(m.name)}">×</button>
+        <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
       </td>
     </tr>
   `).join("");
@@ -202,7 +210,7 @@ async function openDetail(name) {
   const panel = $("detail-panel");
   panel.hidden = false;
   $("detail-name").textContent = name;
-  $("detail-body").innerHTML = `<div class="muted">Cargando…</div>`;
+  $("detail-body").innerHTML = `<div class="muted">${escapeHtml(t("state.loading"))}</div>`;
   document.querySelectorAll("tbody tr.row").forEach((tr) => {
     tr.classList.toggle("active", tr.dataset.name === name);
   });
@@ -210,31 +218,34 @@ async function openDetail(name) {
     const d = await api("/api/models/" + encodeURIComponent(name));
     renderDetail(d);
   } catch (e) {
-    $("detail-body").innerHTML = `<div class="muted">Error: ${escapeHtml(e.message)}</div>`;
+    $("detail-body").innerHTML = `<div class="muted">${escapeHtml(t("state.error_prefix") + e.message)}</div>`;
   }
 }
 
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};
+  const stateText = m.loaded
+    ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) })
+    : t("detail.not_loaded");
   const rows = [
-    ["Familia", d.details?.family || "—"],
-    ["Arquitectura", d.architecture || "—"],
-    ["Parámetros", d.details?.parameter_size || (d.parameter_count ? `${(d.parameter_count / 1e9).toFixed(2)}B` : "—")],
-    ["Cuantización", d.details?.quantization_level || "—"],
-    ["Formato", d.details?.format || "—"],
-    ["Contexto", fmtCtx(d.context_length)],
-    ["Tamaño", fmtBytes(m.size)],
-    ["Estado", m.loaded ? `cargado · VRAM ${fmtBytes(m.size_vram)}` : "no cargado"],
-    ["Modificado", new Date(d.modified_at).toLocaleString()],
-    ["Digest", `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`],
+    [t("detail.family"), d.details?.family || "—"],
+    [t("detail.architecture"), d.architecture || "—"],
+    [t("detail.params"), d.details?.parameter_size || (d.parameter_count ? `${(d.parameter_count / 1e9).toFixed(2)}B` : "—")],
+    [t("detail.quant"), d.details?.quantization_level || "—"],
+    [t("detail.format"), d.details?.format || "—"],
+    [t("detail.context"), fmtCtx(d.context_length)],
+    [t("detail.size"), fmtBytes(m.size)],
+    [t("detail.state"), stateText],
+    [t("detail.modified"), new Date(d.modified_at).toLocaleString()],
+    [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`],
   ];
   const grid = rows.map(([k, v]) => `<div class="k">${escapeHtml(k)}</div><div class="v">${v}</div>`).join("");
 
   const caps = (d.capabilities || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
-  const capsBlock = caps ? `<div class="detail-section"><h3>Capacidades</h3><div class="cap-list">${caps}</div></div>` : "";
+  const capsBlock = caps ? `<div class="detail-section"><h3>${escapeHtml(t("detail.capabilities"))}</h3><div class="cap-list">${caps}</div></div>` : "";
 
-  const paramsBlock = d.parameters ? `<div class="detail-section"><h3>Parámetros</h3><pre>${escapeHtml(d.parameters)}</pre></div>` : "";
-  const tmplBlock = d.template ? `<div class="detail-section"><h3>Template</h3><pre>${escapeHtml(d.template)}</pre></div>` : "";
+  const paramsBlock = d.parameters ? `<div class="detail-section"><h3>${escapeHtml(t("detail.parameters_section"))}</h3><pre>${escapeHtml(d.parameters)}</pre></div>` : "";
+  const tmplBlock = d.template ? `<div class="detail-section"><h3>${escapeHtml(t("detail.template"))}</h3><pre>${escapeHtml(d.template)}</pre></div>` : "";
 
   $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${capsBlock}${paramsBlock}${tmplBlock}`;
 }
@@ -249,8 +260,11 @@ $("detail-close").addEventListener("click", () => {
 let pendingDelete = null;
 function confirmDelete(name) {
   pendingDelete = name;
-  $("confirm-title").textContent = "Eliminar modelo";
-  $("confirm-text").innerHTML = `Se desinstalará <span class="mono">${escapeHtml(name)}</span> del sistema. Esta acción no se puede deshacer.`;
+  $("confirm-title").textContent = t("detail.delete_title");
+  // Substitute {name} ourselves so we can wrap it in a mono span.
+  const text = t("confirm.delete_text", { name: "{__NAME__}" });
+  const safe = escapeHtml(text).replace("{__NAME__}", `<span class="mono">${escapeHtml(name)}</span>`);
+  $("confirm-text").innerHTML = safe;
   $("confirm-modal").hidden = false;
 }
 $("confirm-cancel").addEventListener("click", () => { $("confirm-modal").hidden = true; pendingDelete = null; });
@@ -261,11 +275,11 @@ $("confirm-ok").addEventListener("click", async () => {
   if (!name) return;
   try {
     await api("/api/models/" + encodeURIComponent(name), { method: "DELETE" });
-    toast(`Eliminado ${name}`, "success");
+    toast(t("toast.deleted", { name }), "success");
     if (activeName === name) { $("detail-panel").hidden = true; activeName = null; }
     refreshModels();
   } catch (e) {
-    toast("Error eliminando: " + e.message, "error");
+    toast(t("toast.delete_error", { msg: e.message }), "error");
   }
 });
 
@@ -334,7 +348,7 @@ async function startPull(name) {
             lastStatus = p.status;
           }
         } else if (ev.event === "done") {
-          appendLog("✓ instalado");
+          appendLog(t("install.installed"));
           $("install-bar").style.width = "100%";
           $("install-percent").textContent = "100%";
           finishPull(true, name);
@@ -343,16 +357,16 @@ async function startPull(name) {
           finishPull(false, name);
           throw new Error(ev.data?.error || "pull failed");
         } else if (ev.event === "start") {
-          appendLog(`pulling ${ev.data?.name}…`);
+          appendLog(t("install.pulling", { name: ev.data?.name }));
         }
       }
     }
   } catch (e) {
     if (e.name !== "AbortError") {
       appendLog("✗ " + e.message);
-      toast("Error: " + e.message, "error");
+      toast(t("toast.error", { msg: e.message }), "error");
     } else {
-      appendLog("· cancelado");
+      appendLog(t("install.cancelled"));
     }
     finishPull(false, name);
   }
@@ -402,7 +416,127 @@ $("logout-btn").addEventListener("click", async () => {
   window.location.href = "/login";
 });
 
+// ---------- settings ----------
+let currentConfig = null;
+
+async function openSettings() {
+  try {
+    currentConfig = await api("/api/config");
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+    return;
+  }
+  $("set-language").value = currentConfig.language;
+  $("set-port").value = currentConfig.port;
+  $("set-expose").checked = !!currentConfig.expose_network;
+  $("set-password").value = "";
+  updatePasswordSection();
+  updateExposeWarning();
+  $("settings-modal").hidden = false;
+}
+
+function updatePasswordSection() {
+  if (!currentConfig) return;
+  $("pwd-status-text").textContent = currentConfig.has_password
+    ? t("settings.pwd_set")
+    : t("settings.pwd_unset");
+  $("pwd-clear-btn").hidden = !currentConfig.has_password;
+}
+
+function updateExposeWarning() {
+  if (!currentConfig) return;
+  const wantExpose = $("set-expose").checked;
+  $("expose-warning").hidden = !(wantExpose && !currentConfig.has_password);
+}
+
+$("settings-btn").addEventListener("click", openSettings);
+$("settings-close").addEventListener("click", () => { $("settings-modal").hidden = true; });
+
+// Live language switch on dropdown change.
+$("set-language").addEventListener("change", () => {
+  const lang = $("set-language").value;
+  window.I18n.setLang(lang);
+  // Re-render dynamic UI to pick up the new language.
+  refreshStatus();
+  renderTable();
+  if (activeName) openDetail(activeName);
+  updatePasswordSection();
+});
+
+$("set-expose").addEventListener("change", updateExposeWarning);
+
+$("settings-save").addEventListener("click", async () => {
+  if (!currentConfig) return;
+  const port = parseInt($("set-port").value, 10);
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    toast(t("toast.error", { msg: "port 1..65535" }), "error");
+    return;
+  }
+  const body = {
+    language: $("set-language").value,
+    port,
+    expose_network: $("set-expose").checked,
+  };
+  try {
+    const res = await api("/api/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    currentConfig = { ...currentConfig, ...res };
+    window.I18n.setLang(res.language);
+    toast(res.needs_restart ? t("settings.saved_restart") : t("settings.saved"), "success");
+    $("settings-modal").hidden = true;
+    refreshStatus();
+    renderTable();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+});
+
+$("pwd-save-btn").addEventListener("click", async () => {
+  const pwd = $("set-password").value;
+  if (pwd.length < 4) {
+    toast(t("settings.pwd_too_short"), "error");
+    return;
+  }
+  try {
+    const res = await api("/api/config/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pwd }),
+    });
+    currentConfig.has_password = res.has_password;
+    $("set-password").value = "";
+    updatePasswordSection();
+    updateExposeWarning();
+    refreshStatus();
+    toast(t("settings.pwd_saved"), "success");
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+});
+
+$("pwd-clear-btn").addEventListener("click", async () => {
+  try {
+    const res = await api("/api/config/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "" }),
+    });
+    currentConfig.has_password = res.has_password;
+    $("set-password").value = "";
+    updatePasswordSection();
+    updateExposeWarning();
+    refreshStatus();
+    toast(t("settings.pwd_cleared"), "success");
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+});
+
 // ---------- init ----------
+window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
 refreshStatus();
 refreshModels();
 setInterval(refreshStatus, 15000);

@@ -25,6 +25,9 @@ type Server struct {
 	web    fs.FS
 	tmpl   *template.Template
 
+	// Guards mutations to cfg done by /api/config endpoints.
+	cfgMu sync.RWMutex
+
 	// Cache of context_length keyed by model digest. Model info doesn't
 	// change unless the model is reinstalled (digest changes), so we never
 	// need to invalidate by name.
@@ -70,6 +73,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/models/{name...}", s.requireAuth(s.handleDeleteModel))
 	mux.Handle("POST /api/pull", s.requireAuth(s.handlePull))
 	mux.Handle("GET /api/status", s.requireAuth(s.handleStatus))
+
+	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
+	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))
+	mux.Handle("POST /api/config/password", s.requireAuth(s.handleSetPassword))
 
 	return logging(mux)
 }

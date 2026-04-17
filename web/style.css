@@ -263,6 +263,66 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
   white-space: pre-wrap;
 }
 
+/* ---------- Settings form ---------- */
+select {
+  font: inherit;
+  background: #0e0e12;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 7px 11px;
+  outline: none;
+}
+select:focus { border-color: var(--accent); }
+
+.modal-card hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 18px 0;
+}
+.modal-card h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--muted); margin: 0 0 10px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.form-row label { color: var(--text-dim); font-size: 13px; }
+.form-row input[type=text],
+.form-row input[type=password],
+.form-row input[type=number],
+.form-row select { width: 100%; }
+
+.form-row-check { grid-template-columns: 1fr; }
+.form-row-check label {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  color: var(--text);
+}
+.form-row-check input[type=checkbox] {
+  width: 16px; height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.form-row-buttons {
+  grid-template-columns: 1fr;
+  display: flex; gap: 8px; justify-content: flex-start;
+}
+
+.form-hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.form-hint.warn { color: var(--warn); }
+.danger-text { color: var(--bad); }
+.danger-text:hover { background: #1f1212; border-color: #5a2a2a; }
+
 /* ---------- Toast ---------- */
 #toast {
   position: fixed;

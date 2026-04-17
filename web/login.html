@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ollama Manager — Login</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <h1>Ollama Manager</h1>
+    <p class="muted">Esta instancia requiere contraseña.</p>
+    <form method="POST" action="/login" autocomplete="on">
+      <label for="password">Contraseña</label>
+      <input id="password" name="password" type="password" autofocus required>
+      {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+      <button type="submit">Entrar</button>
+    </form>
+  </main>
+</body>
+</html>

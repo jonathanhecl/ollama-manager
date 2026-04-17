@@ -27,6 +27,13 @@ go.work.sum
 # env file
 .env
 
+# Local config (contains session_secret + password_hash)
+config.json
+
+# Built binary
+ollama-manager
+ollama-manager.exe
+
 # Editor/IDE
 # .idea/
 # .vscode/

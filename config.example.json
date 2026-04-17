@@ -1,0 +1,7 @@
+{
+  "port": 7860,
+  "expose_network": false,
+  "password_hash": "",
+  "session_secret": "",
+  "ollama_url": "http://localhost:11434"
+}

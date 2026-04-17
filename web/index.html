@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ollama Manager</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Ollama Manager</h1>
+      <span id="status-pill" class="pill pill-muted">conectando…</span>
+    </div>
+    <form id="install-form" class="install-form" autocomplete="off">
+      <input id="install-name" type="text" placeholder="instalar modelo (ej. llama3:8b)" spellcheck="false">
+      <button type="submit">Pull</button>
+    </form>
+    <div class="topbar-actions">
+      <button id="refresh-btn" class="ghost" title="Refrescar">↻</button>
+      <button id="logout-btn" class="ghost" title="Cerrar sesión" hidden>Salir</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="table-wrap">
+      <table id="models-table">
+        <thead>
+          <tr>
+            <th class="col-state"></th>
+            <th>Nombre</th>
+            <th>Familia</th>
+            <th>Parámetros</th>
+            <th>Cuant.</th>
+            <th>Tamaño</th>
+            <th>Modificado</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody id="models-tbody">
+          <tr class="empty"><td colspan="8">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <aside id="detail-panel" class="detail-panel" hidden>
+    <div class="detail-head">
+      <h2 id="detail-name">—</h2>
+      <button id="detail-close" class="ghost" title="Cerrar">×</button>
+    </div>
+    <div id="detail-body" class="detail-body">
+      <div class="muted">Selecciona un modelo.</div>
+    </div>
+  </aside>
+
+  <div id="install-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>Instalando <span id="install-modal-name" class="mono"></span></h2>
+      <div class="progress">
+        <div id="install-bar" class="progress-bar"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="install-percent">0%</span>
+        <span id="install-bytes" class="muted"></span>
+      </div>
+      <pre id="install-log" class="log"></pre>
+      <div class="modal-actions">
+        <button id="install-cancel" class="ghost">Cancelar</button>
+        <button id="install-close" class="primary" hidden>Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirm-modal" class="modal" hidden>
+    <div class="modal-card small">
+      <h2 id="confirm-title">Confirmar</h2>
+      <p id="confirm-text" class="muted"></p>
+      <div class="modal-actions">
+        <button id="confirm-cancel" class="ghost">Cancelar</button>
+        <button id="confirm-ok" class="danger">Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -87,48 +87,82 @@
   </div>
 
   <div id="settings-modal" class="modal" hidden>
-    <div class="modal-card">
-      <h2 data-i18n="settings.title">Settings</h2>
+    <div class="modal-card settings-card">
+      <header class="settings-head">
+        <h2>
+          <span class="gear">⚙</span>
+          <span data-i18n="settings.title">Settings</span>
+        </h2>
+        <button id="settings-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+      </header>
 
-      <div class="form-row">
-        <label for="set-language" data-i18n="settings.language">Language</label>
-        <select id="set-language">
-          <option value="en">English</option>
-          <option value="es">Español</option>
-        </select>
+      <div class="settings-body">
+
+        <section class="settings-section">
+          <h3 data-i18n="settings.general">General</h3>
+
+          <div class="field">
+            <label for="set-language" data-i18n="settings.language">Language</label>
+            <select id="set-language">
+              <option value="en">English</option>
+              <option value="es">Español</option>
+            </select>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-head">
+            <h3 data-i18n="settings.network">Network</h3>
+            <span class="badge" id="bind-preview"></span>
+          </div>
+
+          <div class="field">
+            <label for="set-port" data-i18n="settings.port">HTTP port</label>
+            <input id="set-port" type="number" min="1" max="65535" inputmode="numeric">
+          </div>
+
+          <div class="field switch-field">
+            <div class="switch-label">
+              <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
+              <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
+            </div>
+            <label class="switch">
+              <input id="set-expose" type="checkbox">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div id="expose-warning" class="callout callout-warn" hidden>
+            <span class="callout-icon">!</span>
+            <span data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</span>
+          </div>
+
+          <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-head">
+            <h3 data-i18n="settings.password_section">Password</h3>
+            <span class="badge" id="pwd-badge"></span>
+          </div>
+
+          <div class="field pwd-field">
+            <label for="set-password" data-i18n="settings.new_password">New password</label>
+            <div class="input-with-action">
+              <input id="set-password" type="password" autocomplete="new-password" spellcheck="false">
+              <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save</button>
+            </div>
+          </div>
+
+          <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
+        </section>
+
       </div>
 
-      <div class="form-row">
-        <label for="set-port" data-i18n="settings.port">HTTP port</label>
-        <input id="set-port" type="number" min="1" max="65535" inputmode="numeric">
-      </div>
-      <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
-
-      <div class="form-row form-row-check">
-        <label for="set-expose">
-          <input id="set-expose" type="checkbox">
-          <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
-        </label>
-      </div>
-      <p class="form-hint warn" id="expose-warning" hidden data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</p>
-
-      <hr>
-      <h3 data-i18n="settings.password_section">Password</h3>
-      <p class="form-hint" id="pwd-status-text"></p>
-      <div class="form-row">
-        <label for="set-password" data-i18n="settings.new_password">New password</label>
-        <input id="set-password" type="password" autocomplete="new-password" placeholder="">
-      </div>
-      <div class="form-row form-row-buttons">
-        <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save password</button>
-        <button id="pwd-clear-btn" class="ghost danger-text" hidden data-i18n="settings.clear_password">Remove password</button>
-      </div>
-
-      <hr>
-      <div class="modal-actions">
+      <footer class="settings-foot">
         <button id="settings-close" class="ghost" data-i18n="action.close">Close</button>
-        <button id="settings-save" class="primary" data-i18n="settings.save">Save</button>
-      </div>
+        <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
+      </footer>
     </div>
   </div>
 

@@ -432,25 +432,46 @@ async function openSettings() {
   $("set-password").value = "";
   updatePasswordSection();
   updateExposeWarning();
+  updateBindPreview();
   $("settings-modal").hidden = false;
 }
 
 function updatePasswordSection() {
   if (!currentConfig) return;
-  $("pwd-status-text").textContent = currentConfig.has_password
-    ? t("settings.pwd_set")
-    : t("settings.pwd_unset");
+  const badge = $("pwd-badge");
+  if (currentConfig.has_password) {
+    badge.textContent = t("settings.pwd_set");
+    badge.className = "badge badge-good";
+  } else {
+    badge.textContent = t("settings.pwd_unset");
+    badge.className = "badge badge-muted";
+  }
   $("pwd-clear-btn").hidden = !currentConfig.has_password;
+}
+
+function updateBindPreview() {
+  if (!currentConfig) return;
+  const badge = $("bind-preview");
+  const expose = $("set-expose").checked;
+  if (expose) {
+    badge.textContent = t("settings.bind_lan");
+    badge.className = "badge badge-warn";
+  } else {
+    badge.textContent = t("settings.bind_local");
+    badge.className = "badge badge-muted";
+  }
 }
 
 function updateExposeWarning() {
   if (!currentConfig) return;
   const wantExpose = $("set-expose").checked;
   $("expose-warning").hidden = !(wantExpose && !currentConfig.has_password);
+  updateBindPreview();
 }
 
 $("settings-btn").addEventListener("click", openSettings);
 $("settings-close").addEventListener("click", () => { $("settings-modal").hidden = true; });
+$("settings-x").addEventListener("click", () => { $("settings-modal").hidden = true; });
 
 // Live language switch on dropdown change.
 $("set-language").addEventListener("change", () => {

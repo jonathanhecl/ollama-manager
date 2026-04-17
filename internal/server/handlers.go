@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gense/ollama-manager/internal/ollama"
@@ -87,17 +88,18 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // modelView is what the frontend consumes.
 type modelView struct {
-	Name          string    `json:"name"`
-	Size          int64     `json:"size"`
-	ModifiedAt    time.Time `json:"modified_at"`
-	Digest        string    `json:"digest"`
-	Family        string    `json:"family"`
-	Families      []string  `json:"families"`
-	Format        string    `json:"format"`
-	ParameterSize string    `json:"parameter_size"`
-	Quantization  string    `json:"quantization"`
-	Loaded        bool      `json:"loaded"`
-	SizeVRAM      int64     `json:"size_vram,omitempty"`
+	Name          string     `json:"name"`
+	Size          int64      `json:"size"`
+	ModifiedAt    time.Time  `json:"modified_at"`
+	Digest        string     `json:"digest"`
+	Family        string     `json:"family"`
+	Families      []string   `json:"families"`
+	Format        string     `json:"format"`
+	ParameterSize string     `json:"parameter_size"`
+	Quantization  string     `json:"quantization"`
+	ContextLength int64      `json:"context_length,omitempty"`
+	Loaded        bool       `json:"loaded"`
+	SizeVRAM      int64      `json:"size_vram,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 }
 
@@ -119,6 +121,8 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		loaded[rm.Name] = rm
 	}
 
+	contexts := s.fetchContexts(ctx, models)
+
 	out := make([]modelView, 0, len(models))
 	for _, m := range models {
 		v := modelView{
@@ -131,6 +135,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Format:        m.Details.Format,
 			ParameterSize: m.Details.ParameterSize,
 			Quantization:  m.Details.QuantizationLevel,
+			ContextLength: contexts[m.Digest],
 		}
 		if rm, ok := loaded[m.Name]; ok {
 			v.Loaded = true
@@ -141,6 +146,93 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": out})
+}
+
+// fetchContexts returns a digest->context_length map for the given models,
+// using an in-memory cache. Cache misses are resolved in parallel via
+// /api/show. Errors are silently ignored (context just stays at 0).
+func (s *Server) fetchContexts(ctx context.Context, models []ollama.Model) map[string]int64 {
+	result := make(map[string]int64, len(models))
+
+	// First pass: serve from cache.
+	s.ctxMu.RLock()
+	missing := make([]ollama.Model, 0)
+	for _, m := range models {
+		if v, ok := s.ctxCache[m.Digest]; ok {
+			result[m.Digest] = v
+		} else {
+			missing = append(missing, m)
+		}
+	}
+	s.ctxMu.RUnlock()
+
+	if len(missing) == 0 {
+		return result
+	}
+
+	// Second pass: bounded parallel /api/show.
+	type item struct {
+		digest string
+		ctxLen int64
+	}
+	out := make(chan item, len(missing))
+	const concurrency = 6
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for _, m := range missing {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(m ollama.Model) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			showCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			defer cancel()
+			show, err := s.ollama.Show(showCtx, m.Name)
+			if err != nil {
+				out <- item{digest: m.Digest}
+				return
+			}
+			out <- item{digest: m.Digest, ctxLen: extractContextLength(show)}
+		}(m)
+	}
+	wg.Wait()
+	close(out)
+
+	s.ctxMu.Lock()
+	for it := range out {
+		s.ctxCache[it.digest] = it.ctxLen
+		result[it.digest] = it.ctxLen
+	}
+	s.ctxMu.Unlock()
+	return result
+}
+
+// extractContextLength scans a ShowResponse for a "<arch>.context_length" key.
+func extractContextLength(show *ollama.ShowResponse) int64 {
+	if show == nil || show.ModelInfo == nil {
+		return 0
+	}
+	var arch string
+	if raw, ok := show.ModelInfo["general.architecture"]; ok {
+		_ = json.Unmarshal(raw, &arch)
+	}
+	if arch != "" {
+		if raw, ok := show.ModelInfo[arch+".context_length"]; ok {
+			var n float64
+			if json.Unmarshal(raw, &n) == nil && n > 0 {
+				return int64(n)
+			}
+		}
+	}
+	for k, raw := range show.ModelInfo {
+		if strings.HasSuffix(k, ".context_length") {
+			var n float64
+			if json.Unmarshal(raw, &n) == nil && n > 0 {
+				return int64(n)
+			}
+		}
+	}
+	return 0
 }
 
 // modelDetail is the response of GET /api/models/{name}.

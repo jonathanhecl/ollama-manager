@@ -29,17 +29,18 @@
         <thead>
           <tr>
             <th class="col-state"></th>
-            <th>Nombre</th>
-            <th>Familia</th>
-            <th>Parámetros</th>
-            <th>Cuant.</th>
-            <th>Tamaño</th>
-            <th>Modificado</th>
+            <th class="sortable" data-sort="name">Nombre</th>
+            <th class="sortable" data-sort="family">Familia</th>
+            <th class="sortable" data-sort="parameter_size">Parámetros</th>
+            <th class="sortable" data-sort="quantization">Cuant.</th>
+            <th class="sortable" data-sort="context_length">Contexto</th>
+            <th class="sortable" data-sort="size">Tamaño</th>
+            <th class="sortable" data-sort="modified_at">Modificado</th>
             <th class="col-actions"></th>
           </tr>
         </thead>
         <tbody id="models-tbody">
-          <tr class="empty"><td colspan="8">Cargando…</td></tr>
+          <tr class="empty"><td colspan="9">Cargando…</td></tr>
         </tbody>
       </table>
     </section>

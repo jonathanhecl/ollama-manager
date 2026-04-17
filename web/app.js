@@ -43,6 +43,14 @@ let activeName = null;
 let pullSource = null;
 let pullController = null; // AbortController for fetch-based SSE if needed
 
+// Sorting: persisted across reloads.
+const SORT_KEY = "ollamaMgr.sort";
+let sort = { col: "modified_at", dir: "desc" };
+try {
+  const saved = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
+  if (saved && saved.col) sort = saved;
+} catch {}
+
 // ---------- API ----------
 async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: "same-origin", ...opts });
@@ -89,20 +97,58 @@ async function refreshModels() {
   }
 }
 
+function sortKey(m, col) {
+  switch (col) {
+    case "name":           return (m.name || "").toLowerCase();
+    case "family":         return (m.family || "").toLowerCase();
+    case "parameter_size": return parseParamSize(m.parameter_size);
+    case "quantization":   return (m.quantization || "").toLowerCase();
+    case "context_length": return Number(m.context_length) || 0;
+    case "size":           return Number(m.size) || 0;
+    case "modified_at":    return new Date(m.modified_at).getTime() || 0;
+    default:               return "";
+  }
+}
+
+// Parse "8.2B", "268.10M", "137M" into a comparable number of parameters.
+function parseParamSize(s) {
+  if (!s) return 0;
+  const m = String(s).match(/([\d.]+)\s*([KMBT])?/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || "").toUpperCase()] || 1;
+  return n * mult;
+}
+
+function applySort(arr) {
+  const { col, dir } = sort;
+  const mul = dir === "asc" ? 1 : -1;
+  return [...arr].sort((a, b) => {
+    const ka = sortKey(a, col);
+    const kb = sortKey(b, col);
+    if (typeof ka === "string" || typeof kb === "string") {
+      return mul * String(ka).localeCompare(String(kb));
+    }
+    return mul * (ka - kb);
+  });
+}
+
 function renderTable() {
+  updateSortIndicators();
   const tbody = $("models-tbody");
   if (!models.length) {
-    tbody.innerHTML = `<tr class="empty"><td colspan="8">No hay modelos instalados. Usa el campo de arriba para hacer pull.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty"><td colspan="9">No hay modelos instalados. Usa el campo de arriba para hacer pull.</td></tr>`;
     return;
   }
-  models.sort((a, b) => new Date(b.modified_at) - new Date(a.modified_at));
-  tbody.innerHTML = models.map((m) => `
+  const sorted = applySort(models);
+  tbody.innerHTML = sorted.map((m) => `
     <tr class="row${m.name === activeName ? " active" : ""}" data-name="${escapeHtml(m.name)}">
       <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? "cargado en memoria" : "no cargado"}"></span></td>
       <td class="cell-name">${escapeHtml(m.name)}</td>
       <td>${escapeHtml(m.family || "—")}</td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
+      <td class="cell-ctx">${fmtCtx(m.context_length)}</td>
       <td class="cell-size">${fmtBytes(m.size)}</td>
       <td class="cell-modified">${fmtDate(m.modified_at)}</td>
       <td class="col-actions">
@@ -124,6 +170,31 @@ function renderTable() {
     });
   });
 }
+
+function updateSortIndicators() {
+  document.querySelectorAll("#models-table th.sortable").forEach((th) => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sort === sort.col) {
+      th.classList.add(sort.dir === "asc" ? "sort-asc" : "sort-desc");
+    }
+  });
+}
+
+// Header click handlers (delegated; works for the static thead).
+document.querySelectorAll("#models-table th.sortable").forEach((th) => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.sort;
+    if (sort.col === col) {
+      sort.dir = sort.dir === "asc" ? "desc" : "asc";
+    } else {
+      sort.col = col;
+      // Numeric defaults: largest first; text defaults: A→Z.
+      sort.dir = ["size", "context_length", "modified_at", "parameter_size"].includes(col) ? "desc" : "asc";
+    }
+    localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+    renderTable();
+  });
+});
 
 // ---------- detail ----------
 async function openDetail(name) {

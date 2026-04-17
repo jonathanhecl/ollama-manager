@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"sync"
 
 	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/ollama"
@@ -19,10 +20,16 @@ type WebFS = embed.FS
 
 // Server holds shared state for HTTP handlers.
 type Server struct {
-	cfg     *config.Config
-	ollama  *ollama.Client
-	web     fs.FS
-	tmpl    *template.Template
+	cfg    *config.Config
+	ollama *ollama.Client
+	web    fs.FS
+	tmpl   *template.Template
+
+	// Cache of context_length keyed by model digest. Model info doesn't
+	// change unless the model is reinstalled (digest changes), so we never
+	// need to invalidate by name.
+	ctxMu    sync.RWMutex
+	ctxCache map[string]int64
 }
 
 // New builds a Server. webRoot is the embedded "web/" directory.
@@ -32,10 +39,11 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		return nil, fmt.Errorf("parse login template: %w", err)
 	}
 	return &Server{
-		cfg:    cfg,
-		ollama: ollamaClient,
-		web:    webRoot,
-		tmpl:   tmpl,
+		cfg:      cfg,
+		ollama:   ollamaClient,
+		web:      webRoot,
+		tmpl:     tmpl,
+		ctxCache: make(map[string]int64),
 	}, nil
 }
 

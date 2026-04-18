@@ -35,8 +35,9 @@ type Server struct {
 	// Cache of context_length keyed by model digest. Model info doesn't
 	// change unless the model is reinstalled (digest changes), so we never
 	// need to invalidate by name.
-	ctxMu    sync.RWMutex
-	ctxCache map[string]int64
+	ctxMu     sync.RWMutex
+	ctxCache  map[string]int64
+	capsCache map[string][]string
 }
 
 // New builds a Server. webRoot is the embedded "web/" directory.
@@ -56,12 +57,13 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	jobMgr.Start()
 
 	return &Server{
-		cfg:      cfg,
-		ollama:   ollamaClient,
-		web:      webRoot,
-		tmpl:     tmpl,
-		jobs:     jobMgr,
-		ctxCache: make(map[string]int64),
+		cfg:       cfg,
+		ollama:    ollamaClient,
+		web:       webRoot,
+		tmpl:      tmpl,
+		jobs:      jobMgr,
+		ctxCache:  make(map[string]int64),
+		capsCache: make(map[string][]string),
 	}, nil
 }
 

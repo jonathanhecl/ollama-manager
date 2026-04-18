@@ -158,7 +158,9 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
   background: var(--good);
   box-shadow: 0 0 8px var(--good);
 }
-.cell-name { font-family: var(--mono); font-size: 13px; }
+.cell-name { font-size: 13px; }
+.model-name { font-family: var(--mono); }
+.model-cap-list { margin-top: 4px; }
 .cell-size, .cell-quant, .cell-params, .cell-ctx { font-family: var(--mono); color: var(--text-dim); }
 .cell-modified { color: var(--text-dim); white-space: nowrap; }
 

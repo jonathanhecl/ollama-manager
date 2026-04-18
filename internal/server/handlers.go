@@ -271,6 +271,7 @@ type modelView struct {
 	ParameterSize string     `json:"parameter_size"`
 	Quantization  string     `json:"quantization"`
 	ContextLength int64      `json:"context_length,omitempty"`
+	Capabilities  []string   `json:"capabilities,omitempty"`
 	Loaded        bool       `json:"loaded"`
 	SizeVRAM      int64      `json:"size_vram,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
@@ -294,7 +295,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		loaded[rm.Name] = rm
 	}
 
-	contexts := s.fetchContexts(ctx, models)
+	modelMeta := s.fetchModelMeta(ctx, models)
 
 	out := make([]modelView, 0, len(models))
 	for _, m := range models {
@@ -308,7 +309,8 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Format:        m.Details.Format,
 			ParameterSize: m.Details.ParameterSize,
 			Quantization:  m.Details.QuantizationLevel,
-			ContextLength: contexts[m.Digest],
+			ContextLength: modelMeta[m.Digest].ContextLength,
+			Capabilities:  modelMeta[m.Digest].Capabilities,
 		}
 		if rm, ok := loaded[m.Name]; ok {
 			v.Loaded = true
@@ -321,18 +323,28 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"models": out})
 }
 
-// fetchContexts returns a digest->context_length map for the given models,
+type modelMetaCache struct {
+	ContextLength int64
+	Capabilities  []string
+}
+
+// fetchModelMeta returns digest-keyed model metadata for list rendering,
 // using an in-memory cache. Cache misses are resolved in parallel via
-// /api/show. Errors are silently ignored (context just stays at 0).
-func (s *Server) fetchContexts(ctx context.Context, models []ollama.Model) map[string]int64 {
-	result := make(map[string]int64, len(models))
+// /api/show. Errors are silently ignored (values stay zero/empty).
+func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[string]modelMetaCache {
+	result := make(map[string]modelMetaCache, len(models))
 
 	// First pass: serve from cache.
 	s.ctxMu.RLock()
 	missing := make([]ollama.Model, 0)
 	for _, m := range models {
-		if v, ok := s.ctxCache[m.Digest]; ok {
-			result[m.Digest] = v
+		ctxLen, okCtx := s.ctxCache[m.Digest]
+		caps, okCaps := s.capsCache[m.Digest]
+		if okCtx && okCaps {
+			result[m.Digest] = modelMetaCache{
+				ContextLength: ctxLen,
+				Capabilities:  append([]string(nil), caps...),
+			}
 		} else {
 			missing = append(missing, m)
 		}
@@ -345,8 +357,9 @@ func (s *Server) fetchContexts(ctx context.Context, models []ollama.Model) map[s
 
 	// Second pass: bounded parallel /api/show.
 	type item struct {
-		digest string
-		ctxLen int64
+		digest       string
+		contextLen   int64
+		capabilities []string
 	}
 	out := make(chan item, len(missing))
 	const concurrency = 6
@@ -365,7 +378,11 @@ func (s *Server) fetchContexts(ctx context.Context, models []ollama.Model) map[s
 				out <- item{digest: m.Digest}
 				return
 			}
-			out <- item{digest: m.Digest, ctxLen: extractContextLength(show)}
+			out <- item{
+				digest:       m.Digest,
+				contextLen:   extractContextLength(show),
+				capabilities: append([]string(nil), show.Capabilities...),
+			}
 		}(m)
 	}
 	wg.Wait()
@@ -373,8 +390,12 @@ func (s *Server) fetchContexts(ctx context.Context, models []ollama.Model) map[s
 
 	s.ctxMu.Lock()
 	for it := range out {
-		s.ctxCache[it.digest] = it.ctxLen
-		result[it.digest] = it.ctxLen
+		s.ctxCache[it.digest] = it.contextLen
+		s.capsCache[it.digest] = append([]string(nil), it.capabilities...)
+		result[it.digest] = modelMetaCache{
+			ContextLength: it.contextLen,
+			Capabilities:  append([]string(nil), it.capabilities...),
+		}
 	}
 	s.ctxMu.Unlock()
 	return result
@@ -410,18 +431,18 @@ func extractContextLength(show *ollama.ShowResponse) int64 {
 
 // modelDetail is the response of GET /api/models/{name}.
 type modelDetail struct {
-	Name          string         `json:"name"`
-	License       string         `json:"license,omitempty"`
-	Modelfile     string         `json:"modelfile,omitempty"`
-	Parameters    string         `json:"parameters,omitempty"`
-	Template      string         `json:"template,omitempty"`
-	Details       ollama.ModelDetails `json:"details"`
-	Capabilities  []string       `json:"capabilities,omitempty"`
-	ContextLength int64          `json:"context_length,omitempty"`
-	Architecture  string         `json:"architecture,omitempty"`
-	ParameterCount int64         `json:"parameter_count,omitempty"`
-	ModelInfo     map[string]any `json:"model_info,omitempty"`
-	ModifiedAt    time.Time      `json:"modified_at"`
+	Name           string              `json:"name"`
+	License        string              `json:"license,omitempty"`
+	Modelfile      string              `json:"modelfile,omitempty"`
+	Parameters     string              `json:"parameters,omitempty"`
+	Template       string              `json:"template,omitempty"`
+	Details        ollama.ModelDetails `json:"details"`
+	Capabilities   []string            `json:"capabilities,omitempty"`
+	ContextLength  int64               `json:"context_length,omitempty"`
+	Architecture   string              `json:"architecture,omitempty"`
+	ParameterCount int64               `json:"parameter_count,omitempty"`
+	ModelInfo      map[string]any      `json:"model_info,omitempty"`
+	ModifiedAt     time.Time           `json:"modified_at"`
 }
 
 func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {

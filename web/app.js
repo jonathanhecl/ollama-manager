@@ -150,10 +150,18 @@ function renderTable() {
   const dotLoadedTxt = t("detail.dot_loaded");
   const dotNotLoadedTxt = t("detail.dot_not_loaded");
   const deleteTitle = t("detail.delete_title");
-  tbody.innerHTML = sorted.map((m) => `
+  const renderCapabilities = (caps) => (caps || [])
+    .map((c) => `<span class="pill">${escapeHtml(c)}</span>`)
+    .join("");
+  tbody.innerHTML = sorted.map((m) => {
+    const capsHtml = renderCapabilities(m.capabilities);
+    return `
     <tr class="row${m.name === activeName ? " active" : ""}" data-name="${escapeHtml(m.name)}">
       <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
-      <td class="cell-name">${escapeHtml(m.name)}</td>
+      <td class="cell-name">
+        <div class="model-name">${escapeHtml(m.name)}</div>
+        ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
+      </td>
       <td>${escapeHtml(m.family || "—")}</td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
@@ -164,7 +172,8 @@ function renderTable() {
         <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
       </td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 
   tbody.querySelectorAll("tr.row").forEach((tr) => {
     tr.addEventListener("click", (e) => {

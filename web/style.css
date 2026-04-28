@@ -1664,6 +1664,13 @@ button.chat-send:disabled:hover {
   letter-spacing: .8px;
   color: var(--muted);
 }
+.chat-opt-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.35;
+  max-width: 22rem;
+}
 #chat-system {
   width: 100%;
   resize: vertical;

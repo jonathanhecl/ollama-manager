@@ -121,14 +121,17 @@
         <div class="field">
           <label for="chat-temperature" data-i18n="chat.temperature">Temperature</label>
           <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7">
+          <small class="muted chat-opt-hint" data-i18n="chat.temperature_hint">—</small>
         </div>
         <div class="field">
           <label for="chat-top-k" data-i18n="chat.top_k">Top-k</label>
           <input id="chat-top-k" type="number" min="0" step="1" value="40">
+          <small class="muted chat-opt-hint" data-i18n="chat.top_k_hint">—</small>
         </div>
         <div class="field">
           <label for="chat-top-p" data-i18n="chat.top_p">Top-p</label>
           <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9">
+          <small class="muted chat-opt-hint" data-i18n="chat.top_p_hint">—</small>
         </div>
         <div id="chat-think-wrap" class="field switch-field" hidden>
           <div class="switch-label">

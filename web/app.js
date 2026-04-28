@@ -99,7 +99,6 @@ let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
-let statusOllamaCloudKey = false;
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
@@ -140,8 +139,6 @@ async function refreshStatus() {
       pill.className = "pill pill-bad";
     }
     $("logout-btn").hidden = !s.has_password;
-    statusOllamaCloudKey = !!s.ollama_cloud_key;
-    updateWebToolsKeyHint();
   } catch (e) {
     $("status-pill").textContent = t("status.unreachable");
     $("status-pill").className = "pill pill-bad";
@@ -443,12 +440,6 @@ function syncChatModelOptions() {
   updateChatModelLoadDot();
 }
 
-function updateWebToolsKeyHint() {
-  const el = $("chat-web-tools-keyhint");
-  if (!el) return;
-  el.hidden = !!statusOllamaCloudKey;
-}
-
 function updateChatCapabilityUI() {
   const model = $("chat-model").value;
   const caps = modelCaps(model);
@@ -460,7 +451,6 @@ function updateChatCapabilityUI() {
   $("chat-audio-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
   $("chat-web-tools-wrap").hidden = !canTools;
-  updateWebToolsKeyHint();
 
   const m = modelByName(model);
   const list = m?.capabilities && m.capabilities.length
@@ -1598,7 +1588,6 @@ $("set-language").addEventListener("change", () => {
   renderChatQueue();
   updateStreamBar();
   updateChatCapabilityUI();
-  updateWebToolsKeyHint();
   updatePasswordSection();
 });
 

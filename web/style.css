@@ -1414,13 +1414,6 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 #chat-input:focus { border-color: var(--accent); }
 .chat-send { min-width: 88px; }
 
-.chat-keyhint {
-  display: block;
-  margin-top: 5px;
-  font-size: 10px;
-  line-height: 1.35;
-  color: var(--warn, #d4a24a);
-}
 .chat-side {
   border: 1px solid var(--border);
   border-radius: var(--radius);

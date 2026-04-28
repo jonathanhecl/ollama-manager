@@ -134,7 +134,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"has_password":       s.cfg.HasPassword(),
 		"language":           s.cfg.Language,
 		"ollama_reachable":   s.ollama.Ping(ctx) == nil,
-		"ollama_cloud_key":   OllamaCloudKeyConfigured(),
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -1,14 +1,10 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,7 +15,7 @@ import (
 const maxWebAgentRounds = 24
 const maxToolResultRunes = 12000
 
-// webToolDefinitions returns Ollama Cloud web_search + web_fetch schemas (same names as ollama-python).
+// webToolDefinitions returns web_search + web_fetch (same names as Ollama examples; executed locally on this server).
 func webToolDefinitions() []any {
 	return []any{
 		map[string]any{
@@ -113,114 +109,7 @@ func numFromAny(v any) float64 {
 	}
 }
 
-// OllamaCloudKeyConfigured reports whether OLLAMA_API_KEY is set (for web search/fetch tools).
-func OllamaCloudKeyConfigured() bool {
-	return strings.TrimSpace(os.Getenv("OLLAMA_API_KEY")) != ""
-}
-
-func (s *Server) ollamaCloudWebSearch(ctx context.Context, apiKey, query string, maxResults int) (string, error) {
-	if maxResults <= 0 {
-		maxResults = 5
-	}
-	if maxResults > 10 {
-		maxResults = 10
-	}
-	body, _ := json.Marshal(map[string]any{
-		"query":         query,
-		"max_results":   maxResults,
-	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://ollama.com/api/web_search", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("web_search: %s: %s", resp.Status, strings.TrimSpace(string(b)))
-	}
-	var out struct {
-		Results []struct {
-			Title   string `json:"title"`
-			URL     string `json:"url"`
-			Content string `json:"content"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(b, &out); err != nil {
-		return "", fmt.Errorf("web_search decode: %w", err)
-	}
-	if len(out.Results) == 0 {
-		return "No search results.", nil
-	}
-	var sb strings.Builder
-	for i, r := range out.Results {
-		if i > 0 {
-			sb.WriteString("\n\n")
-		}
-		fmt.Fprintf(&sb, "%d. %s\n%s\n%s", i+1, r.Title, r.URL, strings.TrimSpace(r.Content))
-	}
-	return sb.String(), nil
-}
-
-func (s *Server) ollamaCloudWebFetch(ctx context.Context, apiKey, pageURL string) (string, error) {
-	u := strings.TrimSpace(pageURL)
-	if u == "" {
-		return "", fmt.Errorf("empty url")
-	}
-	parsed, err := url.Parse(u)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return "", fmt.Errorf("only http/https URLs are allowed")
-	}
-	body, _ := json.Marshal(map[string]any{"url": u})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://ollama.com/api/web_fetch", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("web_fetch: %s: %s", resp.Status, strings.TrimSpace(string(b)))
-	}
-	var out struct {
-		Title   string   `json:"title"`
-		Content string   `json:"content"`
-		Links   []string `json:"links"`
-	}
-	if err := json.Unmarshal(b, &out); err != nil {
-		return "", fmt.Errorf("web_fetch decode: %w", err)
-	}
-	var sb strings.Builder
-	if out.Title != "" {
-		fmt.Fprintf(&sb, "Title: %s\n\n", out.Title)
-	}
-	sb.WriteString(strings.TrimSpace(out.Content))
-	if len(out.Links) > 0 {
-		sb.WriteString("\n\nLinks on page:\n")
-		for i, l := range out.Links {
-			if i >= 15 {
-				break
-			}
-			sb.WriteString("- " + l + "\n")
-		}
-	}
-	return sb.String(), nil
-}
-
-func (s *Server) runWebTool(ctx context.Context, apiKey, name string, args json.RawMessage) (string, error) {
-	if strings.TrimSpace(apiKey) == "" {
-		return "", fmt.Errorf("set OLLAMA_API_KEY (ollama.com/settings/keys) to use web search and web fetch")
-	}
+func (s *Server) runWebTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	m := parseToolArgs(args)
 	switch name {
 	case "web_search":
@@ -232,13 +121,13 @@ func (s *Server) runWebTool(ctx context.Context, apiKey, name string, args json.
 		if mr == 0 {
 			mr = 5
 		}
-		return s.ollamaCloudWebSearch(ctx, apiKey, q, mr)
+		return s.localWebSearch(ctx, q, mr)
 	case "web_fetch":
 		u, _ := m["url"].(string)
 		if strings.TrimSpace(u) == "" {
 			return "Error: missing url for web_fetch", nil
 		}
-		return s.ollamaCloudWebFetch(ctx, apiKey, u)
+		return s.localWebFetch(ctx, u)
 	default:
 		return fmt.Sprintf("Error: tool %q is not implemented on this server", name), nil
 	}
@@ -258,7 +147,6 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 	}
 
 	startedAt := time.Now()
-	apiKey := strings.TrimSpace(os.Getenv("OLLAMA_API_KEY"))
 	tools := webToolDefinitions()
 
 	msgs := make([]ollama.ChatMessage, len(body.Messages))
@@ -316,7 +204,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 				continue
 			}
 			send("tool", map[string]any{"name": n})
-			out, err := s.runWebTool(ctx, apiKey, n, tc.Function.Arguments)
+			out, err := s.runWebTool(ctx, n, tc.Function.Arguments)
 			if err != nil {
 				out = "Error: " + err.Error()
 			}

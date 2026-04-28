@@ -100,6 +100,10 @@ let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
+/** /api/status succeeded since last call */
+let managerApiOk = false;
+/** Ollama host reachable (from /api/status) */
+let ollamaHostOk = false;
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
@@ -128,6 +132,8 @@ async function api(path, opts = {}) {
 async function refreshStatus() {
   try {
     const s = await api("/api/status");
+    managerApiOk = true;
+    ollamaHostOk = !!s.ollama_reachable;
     if (s.language && s.language !== window.I18n.getLang()) {
       window.I18n.setLang(s.language);
     }
@@ -140,9 +146,54 @@ async function refreshStatus() {
       pill.className = "pill pill-bad";
     }
     $("logout-btn").hidden = !s.has_password;
+    updateChatSendEnabled();
   } catch (e) {
+    managerApiOk = false;
+    ollamaHostOk = false;
     $("status-pill").textContent = t("status.unreachable");
     $("status-pill").className = "pill pill-bad";
+    updateChatSendEnabled();
+  }
+}
+
+function updateChatSendEnabled() {
+  const btn = $("chat-send-btn");
+  if (!btn) return;
+  let ok = managerApiOk && ollamaHostOk;
+  if (!ok) {
+    if (!managerApiOk) {
+      btn.title = t("chat.send_disabled_manager");
+    } else {
+      btn.title = t("chat.send_disabled_ollama");
+    }
+  } else {
+    btn.title = t("chat.send");
+  }
+  btn.disabled = !ok;
+}
+
+async function copyTextToClipboard(text) {
+  const s = String(text || "");
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(s);
+      return true;
+    }
+  } catch {
+    // fall back
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = s;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const r = document.execCommand("copy");
+    ta.remove();
+    return r;
+  } catch {
+    return false;
   }
 }
 
@@ -532,6 +583,7 @@ function showChatView() {
   syncChatModelOptions();
   updateChatCapabilityUI();
   updateChatContextMeter();
+  updateChatSendEnabled();
   setTimeout(() => $("chat-input").focus(), 20);
 }
 
@@ -872,13 +924,22 @@ function renderChatMessages() {
       ? renderMarkdownSafe(m.content || "")
       : `<p>${escapeHtml(m.content || "")}</p>`;
     const debugFooter = m.role === "assistant" ? buildAssistantDebugFooter(m) : "";
+    const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
+    const copyBtn = `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
+<svg class="chat-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<rect x="9" y="9" width="11" height="11" rx="2"/>
+<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+</svg></button>`;
 
     const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
     return `
       <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
         <header class="chat-msg-head">
-          <span class="chat-role">${escapeHtml(m.role === "user" ? t("chat.role_user") : t("chat.role_assistant"))}</span>
-          ${meta.length ? `<span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span>` : ""}
+          <div class="chat-msg-head-main">
+            <span class="chat-role">${escapeHtml(m.role === "user" ? t("chat.role_user") : t("chat.role_assistant"))}</span>
+            ${meta.length ? `<span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span>` : ""}
+          </div>
+          ${copyBtn}
         </header>
         ${files ? `<div class="chat-file-list">${files}</div>` : ""}
         ${toolLogBlock}
@@ -1295,6 +1356,7 @@ async function runOneChatTurn(text, attachments) {
 }
 
 async function sendChatMessage() {
+  if ($("chat-send-btn")?.disabled) return;
   const text = $("chat-input").value.trim();
   if (!text && chatAttachments.length === 0) return;
   if (!models.length) {
@@ -1328,6 +1390,18 @@ function bindChatEvents() {
     updateChatContextMeter();
   });
   $("chat-send-btn").addEventListener("click", sendChatMessage);
+  $("chat-messages").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".chat-copy-btn");
+    if (!btn) return;
+    e.preventDefault();
+    const id = btn.getAttribute("data-msg-id");
+    if (!id) return;
+    const msg = chatMessages.find((x) => x.id === id);
+    if (!msg) return;
+    const text = String(msg.content || "");
+    const ok = await copyTextToClipboard(text);
+    toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
+  });
   const stopBtn = $("chat-stop-btn");
   if (stopBtn) {
     stopBtn.addEventListener("click", () => stopChatGeneration());
@@ -1341,6 +1415,7 @@ function bindChatEvents() {
   $("chat-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      if ($("chat-send-btn")?.disabled) return;
       sendChatMessage();
     }
   });
@@ -1819,6 +1894,7 @@ $("set-language").addEventListener("change", () => {
   renderChatQueue();
   updateStreamBar();
   updateChatCapabilityUI();
+  updateChatSendEnabled();
   updatePasswordSection();
 });
 
@@ -1904,5 +1980,6 @@ updateStreamBar();
 syncChatModelOptions();
 updateChatCapabilityUI();
 updateChatContextMeter();
+updateChatSendEnabled();
 setInterval(refreshStatus, 15000);
 setInterval(refreshLoadedState, 1000);

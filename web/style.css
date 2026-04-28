@@ -973,8 +973,30 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .chat-msg-head {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 10px;
   margin-bottom: 6px;
+}
+.chat-msg-head-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  min-width: 0;
+  flex: 1;
+}
+.chat-copy-btn {
+  flex-shrink: 0;
+  margin: -2px 0 0;
+  padding: 4px;
+  opacity: 0.7;
+  color: var(--text-dim);
+}
+.chat-copy-btn:hover { opacity: 1; color: var(--text); }
+.chat-copy-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 .chat-role {
   font-size: 11px;

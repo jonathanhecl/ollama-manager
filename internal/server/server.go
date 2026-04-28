@@ -116,6 +116,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	// Graceful shutdown.
 	go func() {
 		<-ctx.Done()
+		log.Println("shutting down…")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5_000_000_000)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)

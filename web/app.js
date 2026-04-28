@@ -49,6 +49,7 @@ let currentView = "models";
 let chatMessages = [];
 let chatAttachments = [];
 let chatStreamLock = false;
+let chatAbortController = null;
 let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
@@ -404,12 +405,18 @@ function showModelsView() {
 }
 
 function resetChatState() {
+  if (chatAbortController) {
+    try { chatAbortController.abort(); } catch (_) {}
+    chatAbortController = null;
+  }
+  chatStreamLock = false;
   chatMessages = [];
   chatAttachments = [];
   chatPendingQueue = [];
   chatLastUsedTokens = 0;
   chatDndDepth = 0;
   stopThinkTicker();
+  updateStreamBar();
   $("chat-dropzone").hidden = true;
   $("chat-attachments").hidden = true;
   $("chat-attachments").innerHTML = "";
@@ -562,6 +569,9 @@ function renderChatMessages() {
     if (m.role === "assistant" && m.streaming) {
       meta.push(t("chat.streaming"));
     }
+    if (m.role === "assistant" && !m.streaming && m.stopped) {
+      meta.push(t("chat.stopped_badge_short"));
+    }
 
     const files = (m.attachments || []).map((a) => (
       `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`
@@ -632,24 +642,37 @@ function renderChatQueue() {
     return;
   }
   host.hidden = false;
-  const head = `<div class="chat-queue-head">${escapeHtml(t("chat.queue_title"))} <span class="chat-queue-count mono">${chatPendingQueue.length}</span></div>`;
+  const n = chatPendingQueue.length;
   const rows = chatPendingQueue.map((q, i) => {
     const hasText = String(q.text || "").trim().length > 0;
     const preview = hasText ? String(q.text).trim() : t("chat.queue_attachments_only");
     const short = preview.length > 100 ? `${preview.slice(0, 100)}…` : preview;
-    const attHint = (q.attachments || []).length
-      ? ` <span class="chat-queue-att">+${q.attachments.length}</span>`
+    const nAtt = (q.attachments || []).length;
+    const fileLine = nAtt
+      ? `<div class="chat-queue-files mono">${escapeHtml(t("chat.queue_files", { n: nAtt }))}</div>`
       : "";
     return `
-      <div class="chat-queue-item">
-        <span class="chat-queue-n mono">${i + 1}</span>
-        <span class="chat-queue-preview">${escapeHtml(short)}${attHint}</span>
-        <button type="button" class="btn-icon chat-queue-x" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_remove"))}">×</button>
+      <div class="chat-queue-item" data-id="${escapeHtml(q.id)}">
+        <div class="chat-queue-row1">
+          <span class="chat-queue-n mono">${i + 1}</span>
+          <p class="chat-queue-preview">${escapeHtml(short)}</p>
+          <button type="button" class="btn-icon chat-queue-x" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_remove"))}">×</button>
+        </div>
+        ${fileLine}
       </div>`;
   }).join("");
-  host.innerHTML = head + `<div class="chat-queue-list">${rows}</div>`;
+  host.innerHTML = `
+    <details class="chat-queue-details" open>
+      <summary class="chat-queue-summary">
+        <span class="chat-queue-chev" aria-hidden="true">▾</span>
+        <span>${escapeHtml(t("chat.queue_title"))}</span>
+        <span class="chat-queue-count mono">${n}</span>
+      </summary>
+      <div class="chat-queue-list">${rows}</div>
+    </details>`;
   host.querySelectorAll(".chat-queue-x").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
       chatPendingQueue = chatPendingQueue.filter((q) => q.id !== btn.dataset.id);
       renderChatQueue();
     });
@@ -772,6 +795,29 @@ async function readSSEStream(response, onEvent) {
   }
 }
 
+function isAbortError(e) {
+  if (!e) return false;
+  if (e.name === "AbortError") return true;
+  if (e.code === 20) return true; // legacy DOMException
+  const msg = String(e.message || "").toLowerCase();
+  return msg.includes("aborted") || msg.includes("user aborted");
+}
+
+function updateStreamBar() {
+  const bar = $("chat-stream-bar");
+  const btn = $("chat-stop-btn");
+  if (bar) bar.hidden = !chatStreamLock;
+  if (btn) {
+    btn.disabled = !chatStreamLock;
+    btn.title = t("chat.stop_hint");
+  }
+}
+
+function stopChatGeneration() {
+  if (!chatStreamLock || !chatAbortController) return;
+  try { chatAbortController.abort(); } catch (_) {}
+}
+
 async function runOneChatTurn(text, attachments) {
   const userMsg = {
     id: nanoid(),
@@ -817,7 +863,9 @@ async function runOneChatTurn(text, attachments) {
     messages: buildOutboundMessages(),
   };
 
+  chatAbortController = new AbortController();
   chatStreamLock = true;
+  updateStreamBar();
   const turnStartedAt = Date.now();
   let assistantRaw = "";
   try {
@@ -826,6 +874,7 @@ async function runOneChatTurn(text, attachments) {
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: chatAbortController.signal,
     });
     if (!res.ok) {
       let msg = res.statusText;
@@ -886,13 +935,24 @@ async function runOneChatTurn(text, attachments) {
   } catch (e) {
     assistantMsg.streaming = false;
     assistantMsg.inThink = false;
-    if (!assistantMsg.content) {
-      assistantMsg.content = t("chat.error_reply", { msg: e.message || "failed" });
+    if (isAbortError(e)) {
+      assistantMsg.stopped = true;
+      const hasAnswer = String(assistantMsg.content || "").trim().length > 0;
+      const hasThink = String(assistantMsg.thinkContent || "").trim().length > 0;
+      if (!hasAnswer && !hasThink) {
+        assistantMsg.content = t("chat.stopped_empty");
+      }
+    } else {
+      if (!assistantMsg.content) {
+        assistantMsg.content = t("chat.error_reply", { msg: e.message || "failed" });
+      }
+      toast(t("toast.error", { msg: e.message || "chat failed" }), "error");
     }
-    toast(t("toast.error", { msg: e.message || "chat failed" }), "error");
   } finally {
+    chatAbortController = null;
     stopThinkTicker();
     chatStreamLock = false;
+    updateStreamBar();
     renderChatMessages();
     if (chatPendingQueue.length > 0) {
       const next = chatPendingQueue.shift();
@@ -938,6 +998,16 @@ function bindChatEvents() {
     updateChatContextMeter();
   });
   $("chat-send-btn").addEventListener("click", sendChatMessage);
+  const stopBtn = $("chat-stop-btn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => stopChatGeneration());
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.code !== "Backspace" || !e.ctrlKey || !e.shiftKey) return;
+    if (currentView !== "chat" || !chatStreamLock) return;
+    e.preventDefault();
+    stopChatGeneration();
+  });
   $("chat-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1367,6 +1437,7 @@ $("set-language").addEventListener("change", () => {
   renderAttachments();
   renderChatMessages();
   renderChatQueue();
+  updateStreamBar();
   updatePasswordSection();
 });
 
@@ -1448,6 +1519,7 @@ refreshStatus();
 refreshModels();
 connectJobsStream();
 bindChatEvents();
+updateStreamBar();
 syncChatModelOptions();
 updateChatCapabilityUI();
 updateChatContextMeter();

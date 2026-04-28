@@ -19,6 +19,9 @@
         <span data-i18n="downloads.button">Downloads</span>
         <span id="downloads-count" class="count-badge" hidden>0</span>
       </button>
+      <button id="chat-btn" type="button" class="ghost chat-toggle" data-i18n-attr="title" data-i18n="chat.open_title" title="Open chat">
+        <span class="chat-glyph" aria-hidden="true">M</span>
+      </button>
       <button id="refresh-btn" class="ghost" data-i18n-attr="title" data-i18n="action.refresh" title="Refresh">↻</button>
       <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">⚙</button>
       <button id="logout-btn" class="ghost" data-i18n-attr="title" data-i18n="action.logout" title="Sign out" hidden data-i18n-text>Sign out</button>
@@ -74,6 +77,11 @@
 
       <footer class="chat-compose">
         <div id="chat-queue" class="chat-queue" hidden></div>
+        <div id="chat-stream-bar" class="chat-stream-bar" hidden>
+          <span class="chat-stream-pulse" aria-hidden="true"></span>
+          <span class="chat-stream-label" data-i18n="chat.generating">Generating…</span>
+          <button type="button" id="chat-stop-btn" class="chat-stop-btn" data-i18n="chat.stop">Stop</button>
+        </div>
         <div id="chat-attachments" class="chat-attachments" hidden></div>
         <div class="chat-actions-row">
           <div class="chat-upload-actions">

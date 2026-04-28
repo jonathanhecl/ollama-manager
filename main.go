@@ -17,6 +17,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/gense/ollama-manager/internal/config"
@@ -83,7 +84,17 @@ func main() {
 		log.Fatalf("server: %v", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// Windows solo soporta os.Interrupt (Ctrl+C) en Notify/NotifyContext;
+	// añadir SIGTERM u otras hace que el cierre por señal falle o se ignore.
+	var (
+		ctx  context.Context
+		stop context.CancelFunc
+	)
+	if runtime.GOOS == "windows" {
+		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt)
+	} else {
+		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	}
 	defer stop()
 
 	addr := cfg.BindAddress()

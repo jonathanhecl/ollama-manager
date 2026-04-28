@@ -323,6 +323,36 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"models": out})
 }
 
+// runningView is a slim row for GET /api/running (Ollama /api/ps only, no list/show).
+type runningView struct {
+	Name      string     `json:"name"`
+	SizeVRAM  int64      `json:"size_vram"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+func (s *Server) handleListRunning(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	running, err := s.ollama.PS(ctx)
+	if err != nil {
+		log.Printf("ps failed: %v", err)
+		writeJSON(w, http.StatusOK, map[string]any{"running": []runningView{}})
+		return
+	}
+	out := make([]runningView, 0, len(running))
+	for _, rm := range running {
+		v := runningView{
+			Name:     rm.Name,
+			SizeVRAM: rm.SizeVRAM,
+		}
+		if !rm.ExpiresAt.IsZero() {
+			exp := rm.ExpiresAt
+			v.ExpiresAt = &exp
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"running": out})
+}
+
 type modelMetaCache struct {
 	ContextLength int64
 	Capabilities  []string

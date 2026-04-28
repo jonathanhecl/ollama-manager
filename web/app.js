@@ -103,6 +103,55 @@ async function refreshModels() {
   }
 }
 
+function applyRunning(running) {
+  const byName = new Map((running || []).map((r) => [r.name, r]));
+  for (const m of models) {
+    const rm = byName.get(m.name);
+    m.loaded = !!rm;
+    m.size_vram = rm ? (rm.size_vram || 0) : 0;
+    m.expires_at = rm && rm.expires_at != null ? rm.expires_at : null;
+  }
+}
+
+function updateLoadedDotsOnly() {
+  if (!models.length) return;
+  const dotLoadedTxt = t("detail.dot_loaded");
+  const dotNotLoadedTxt = t("detail.dot_not_loaded");
+  const byName = new Map(models.map((m) => [m.name, m]));
+  $("models-tbody").querySelectorAll("tr.row").forEach((tr) => {
+    const name = tr.dataset.name;
+    if (!name) return;
+    const m = byName.get(name);
+    if (!m) return;
+    const dot = tr.querySelector(".state-dot");
+    if (!dot) return;
+    dot.classList.toggle("loaded", !!m.loaded);
+    dot.title = m.loaded ? dotLoadedTxt : dotNotLoadedTxt;
+  });
+}
+
+async function refreshLoadedState() {
+  try {
+    const data = await api("/api/running");
+    applyRunning(data.running);
+    updateLoadedDotsOnly();
+    patchDetailLoadedState();
+  } catch {
+    // Evita toasts ruidosos al sondear; el listado completo o el status ya avisan si hace falta.
+  }
+}
+
+function patchDetailLoadedState() {
+  const el = $("detail-state-value");
+  if (!el || !activeName || $("detail-panel").hidden) return;
+  const m = models.find((x) => x.name === activeName);
+  if (!m) return;
+  const stateText = m.loaded
+    ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) })
+    : t("detail.not_loaded");
+  el.textContent = stateText;
+}
+
 function sortKey(m, col) {
   switch (col) {
     case "name":           return (m.name || "").toLowerCase();
@@ -238,18 +287,19 @@ function renderDetail(d) {
     ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) })
     : t("detail.not_loaded");
   const rows = [
-    [t("detail.family"), d.details?.family || "—"],
-    [t("detail.architecture"), d.architecture || "—"],
-    [t("detail.params"), d.details?.parameter_size || (d.parameter_count ? `${(d.parameter_count / 1e9).toFixed(2)}B` : "—")],
-    [t("detail.quant"), d.details?.quantization_level || "—"],
-    [t("detail.format"), d.details?.format || "—"],
-    [t("detail.context"), fmtCtx(d.context_length)],
-    [t("detail.size"), fmtBytes(m.size)],
-    [t("detail.state"), stateText],
-    [t("detail.modified"), new Date(d.modified_at).toLocaleString()],
-    [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`],
+    [t("detail.family"), d.details?.family || "—", false],
+    [t("detail.architecture"), d.architecture || "—", false],
+    [t("detail.params"), d.details?.parameter_size || (d.parameter_count ? `${(d.parameter_count / 1e9).toFixed(2)}B` : "—"), false],
+    [t("detail.quant"), d.details?.quantization_level || "—", false],
+    [t("detail.format"), d.details?.format || "—", false],
+    [t("detail.context"), fmtCtx(d.context_length), false],
+    [t("detail.size"), fmtBytes(m.size), false],
+    [t("detail.state"), stateText, true],
+    [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
+    [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false],
   ];
-  const grid = rows.map(([k, v]) => `<div class="k">${escapeHtml(k)}</div><div class="v">${v}</div>`).join("");
+  const grid = rows.map(([k, v, isState]) =>
+    `<div class="k">${escapeHtml(k)}</div><div class="v"${isState ? " id=\"detail-state-value\"" : ""}>${isState ? escapeHtml(v) : v}</div>`).join("");
 
   const caps = (d.capabilities || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
   const capsBlock = caps ? `<div class="detail-section"><h3>${escapeHtml(t("detail.capabilities"))}</h3><div class="cap-list">${caps}</div></div>` : "";
@@ -702,3 +752,4 @@ refreshStatus();
 refreshModels();
 connectJobsStream();
 setInterval(refreshStatus, 15000);
+setInterval(refreshLoadedState, 1000);

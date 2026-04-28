@@ -545,7 +545,7 @@ function showModelsView() {
   currentView = "models";
   $("models-view").hidden = false;
   $("chat-view").hidden = true;
-  $("chat-btn").classList.remove("active");
+  $("chat-btn")?.classList.remove("active");
 }
 
 function resetChatState() {
@@ -574,8 +574,8 @@ function showChatView() {
   currentView = "chat";
   $("models-view").hidden = true;
   $("chat-view").hidden = false;
-  $("chat-btn").classList.add("active");
-  if (!$("detail-panel").hidden) {
+  $("chat-btn")?.classList.add("active");
+  if ($("detail-panel") && !$("detail-panel").hidden) {
     $("detail-panel").hidden = true;
     activeName = null;
     document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
@@ -1380,8 +1380,8 @@ async function sendChatMessage() {
 }
 
 function bindChatEvents() {
-  $("chat-btn").addEventListener("click", showChatView);
-  $("chat-back-btn").addEventListener("click", () => {
+  $("chat-btn")?.addEventListener("click", showChatView);
+  $("chat-back-btn")?.addEventListener("click", () => {
     showModelsView();
     resetChatState();
   });

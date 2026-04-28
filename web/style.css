@@ -873,6 +873,15 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   text-transform: uppercase;
   letter-spacing: .7px;
 }
+.chat-model-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+#chat-model-load-dot {
+  flex-shrink: 0;
+}
 #chat-model {
   min-width: 260px;
   max-width: 45vw;
@@ -1405,6 +1414,13 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 #chat-input:focus { border-color: var(--accent); }
 .chat-send { min-width: 88px; }
 
+.chat-keyhint {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--warn, #d4a24a);
+}
 .chat-side {
   border: 1px solid var(--border);
   border-radius: var(--radius);

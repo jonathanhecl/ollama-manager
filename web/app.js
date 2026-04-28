@@ -99,6 +99,7 @@ let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
+let statusOllamaCloudKey = false;
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
@@ -139,6 +140,8 @@ async function refreshStatus() {
       pill.className = "pill pill-bad";
     }
     $("logout-btn").hidden = !s.has_password;
+    statusOllamaCloudKey = !!s.ollama_cloud_key;
+    updateWebToolsKeyHint();
   } catch (e) {
     $("status-pill").textContent = t("status.unreachable");
     $("status-pill").className = "pill pill-bad";
@@ -187,11 +190,22 @@ function updateLoadedDotsOnly() {
   });
 }
 
+function updateChatModelLoadDot() {
+  const dot = $("chat-model-load-dot");
+  const sel = $("chat-model");
+  if (!dot || !sel) return;
+  const m = modelByName(sel.value);
+  const loaded = !!(m && m.loaded);
+  dot.classList.toggle("loaded", loaded);
+  dot.title = loaded ? t("detail.dot_loaded") : t("detail.dot_not_loaded");
+}
+
 async function refreshLoadedState() {
   try {
     const data = await api("/api/running");
     applyRunning(data.running);
     updateLoadedDotsOnly();
+    updateChatModelLoadDot();
     patchDetailLoadedState();
   } catch {
     // Evita toasts ruidosos al sondear; el listado completo o el status ya avisan si hace falta.
@@ -426,6 +440,13 @@ function syncChatModelOptions() {
     const loaded = sorted.find((m) => m.loaded);
     sel.value = (loaded || sorted[0]).name;
   }
+  updateChatModelLoadDot();
+}
+
+function updateWebToolsKeyHint() {
+  const el = $("chat-web-tools-keyhint");
+  if (!el) return;
+  el.hidden = !!statusOllamaCloudKey;
 }
 
 function updateChatCapabilityUI() {
@@ -434,9 +455,12 @@ function updateChatCapabilityUI() {
   const canVision = caps.has("vision");
   const canAudio = caps.has("audio");
   const canThinkToggle = caps.has("thinking");
+  const canTools = caps.has("tools");
   $("chat-image-btn").hidden = !canVision;
   $("chat-audio-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
+  $("chat-web-tools-wrap").hidden = !canTools;
+  updateWebToolsKeyHint();
 
   const m = modelByName(model);
   const list = m?.capabilities && m.capabilities.length
@@ -458,6 +482,7 @@ function updateChatCapabilityUI() {
       }).join("");
     }
   }
+  updateChatModelLoadDot();
 }
 
 function updateChatContextMeter() {
@@ -957,6 +982,8 @@ async function runOneChatTurn(text, attachments) {
   const caps = modelCaps($("chat-model").value);
   const canThinkToggle = caps.has("thinking");
   const noThink = canThinkToggle ? $("chat-no-think").checked : false;
+  const canTools = caps.has("tools");
+  const webToolsOn = canTools && $("chat-web-tools").checked;
   const payload = {
     model: $("chat-model").value,
     think: canThinkToggle ? !noThink : undefined,
@@ -967,6 +994,7 @@ async function runOneChatTurn(text, attachments) {
     },
     messages: buildOutboundMessages(),
   };
+  if (webToolsOn) payload.web_tools = true;
 
   chatAbortController = new AbortController();
   chatStreamLock = true;
@@ -1570,6 +1598,7 @@ $("set-language").addEventListener("change", () => {
   renderChatQueue();
   updateStreamBar();
   updateChatCapabilityUI();
+  updateWebToolsKeyHint();
   updatePasswordSection();
 });
 

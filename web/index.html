@@ -58,7 +58,10 @@
           <button id="chat-back-btn" class="ghost chat-back" data-i18n-attr="title" data-i18n="chat.back" title="Back">&lt;</button>
           <div class="chat-model-line">
             <label for="chat-model" data-i18n="chat.model">Model</label>
-            <select id="chat-model"></select>
+            <div class="chat-model-picker">
+              <span id="chat-model-load-dot" class="state-dot" role="img" aria-hidden="true"></span>
+              <select id="chat-model"></select>
+            </div>
           </div>
         </div>
         <div class="chat-context">
@@ -137,6 +140,17 @@
           </div>
           <label class="switch">
             <input id="chat-no-think" type="checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div id="chat-web-tools-wrap" class="field switch-field" hidden>
+          <div class="switch-label">
+            <span data-i18n="chat.web_tools">Internet (web search &amp; fetch)</span>
+            <small class="muted" data-i18n="chat.web_tools_hint">Server runs web_search and web_fetch in a loop until the model answers.</small>
+            <small id="chat-web-tools-keyhint" class="chat-keyhint" data-i18n="chat.web_tools_no_key">Set OLLAMA_API_KEY on the machine running ollama-manager (see ollama.com/settings/keys).</small>
+          </div>
+          <label class="switch">
+            <input id="chat-web-tools" type="checkbox">
             <span class="switch-slider"></span>
           </label>
         </div>

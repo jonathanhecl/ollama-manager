@@ -129,11 +129,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	resp := map[string]any{
-		"ollama_url":       s.cfg.OllamaURL,
-		"expose_network":   s.cfg.ExposeNetwork,
-		"has_password":     s.cfg.HasPassword(),
-		"language":         s.cfg.Language,
-		"ollama_reachable": s.ollama.Ping(ctx) == nil,
+		"ollama_url":         s.cfg.OllamaURL,
+		"expose_network":     s.cfg.ExposeNetwork,
+		"has_password":       s.cfg.HasPassword(),
+		"language":           s.cfg.Language,
+		"ollama_reachable":   s.ollama.Ping(ctx) == nil,
+		"ollama_cloud_key":   OllamaCloudKeyConfigured(),
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -550,6 +551,7 @@ type chatRequestBody struct {
 	Messages []ollama.ChatMessage `json:"messages"`
 	Think    *bool                `json:"think,omitempty"`
 	Options  map[string]any       `json:"options,omitempty"`
+	WebTools *bool                `json:"web_tools,omitempty"`
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -571,6 +573,16 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(body.Messages) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("missing 'messages'"))
+		return
+	}
+
+	if body.WebTools != nil && *body.WebTools {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+		s.runWebToolAgentLoop(r.Context(), w, flusher, body)
 		return
 	}
 

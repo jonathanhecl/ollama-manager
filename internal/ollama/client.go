@@ -92,22 +92,48 @@ type PullProgress struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// ToolCall is one function call requested by the model (Ollama /api/chat).
+type ToolCall struct {
+	Type     string `json:"type"`
+	Function struct {
+		Index     int             `json:"index,omitempty"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	} `json:"function"`
+}
+
 // ChatMessage is one turn in /api/chat.
 type ChatMessage struct {
-	Role    string   `json:"role"`
-	Content string   `json:"content"`
-	Images  []string `json:"images,omitempty"`
-	Audios  []string `json:"audios,omitempty"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content,omitempty"`
+	Images    []string   `json:"images,omitempty"`
+	Audios    []string   `json:"audios,omitempty"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	ToolName  string     `json:"tool_name,omitempty"`
+	Thinking  string     `json:"thinking,omitempty"`
 }
 
 // ChatRequest mirrors the subset of /api/chat used by the web UI.
-// Options are passed through to Ollama as-is.
+// Options and Tools are passed through to Ollama as-is.
 type ChatRequest struct {
 	Model    string         `json:"model"`
 	Messages []ChatMessage  `json:"messages"`
 	Stream   bool           `json:"stream"`
 	Think    *bool          `json:"think,omitempty"`
 	Options  map[string]any `json:"options,omitempty"`
+	Tools    any            `json:"tools,omitempty"`
+}
+
+// ChatOnceResponse is the JSON body for a single (non-streaming) /api/chat response.
+type ChatOnceResponse struct {
+	Model              string      `json:"model"`
+	Message            ChatMessage `json:"message"`
+	Done               bool        `json:"done"`
+	PromptEvalCount    int         `json:"prompt_eval_count"`
+	EvalCount          int         `json:"eval_count"`
+	PromptEvalDuration int64       `json:"prompt_eval_duration"`
+	EvalDuration       int64       `json:"eval_duration"`
+	TotalDuration      int64       `json:"total_duration"`
 }
 
 // ChatChunk is one streamed NDJSON object from /api/chat.
@@ -264,6 +290,28 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest, onChunk func(ChatChu
 		return fmt.Errorf("read chat stream: %w", err)
 	}
 	return nil
+}
+
+// ChatOnce calls POST /api/chat with stream:false and returns the full response.
+func (c *Client) ChatOnce(ctx context.Context, req ChatRequest) (*ChatOnceResponse, error) {
+	req.Stream = false
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/api/chat", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return nil, err
+	}
+	var out ChatOnceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode chat response: %w", err)
+	}
+	return &out, nil
 }
 
 // Ping checks whether the Ollama server responds. Useful at startup.

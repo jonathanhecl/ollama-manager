@@ -98,6 +98,10 @@
 
     <aside class="chat-side">
       <section class="chat-side-card">
+        <div id="chat-cap-block" class="chat-cap-block" hidden>
+          <p class="chat-cap-heading" data-i18n="chat.model_caps">Capabilities</p>
+          <div id="chat-cap-flags" class="chat-cap-flags"></div>
+        </div>
         <h3 data-i18n="chat.options">Options</h3>
         <div class="field">
           <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
@@ -268,6 +272,15 @@
         <button id="settings-close" class="ghost" data-i18n="action.close">Close</button>
         <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
       </footer>
+    </div>
+  </div>
+
+  <div id="image-preview-modal" class="image-preview-modal" hidden role="dialog" aria-modal="true" data-i18n-attr="aria-label" data-i18n="chat.image_preview_title">
+    <div id="image-preview-backdrop" class="image-preview-backdrop"></div>
+    <div class="image-preview-dialog">
+      <button type="button" id="image-preview-close" class="btn-icon image-preview-close" data-i18n-attr="aria-label" data-i18n="action.close">×</button>
+      <img id="image-preview-img" class="image-preview-img" alt="" />
+      <p id="image-preview-caption" class="image-preview-caption muted mono"></p>
     </div>
   </div>
 

@@ -30,6 +30,39 @@ const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
+function attachmentImageSrc(a) {
+  if (!a || a.kind !== "image" || !a.data) return "";
+  const mime = (a.mime && String(a.mime).trim()) || "image/jpeg";
+  return `data:${mime};base64,${a.data}`;
+}
+
+function openImagePreview(src, name) {
+  const modal = $("image-preview-modal");
+  const img = $("image-preview-img");
+  const cap = $("image-preview-caption");
+  if (!modal || !img) return;
+  img.src = src;
+  img.alt = name || "";
+  if (cap) {
+    cap.textContent = name || "";
+    cap.hidden = !String(name || "").trim();
+  }
+  modal.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeImagePreview() {
+  const modal = $("image-preview-modal");
+  const img = $("image-preview-img");
+  if (!modal) return;
+  modal.hidden = true;
+  if (img) {
+    img.removeAttribute("src");
+    img.alt = "";
+  }
+  document.body.style.overflow = "";
+}
+
 function toast(msg, kind = "") {
   const div = document.createElement("div");
   div.className = "toast-item " + kind;
@@ -357,6 +390,15 @@ function modelCaps(name) {
   return out;
 }
 
+function formatCapabilityLabel(raw) {
+  const k = String(raw || "").toLowerCase().trim();
+  if (!k) return "";
+  const i18nKey = `chat.cap.${k.replace(/[^a-z0-9]+/g, "_")}`;
+  const tr = t(i18nKey);
+  if (tr !== i18nKey) return tr;
+  return k.charAt(0).toUpperCase() + k.slice(1);
+}
+
 function syncChatModelOptions() {
   const sel = $("chat-model");
   if (!sel) return;
@@ -383,6 +425,27 @@ function updateChatCapabilityUI() {
   $("chat-image-btn").hidden = !canVision;
   $("chat-audio-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
+
+  const m = modelByName(model);
+  const list = m?.capabilities && m.capabilities.length
+    ? [...m.capabilities].sort((a, b) => String(a).localeCompare(String(b)))
+    : [];
+  const capBlock = $("chat-cap-block");
+  const capHost = $("chat-cap-flags");
+  if (capBlock && capHost) {
+    if (!list.length) {
+      capBlock.hidden = true;
+      capHost.innerHTML = "";
+    } else {
+      capBlock.hidden = false;
+      capHost.innerHTML = list.map((c) => {
+        const raw = String(c);
+        const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const label = formatCapabilityLabel(raw);
+        return `<span class="pill chat-cap-pill" data-cap="${escapeHtml(slug)}">${escapeHtml(label)}</span>`;
+      }).join("");
+    }
+  }
 }
 
 function updateChatContextMeter() {
@@ -417,6 +480,7 @@ function resetChatState() {
   chatDndDepth = 0;
   stopThinkTicker();
   updateStreamBar();
+  closeImagePreview();
   $("chat-dropzone").hidden = true;
   $("chat-attachments").hidden = true;
   $("chat-attachments").innerHTML = "";
@@ -573,9 +637,21 @@ function renderChatMessages() {
       meta.push(t("chat.stopped_badge_short"));
     }
 
-    const files = (m.attachments || []).map((a) => (
-      `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`
-    )).join("");
+    const files = (m.attachments || []).map((a) => {
+      if (a.kind === "image" && a.data) {
+        const src = attachmentImageSrc(a);
+        if (!src) {
+          return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+        }
+        return `<div class="chat-file-item chat-file-item-image">
+          <button type="button" class="image-preview-open chat-msg-file-thumb" data-name="${escapeHtml(a.name)}">
+            <img src="${src}" alt="" />
+          </button>
+          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+        </div>`;
+      }
+      return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+    }).join("");
 
     const thinkBlock = m.thinkContent
       ? `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
@@ -622,12 +698,29 @@ function renderAttachments() {
     return;
   }
   box.hidden = false;
-  box.innerHTML = chatAttachments.map((a) => (
-    `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`
-  )).join("");
+  box.innerHTML = chatAttachments.map((a) => {
+    if (a.kind === "image") {
+      const src = attachmentImageSrc(a);
+      if (!src) {
+        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+      }
+      return `<div class="chat-attach-card">
+        <button type="button" class="image-preview-open chat-attach-thumb" data-name="${escapeHtml(a.name)}" title="${escapeHtml(t("chat.image_preview_title"))}">
+          <img src="${src}" alt="" />
+        </button>
+        <div class="chat-attach-foot">
+          <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+        </div>
+      </div>`;
+    }
+    return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+  }).join("");
   box.querySelectorAll(".chat-attach-x").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      chatAttachments = chatAttachments.filter((a) => a.id !== btn.dataset.id);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      chatAttachments = chatAttachments.filter((x) => x.id !== btn.dataset.id);
       renderAttachments();
     });
   });
@@ -1076,6 +1169,32 @@ function bindChatEvents() {
     if (!files.length) return;
     await addFiles(files);
   });
+
+  document.addEventListener("click", (e) => {
+    const open = e.target.closest(".image-preview-open");
+    if (!open) return;
+    const im = open.querySelector("img");
+    if (!im || !im.getAttribute("src")) return;
+    e.preventDefault();
+    openImagePreview(im.src, open.getAttribute("data-name") || "");
+  });
+
+  const imgPrevBack = $("image-preview-backdrop");
+  if (imgPrevBack) {
+    imgPrevBack.addEventListener("click", closeImagePreview);
+  }
+  const imgPrevClose = $("image-preview-close");
+  if (imgPrevClose) {
+    imgPrevClose.addEventListener("click", closeImagePreview);
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = $("image-preview-modal");
+    if (modal && !modal.hidden) {
+      e.preventDefault();
+      closeImagePreview();
+    }
+  });
 }
 
 // ---------- delete ----------
@@ -1438,6 +1557,7 @@ $("set-language").addEventListener("change", () => {
   renderChatMessages();
   renderChatQueue();
   updateStreamBar();
+  updateChatCapabilityUI();
   updatePasswordSection();
 });
 

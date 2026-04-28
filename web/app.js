@@ -689,6 +689,7 @@ function scheduleRenderChatMessages() {
   chatRenderRaf = requestAnimationFrame(() => {
     chatRenderRaf = null;
     renderChatMessages();
+    scrollChatToBottom();
   });
 }
 
@@ -877,7 +878,7 @@ function renderChatMessages() {
     host.innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
     return;
   }
-  host.innerHTML = chatMessages.map((m) => {
+  host.innerHTML = chatMessages.map((m, i) => {
     const meta = [];
     if (m.role === "assistant" && !m.streaming) {
       if (m.elapsedMs > 0) meta.push(formatMetaElapsed(m.elapsedMs));
@@ -930,6 +931,14 @@ function renderChatMessages() {
 <rect x="9" y="9" width="11" height="11" rx="2"/>
 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
 </svg></button>`;
+    const isLast = i === chatMessages.length - 1;
+    const canRegen = m.role === "assistant" && isLast && !m.streaming;
+    const regenBtn = canRegen
+      ? `<button type="button" class="btn-icon chat-regenerate-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.regenerate_title"))}" aria-label="${escapeHtml(t("chat.regenerate"))}">
+<svg class="chat-regenerate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v7h-7"/>
+</svg></button>`
+      : "";
 
     const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
     return `
@@ -945,7 +954,12 @@ function renderChatMessages() {
         ${thinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
         ${debugFooter}
-        <div class="chat-msg-foot">${copyBtn}</div>
+        <div class="chat-msg-foot">
+          <div class="chat-msg-foot-actions">
+            ${regenBtn}
+            ${copyBtn}
+          </div>
+        </div>
       </article>
     `;
   }).join("");
@@ -957,7 +971,7 @@ function renderChatMessages() {
       msg.thinkOpen = el.open;
     });
   });
-  host.scrollTop = host.scrollHeight;
+  scrollChatToBottom();
 }
 
 function renderAttachments() {
@@ -1181,16 +1195,8 @@ function stopChatGeneration() {
   try { chatAbortController.abort(); } catch (_) {}
 }
 
-async function runOneChatTurn(text, attachments) {
-  const userMsg = {
-    id: nanoid(),
-    role: "user",
-    content: text,
-    attachments: (attachments || []).map((a) => ({ ...a })),
-  };
-  chatMessages.push(userMsg);
-
-  const assistantMsg = {
+function newAssistantMessage() {
+  return {
     id: nanoid(),
     role: "assistant",
     content: "",
@@ -1212,9 +1218,21 @@ async function runOneChatTurn(text, attachments) {
     thinkBlockStarted: false,
     thinkBlockClosed: false,
   };
-  chatMessages.push(assistantMsg);
-  renderChatMessages();
+}
 
+/** Keep the chat pane pinned to the latest content (streaming + layout). */
+function scrollChatToBottom() {
+  const host = $("chat-messages");
+  if (!host) return;
+  const go = () => { host.scrollTop = host.scrollHeight; };
+  go();
+  requestAnimationFrame(() => {
+    go();
+    requestAnimationFrame(go);
+  });
+}
+
+async function runChatRequest(assistantMsg) {
   const caps = modelCaps($("chat-model").value);
   const canThinkToggle = caps.has("thinking");
   const noThink = canThinkToggle ? $("chat-no-think").checked : false;
@@ -1379,6 +1397,47 @@ async function runOneChatTurn(text, attachments) {
   }
 }
 
+async function runOneChatTurn(text, attachments) {
+  const userMsg = {
+    id: nanoid(),
+    role: "user",
+    content: text,
+    attachments: (attachments || []).map((a) => ({ ...a })),
+  };
+  chatMessages.push(userMsg);
+  const assistantMsg = newAssistantMessage();
+  chatMessages.push(assistantMsg);
+  renderChatMessages();
+  await runChatRequest(assistantMsg);
+}
+
+async function regenerateLastAssistantMessage(clickedId) {
+  if (chatStreamLock) {
+    toast(t("chat.regenerate_busy"), "error");
+    return;
+  }
+  if (!chatMessages.length) return;
+  const last = chatMessages[chatMessages.length - 1];
+  if (last.id !== clickedId || last.role !== "assistant" || last.streaming) return;
+  if (chatMessages.length < 2) return;
+  const prev = chatMessages[chatMessages.length - 2];
+  if (!prev || prev.role !== "user") return;
+  if ($("chat-send-btn")?.disabled) {
+    const why = $("chat-send-btn")?.title || t("status.unreachable");
+    toast(why, "error");
+    return;
+  }
+  if (!models.length) {
+    toast(t("chat.no_models"), "error");
+    return;
+  }
+  chatMessages.pop();
+  const assistantMsg = newAssistantMessage();
+  chatMessages.push(assistantMsg);
+  renderChatMessages();
+  await runChatRequest(assistantMsg);
+}
+
 async function sendChatMessage() {
   if ($("chat-send-btn")?.disabled) return;
   const text = $("chat-input").value.trim();
@@ -1415,6 +1474,13 @@ function bindChatEvents() {
   });
   $("chat-send-btn").addEventListener("click", sendChatMessage);
   $("chat-messages").addEventListener("click", async (e) => {
+    const regenB = e.target.closest(".chat-regenerate-btn");
+    if (regenB) {
+      e.preventDefault();
+      const id = regenB.getAttribute("data-msg-id");
+      if (id) await regenerateLastAssistantMessage(id);
+      return;
+    }
     const btn = e.target.closest(".chat-copy-btn");
     if (!btn) return;
     e.preventDefault();

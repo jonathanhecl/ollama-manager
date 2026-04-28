@@ -992,6 +992,25 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   margin-top: 6px;
   padding-top: 2px;
 }
+.chat-msg-foot-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.chat-regenerate-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px;
+  opacity: 0.8;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-dim));
+}
+.chat-regenerate-btn:hover { opacity: 1; color: var(--text); }
+.chat-regenerate-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
 .chat-copy-btn {
   flex-shrink: 0;
   margin: 0;

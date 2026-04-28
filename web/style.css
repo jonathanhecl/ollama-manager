@@ -1195,6 +1195,18 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   word-break: break-all;
 }
 
+.chat-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+.chat-tool-log--tl {
+  margin: 0;
+}
+.chat-timeline-md {
+  padding: 4px 0;
+}
 .chat-tool-log {
   margin: 0 0 10px;
   padding: 8px 10px;

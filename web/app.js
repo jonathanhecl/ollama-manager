@@ -793,6 +793,27 @@ function thinkLabel(ms, streaming) {
   return t("chat.think_done", { t: dur });
 }
 
+/**
+ * Añade al timeline el texto desde segmentFlushIndex hasta ahora, como think (y opcional bloque md).
+ * @param {object} assistantMsg
+ * @param {string} assistantRaw
+ * @param {boolean} isFinal - si true, no mete "answer" en el timeline (va en m.content)
+ */
+function flushSegmentToTimeline(assistantMsg, assistantRaw, isFinal) {
+  const start = Number(assistantMsg.segmentFlushIndex) || 0;
+  if (assistantRaw.length <= start) return;
+  const seg = assistantRaw.slice(start);
+  assistantMsg.segmentFlushIndex = assistantRaw.length;
+  if (!assistantMsg.timeline) assistantMsg.timeline = [];
+  const parts = splitThink(seg);
+  if (parts.think && String(parts.think).trim()) {
+    assistantMsg.timeline.push({ type: "think", think: parts.think, segId: nanoid() });
+  }
+  if (!isFinal && parts.answer && String(parts.answer).trim()) {
+    assistantMsg.timeline.push({ type: "md", content: parts.answer });
+  }
+}
+
 /** Long tool error bodies (e.g. raw HTML) go inside a &lt;details&gt; with a one-line peek. */
 const TOOL_ERR_COLLAPSE_LEN = 360;
 
@@ -817,42 +838,66 @@ function renderToolErrorBlock(err) {
 </details>`;
 }
 
+function renderAssistantToolLogEntry(e) {
+  const isSearch = e.name === "web_search";
+  const isFetch = e.name === "web_fetch";
+  const title = isSearch ? t("chat.tool.web_search")
+    : isFetch ? t("chat.tool.web_fetch")
+      : escapeHtml(e.name);
+  let detailHtml = "";
+  if (isSearch && e.query) {
+    let d = escapeHtml(e.query);
+    if (e.max_results) d += ` · ${escapeHtml(t("chat.tool.max_results", { n: e.max_results }))}`;
+    detailHtml = `<div class="chat-tool-detail mono">${d}</div>`;
+  } else if (isFetch && e.url) {
+    const u = escapeHtml(e.url);
+    detailHtml = `<div class="chat-tool-detail"><a href="${u}" target="_blank" rel="noopener noreferrer" class="chat-tool-link mono">${u}</a></div>`;
+  }
+  const st = e.status || "unknown";
+  const icon = st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
+  let tail = "";
+  if (st === "error" && e.error) {
+    tail += renderToolErrorBlock(e.error);
+  }
+  if (st === "ok" && (e.result_preview || e.result_runes)) {
+    const metaBits = [];
+    if (e.result_runes) metaBits.push(t("chat.tool.chars", { n: e.result_runes }));
+    const meta = metaBits.length ? `<span class="chat-tool-runes mono">${escapeHtml(metaBits.join(" · "))}</span>` : "";
+    const prev = e.result_preview
+      ? `<details class="chat-tool-preview"><summary>${escapeHtml(t("chat.tool.result_preview"))}</summary><pre>${escapeHtml(e.result_preview)}</pre></details>`
+      : "";
+    tail += `<div class="chat-tool-result-head">${meta}</div>${prev}`;
+  }
+  return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${title}</span>${detailHtml}${tail}</div>${st === "running" ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
+}
+
 function renderAssistantToolLog(m) {
   const entries = m.toolLog || [];
   if (!entries.length) return "";
-  const lines = entries.map((e) => {
-    const isSearch = e.name === "web_search";
-    const isFetch = e.name === "web_fetch";
-    const title = isSearch ? t("chat.tool.web_search")
-      : isFetch ? t("chat.tool.web_fetch")
-        : escapeHtml(e.name);
-    let detailHtml = "";
-    if (isSearch && e.query) {
-      let d = escapeHtml(e.query);
-      if (e.max_results) d += ` · ${escapeHtml(t("chat.tool.max_results", { n: e.max_results }))}`;
-      detailHtml = `<div class="chat-tool-detail mono">${d}</div>`;
-    } else if (isFetch && e.url) {
-      const u = escapeHtml(e.url);
-      detailHtml = `<div class="chat-tool-detail"><a href="${u}" target="_blank" rel="noopener noreferrer" class="chat-tool-link mono">${u}</a></div>`;
-    }
-    const st = e.status || "unknown";
-    const icon = st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
-    let tail = "";
-    if (st === "error" && e.error) {
-      tail += renderToolErrorBlock(e.error);
-    }
-    if (st === "ok" && (e.result_preview || e.result_runes)) {
-      const metaBits = [];
-      if (e.result_runes) metaBits.push(t("chat.tool.chars", { n: e.result_runes }));
-      const meta = metaBits.length ? `<span class="chat-tool-runes mono">${escapeHtml(metaBits.join(" · "))}</span>` : "";
-      const prev = e.result_preview
-        ? `<details class="chat-tool-preview"><summary>${escapeHtml(t("chat.tool.result_preview"))}</summary><pre>${escapeHtml(e.result_preview)}</pre></details>`
-        : "";
-      tail += `<div class="chat-tool-result-head">${meta}</div>${prev}`;
-    }
-    return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${title}</span>${detailHtml}${tail}</div>${st === "running" ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
-  });
+  const lines = entries.map((e) => renderAssistantToolLogEntry(e));
   return `<div class="chat-tool-log" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${lines.join("")}</div>`;
+}
+
+function renderAssistantTimeline(m) {
+  const items = m.timeline || [];
+  if (!items.length) return "";
+  const segs = items.map((it) => {
+    if (it.type === "think") {
+      const o = it.thinkOpen !== false;
+      return `<details class="chat-think" ${o ? "open" : ""} data-id="${escapeHtml(m.id)}" data-tl-seg="${escapeHtml(it.segId || "")}">
+          <summary>${escapeHtml(t("chat.cap.thinking"))}</summary>
+          <pre>${escapeHtml(it.think)}</pre>
+        </details>`;
+    }
+    if (it.type === "md") {
+      return `<div class="chat-timeline-md">${renderMarkdownSafe(it.content || "")}</div>`;
+    }
+    if (it.type === "tool" && it.entry) {
+      return `<div class="chat-tool-log chat-tool-log--tl" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${renderAssistantToolLogEntry(it.entry)}</div>`;
+    }
+    return "";
+  });
+  return `<div class="chat-timeline">${segs.join("")}</div>`;
 }
 
 function buildAssistantDebugFooter(m) {
@@ -910,15 +955,31 @@ function renderChatMessages() {
       return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
     }).join("");
 
-    const thinkBlock = m.thinkContent
-      ? `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
+    const hasTl = m.role === "assistant" && m.timeline && m.timeline.length > 0;
+    const acc = m._accRaw || "";
+    const flushI = hasTl ? (Number(m.segmentFlushIndex) || 0) : 0;
+    const tailStr = hasTl && m.streaming && acc && acc.length > flushI ? acc.slice(flushI) : "";
+    const tailParts = tailStr ? splitThink(tailStr) : { think: "", inThink: false, answer: "" };
+    const showTailThink = hasTl && (Boolean((tailParts.think || "").trim()) || (m.streaming && tailParts.inThink));
+
+    const thinkBlock = hasTl || !m.thinkContent
+      ? ""
+      : `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
           <summary>${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && !!m.inThink))}</summary>
           <pre>${escapeHtml(m.thinkContent)}</pre>
-        </details>`
-      : "";
+        </details>`;
 
-    const toolLogBlock = m.role === "assistant" && m.toolLog?.length
+    const toolLogBlock = m.role === "assistant" && !hasTl && m.toolLog?.length
       ? renderAssistantToolLog(m)
+      : "";
+    const timelineBlock = m.role === "assistant" && hasTl
+      ? renderAssistantTimeline(m)
+      : "";
+    const tailThinkBlock = showTailThink
+      ? `<details class="chat-think" ${m.tailThinkOpen !== false ? "open" : ""} data-id="${escapeHtml(m.id)}" data-tail="1">
+          <summary>${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && tailParts.inThink))}</summary>
+          <pre>${escapeHtml(tailParts.think || "")}</pre>
+        </details>`
       : "";
 
     const bodyHTML = m.role === "assistant"
@@ -950,8 +1011,10 @@ function renderChatMessages() {
           </div>
         </header>
         ${files ? `<div class="chat-file-list">${files}</div>` : ""}
+        ${timelineBlock}
         ${toolLogBlock}
         ${thinkBlock}
+        ${tailThinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
         ${debugFooter}
         <div class="chat-msg-foot">
@@ -968,7 +1031,14 @@ function renderChatMessages() {
     el.addEventListener("toggle", () => {
       const msg = chatMessages.find((x) => x.id === el.dataset.id);
       if (!msg) return;
-      msg.thinkOpen = el.open;
+      if (el.dataset.tail === "1") {
+        msg.tailThinkOpen = el.open;
+      } else if (el.dataset.tlSeg && msg.timeline) {
+        const item = msg.timeline.find((i) => i.segId === el.dataset.tlSeg);
+        if (item) item.thinkOpen = el.open;
+      } else {
+        msg.thinkOpen = el.open;
+      }
     });
   });
   scrollChatToBottom();
@@ -1217,6 +1287,9 @@ function newAssistantMessage() {
     toolLog: [],
     thinkBlockStarted: false,
     thinkBlockClosed: false,
+    timeline: [],
+    segmentFlushIndex: 0,
+    tailThinkOpen: true,
   };
 }
 
@@ -1275,13 +1348,17 @@ async function runChatRequest(assistantMsg) {
       if (event === "tool") {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
         if (data?.phase === "start") {
-          assistantMsg.toolLog.push({
+          flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+          const entry = {
             name: data.name,
             query: data.query,
             url: data.url,
             max_results: data.max_results,
             status: "running",
-          });
+          };
+          assistantMsg.toolLog.push(entry);
+          if (!assistantMsg.timeline) assistantMsg.timeline = [];
+          assistantMsg.timeline.push({ type: "tool", entry });
         } else if (data?.phase === "done") {
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
             const e = assistantMsg.toolLog[i];
@@ -1294,6 +1371,7 @@ async function runChatRequest(assistantMsg) {
             }
           }
         }
+        assistantMsg._accRaw = assistantRaw;
         scheduleRenderChatMessages();
       } else if (event === "chunk") {
         const thinkDelta = data?.message?.thinking || "";
@@ -1302,6 +1380,9 @@ async function runChatRequest(assistantMsg) {
           if (!assistantMsg.thinkBlockStarted) {
             assistantRaw += "<think>\n";
             assistantMsg.thinkBlockStarted = true;
+          } else if (assistantMsg.thinkBlockClosed) {
+            assistantRaw += "\n<think>\n";
+            assistantMsg.thinkBlockClosed = false;
           }
           assistantRaw += thinkDelta;
         }
@@ -1324,6 +1405,7 @@ async function runChatRequest(assistantMsg) {
           assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
           stopThinkTicker();
         }
+        assistantMsg._accRaw = assistantRaw;
         scheduleRenderChatMessages();
       } else if (event === "error") {
         throw new Error(data?.error || "stream error");
@@ -1331,11 +1413,15 @@ async function runChatRequest(assistantMsg) {
         if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
           assistantRaw += "\n</think>\n";
           assistantMsg.thinkBlockClosed = true;
-          const p2 = splitThink(assistantRaw);
-          assistantMsg.thinkContent = p2.think;
-          assistantMsg.content = p2.answer;
-          assistantMsg.inThink = p2.inThink;
         }
+        const p2 = splitThink(assistantRaw);
+        assistantMsg.thinkContent = p2.think;
+        assistantMsg.content = p2.answer;
+        assistantMsg.inThink = p2.inThink;
+        if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {
+          flushSegmentToTimeline(assistantMsg, assistantRaw, true);
+        }
+        assistantMsg._accRaw = "";
         assistantMsg.streaming = false;
         assistantMsg.inThink = false;
         assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - turnStartedAt);

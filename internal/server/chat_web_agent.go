@@ -12,6 +12,26 @@ import (
 	"github.com/gense/ollama-manager/internal/ollama"
 )
 
+// streamAssistantContentDeltas sends the final assistant text as many SSE "chunk" events
+// with small content deltas so the browser can render incrementally (web-tools path uses
+// non-streaming Ollama calls, so we simulate token-style delivery here).
+func streamAssistantContentDeltas(send func(string, any), text string) {
+	const runesPerChunk = 14
+	r := []rune(text)
+	if len(r) == 0 {
+		send("chunk", map[string]any{"message": map[string]any{"content": " "}})
+		return
+	}
+	for i := 0; i < len(r); i += runesPerChunk {
+		j := i + runesPerChunk
+		if j > len(r) {
+			j = len(r)
+		}
+		delta := string(r[i:j])
+		send("chunk", map[string]any{"message": map[string]any{"content": delta}})
+	}
+}
+
 const maxWebAgentRounds = 24
 const maxToolResultRunes = 12000
 
@@ -199,11 +219,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 			if text == "" {
 				text = " "
 			}
-			send("chunk", map[string]any{
-				"message": map[string]any{
-					"content": text,
-				},
-			})
+			streamAssistantContentDeltas(send, text)
 			total := last.PromptEvalCount + last.EvalCount
 			send("done", map[string]any{
 				"elapsed_ms":         time.Since(startedAt).Milliseconds(),

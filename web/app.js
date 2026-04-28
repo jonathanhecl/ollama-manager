@@ -620,9 +620,33 @@ function splitThink(raw) {
 }
 
 function thinkLabel(ms, streaming) {
-  const sec = Math.max(0, Math.round((ms || 0) / 1000));
-  if (streaming) return t("chat.think_running", { s: sec });
-  return t("chat.think_done", { s: sec });
+  const dur = formatMetaElapsed(ms || 0);
+  if (streaming) return t("chat.think_running", { t: dur });
+  return t("chat.think_done", { t: dur });
+}
+
+/** Long tool error bodies (e.g. raw HTML) go inside a &lt;details&gt; with a one-line peek. */
+const TOOL_ERR_COLLAPSE_LEN = 360;
+
+function toolErrOneLinePeek(s, max) {
+  const t = String(s).replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max - 1) + "…";
+}
+
+function renderToolErrorBlock(err) {
+  const text = String(err);
+  if (text.length <= TOOL_ERR_COLLAPSE_LEN) {
+    return `<div class="chat-tool-err mono">${escapeHtml(text)}</div>`;
+  }
+  const peek = toolErrOneLinePeek(text, 96);
+  return `<details class="chat-tool-preview chat-tool-err-details">
+  <summary class="chat-tool-err-summary">
+    <span class="chat-tool-err-peek mono">${escapeHtml(peek)}</span>
+    <span class="chat-tool-err-expand muted">${escapeHtml(t("chat.tool.error_expand", { n: String(text.length) }))}</span>
+  </summary>
+  <pre class="chat-tool-err-body mono">${escapeHtml(text)}</pre>
+</details>`;
 }
 
 function renderAssistantToolLog(m) {
@@ -647,7 +671,7 @@ function renderAssistantToolLog(m) {
     const icon = st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
     let tail = "";
     if (st === "error" && e.error) {
-      tail += `<div class="chat-tool-err mono">${escapeHtml(e.error)}</div>`;
+      tail += renderToolErrorBlock(e.error);
     }
     if (st === "ok" && (e.result_preview || e.result_runes)) {
       const metaBits = [];

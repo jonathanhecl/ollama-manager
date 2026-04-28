@@ -94,6 +94,7 @@ let currentView = "models";
 let chatMessages = [];
 let chatAttachments = [];
 let chatStreamLock = false;
+let chatRenderRaf = null;
 let chatAbortController = null;
 let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
@@ -451,6 +452,8 @@ function updateChatCapabilityUI() {
   $("chat-audio-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
   $("chat-web-tools-wrap").hidden = !canTools;
+  const webW = $("chat-web-tools");
+  if (webW) webW.checked = !!canTools;
 
   const m = modelByName(model);
   const list = m?.capabilities && m.capabilities.length
@@ -543,16 +546,120 @@ function showChatViewWithModel(name) {
   updateChatContextMeter();
 }
 
+function isGFMTableRow(s) {
+  s = s.trim();
+  return s.length > 2 && s.startsWith("|") && s.endsWith("|");
+}
+
+function isGFMTableSeparator(s) {
+  s = s.trim();
+  if (!s.includes("|") || !/[-:]{2,}/.test(s)) return false;
+  const parts = s.split("|").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length < 1) return false;
+  return parts.every((p) => /^:?-{2,}:?$/.test(p));
+}
+
+function gfmTableCell(s) {
+  if (!s) return "";
+  let t = escapeHtml(s);
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return t;
+}
+
+function gfmTableBlockToHTML(rows) {
+  if (rows.length < 2) return "";
+  const parseRow = (line) => {
+    const t = line.trim();
+    const inner = t.startsWith("|") ? t.slice(1) : t;
+    const core = inner.endsWith("|") ? inner.slice(0, -1) : inner;
+    return core.split("|").map((c) => c.trim());
+  };
+  const header = parseRow(rows[0]);
+  const body = rows.slice(2).map(parseRow);
+  const n = Math.max(
+    header.length,
+    body.reduce((m, r) => Math.max(m, r.length), 0),
+  );
+  const pad = (r) => {
+    const x = r.slice();
+    while (x.length < n) x.push("");
+    return x;
+  };
+  const th = pad(header);
+  const br = body.map(pad);
+  let h = "<div class=\"chat-md-table-wrap\"><table class=\"chat-md-table\"><thead><tr>";
+  th.forEach((c) => {
+    h += `<th>${gfmTableCell(c)}</th>`;
+  });
+  h += "</tr></thead><tbody>";
+  br.forEach((row) => {
+    h += "<tr>";
+    row.forEach((c) => {
+      h += `<td>${gfmTableCell(c)}</td>`;
+    });
+    h += "</tr>";
+  });
+  h += "</tbody></table></div>";
+  return h;
+}
+
+/** After fenced code: replace GFM tables with placeholders. */
+function extractGFMTables(text, outTables) {
+  const lines = text.split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (
+      i + 1 < lines.length
+      && isGFMTableRow(lines[i])
+      && isGFMTableSeparator(lines[i + 1])
+    ) {
+      const block = [lines[i], lines[i + 1]];
+      i += 2;
+      while (i < lines.length && isGFMTableRow(lines[i]) && !isGFMTableSeparator(lines[i])) {
+        block.push(lines[i]);
+        i += 1;
+      }
+      const idx = outTables.length;
+      outTables.push(gfmTableBlockToHTML(block));
+      out.push(`@@GFMTABLE_${idx}@@`);
+      continue;
+    }
+    out.push(lines[i]);
+    i += 1;
+  }
+  return out.join("\n");
+}
+
+function scheduleRenderChatMessages() {
+  if (chatRenderRaf != null) return;
+  chatRenderRaf = requestAnimationFrame(() => {
+    chatRenderRaf = null;
+    renderChatMessages();
+  });
+}
+
+function flushChatRender() {
+  if (chatRenderRaf != null) {
+    cancelAnimationFrame(chatRenderRaf);
+    chatRenderRaf = null;
+  }
+  renderChatMessages();
+}
+
 function renderMarkdownSafe(input) {
   const text = String(input || "").replace(/\r\n/g, "\n");
   const codeBlocks = [];
-  let html = text.replace(/```([\w-]+)?\n([\s\S]*?)```/g, (_m, _lang, code) => {
+  let work = text.replace(/```([\w-]+)?\n([\s\S]*?)```/g, (_m, _lang, code) => {
     const key = `@@CODEBLOCK_${codeBlocks.length}@@`;
     codeBlocks.push(`<pre class="chat-code"><code>${escapeHtml(code)}</code></pre>`);
     return key;
   });
+  const tableBlocks = [];
+  work = extractGFMTables(work, tableBlocks);
 
-  html = escapeHtml(html);
+  let html = escapeHtml(work);
   html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
@@ -580,6 +687,14 @@ function renderMarkdownSafe(input) {
     }
     if (trimmed === "") {
       out.push("");
+    } else if (/^@@GFMTABLE_(\d+)@@$/.test(trimmed)) {
+      const m = trimmed.match(/^@@GFMTABLE_(\d+)@@$/);
+      const tIdx = m ? Number(m[1]) : -1;
+      if (tIdx >= 0 && tIdx < tableBlocks.length) {
+        out.push(tableBlocks[tIdx]);
+      } else {
+        out.push("<p></p>");
+      }
     } else if (/^@@CODEBLOCK_\d+@@$/.test(trimmed)) {
       out.push(trimmed);
     } else if (/^<h[234]>/.test(trimmed)) {
@@ -877,7 +992,7 @@ function startThinkTicker(msg) {
   chatThinkTicker = setInterval(() => {
     if (!msg || !msg.inThink || !msg.thinkStartedAt) return;
     msg.thinkMs = Date.now() - msg.thinkStartedAt;
-    renderChatMessages();
+    scheduleRenderChatMessages();
   }, 250);
 }
 
@@ -1098,7 +1213,7 @@ async function runOneChatTurn(text, attachments) {
             }
           }
         }
-        renderChatMessages();
+        scheduleRenderChatMessages();
       } else if (event === "chunk") {
         const delta = data?.message?.content || "";
         if (delta) assistantRaw += delta;
@@ -1114,7 +1229,7 @@ async function runOneChatTurn(text, attachments) {
           assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
           stopThinkTicker();
         }
-        renderChatMessages();
+        scheduleRenderChatMessages();
       } else if (event === "error") {
         throw new Error(data?.error || "stream error");
       } else if (event === "done") {
@@ -1139,6 +1254,7 @@ async function runOneChatTurn(text, attachments) {
         assistantMsg.hasDebug = true;
         chatLastUsedTokens = assistantMsg.promptTokens || assistantMsg.tokens;
         updateChatContextMeter();
+        flushChatRender();
       }
     });
     assistantMsg.streaming = false;
@@ -1167,7 +1283,7 @@ async function runOneChatTurn(text, attachments) {
     stopThinkTicker();
     chatStreamLock = false;
     updateStreamBar();
-    renderChatMessages();
+    flushChatRender();
     if (chatPendingQueue.length > 0) {
       const next = chatPendingQueue.shift();
       renderChatQueue();

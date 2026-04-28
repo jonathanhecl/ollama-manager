@@ -1305,6 +1305,38 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .chat-md h2, .chat-md h3, .chat-md h4 { margin: 8px 0; font-size: 14px; }
 .chat-md ul { margin: 6px 0 6px 18px; padding: 0; }
+.chat-md-table-wrap {
+  margin: 8px 0 10px;
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+.chat-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.4;
+  background: #0a0c12;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.chat-md-table th,
+.chat-md-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.chat-md-table thead th {
+  background: color-mix(in srgb, var(--accent) 12%, #0a0c12);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.chat-md-table tbody tr:nth-child(even) td {
+  background: #080a0f;
+}
 .chat-md code {
   font-family: var(--mono);
   background: #0a0c12;

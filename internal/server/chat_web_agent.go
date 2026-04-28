@@ -16,7 +16,7 @@ import (
 // with small content deltas so the browser can render incrementally (web-tools path uses
 // non-streaming Ollama calls, so we simulate token-style delivery here).
 func streamAssistantContentDeltas(send func(string, any), text string) {
-	const runesPerChunk = 14
+	const runesPerChunk = 8
 	r := []rune(text)
 	if len(r) == 0 {
 		send("chunk", map[string]any{"message": map[string]any{"content": " "}})

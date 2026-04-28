@@ -1331,11 +1331,63 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .chat-upload-actions {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
-.chat-upload-btn {
-  padding: 5px 9px;
-  font-size: 12px;
+.chat-media-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  margin: 0;
+  border-radius: 11px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(165deg, #1c1e28 0%, #12141c 100%);
+  color: var(--text-dim);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+.chat-media-btn:hover {
+  color: var(--text);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+.chat-media-btn:active {
+  transform: translateY(0);
+}
+.chat-media-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.chat-media-btn--image {
+  border-color: color-mix(in srgb, #3d6eb8 60%, var(--border));
+  color: #9ec8ff;
+  background: linear-gradient(165deg, #162a45 0%, #0d1524 100%);
+  box-shadow: inset 0 1px 0 rgba(120, 170, 255, 0.08);
+}
+.chat-media-btn--image:hover {
+  border-color: #5b8fd8;
+  color: #cfe4ff;
+  box-shadow: inset 0 1px 0 rgba(120, 170, 255, 0.12), 0 0 0 1px color-mix(in srgb, #5b8fd8 35%, transparent), 0 8px 20px rgba(30, 60, 100, 0.35);
+}
+.chat-media-btn--audio {
+  border-color: color-mix(in srgb, #2a9d6a 55%, var(--border));
+  color: #8ae8b8;
+  background: linear-gradient(165deg, #12281c 0%, #0c1812 100%);
+  box-shadow: inset 0 1px 0 rgba(80, 200, 140, 0.07);
+}
+.chat-media-btn--audio:hover {
+  border-color: #3dbd84;
+  color: #c4ffd8;
+  box-shadow: inset 0 1px 0 rgba(80, 200, 140, 0.12), 0 0 0 1px color-mix(in srgb, #3dbd84 35%, transparent), 0 8px 20px rgba(20, 80, 55, 0.35);
+}
+.chat-media-icon {
+  width: 21px;
+  height: 21px;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 #chat-input {
   width: 100%;

@@ -26,6 +26,18 @@ const fmtCtx = (n) => {
   if (n >= 1024) return `${(n / 1024).toFixed(0)}K`;
   return String(n);
 };
+
+function formatMetaElapsed(ms) {
+  const n = Math.max(0, Number(ms) || 0);
+  if (n < 1000) {
+    return t("chat.meta_time_ms", { ms: Math.round(n) });
+  }
+  const sec = n / 1000;
+  if (sec < 10) {
+    return t("chat.meta_time_s_dec", { s: sec.toFixed(1) });
+  }
+  return t("chat.meta_time", { s: Math.round(sec) });
+}
 const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -624,7 +636,7 @@ function renderChatMessages() {
   host.innerHTML = chatMessages.map((m) => {
     const meta = [];
     if (m.role === "assistant" && !m.streaming) {
-      if (m.elapsedMs > 0) meta.push(t("chat.meta_time", { s: Math.max(0, Math.round(m.elapsedMs / 1000)) }));
+      if (m.elapsedMs > 0) meta.push(formatMetaElapsed(m.elapsedMs));
       if (m.tokens > 0) meta.push(t("chat.meta_tokens", { n: m.tokens }));
       if (m.tps != null && m.tps > 0 && Number.isFinite(m.tps)) {
         meta.push(t("chat.meta_tps", { rate: m.tps.toFixed(2) }));

@@ -85,8 +85,19 @@
         <div id="chat-attachments" class="chat-attachments" hidden></div>
         <div class="chat-actions-row">
           <div class="chat-upload-actions">
-            <button id="chat-image-btn" class="ghost chat-upload-btn" data-i18n="chat.add_image" hidden>Add image</button>
-            <button id="chat-audio-btn" class="ghost chat-upload-btn" data-i18n="chat.add_audio" hidden>Add audio</button>
+            <button type="button" id="chat-image-btn" class="chat-media-btn chat-media-btn--image" data-i18n-attr="title aria-label" data-i18n="chat.add_image" hidden>
+              <svg class="chat-media-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2.5" ry="2.5"/>
+                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/>
+                <path d="M21 15l-5-5L5 21"/>
+              </svg>
+            </button>
+            <button type="button" id="chat-audio-btn" class="chat-media-btn chat-media-btn--audio" data-i18n-attr="title aria-label" data-i18n="chat.add_audio" hidden>
+              <svg class="chat-media-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v3"/>
+              </svg>
+            </button>
             <input id="chat-image-input" type="file" accept="image/*" multiple hidden>
             <input id="chat-audio-input" type="file" accept="audio/*" multiple hidden>
           </div>

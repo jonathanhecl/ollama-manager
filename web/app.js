@@ -625,6 +625,44 @@ function thinkLabel(ms, streaming) {
   return t("chat.think_done", { s: sec });
 }
 
+function renderAssistantToolLog(m) {
+  const entries = m.toolLog || [];
+  if (!entries.length) return "";
+  const lines = entries.map((e) => {
+    const isSearch = e.name === "web_search";
+    const isFetch = e.name === "web_fetch";
+    const title = isSearch ? t("chat.tool.web_search")
+      : isFetch ? t("chat.tool.web_fetch")
+        : escapeHtml(e.name);
+    let detailHtml = "";
+    if (isSearch && e.query) {
+      let d = escapeHtml(e.query);
+      if (e.max_results) d += ` · ${escapeHtml(t("chat.tool.max_results", { n: e.max_results }))}`;
+      detailHtml = `<div class="chat-tool-detail mono">${d}</div>`;
+    } else if (isFetch && e.url) {
+      const u = escapeHtml(e.url);
+      detailHtml = `<div class="chat-tool-detail"><a href="${u}" target="_blank" rel="noopener noreferrer" class="chat-tool-link mono">${u}</a></div>`;
+    }
+    const st = e.status || "unknown";
+    const icon = st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
+    let tail = "";
+    if (st === "error" && e.error) {
+      tail += `<div class="chat-tool-err mono">${escapeHtml(e.error)}</div>`;
+    }
+    if (st === "ok" && (e.result_preview || e.result_runes)) {
+      const metaBits = [];
+      if (e.result_runes) metaBits.push(t("chat.tool.chars", { n: e.result_runes }));
+      const meta = metaBits.length ? `<span class="chat-tool-runes mono">${escapeHtml(metaBits.join(" · "))}</span>` : "";
+      const prev = e.result_preview
+        ? `<details class="chat-tool-preview"><summary>${escapeHtml(t("chat.tool.result_preview"))}</summary><pre>${escapeHtml(e.result_preview)}</pre></details>`
+        : "";
+      tail += `<div class="chat-tool-result-head">${meta}</div>${prev}`;
+    }
+    return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${title}</span>${detailHtml}${tail}</div>${st === "running" ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
+  });
+  return `<div class="chat-tool-log" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${lines.join("")}</div>`;
+}
+
 function buildAssistantDebugFooter(m) {
   if (m.role !== "assistant" || m.streaming || !m.hasDebug) return "";
   const used = Math.max(0, Number(m.promptTokens) || 0);
@@ -687,6 +725,10 @@ function renderChatMessages() {
         </details>`
       : "";
 
+    const toolLogBlock = m.role === "assistant" && m.toolLog?.length
+      ? renderAssistantToolLog(m)
+      : "";
+
     const bodyHTML = m.role === "assistant"
       ? renderMarkdownSafe(m.content || "")
       : `<p>${escapeHtml(m.content || "")}</p>`;
@@ -700,6 +742,7 @@ function renderChatMessages() {
           ${meta.length ? `<span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span>` : ""}
         </header>
         ${files ? `<div class="chat-file-list">${files}</div>` : ""}
+        ${toolLogBlock}
         ${thinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
         ${debugFooter}
@@ -965,6 +1008,7 @@ async function runOneChatTurn(text, attachments) {
     evalDurationNs: 0,
     contextMax: 0,
     tps: null,
+    toolLog: [],
   };
   chatMessages.push(assistantMsg);
   renderChatMessages();
@@ -1008,7 +1052,30 @@ async function runOneChatTurn(text, attachments) {
       throw new Error(msg || "chat failed");
     }
     await readSSEStream(res, async (event, data) => {
-      if (event === "chunk") {
+      if (event === "tool") {
+        if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
+        if (data?.phase === "start") {
+          assistantMsg.toolLog.push({
+            name: data.name,
+            query: data.query,
+            url: data.url,
+            max_results: data.max_results,
+            status: "running",
+          });
+        } else if (data?.phase === "done") {
+          for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
+            const e = assistantMsg.toolLog[i];
+            if (e.name === data.name && e.status === "running") {
+              e.status = data.ok ? "ok" : "error";
+              e.error = data.error || "";
+              e.result_preview = data.result_preview || "";
+              e.result_runes = data.result_runes;
+              break;
+            }
+          }
+        }
+        renderChatMessages();
+      } else if (event === "chunk") {
         const delta = data?.message?.content || "";
         if (delta) assistantRaw += delta;
         const parts = splitThink(assistantRaw);

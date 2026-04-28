@@ -109,6 +109,25 @@ func numFromAny(v any) float64 {
 	}
 }
 
+func toolStartPayload(name string, args json.RawMessage) map[string]any {
+	p := map[string]any{"phase": "start", "name": name}
+	m := parseToolArgs(args)
+	switch name {
+	case "web_search":
+		if q, _ := m["query"].(string); strings.TrimSpace(q) != "" {
+			p["query"] = q
+		}
+		if mr := int(numFromAny(m["max_results"])); mr > 0 {
+			p["max_results"] = mr
+		}
+	case "web_fetch":
+		if u, _ := m["url"].(string); strings.TrimSpace(u) != "" {
+			p["url"] = u
+		}
+	}
+	return p
+}
+
 func (s *Server) runWebTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	m := parseToolArgs(args)
 	switch name {
@@ -203,7 +222,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 			if n == "" {
 				continue
 			}
-			send("tool", map[string]any{"name": n})
+			send("tool", toolStartPayload(n, tc.Function.Arguments))
 			out, err := s.runWebTool(ctx, n, tc.Function.Arguments)
 			if err != nil {
 				out = "Error: " + err.Error()
@@ -214,6 +233,14 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 				ToolName: n,
 				Content:  out,
 			})
+			done := map[string]any{"phase": "done", "name": n, "ok": err == nil}
+			if err != nil {
+				done["error"] = err.Error()
+			} else if out != "" {
+				done["result_preview"] = truncateRunes(out, 320)
+				done["result_runes"] = utf8.RuneCountInString(out)
+			}
+			send("tool", done)
 		}
 	}
 	send("error", map[string]any{"error": "web tools: too many tool rounds, try a narrower question"})

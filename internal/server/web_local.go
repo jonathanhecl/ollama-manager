@@ -17,7 +17,8 @@ import (
 	"golang.org/x/net/html"
 )
 
-const webClientUA = "Mozilla/5.0 (compatible; ollama-manager/1.0; +https://github.com/gense/ollama-manager)"
+// Browser-like UA: DuckDuckGo Lite and many sites return empty or challenge pages to generic/“bot” UAs.
+const webClientUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 (ollama-manager)"
 const maxFetchBody = 2 << 20 // 2 MiB
 
 var reSpace = regexp.MustCompile(`\s+`)
@@ -242,7 +243,14 @@ func (s *Server) localWebFetch(ctx context.Context, pageURL string) (string, err
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
-		return "", fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		msg := strings.TrimSpace(string(b))
+		if len(msg) > 600 {
+			msg = msg[:600] + "…"
+		}
+		if msg == "" {
+			msg = "(empty body)"
+		}
+		return "", fmt.Errorf("http %d: %s", resp.StatusCode, msg)
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBody))
 	if err != nil {
@@ -271,6 +279,41 @@ func (s *Server) localWebFetch(ctx context.Context, pageURL string) (string, err
 }
 
 // ----- DuckDuckGo (no API key) -----
+
+// unwrapDDGResultURL normalizes result links from DuckDuckGo Lite. They are often
+// protocol-relative (//duckduckgo.com/...) and use /l/?uddg=<encoded target URL>.
+func unwrapDDGResultURL(href string) (string, bool) {
+	href = strings.TrimSpace(href)
+	if href == "" {
+		return "", false
+	}
+	if strings.HasPrefix(href, "//") {
+		href = "https:" + href
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	duck := host == "duckduckgo.com" || strings.HasSuffix(host, ".duckduckgo.com")
+	if duck && strings.HasPrefix(u.Path, "/l") {
+		uddg := u.Query().Get("uddg")
+		if uddg != "" {
+			dec, err := url.QueryUnescape(uddg)
+			if err == nil && (strings.HasPrefix(dec, "http://") || strings.HasPrefix(dec, "https://")) {
+				return dec, true
+			}
+		}
+	}
+	if u.Scheme == "http" || u.Scheme == "https" {
+		// Use parsed form for consistent string (drops fragments, etc. where applicable).
+		if duck && strings.Contains(u.Path, "duckduckgo-help") {
+			return "", false
+		}
+		return u.String(), true
+	}
+	return "", false
+}
 
 type ddgAPIResponse struct {
 	AbstractText  string         `json:"AbstractText"`
@@ -391,16 +434,19 @@ func (s *Server) ddgLiteScrape(ctx context.Context, query string, max int) (stri
 		}
 		if n.Type == html.ElementNode && n.Data == "a" {
 			cls := getAttr(n, "class")
-			href := getAttr(n, "href")
-			if strings.Contains(cls, "result-link") && (strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://")) {
-				var t strings.Builder
-				htmlNodeText(n, &t)
-				title := strings.TrimSpace(t.String())
-				if title == "" {
-					title = href
+			if strings.Contains(cls, "result-link") {
+				href := getAttr(n, "href")
+				if final, ok := unwrapDDGResultURL(href); ok {
+					var t strings.Builder
+					htmlNodeText(n, &t)
+					title := strings.TrimSpace(t.String())
+					if title == "" {
+						title = final
+					}
+					if !strings.EqualFold(title, "more info") {
+						hits = append(hits, [2]string{title, final})
+					}
 				}
-				// de-dupe duckduckgo redirects sometimes
-				hits = append(hits, [2]string{title, href})
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {

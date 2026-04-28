@@ -1347,6 +1347,30 @@ $("confirm-ok").addEventListener("click", async () => {
 
 // ---------- downloads queue ----------
 
+/** Pasted "ollama pull|run X", a bare model name, or text containing a URL → value for /api/pull. */
+function normalizePullInput(raw) {
+  let s = String(raw || "").replace(/\r\n/g, " ").trim();
+  if (!s) return "";
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  for (let d = 0; d < 2; d++) {
+    const m = s.match(/^\s*ollama\s+(?:pull|run)\s+(.+?)\s*$/i);
+    if (m) s = m[1].trim();
+    else break;
+  }
+  s = s.replace(/\s+/g, " ").trim();
+  if (/^https?:\/\//i.test(s)) {
+    s = s.split(/\s+/)[0];
+    return s.replace(/[),.;:>\]}]+$/g, "");
+  }
+  const u = s.match(/https?:\/\/[^\s<>"'()]+/i);
+  if (u) {
+    return u[0].replace(/[),.;:>\]}]+$/g, "");
+  }
+  return s;
+}
+
 // Open a single long-lived SSE connection to the job manager. On
 // disconnect, exponential backoff up to 30s.
 function connectJobsStream() {
@@ -1578,7 +1602,7 @@ $("downloads-x").addEventListener("click", closeDownloads);
 $("dl-add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = $("dl-add-input");
-  const name = input.value.trim();
+  const name = normalizePullInput(input.value);
   if (!name) return;
   try {
     await api("/api/pull", {

@@ -45,6 +45,14 @@ let activeName = null;
 let jobs = new Map();   // id -> job
 let jobsStream = null;  // EventSource for /api/jobs/events
 let jobsBackoffMs = 1000;
+let currentView = "models";
+let chatMessages = [];
+let chatAttachments = [];
+let chatStreamLock = false;
+let chatThinkTicker = null;
+let chatLastUsedTokens = 0;
+let chatDndDepth = 0;
+let chatPendingQueue = [];
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
@@ -97,6 +105,9 @@ async function refreshModels() {
     const data = await api("/api/models");
     models = data.models || [];
     renderTable();
+    syncChatModelOptions();
+    updateChatCapabilityUI();
+    updateChatContextMeter();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
     $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
@@ -230,6 +241,13 @@ function renderTable() {
   `;
   }).join("");
 
+  tbody.querySelectorAll("tr.row").forEach((tr) => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest(".info-btn")) return;
+      if (e.target.closest(".delete-btn")) return;
+      showChatViewWithModel(tr.dataset.name);
+    });
+  });
   tbody.querySelectorAll(".info-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -321,6 +339,631 @@ $("detail-close").addEventListener("click", () => {
   activeName = null;
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
 });
+
+// ---------- chat ----------
+function nanoid() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function modelByName(name) {
+  return models.find((m) => m.name === name) || null;
+}
+
+function modelCaps(name) {
+  const m = modelByName(name);
+  const out = new Set();
+  for (const c of (m?.capabilities || [])) out.add(String(c).toLowerCase());
+  return out;
+}
+
+function syncChatModelOptions() {
+  const sel = $("chat-model");
+  if (!sel) return;
+  const previous = sel.value;
+  const sorted = applySort(models);
+  sel.innerHTML = sorted.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
+  if (!sorted.length) return;
+  if (previous && sorted.some((m) => m.name === previous)) {
+    sel.value = previous;
+  } else if (activeName && sorted.some((m) => m.name === activeName)) {
+    sel.value = activeName;
+  } else {
+    const loaded = sorted.find((m) => m.loaded);
+    sel.value = (loaded || sorted[0]).name;
+  }
+}
+
+function updateChatCapabilityUI() {
+  const model = $("chat-model").value;
+  const caps = modelCaps(model);
+  const canVision = caps.has("vision");
+  const canAudio = caps.has("audio");
+  const canThinkToggle = caps.has("thinking");
+  $("chat-image-btn").hidden = !canVision;
+  $("chat-audio-btn").hidden = !canAudio;
+  $("chat-think-wrap").hidden = !canThinkToggle;
+}
+
+function updateChatContextMeter() {
+  const selected = modelByName($("chat-model").value);
+  const maxCtx = Number(selected?.context_length) || 0;
+  if (!maxCtx) {
+    $("chat-context-meter").textContent = "—";
+    return;
+  }
+  const used = Math.max(0, Number(chatLastUsedTokens) || 0);
+  const pct = Math.min(999, Math.round((used / maxCtx) * 100));
+  $("chat-context-meter").textContent = `${fmtCtx(used)} / ${fmtCtx(maxCtx)} (${pct}%)`;
+}
+
+function showModelsView() {
+  currentView = "models";
+  $("models-view").hidden = false;
+  $("chat-view").hidden = true;
+  $("chat-btn").classList.remove("active");
+}
+
+function resetChatState() {
+  chatMessages = [];
+  chatAttachments = [];
+  chatPendingQueue = [];
+  chatLastUsedTokens = 0;
+  chatDndDepth = 0;
+  stopThinkTicker();
+  $("chat-dropzone").hidden = true;
+  $("chat-attachments").hidden = true;
+  $("chat-attachments").innerHTML = "";
+  renderChatQueue();
+  $("chat-messages").innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
+  $("chat-input").value = "";
+}
+
+function showChatView() {
+  currentView = "chat";
+  $("models-view").hidden = true;
+  $("chat-view").hidden = false;
+  $("chat-btn").classList.add("active");
+  if (!$("detail-panel").hidden) {
+    $("detail-panel").hidden = true;
+    activeName = null;
+    document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+  }
+  syncChatModelOptions();
+  updateChatCapabilityUI();
+  updateChatContextMeter();
+  setTimeout(() => $("chat-input").focus(), 20);
+}
+
+function showChatViewWithModel(name) {
+  showChatView();
+  if (!name) return;
+  const sel = $("chat-model");
+  const exists = Array.from(sel?.options || []).some((o) => o.value === name);
+  if (!exists) return;
+  sel.value = name;
+  updateChatCapabilityUI();
+  updateChatContextMeter();
+}
+
+function renderMarkdownSafe(input) {
+  const text = String(input || "").replace(/\r\n/g, "\n");
+  const codeBlocks = [];
+  let html = text.replace(/```([\w-]+)?\n([\s\S]*?)```/g, (_m, _lang, code) => {
+    const key = `@@CODEBLOCK_${codeBlocks.length}@@`;
+    codeBlocks.push(`<pre class="chat-code"><code>${escapeHtml(code)}</code></pre>`);
+    return key;
+  });
+
+  html = escapeHtml(html);
+  html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, `<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>`);
+  html = html.replace(/^###\s+(.+)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^##\s+(.+)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^#\s+(.+)$/gm, "<h2>$1</h2>");
+
+  const lines = html.split("\n");
+  const out = [];
+  let inList = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^[-*]\s+/.test(trimmed)) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${trimmed.replace(/^[-*]\s+/, "")}</li>`);
+      continue;
+    }
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+    if (trimmed === "") {
+      out.push("");
+    } else if (/^@@CODEBLOCK_\d+@@$/.test(trimmed)) {
+      out.push(trimmed);
+    } else if (/^<h[234]>/.test(trimmed)) {
+      out.push(trimmed);
+    } else {
+      out.push(`<p>${trimmed}</p>`);
+    }
+  }
+  if (inList) out.push("</ul>");
+  html = out.join("\n").replace(/\n{3,}/g, "\n\n");
+
+  codeBlocks.forEach((block, i) => {
+    html = html.replace(`@@CODEBLOCK_${i}@@`, block);
+  });
+  return html;
+}
+
+function splitThink(raw) {
+  const text = String(raw || "");
+  const open = text.indexOf("<think>");
+  if (open === -1) return { think: "", answer: text, inThink: false };
+  const close = text.indexOf("</think>", open + 7);
+  if (close === -1) {
+    return {
+      think: text.slice(open + 7),
+      answer: (text.slice(0, open)).replace(/<\/?think>/g, ""),
+      inThink: true,
+    };
+  }
+  const before = text.slice(0, open);
+  const think = text.slice(open + 7, close);
+  const after = text.slice(close + 8);
+  return {
+    think,
+    answer: (before + after).replace(/<\/?think>/g, ""),
+    inThink: false,
+  };
+}
+
+function thinkLabel(ms, streaming) {
+  const sec = Math.max(0, Math.round((ms || 0) / 1000));
+  if (streaming) return t("chat.think_running", { s: sec });
+  return t("chat.think_done", { s: sec });
+}
+
+function renderChatMessages() {
+  const host = $("chat-messages");
+  if (!chatMessages.length) {
+    host.innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
+    return;
+  }
+  host.innerHTML = chatMessages.map((m) => {
+    const meta = [];
+    if (m.role === "assistant" && !m.streaming) {
+      if (m.elapsedMs > 0) meta.push(t("chat.meta_time", { s: Math.max(0, Math.round(m.elapsedMs / 1000)) }));
+      if (m.tokens > 0) meta.push(t("chat.meta_tokens", { n: m.tokens }));
+    }
+    if (m.role === "assistant" && m.streaming) {
+      meta.push(t("chat.streaming"));
+    }
+
+    const files = (m.attachments || []).map((a) => (
+      `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`
+    )).join("");
+
+    const thinkBlock = m.thinkContent
+      ? `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
+          <summary>${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && !!m.inThink))}</summary>
+          <pre>${escapeHtml(m.thinkContent)}</pre>
+        </details>`
+      : "";
+
+    const bodyHTML = m.role === "assistant"
+      ? renderMarkdownSafe(m.content || "")
+      : `<p>${escapeHtml(m.content || "")}</p>`;
+
+    const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
+    return `
+      <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
+        <header class="chat-msg-head">
+          <span class="chat-role">${escapeHtml(m.role === "user" ? t("chat.role_user") : t("chat.role_assistant"))}</span>
+          ${meta.length ? `<span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span>` : ""}
+        </header>
+        ${files ? `<div class="chat-file-list">${files}</div>` : ""}
+        ${thinkBlock}
+        <div class="chat-md">${bodyHTML || "<p></p>"}</div>
+      </article>
+    `;
+  }).join("");
+
+  host.querySelectorAll("details.chat-think").forEach((el) => {
+    el.addEventListener("toggle", () => {
+      const msg = chatMessages.find((x) => x.id === el.dataset.id);
+      if (!msg) return;
+      msg.thinkOpen = el.open;
+    });
+  });
+  host.scrollTop = host.scrollHeight;
+}
+
+function renderAttachments() {
+  const box = $("chat-attachments");
+  if (!chatAttachments.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = chatAttachments.map((a) => (
+    `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`
+  )).join("");
+  box.querySelectorAll(".chat-attach-x").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      chatAttachments = chatAttachments.filter((a) => a.id !== btn.dataset.id);
+      renderAttachments();
+    });
+  });
+}
+
+function renderChatQueue() {
+  const host = $("chat-queue");
+  if (!host) return;
+  if (!chatPendingQueue.length) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+  host.hidden = false;
+  const head = `<div class="chat-queue-head">${escapeHtml(t("chat.queue_title"))} <span class="chat-queue-count mono">${chatPendingQueue.length}</span></div>`;
+  const rows = chatPendingQueue.map((q, i) => {
+    const hasText = String(q.text || "").trim().length > 0;
+    const preview = hasText ? String(q.text).trim() : t("chat.queue_attachments_only");
+    const short = preview.length > 100 ? `${preview.slice(0, 100)}…` : preview;
+    const attHint = (q.attachments || []).length
+      ? ` <span class="chat-queue-att">+${q.attachments.length}</span>`
+      : "";
+    return `
+      <div class="chat-queue-item">
+        <span class="chat-queue-n mono">${i + 1}</span>
+        <span class="chat-queue-preview">${escapeHtml(short)}${attHint}</span>
+        <button type="button" class="btn-icon chat-queue-x" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_remove"))}">×</button>
+      </div>`;
+  }).join("");
+  host.innerHTML = head + `<div class="chat-queue-list">${rows}</div>`;
+  host.querySelectorAll(".chat-queue-x").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      chatPendingQueue = chatPendingQueue.filter((q) => q.id !== btn.dataset.id);
+      renderChatQueue();
+    });
+  });
+}
+
+function stopThinkTicker() {
+  if (!chatThinkTicker) return;
+  clearInterval(chatThinkTicker);
+  chatThinkTicker = null;
+}
+
+function startThinkTicker(msg) {
+  stopThinkTicker();
+  chatThinkTicker = setInterval(() => {
+    if (!msg || !msg.inThink || !msg.thinkStartedAt) return;
+    msg.thinkMs = Date.now() - msg.thinkStartedAt;
+    renderChatMessages();
+  }, 250);
+}
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const res = String(fr.result || "");
+      resolve(res.includes(",") ? res.split(",")[1] : res);
+    };
+    fr.onerror = () => reject(new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+}
+
+async function addFiles(files) {
+  const selectedModel = $("chat-model").value;
+  const caps = modelCaps(selectedModel);
+  const canVision = caps.has("vision");
+  const canAudio = caps.has("audio");
+  const accepted = [];
+  for (const file of files) {
+    const type = String(file.type || "");
+    if (type.startsWith("image/") && canVision) accepted.push({ file, kind: "image" });
+    if (type.startsWith("audio/") && canAudio) accepted.push({ file, kind: "audio" });
+  }
+  if (!accepted.length) {
+    toast(t("chat.attach_not_supported"), "error");
+    return;
+  }
+
+  for (const item of accepted) {
+    if (item.file.size > 20 * 1024 * 1024) {
+      toast(t("chat.file_too_large", { name: item.file.name }), "error");
+      continue;
+    }
+    const data = await toBase64(item.file);
+    chatAttachments.push({
+      id: nanoid(),
+      kind: item.kind,
+      name: item.file.name,
+      mime: item.file.type,
+      data,
+    });
+  }
+  renderAttachments();
+}
+
+function buildOutboundMessages() {
+  const out = [];
+  const systemPrompt = $("chat-system").value.trim();
+  if (systemPrompt) out.push({ role: "system", content: systemPrompt });
+  for (const m of chatMessages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    if (m.role === "assistant" && (m.streaming || !String(m.content || "").trim())) continue;
+    const payload = { role: m.role, content: m.content || "" };
+    if (m.role === "user" && m.attachments?.length) {
+      const imgs = m.attachments.filter((a) => a.kind === "image").map((a) => a.data);
+      const auds = m.attachments.filter((a) => a.kind === "audio").map((a) => a.data);
+      if (imgs.length) payload.images = imgs;
+      if (auds.length) payload.audios = auds;
+    }
+    out.push(payload);
+  }
+  return out;
+}
+
+function readOptionNumber(id, fallback) {
+  const n = Number($(id).value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+async function readSSEStream(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    while (true) {
+      const splitAt = buf.indexOf("\n\n");
+      if (splitAt < 0) break;
+      const block = buf.slice(0, splitAt);
+      buf = buf.slice(splitAt + 2);
+      let event = "message";
+      const dataLines = [];
+      for (const line of block.split("\n")) {
+        if (!line || line.startsWith(":")) continue;
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      }
+      if (!dataLines.length) continue;
+      let data = {};
+      try {
+        data = JSON.parse(dataLines.join("\n"));
+      } catch {
+        data = { raw: dataLines.join("\n") };
+      }
+      await onEvent(event, data);
+    }
+  }
+}
+
+async function runOneChatTurn(text, attachments) {
+  const userMsg = {
+    id: nanoid(),
+    role: "user",
+    content: text,
+    attachments: (attachments || []).map((a) => ({ ...a })),
+  };
+  chatMessages.push(userMsg);
+
+  const assistantMsg = {
+    id: nanoid(),
+    role: "assistant",
+    content: "",
+    thinkContent: "",
+    thinkOpen: true,
+    inThink: false,
+    thinkMs: 0,
+    thinkStartedAt: 0,
+    streaming: true,
+    elapsedMs: 0,
+    tokens: 0,
+  };
+  chatMessages.push(assistantMsg);
+  renderChatMessages();
+
+  const caps = modelCaps($("chat-model").value);
+  const canThinkToggle = caps.has("thinking");
+  const noThink = canThinkToggle ? $("chat-no-think").checked : false;
+  const payload = {
+    model: $("chat-model").value,
+    think: canThinkToggle ? !noThink : undefined,
+    options: {
+      temperature: readOptionNumber("chat-temperature", 0.7),
+      top_k: Math.round(readOptionNumber("chat-top-k", 40)),
+      top_p: readOptionNumber("chat-top-p", 0.9),
+    },
+    messages: buildOutboundMessages(),
+  };
+
+  chatStreamLock = true;
+  const turnStartedAt = Date.now();
+  let assistantRaw = "";
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try {
+        const j = await res.json();
+        if (j.error) msg = j.error;
+      } catch {}
+      throw new Error(msg || "chat failed");
+    }
+    await readSSEStream(res, async (event, data) => {
+      if (event === "chunk") {
+        const delta = data?.message?.content || "";
+        if (delta) assistantRaw += delta;
+        const parts = splitThink(assistantRaw);
+        assistantMsg.thinkContent = parts.think;
+        assistantMsg.content = parts.answer;
+        assistantMsg.inThink = parts.inThink;
+        if (parts.inThink && !assistantMsg.thinkStartedAt) {
+          assistantMsg.thinkStartedAt = Date.now();
+          startThinkTicker(assistantMsg);
+        }
+        if (!parts.inThink && assistantMsg.thinkStartedAt) {
+          assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
+          stopThinkTicker();
+        }
+        renderChatMessages();
+      } else if (event === "error") {
+        throw new Error(data?.error || "stream error");
+      } else if (event === "done") {
+        assistantMsg.streaming = false;
+        assistantMsg.inThink = false;
+        assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - turnStartedAt);
+        assistantMsg.tokens = Number(data.total_tokens) || 0;
+        chatLastUsedTokens = assistantMsg.tokens;
+        updateChatContextMeter();
+      }
+    });
+    assistantMsg.streaming = false;
+    if (assistantMsg.thinkStartedAt && assistantMsg.thinkMs === 0) {
+      assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
+    }
+    assistantMsg.elapsedMs = assistantMsg.elapsedMs || (Date.now() - turnStartedAt);
+  } catch (e) {
+    assistantMsg.streaming = false;
+    assistantMsg.inThink = false;
+    if (!assistantMsg.content) {
+      assistantMsg.content = t("chat.error_reply", { msg: e.message || "failed" });
+    }
+    toast(t("toast.error", { msg: e.message || "chat failed" }), "error");
+  } finally {
+    stopThinkTicker();
+    chatStreamLock = false;
+    renderChatMessages();
+    if (chatPendingQueue.length > 0) {
+      const next = chatPendingQueue.shift();
+      renderChatQueue();
+      setTimeout(() => { runOneChatTurn(next.text, next.attachments); }, 0);
+    } else {
+      renderChatQueue();
+    }
+  }
+}
+
+async function sendChatMessage() {
+  const text = $("chat-input").value.trim();
+  if (!text && chatAttachments.length === 0) return;
+  if (!models.length) {
+    toast(t("chat.no_models"), "error");
+    return;
+  }
+
+  const snapText = text;
+  const snapAtt = chatAttachments.map((a) => ({ ...a }));
+  $("chat-input").value = "";
+  chatAttachments = [];
+  renderAttachments();
+
+  if (chatStreamLock) {
+    chatPendingQueue.push({ id: nanoid(), text: snapText, attachments: snapAtt });
+    renderChatQueue();
+    return;
+  }
+
+  await runOneChatTurn(snapText, snapAtt);
+}
+
+function bindChatEvents() {
+  $("chat-btn").addEventListener("click", showChatView);
+  $("chat-back-btn").addEventListener("click", () => {
+    showModelsView();
+    resetChatState();
+  });
+  $("chat-model").addEventListener("change", () => {
+    updateChatCapabilityUI();
+    updateChatContextMeter();
+  });
+  $("chat-send-btn").addEventListener("click", sendChatMessage);
+  $("chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+  $("chat-input").addEventListener("paste", async (e) => {
+    if (currentView !== "chat") return;
+    const cd = e.clipboardData;
+    if (!cd?.items?.length) return;
+    const imageFiles = [];
+    for (const item of cd.items) {
+      if (item.kind === "file" && String(item.type || "").startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) imageFiles.push(f);
+      }
+    }
+    if (!imageFiles.length) return;
+    e.preventDefault();
+    const extraText = cd.getData("text/plain") || "";
+    await addFiles(imageFiles);
+    if (extraText) {
+      const ta = $("chat-input");
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? ta.value.length;
+      const v = ta.value;
+      ta.value = v.slice(0, start) + extraText + v.slice(end);
+      const pos = start + extraText.length;
+      ta.setSelectionRange(pos, pos);
+    }
+  });
+  $("chat-image-btn").addEventListener("click", () => $("chat-image-input").click());
+  $("chat-audio-btn").addEventListener("click", () => $("chat-audio-input").click());
+  $("chat-image-input").addEventListener("change", async () => {
+    await addFiles(Array.from($("chat-image-input").files || []));
+    $("chat-image-input").value = "";
+  });
+  $("chat-audio-input").addEventListener("change", async () => {
+    await addFiles(Array.from($("chat-audio-input").files || []));
+    $("chat-audio-input").value = "";
+  });
+
+  const dropHost = $("chat-view");
+  dropHost.addEventListener("dragenter", (e) => {
+    if (currentView !== "chat") return;
+    e.preventDefault();
+    chatDndDepth += 1;
+    $("chat-dropzone").hidden = false;
+  });
+  dropHost.addEventListener("dragover", (e) => {
+    if (currentView !== "chat") return;
+    e.preventDefault();
+  });
+  dropHost.addEventListener("dragleave", (e) => {
+    if (currentView !== "chat") return;
+    e.preventDefault();
+    chatDndDepth = Math.max(0, chatDndDepth - 1);
+    if (chatDndDepth === 0) $("chat-dropzone").hidden = true;
+  });
+  dropHost.addEventListener("drop", async (e) => {
+    if (currentView !== "chat") return;
+    e.preventDefault();
+    chatDndDepth = 0;
+    $("chat-dropzone").hidden = true;
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    await addFiles(files);
+  });
+}
 
 // ---------- delete ----------
 let pendingDelete = null;
@@ -677,6 +1320,10 @@ $("set-language").addEventListener("change", () => {
   refreshStatus();
   renderTable();
   if (activeName) openDetail(activeName);
+  updateChatContextMeter();
+  renderAttachments();
+  renderChatMessages();
+  renderChatQueue();
   updatePasswordSection();
 });
 
@@ -757,5 +1404,9 @@ window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
 refreshStatus();
 refreshModels();
 connectJobsStream();
+bindChatEvents();
+syncChatModelOptions();
+updateChatCapabilityUI();
+updateChatContextMeter();
 setInterval(refreshStatus, 15000);
 setInterval(refreshLoadedState, 1000);

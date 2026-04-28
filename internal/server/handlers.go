@@ -543,6 +543,89 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": name})
 }
 
+// ---------- chat ----------
+
+type chatRequestBody struct {
+	Model    string               `json:"model"`
+	Messages []ollama.ChatMessage `json:"messages"`
+	Think    *bool                `json:"think,omitempty"`
+	Options  map[string]any       `json:"options,omitempty"`
+}
+
+func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("streaming not supported"))
+		return
+	}
+
+	var body chatRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	body.Model = strings.TrimSpace(body.Model)
+	if body.Model == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'model'"))
+		return
+	}
+	if len(body.Messages) == 0 {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'messages'"))
+		return
+	}
+
+	chatReq := ollama.ChatRequest{
+		Model:    body.Model,
+		Messages: body.Messages,
+		Stream:   true,
+		Think:    body.Think,
+		Options:  body.Options,
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	send := func(event string, payload any) {
+		buf, _ := json.Marshal(payload)
+		if event != "" {
+			fmt.Fprintf(w, "event: %s\n", event)
+		}
+		fmt.Fprintf(w, "data: %s\n\n", buf)
+		flusher.Flush()
+	}
+
+	startedAt := time.Now()
+	var final ollama.ChatChunk
+	err := s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
+		send("chunk", chunk)
+		if chunk.Done {
+			final = chunk
+		}
+		return nil
+	})
+	if err != nil {
+		if r.Context().Err() != nil {
+			return
+		}
+		send("error", map[string]any{"error": err.Error()})
+		return
+	}
+
+	totalTokens := final.PromptEvalCount + final.EvalCount
+	send("done", map[string]any{
+		"elapsed_ms":         time.Since(startedAt).Milliseconds(),
+		"prompt_tokens":      final.PromptEvalCount,
+		"completion_tokens":  final.EvalCount,
+		"total_tokens":       totalTokens,
+		"prompt_duration_ns": final.PromptEvalDuration,
+		"eval_duration_ns":   final.EvalDuration,
+		"total_duration_ns":  final.TotalDuration,
+	})
+}
+
 // ---------- pull (enqueue) ----------
 
 // handlePull enqueues a new download. The job runs asynchronously; clients

@@ -25,7 +25,7 @@
     </div>
   </header>
 
-  <main>
+  <main id="models-view">
     <section class="table-wrap">
       <table id="models-table">
         <thead>
@@ -46,6 +46,79 @@
         </tbody>
       </table>
     </section>
+  </main>
+
+  <main id="chat-view" class="chat-view" hidden>
+    <section class="chat-shell">
+      <header class="chat-head">
+        <div class="chat-nav">
+          <button id="chat-back-btn" class="ghost chat-back" data-i18n-attr="title" data-i18n="chat.back" title="Back">&lt;</button>
+          <div class="chat-model-line">
+            <label for="chat-model" data-i18n="chat.model">Model</label>
+            <select id="chat-model"></select>
+          </div>
+        </div>
+        <div class="chat-context">
+          <span data-i18n="chat.context">Context</span>
+          <span id="chat-context-meter" class="mono">—</span>
+        </div>
+      </header>
+
+      <div id="chat-dropzone" class="chat-dropzone" hidden>
+        <div class="chat-drop-inner" data-i18n="chat.drop_hint">Drop files to attach</div>
+      </div>
+
+      <section id="chat-messages" class="chat-messages">
+        <div class="chat-empty muted" data-i18n="chat.empty">Start a conversation with your model.</div>
+      </section>
+
+      <footer class="chat-compose">
+        <div id="chat-queue" class="chat-queue" hidden></div>
+        <div id="chat-attachments" class="chat-attachments" hidden></div>
+        <div class="chat-actions-row">
+          <div class="chat-upload-actions">
+            <button id="chat-image-btn" class="ghost chat-upload-btn" data-i18n="chat.add_image" hidden>Add image</button>
+            <button id="chat-audio-btn" class="ghost chat-upload-btn" data-i18n="chat.add_audio" hidden>Add audio</button>
+            <input id="chat-image-input" type="file" accept="image/*" multiple hidden>
+            <input id="chat-audio-input" type="file" accept="audio/*" multiple hidden>
+          </div>
+          <textarea id="chat-input" rows="3" data-i18n-attr="placeholder" data-i18n="chat.input_placeholder" placeholder="Write your message..."></textarea>
+          <button id="chat-send-btn" class="primary chat-send" data-i18n="chat.send">Send</button>
+        </div>
+      </footer>
+    </section>
+
+    <aside class="chat-side">
+      <section class="chat-side-card">
+        <h3 data-i18n="chat.options">Options</h3>
+        <div class="field">
+          <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
+          <textarea id="chat-system" rows="4" data-i18n-attr="placeholder" data-i18n="chat.system_placeholder" placeholder="Optional system instruction"></textarea>
+        </div>
+        <div class="field">
+          <label for="chat-temperature" data-i18n="chat.temperature">Temperature</label>
+          <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7">
+        </div>
+        <div class="field">
+          <label for="chat-top-k" data-i18n="chat.top_k">Top-k</label>
+          <input id="chat-top-k" type="number" min="0" step="1" value="40">
+        </div>
+        <div class="field">
+          <label for="chat-top-p" data-i18n="chat.top_p">Top-p</label>
+          <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9">
+        </div>
+        <div id="chat-think-wrap" class="field switch-field" hidden>
+          <div class="switch-label">
+            <span data-i18n="chat.no_think">No thinking</span>
+            <small class="muted" data-i18n="chat.no_think_hint">Skip think traces for supported models.</small>
+          </div>
+          <label class="switch">
+            <input id="chat-no-think" type="checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </section>
+    </aside>
   </main>
 
   <aside id="detail-panel" class="detail-panel" hidden>

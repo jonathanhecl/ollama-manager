@@ -5,6 +5,7 @@
 //   - GET  /api/ps
 //   - POST /api/show
 //   - POST /api/pull   (NDJSON stream)
+//   - POST /api/chat   (NDJSON stream)
 //   - DELETE /api/delete
 package ollama
 
@@ -89,6 +90,39 @@ type PullProgress struct {
 	Total     int64  `json:"total,omitempty"`
 	Completed int64  `json:"completed,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+// ChatMessage is one turn in /api/chat.
+type ChatMessage struct {
+	Role    string   `json:"role"`
+	Content string   `json:"content"`
+	Images  []string `json:"images,omitempty"`
+	Audios  []string `json:"audios,omitempty"`
+}
+
+// ChatRequest mirrors the subset of /api/chat used by the web UI.
+// Options are passed through to Ollama as-is.
+type ChatRequest struct {
+	Model    string         `json:"model"`
+	Messages []ChatMessage  `json:"messages"`
+	Stream   bool           `json:"stream"`
+	Think    *bool          `json:"think,omitempty"`
+	Options  map[string]any `json:"options,omitempty"`
+}
+
+// ChatChunk is one streamed NDJSON object from /api/chat.
+type ChatChunk struct {
+	Model              string      `json:"model"`
+	CreatedAt          time.Time   `json:"created_at"`
+	Message            ChatMessage `json:"message"`
+	Error              string      `json:"error,omitempty"`
+	Done               bool        `json:"done"`
+	DoneReason         string      `json:"done_reason,omitempty"`
+	PromptEvalCount    int         `json:"prompt_eval_count,omitempty"`
+	EvalCount          int         `json:"eval_count,omitempty"`
+	PromptEvalDuration int64       `json:"prompt_eval_duration,omitempty"`
+	EvalDuration       int64       `json:"eval_duration,omitempty"`
+	TotalDuration      int64       `json:"total_duration,omitempty"`
 }
 
 // List calls GET /api/tags.
@@ -184,6 +218,50 @@ func (c *Client) Pull(ctx context.Context, name string, onEvent func(PullProgres
 			return ctx.Err()
 		}
 		return fmt.Errorf("read pull stream: %w", err)
+	}
+	return nil
+}
+
+// Chat starts POST /api/chat and invokes onChunk for every NDJSON object
+// until the stream completes, the context is cancelled, or onChunk returns
+// an error.
+func (c *Client) Chat(ctx context.Context, req ChatRequest, onChunk func(ChatChunk) error) error {
+	if !req.Stream {
+		req.Stream = true
+	}
+	body, _ := json.Marshal(req)
+	resp, err := c.do(ctx, http.MethodPost, "/api/chat", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return err
+	}
+
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var ev ChatChunk
+		if err := json.Unmarshal(line, &ev); err != nil {
+			return fmt.Errorf("decode chat chunk: %w (line=%q)", err, string(line))
+		}
+		if ev.Error != "" {
+			return fmt.Errorf("ollama: %s", ev.Error)
+		}
+		if err := onChunk(ev); err != nil {
+			return err
+		}
+	}
+	if err := sc.Err(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("read chat stream: %w", err)
 	}
 	return nil
 }

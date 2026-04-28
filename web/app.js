@@ -939,13 +939,13 @@ function renderChatMessages() {
             <span class="chat-role">${escapeHtml(m.role === "user" ? t("chat.role_user") : t("chat.role_assistant"))}</span>
             ${meta.length ? `<span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span>` : ""}
           </div>
-          ${copyBtn}
         </header>
         ${files ? `<div class="chat-file-list">${files}</div>` : ""}
         ${toolLogBlock}
         ${thinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
         ${debugFooter}
+        <div class="chat-msg-foot">${copyBtn}</div>
       </article>
     `;
   }).join("");

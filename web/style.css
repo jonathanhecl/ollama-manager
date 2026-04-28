@@ -985,9 +985,16 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   min-width: 0;
   flex: 1;
 }
+.chat-msg-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 6px;
+  padding-top: 2px;
+}
 .chat-copy-btn {
   flex-shrink: 0;
-  margin: -2px 0 0;
+  margin: 0;
   padding: 4px;
   opacity: 0.7;
   color: var(--text-dim);
@@ -1509,19 +1516,23 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 8px;
-  align-items: end;
+  align-items: stretch;
 }
 .chat-upload-actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  align-self: stretch;
+  min-width: 48px;
 }
 .chat-media-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  max-width: 52px;
   padding: 0;
   margin: 0;
   border-radius: 11px;
@@ -1586,7 +1597,29 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   outline: none;
 }
 #chat-input:focus { border-color: var(--accent); }
-.chat-send { min-width: 88px; }
+.chat-send {
+  min-width: 88px;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+#chat-send-btn:disabled,
+button.chat-send:disabled {
+  opacity: 1;
+  background: #353844 !important;
+  border-color: #4a4f5e !important;
+  color: #8f96a8 !important;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+#chat-send-btn:disabled:hover,
+button.chat-send:disabled:hover {
+  background: #353844 !important;
+  border-color: #4a4f5e !important;
+  color: #8f96a8 !important;
+}
 
 .chat-side {
   border: 1px solid var(--border);
@@ -1654,6 +1687,19 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   .chat-view { grid-template-columns: 1fr; }
   .chat-side { order: -1; }
   .chat-actions-row { grid-template-columns: 1fr; }
-  .chat-upload-actions { flex-direction: row; flex-wrap: wrap; }
+  .chat-upload-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-self: auto;
+    min-width: 0;
+  }
+  .chat-media-btn {
+    flex: 0 0 auto;
+    min-height: 42px;
+    width: 42px;
+    height: 42px;
+    max-width: none;
+  }
+  .chat-send { align-self: end; }
   #chat-model { min-width: 170px; max-width: 65vw; }
 }

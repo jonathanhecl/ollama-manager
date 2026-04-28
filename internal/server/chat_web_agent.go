@@ -12,26 +12,6 @@ import (
 	"github.com/gense/ollama-manager/internal/ollama"
 )
 
-// streamAssistantContentDeltas sends the final assistant text as many SSE "chunk" events
-// with small content deltas so the browser can render incrementally (web-tools path uses
-// non-streaming Ollama calls, so we simulate token-style delivery here).
-func streamAssistantContentDeltas(send func(string, any), text string) {
-	const runesPerChunk = 8
-	r := []rune(text)
-	if len(r) == 0 {
-		send("chunk", map[string]any{"message": map[string]any{"content": " "}})
-		return
-	}
-	for i := 0; i < len(r); i += runesPerChunk {
-		j := i + runesPerChunk
-		if j > len(r) {
-			j = len(r)
-		}
-		delta := string(r[i:j])
-		send("chunk", map[string]any{"message": map[string]any{"content": delta}})
-	}
-}
-
 const maxWebAgentRounds = 24
 const maxToolResultRunes = 12000
 
@@ -77,14 +57,6 @@ func webToolDefinitions() []any {
 			},
 		},
 	}
-}
-
-func assistantTextForUI(msg ollama.ChatMessage) string {
-	c := msg.Content
-	if msg.Thinking != "" && !strings.Contains(c, "<think>") {
-		c = "<think>\n" + msg.Thinking + "\n</think>\n" + c
-	}
-	return c
 }
 
 func truncateRunes(s string, max int) string {
@@ -172,9 +144,10 @@ func (s *Server) runWebTool(ctx context.Context, name string, args json.RawMessa
 	}
 }
 
-// runWebToolAgentLoop calls Ollama in non-streaming mode repeatedly until the model
-// returns a final assistant message without tool_calls, then streams that text as SSE
-// (same event shape as handleChat) + done metrics.
+// runWebToolAgentLoop calls Ollama with stream:true (same as handleChat) for each
+// agent step so the browser gets real token/chunk streaming. When the model
+// returns tool calls, the stream has finished; we execute tools and go to the
+// next round. Final answer streams live; we do not buffer the full reply to fake deltas.
 func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, body chatRequestBody) {
 	send := func(event string, payload any) {
 		buf, _ := json.Marshal(payload)
@@ -191,7 +164,8 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 	msgs := make([]ollama.ChatMessage, len(body.Messages))
 	copy(msgs, body.Messages)
 
-	var last *ollama.ChatOnceResponse
+	accComp := 0
+	var accEvalNS int64
 
 	for round := 0; round < maxWebAgentRounds; round++ {
 		if ctx.Err() != nil {
@@ -200,34 +174,36 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 		req := ollama.ChatRequest{
 			Model:    body.Model,
 			Messages: msgs,
-			Stream:   false,
+			Stream:   true,
 			Think:    body.Think,
 			Options:  body.Options,
 			Tools:    tools,
 		}
-		res, err := s.ollama.ChatOnce(ctx, req)
+		var last ollama.ChatChunk
+		err := s.ollama.Chat(ctx, req, func(ev ollama.ChatChunk) error {
+			last = ev
+			// Same shape as handleChat: raw NDJSON object so the UI maps message.content (+ optional thinking) per token.
+			send("chunk", ev)
+			return nil
+		})
 		if err != nil {
 			send("error", map[string]any{"error": err.Error()})
 			return
 		}
-		last = res
-		assistant := res.Message
+
+		assistant := last.Message
 		msgs = append(msgs, assistant)
+		accComp += last.EvalCount
+		accEvalNS += last.EvalDuration
 
 		if len(assistant.ToolCalls) == 0 {
-			text := assistantTextForUI(assistant)
-			if text == "" {
-				text = " "
-			}
-			streamAssistantContentDeltas(send, text)
-			total := last.PromptEvalCount + last.EvalCount
 			send("done", map[string]any{
 				"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 				"prompt_tokens":      last.PromptEvalCount,
-				"completion_tokens":  last.EvalCount,
-				"total_tokens":       total,
+				"completion_tokens":  accComp,
+				"total_tokens":       last.PromptEvalCount + accComp,
 				"prompt_duration_ns": last.PromptEvalDuration,
-				"eval_duration_ns":   last.EvalDuration,
+				"eval_duration_ns":   accEvalNS,
 				"total_duration_ns":  last.TotalDuration,
 			})
 			return

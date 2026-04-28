@@ -1209,6 +1209,8 @@ async function runOneChatTurn(text, attachments) {
     contextMax: 0,
     tps: null,
     toolLog: [],
+    thinkBlockStarted: false,
+    thinkBlockClosed: false,
   };
   chatMessages.push(assistantMsg);
   renderChatMessages();
@@ -1276,8 +1278,22 @@ async function runOneChatTurn(text, attachments) {
         }
         scheduleRenderChatMessages();
       } else if (event === "chunk") {
-        const delta = data?.message?.content || "";
-        if (delta) assistantRaw += delta;
+        const thinkDelta = data?.message?.thinking || "";
+        const contentDelta = data?.message?.content || "";
+        if (thinkDelta) {
+          if (!assistantMsg.thinkBlockStarted) {
+            assistantRaw += "<think>\n";
+            assistantMsg.thinkBlockStarted = true;
+          }
+          assistantRaw += thinkDelta;
+        }
+        if (contentDelta) {
+          if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
+            assistantRaw += "\n</think>\n";
+            assistantMsg.thinkBlockClosed = true;
+          }
+          assistantRaw += contentDelta;
+        }
         const parts = splitThink(assistantRaw);
         assistantMsg.thinkContent = parts.think;
         assistantMsg.content = parts.answer;
@@ -1294,6 +1310,14 @@ async function runOneChatTurn(text, attachments) {
       } else if (event === "error") {
         throw new Error(data?.error || "stream error");
       } else if (event === "done") {
+        if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
+          assistantRaw += "\n</think>\n";
+          assistantMsg.thinkBlockClosed = true;
+          const p2 = splitThink(assistantRaw);
+          assistantMsg.thinkContent = p2.think;
+          assistantMsg.content = p2.answer;
+          assistantMsg.inThink = p2.inThink;
+        }
         assistantMsg.streaming = false;
         assistantMsg.inThink = false;
         assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - turnStartedAt);

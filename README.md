@@ -3,6 +3,7 @@
 Tiny Go web server to manage the [Ollama](https://ollama.com) models installed on a machine.
 
 - List models: name, family, parameters, quantization, size, context, install date, loaded state.
+- **Chat** in the browser: talk to a selected model with streaming (SSE), optional *thinking* traces, stop/regenerate, and an optional **web tools** mode (`web_search` + `web_fetch` executed on the server) with a **timeline** UI (think → tool → think → answer).
 - **Download queue**: enqueue multiple installs; the manager runs one at a time, persists the queue to `jobs.json`, and resumes after restart (partial layers are kept by Ollama).
 - Cancel/remove/retry individual jobs and clear finished history from the UI.
 - Uninstall models.
@@ -94,8 +95,10 @@ restarting the process to take effect (the UI warns you).
 | GET/POST | `/login`, `/logout` | Password login (when enabled) |
 | GET | `/api/status` | Manager status and Ollama reachability |
 | GET | `/api/models` | Combined list of models + loaded state + context_length |
+| GET | `/api/running` | Light view of Ollama [`/api/ps`](https://github.com/ollama/ollama/blob/main/docs/api.md#list-running-models) (what is currently loaded) |
 | GET | `/api/models/{name}` | Details: context, capabilities, template, modelinfo |
 | DELETE | `/api/models/{name}` | Uninstall model |
+| POST | `/api/chat` | Chat with the model. **Server-Sent Events** stream: `chunk` (content/thinking), optional `tool` (web agent), `done` (usage), `error`. Set `web_tools: true` in the JSON body to enable `web_search` / `web_fetch` for models that support tools. |
 | POST | `/api/pull` | Enqueue a download. Body `{"name":"llama3:8b"}`. Returns `{job_id, status, name}`. Progress is served via `/api/jobs/events` |
 | GET | `/api/jobs` | List all jobs (queued/running/done/error/cancelled) in insertion order |
 | GET | `/api/jobs/events` | SSE stream: one `snapshot` event with the current list, then `update`/`remove` events for every change |
@@ -125,6 +128,10 @@ Events emitted by `GET /api/jobs/events`:
 - `event: update` — `{job: {id, name, status, percent, completed, total, status_text, digest, error, ...}}`
 - `event: remove` — `{id}`
 
+### Chat stream (`POST /api/chat`)
+
+The response is `text/event-stream` (not JSON). Send a JSON body with at least `model` and `messages` (Ollama chat format). Optional: `think`, `options` (temperature, top_k, top_p), and `web_tools: true` to run the on-server web agent (bounded rounds, tool results fed back to the model).
+
 ## Layout
 
 ```
@@ -135,8 +142,8 @@ Events emitted by `GET /api/jobs/events`:
 ├── internal/
 │   ├── config/              # loads/saves config.json
 │   ├── jobs/                # download queue manager (FIFO, SSE fan-out)
-│   ├── ollama/              # Ollama HTTP client
-│   └── server/              # router, auth, handlers, SSE
+│   ├── ollama/              # Ollama HTTP client (incl. chat + tools)
+│   └── server/              # router, auth, handlers, chat SSE, web tools agent
 └── web/                     # embedded HTML/CSS/JS (go:embed)
 ```
 

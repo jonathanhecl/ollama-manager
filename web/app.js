@@ -527,6 +527,23 @@ function thinkLabel(ms, streaming) {
   return t("chat.think_done", { s: sec });
 }
 
+function buildAssistantDebugFooter(m) {
+  if (m.role !== "assistant" || m.streaming || !m.hasDebug) return "";
+  const used = Math.max(0, Number(m.promptTokens) || 0);
+  const comp = Math.max(0, Number(m.completionTokens) || 0);
+  if (!used && !comp) return "";
+  const maxCtx = Math.max(0, Number(m.contextMax) || 0);
+  let ctxLine;
+  if (maxCtx > 0) {
+    const pct = Math.min(999, Math.round((used / maxCtx) * 100));
+    ctxLine = t("chat.debug_context", { used: String(used), max: fmtCtx(maxCtx), pct });
+  } else {
+    ctxLine = t("chat.debug_context_plain", { used: String(used), max: "—" });
+  }
+  const outLine = t("chat.debug_output", { n: comp });
+  return `<footer class="chat-debug mono">${escapeHtml(ctxLine)} · ${escapeHtml(outLine)}</footer>`;
+}
+
 function renderChatMessages() {
   const host = $("chat-messages");
   if (!chatMessages.length) {
@@ -538,6 +555,9 @@ function renderChatMessages() {
     if (m.role === "assistant" && !m.streaming) {
       if (m.elapsedMs > 0) meta.push(t("chat.meta_time", { s: Math.max(0, Math.round(m.elapsedMs / 1000)) }));
       if (m.tokens > 0) meta.push(t("chat.meta_tokens", { n: m.tokens }));
+      if (m.tps != null && m.tps > 0 && Number.isFinite(m.tps)) {
+        meta.push(t("chat.meta_tps", { rate: m.tps.toFixed(2) }));
+      }
     }
     if (m.role === "assistant" && m.streaming) {
       meta.push(t("chat.streaming"));
@@ -557,6 +577,7 @@ function renderChatMessages() {
     const bodyHTML = m.role === "assistant"
       ? renderMarkdownSafe(m.content || "")
       : `<p>${escapeHtml(m.content || "")}</p>`;
+    const debugFooter = m.role === "assistant" ? buildAssistantDebugFooter(m) : "";
 
     const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
     return `
@@ -568,6 +589,7 @@ function renderChatMessages() {
         ${files ? `<div class="chat-file-list">${files}</div>` : ""}
         ${thinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
+        ${debugFooter}
       </article>
     `;
   }).join("");
@@ -771,6 +793,12 @@ async function runOneChatTurn(text, attachments) {
     streaming: true,
     elapsedMs: 0,
     tokens: 0,
+    hasDebug: false,
+    promptTokens: 0,
+    completionTokens: 0,
+    evalDurationNs: 0,
+    contextMax: 0,
+    tps: null,
   };
   chatMessages.push(assistantMsg);
   renderChatMessages();
@@ -831,7 +859,22 @@ async function runOneChatTurn(text, attachments) {
         assistantMsg.inThink = false;
         assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - turnStartedAt);
         assistantMsg.tokens = Number(data.total_tokens) || 0;
-        chatLastUsedTokens = assistantMsg.tokens;
+        assistantMsg.promptTokens = Number(data.prompt_tokens) || 0;
+        assistantMsg.completionTokens = Number(data.completion_tokens) || 0;
+        assistantMsg.evalDurationNs = Number(data.eval_duration_ns) || 0;
+        const mdl = modelByName($("chat-model").value);
+        assistantMsg.contextMax = Number(mdl?.context_length) || 0;
+        const evNs = assistantMsg.evalDurationNs;
+        const comp = assistantMsg.completionTokens;
+        if (evNs > 0 && comp >= 0) {
+          assistantMsg.tps = comp / (evNs / 1e9);
+        } else if (comp > 0 && assistantMsg.elapsedMs > 0) {
+          assistantMsg.tps = comp / (assistantMsg.elapsedMs / 1000);
+        } else {
+          assistantMsg.tps = null;
+        }
+        assistantMsg.hasDebug = true;
+        chatLastUsedTokens = assistantMsg.promptTokens || assistantMsg.tokens;
         updateChatContextMeter();
       }
     });

@@ -1027,6 +1027,14 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 
 .chat-md p { margin: 0 0 8px; line-height: 1.45; }
 .chat-md p:last-child { margin-bottom: 0; }
+.chat-debug {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
 .chat-md h2, .chat-md h3, .chat-md h4 { margin: 8px 0; font-size: 14px; }
 .chat-md ul { margin: 6px 0 6px 18px; padding: 0; }
 .chat-md code {

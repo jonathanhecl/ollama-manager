@@ -71,6 +71,7 @@ const I18N = {
     "detail.dot_loaded": "loaded in memory",
     "detail.dot_not_loaded": "not loaded",
     "detail.delete_title": "Delete model",
+    "detail.info_btn": "Model details",
 
     "confirm.title": "Confirm",
     "confirm.delete_text": "{name} will be uninstalled from the system. This action cannot be undone.",
@@ -169,6 +170,7 @@ const I18N = {
     "detail.dot_loaded": "cargado en memoria",
     "detail.dot_not_loaded": "no cargado",
     "detail.delete_title": "Eliminar modelo",
+    "detail.info_btn": "Detalles del modelo",
 
     "confirm.title": "Confirmar",
     "confirm.delete_text": "Se desinstalará {name} del sistema. Esta acción no se puede deshacer.",

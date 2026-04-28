@@ -199,6 +199,7 @@ function renderTable() {
   const dotLoadedTxt = t("detail.dot_loaded");
   const dotNotLoadedTxt = t("detail.dot_not_loaded");
   const deleteTitle = t("detail.delete_title");
+  const infoTitle = t("detail.info_btn");
   const renderCapabilities = (caps) => (caps || [])
     .map((c) => `<span class="pill">${escapeHtml(c)}</span>`)
     .join("");
@@ -208,8 +209,13 @@ function renderTable() {
     <tr class="row${m.name === activeName ? " active" : ""}" data-name="${escapeHtml(m.name)}">
       <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
       <td class="cell-name">
-        <div class="model-name">${escapeHtml(m.name)}</div>
-        ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
+        <div class="model-name-wrap">
+          <div class="model-name-block">
+            <div class="model-name">${escapeHtml(m.name)}</div>
+            ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
+          </div>
+          <button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>
+        </div>
       </td>
       <td>${escapeHtml(m.family || "—")}</td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
@@ -224,10 +230,10 @@ function renderTable() {
   `;
   }).join("");
 
-  tbody.querySelectorAll("tr.row").forEach((tr) => {
-    tr.addEventListener("click", (e) => {
-      if (e.target.closest(".delete-btn")) return;
-      openDetail(tr.dataset.name);
+  tbody.querySelectorAll(".info-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDetail(btn.dataset.name);
     });
   });
   tbody.querySelectorAll(".delete-btn").forEach((btn) => {

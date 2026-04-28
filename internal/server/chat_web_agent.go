@@ -180,9 +180,23 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 			Tools:    tools,
 		}
 		var last ollama.ChatChunk
+		// Streaming sends deltas; the final {done:true} line often has an empty or partial
+		// message, while tool_calls appeared on an earlier line. We must merge every chunk
+		// to decide the real assistant turn (same as the client-side += on content).
+		var acc ollama.ChatMessage
+		acc.Role = "assistant"
 		err := s.ollama.Chat(ctx, req, func(ev ollama.ChatChunk) error {
 			last = ev
-			// Same shape as handleChat: raw NDJSON object so the UI maps message.content (+ optional thinking) per token.
+			m := ev.Message
+			if m.Thinking != "" {
+				acc.Thinking += m.Thinking
+			}
+			if m.Content != "" {
+				acc.Content += m.Content
+			}
+			if len(m.ToolCalls) > 0 {
+				acc.ToolCalls = m.ToolCalls
+			}
 			send("chunk", ev)
 			return nil
 		})
@@ -190,8 +204,15 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 			send("error", map[string]any{"error": err.Error()})
 			return
 		}
+		if acc.Role == "" {
+			acc.Role = "assistant"
+		}
 
-		assistant := last.Message
+		assistant := acc
+		// Rare: tool_calls only on the last object; keep if merge missed them.
+		if len(assistant.ToolCalls) == 0 && len(last.Message.ToolCalls) > 0 {
+			assistant.ToolCalls = last.Message.ToolCalls
+		}
 		msgs = append(msgs, assistant)
 		accComp += last.EvalCount
 		accEvalNS += last.EvalDuration

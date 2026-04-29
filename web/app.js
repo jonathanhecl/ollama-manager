@@ -1040,7 +1040,6 @@ function renderChatMessages() {
     const bodyHTML = m.role === "assistant"
       ? renderMarkdownSafe(m.content || "")
       : `<p>${escapeHtml(m.content || "")}</p>`;
-    const debugFooter = m.role === "assistant" ? buildAssistantDebugFooter(m) : "";
     const roleLabel = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
     const modelLabel = m.role === "assistant" && m.model
       ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
@@ -1076,7 +1075,6 @@ function renderChatMessages() {
         ${thinkBlock}
         ${tailThinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
-        ${debugFooter}
         <div class="chat-msg-foot">
           <div class="chat-msg-foot-actions">
             ${regenBtn}

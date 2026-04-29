@@ -940,8 +940,7 @@ function renderAssistantTimeline(m) {
 function buildAssistantDebugFooter(m) {
   if (m.role !== "assistant" || m.streaming || !m.hasDebug) return "";
   const used = Math.max(0, Number(m.promptTokens) || 0);
-  const comp = Math.max(0, Number(m.completionTokens) || 0);
-  if (!used && !comp) return "";
+  if (!used) return "";
   const maxCtx = Math.max(0, Number(m.contextMax) || 0);
   let ctxLine;
   if (maxCtx > 0) {
@@ -950,8 +949,7 @@ function buildAssistantDebugFooter(m) {
   } else {
     ctxLine = t("chat.debug_context_plain", { used: String(used), max: "—" });
   }
-  const outLine = t("chat.debug_output", { n: comp });
-  return `<footer class="chat-debug mono">${escapeHtml(ctxLine)} · ${escapeHtml(outLine)}</footer>`;
+  return `<footer class="chat-debug mono">${escapeHtml(ctxLine)}</footer>`;
 }
 
 function renderChatMessages() {
@@ -962,15 +960,15 @@ function renderChatMessages() {
   }
   host.innerHTML = chatMessages.map((m, i) => {
     const meta = [];
-    if (m.role === "assistant" && !m.streaming) {
+    if (m.role === "assistant" && m.streaming) {
+      meta.push(formatMetaElapsed(Math.max(0, Number(m.elapsedMs) || 0)));
+      meta.push(t("chat.streaming"));
+    } else if (m.role === "assistant" && !m.streaming) {
       if (m.elapsedMs > 0) meta.push(formatMetaElapsed(m.elapsedMs));
       if (m.tokens > 0) meta.push(t("chat.meta_tokens", { n: m.tokens }));
       if (m.tps != null && m.tps > 0 && Number.isFinite(m.tps)) {
         meta.push(t("chat.meta_tps", { rate: m.tps.toFixed(2) }));
       }
-    }
-    if (m.role === "assistant" && m.streaming) {
-      meta.push(t("chat.streaming"));
     }
     if (m.role === "assistant" && !m.streaming && m.stopped) {
       meta.push(t("chat.stopped_badge_short"));
@@ -1040,6 +1038,10 @@ function renderChatMessages() {
       ? renderMarkdownSafe(m.content || "")
       : `<p>${escapeHtml(m.content || "")}</p>`;
     const debugFooter = m.role === "assistant" ? buildAssistantDebugFooter(m) : "";
+    const roleLabel = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
+    const modelLabel = m.role === "assistant" && m.model
+      ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
+      : "";
     const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
     const copyBtn = `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
 <svg class="chat-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1060,10 +1062,11 @@ function renderChatMessages() {
       <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
         <header class="chat-msg-head">
           <div class="chat-msg-head-main">
-            <span class="chat-role">${escapeHtml(m.role === "user" ? t("chat.role_user") : t("chat.role_assistant"))}</span>
-            ${meta.length ? `<span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span>` : ""}
+            <span class="chat-role">${escapeHtml(roleLabel)}</span>
+            ${modelLabel}
           </div>
         </header>
+        ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
         ${files ? `<div class="chat-file-list">${files}</div>` : ""}
         ${timelineBlock}
         ${toolLogBlock}
@@ -1556,6 +1559,7 @@ function newAssistantMessage() {
   return {
     id: nanoid(),
     role: "assistant",
+    model: "",
     content: "",
     thinkContent: "",
     thinkOpen: true,
@@ -1594,6 +1598,7 @@ function scrollChatToBottom() {
 
 async function runChatRequest(assistantMsg) {
   const modelName = $("chat-model").value;
+  assistantMsg.model = modelName;
   if (isEmbeddingOnlyModel(modelName)) {
     const input = buildEmbeddingInputText();
     if (!input) {
@@ -1704,6 +1709,7 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.thinkContent = parts.think;
         assistantMsg.content = parts.answer;
         assistantMsg.inThink = parts.inThink;
+        assistantMsg.elapsedMs = Date.now() - turnStartedAt;
         if (parts.inThink && !assistantMsg.thinkStartedAt) {
           assistantMsg.thinkStartedAt = Date.now();
           startThinkTicker(assistantMsg);
@@ -1736,7 +1742,7 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.promptTokens = Number(data.prompt_tokens) || 0;
         assistantMsg.completionTokens = Number(data.completion_tokens) || 0;
         assistantMsg.evalDurationNs = Number(data.eval_duration_ns) || 0;
-        const mdl = modelByName($("chat-model").value);
+        const mdl = modelByName(assistantMsg.model || modelName);
         assistantMsg.contextMax = Number(mdl?.context_length) || 0;
         const evNs = assistantMsg.evalDurationNs;
         const comp = assistantMsg.completionTokens;
@@ -1799,6 +1805,7 @@ async function runOneChatTurn(text, attachments) {
   };
   chatMessages.push(userMsg);
   const assistantMsg = newAssistantMessage();
+  assistantMsg.model = $("chat-model").value;
   chatMessages.push(assistantMsg);
   renderChatMessages();
   await runChatRequest(assistantMsg);
@@ -1826,6 +1833,7 @@ async function regenerateLastAssistantMessage(clickedId) {
   }
   chatMessages.pop();
   const assistantMsg = newAssistantMessage();
+  assistantMsg.model = $("chat-model").value;
   chatMessages.push(assistantMsg);
   renderChatMessages();
   await runChatRequest(assistantMsg);

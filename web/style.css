@@ -1033,6 +1033,17 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   letter-spacing: .7px;
   color: var(--muted);
 }
+.chat-model-used {
+  font-size: 11px;
+  color: var(--text-dim);
+  background: #11131a;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.chat-msg-meta-line {
+  margin: -2px 0 6px;
+}
 .chat-meta {
   font-size: 11px;
   color: var(--text-dim);

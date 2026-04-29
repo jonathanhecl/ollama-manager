@@ -136,6 +136,11 @@ type ChatOnceResponse struct {
 	TotalDuration      int64       `json:"total_duration"`
 }
 
+// EmbedResponse is the normalized output of Ollama embed endpoints.
+type EmbedResponse struct {
+	Embedding []float64 `json:"embedding"`
+}
+
 // ChatChunk is one streamed NDJSON object from /api/chat.
 type ChatChunk struct {
 	Model              string      `json:"model"`
@@ -312,6 +317,47 @@ func (c *Client) ChatOnce(ctx context.Context, req ChatRequest) (*ChatOnceRespon
 		return nil, fmt.Errorf("decode chat response: %w", err)
 	}
 	return &out, nil
+}
+
+// Embed calls POST /api/embed and returns the first embedding vector.
+// Some Ollama versions expose /api/embeddings; we fallback to that endpoint.
+func (c *Client) Embed(ctx context.Context, model, input string) (*EmbedResponse, error) {
+	body, _ := json.Marshal(map[string]any{
+		"model": model,
+		"input": input,
+	})
+	try := func(path string) (*EmbedResponse, error) {
+		resp, err := c.do(ctx, http.MethodPost, path, bytes.NewReader(body), "application/json")
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if err := checkStatus(resp); err != nil {
+			return nil, err
+		}
+		var raw struct {
+			Embedding  []float64   `json:"embedding"`
+			Embeddings [][]float64 `json:"embeddings"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			return nil, fmt.Errorf("decode embed response: %w", err)
+		}
+		vec := raw.Embedding
+		if len(vec) == 0 && len(raw.Embeddings) > 0 {
+			vec = raw.Embeddings[0]
+		}
+		return &EmbedResponse{Embedding: vec}, nil
+	}
+
+	out, err := try("/api/embed")
+	if err == nil {
+		return out, nil
+	}
+	out2, err2 := try("/api/embeddings")
+	if err2 == nil {
+		return out2, nil
+	}
+	return nil, err
 }
 
 // Ping checks whether the Ollama server responds. Useful at startup.

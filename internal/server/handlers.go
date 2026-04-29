@@ -553,6 +553,37 @@ type chatRequestBody struct {
 	WebTools *bool                `json:"web_tools,omitempty"`
 }
 
+func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Model string `json:"model"`
+		Input string `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	body.Model = strings.TrimSpace(body.Model)
+	body.Input = strings.TrimSpace(body.Input)
+	if body.Model == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'model'"))
+		return
+	}
+	if body.Input == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'input'"))
+		return
+	}
+	out, err := s.ollama.Embed(r.Context(), body.Model, body.Input)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"model":     body.Model,
+		"embedding": out.Embedding,
+		"dims":      len(out.Embedding),
+	})
+}
+
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

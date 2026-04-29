@@ -1469,6 +1469,34 @@ async function applyChatDefaultsForModel(name, force = false) {
   lastChatDefaultsModel = model;
 }
 
+function isEmbeddingOnlyModel(modelName) {
+  const caps = modelCaps(modelName);
+  return caps.has("embedding") && !caps.has("completion");
+}
+
+function buildEmbeddingInputText() {
+  const outbound = buildOutboundMessages();
+  for (let i = outbound.length - 1; i >= 0; i -= 1) {
+    const m = outbound[i];
+    if (m.role === "user" && String(m.content || "").trim()) {
+      return String(m.content).trim();
+    }
+  }
+  return "";
+}
+
+function formatEmbeddingResult(vec) {
+  const dims = Array.isArray(vec) ? vec.length : 0;
+  const preview = (Array.isArray(vec) ? vec : [])
+    .slice(0, 24)
+    .map((n) => Number(n).toFixed(6))
+    .join(", ");
+  return t("chat.embed_result", {
+    dims,
+    preview: `[${preview}${dims > 24 ? ", ..." : ""}]`,
+  });
+}
+
 async function readSSEStream(response, onEvent) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1565,13 +1593,33 @@ function scrollChatToBottom() {
 }
 
 async function runChatRequest(assistantMsg) {
-  const caps = modelCaps($("chat-model").value);
+  const modelName = $("chat-model").value;
+  if (isEmbeddingOnlyModel(modelName)) {
+    const input = buildEmbeddingInputText();
+    if (!input) {
+      throw new Error(t("chat.embed_empty_input"));
+    }
+    const started = Date.now();
+    const data = await api("/api/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName, input }),
+    });
+    assistantMsg.streaming = false;
+    assistantMsg.elapsedMs = Date.now() - started;
+    assistantMsg.hasDebug = false;
+    assistantMsg.content = formatEmbeddingResult(data.embedding || []);
+    flushChatRender();
+    return;
+  }
+
+  const caps = modelCaps(modelName);
   const canThinkToggle = caps.has("thinking");
   const noThink = canThinkToggle ? $("chat-no-think").checked : false;
   const canTools = caps.has("tools");
   const webToolsOn = canTools && $("chat-web-tools").checked;
   const payload = {
-    model: $("chat-model").value,
+    model: modelName,
     think: canThinkToggle ? !noThink : undefined,
     options: {
       temperature: readOptionNumber("chat-temperature", CHAT_OPTION_FALLBACKS.temperature),

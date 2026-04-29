@@ -91,6 +91,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/models/{name...}", s.requireAuth(s.handleShowModel))
 	mux.Handle("DELETE /api/models/{name...}", s.requireAuth(s.handleDeleteModel))
 	mux.Handle("POST /api/chat", s.requireAuth(s.handleChat))
+	mux.Handle("POST /api/embed", s.requireAuth(s.handleEmbed))
 	mux.Handle("POST /api/pull", s.requireAuth(s.handlePull))
 	mux.Handle("GET /api/status", s.requireAuth(s.handleStatus))
 

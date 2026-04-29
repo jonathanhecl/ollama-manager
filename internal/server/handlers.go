@@ -129,11 +129,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	resp := map[string]any{
-		"ollama_url":         s.cfg.OllamaURL,
-		"expose_network":     s.cfg.ExposeNetwork,
-		"has_password":       s.cfg.HasPassword(),
-		"language":           s.cfg.Language,
-		"ollama_reachable":   s.ollama.Ping(ctx) == nil,
+		"ollama_url":       s.cfg.OllamaURL,
+		"expose_network":   s.cfg.ExposeNetwork,
+		"has_password":     s.cfg.HasPassword(),
+		"language":         s.cfg.Language,
+		"ollama_reachable": s.ollama.Ping(ctx) == nil,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -667,6 +667,27 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleJobsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.jobs.List()})
+}
+
+func (s *Server) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing name"))
+		return
+	}
+	h, ok := s.jobs.History(name)
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"name":   name,
+			"exists": false,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":    name,
+		"exists":  true,
+		"history": h,
+	})
 }
 
 // handleJobsEvents streams job lifecycle updates as Server-Sent Events.

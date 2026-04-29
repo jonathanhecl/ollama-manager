@@ -1993,6 +1993,29 @@ $("dl-add-form").addEventListener("submit", async (e) => {
   const input = $("dl-add-input");
   const name = normalizePullInput(input.value);
   if (!name) return;
+  let installedNow = !!modelByName(name);
+  if (!installedNow) {
+    try {
+      await refreshModels();
+      installedNow = !!modelByName(name);
+    } catch {
+      // keep best-effort check
+    }
+  }
+  let previous = null;
+  try {
+    const res = await api(`/api/download-history/${encodeURIComponent(name)}`);
+    previous = res && res.exists ? res.history : null;
+  } catch {
+    // history endpoint is best-effort for UX warning
+  }
+  let confirmMsg = "";
+  if (installedNow || previous?.last_done_at) {
+    confirmMsg = t("downloads.reenqueue_done_confirm", { name });
+  } else if (previous?.last_error_at || (previous?.error_count || 0) > 0) {
+    confirmMsg = t("downloads.reenqueue_error_confirm", { name });
+  }
+  if (confirmMsg && !window.confirm(confirmMsg)) return;
   try {
     await api("/api/pull", {
       method: "POST",

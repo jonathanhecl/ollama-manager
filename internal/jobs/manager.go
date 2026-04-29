@@ -93,16 +93,33 @@ type persistFile struct {
 	Jobs []Job `json:"jobs"`
 }
 
+// DownloadHistory stores aggregate outcomes for a model name across time,
+// independent from the visible jobs list.
+type DownloadHistory struct {
+	Name        string    `json:"name"`
+	DoneCount   int       `json:"done_count,omitempty"`
+	ErrorCount  int       `json:"error_count,omitempty"`
+	LastDoneAt  time.Time `json:"last_done_at,omitempty"`
+	LastErrorAt time.Time `json:"last_error_at,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
+}
+
+type historyPersistFile struct {
+	Models []DownloadHistory `json:"models"`
+}
+
 // Manager coordinates the queue, execution, persistence and fan-out of
 // job events.
 type Manager struct {
-	mu       sync.Mutex
-	jobs     map[string]*Job
-	order    []string // insertion order of job ids
-	activeID string   // id of the currently running job, or ""
-	path     string
-	ollama   *ollama.Client
-	logger   *log.Logger
+	mu          sync.Mutex
+	jobs        map[string]*Job
+	order       []string // insertion order of job ids
+	activeID    string   // id of the currently running job, or ""
+	path        string
+	historyPath string
+	history     map[string]*DownloadHistory
+	ollama      *ollama.Client
+	logger      *log.Logger
 
 	subsMu  sync.Mutex
 	subs    map[int64]chan Event
@@ -111,36 +128,52 @@ type Manager struct {
 
 // New returns an empty manager. Call Load() to restore state from disk, then
 // Start() to kick off the first queued job (if any).
-func New(path string, client *ollama.Client, logger *log.Logger) *Manager {
+func New(path string, historyPath string, client *ollama.Client, logger *log.Logger) *Manager {
 	if logger == nil {
 		logger = log.Default()
 	}
 	return &Manager{
-		jobs:   make(map[string]*Job),
-		path:   path,
-		ollama: client,
-		logger: logger,
-		subs:   make(map[int64]chan Event),
+		jobs:        make(map[string]*Job),
+		path:        path,
+		historyPath: historyPath,
+		history:     make(map[string]*DownloadHistory),
+		ollama:      client,
+		logger:      logger,
+		subs:        make(map[int64]chan Event),
 	}
 }
 
 // Load reads jobs.json, if present. Any job persisted as "running" is
 // demoted to "queued" so the worker picks it up again on the next Start().
 func (m *Manager) Load() error {
-	data, err := os.ReadFile(m.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	pf := persistFile{}
+	if m.path != "" {
+		data, err := os.ReadFile(m.path)
+		if errors.Is(err, os.ErrNotExist) {
+			// no jobs file yet
+		} else if err != nil {
+			return fmt.Errorf("read %s: %w", m.path, err)
+		} else if err := json.Unmarshal(data, &pf); err != nil {
+			return fmt.Errorf("parse %s: %w", m.path, err)
+		}
 	}
-	if err != nil {
-		return fmt.Errorf("read %s: %w", m.path, err)
-	}
-	var pf persistFile
-	if err := json.Unmarshal(data, &pf); err != nil {
-		return fmt.Errorf("parse %s: %w", m.path, err)
+
+	hf := historyPersistFile{}
+	if m.historyPath != "" {
+		data, err := os.ReadFile(m.historyPath)
+		if errors.Is(err, os.ErrNotExist) {
+			// no history file yet
+		} else if err != nil {
+			return fmt.Errorf("read %s: %w", m.historyPath, err)
+		} else if err := json.Unmarshal(data, &hf); err != nil {
+			return fmt.Errorf("parse %s: %w", m.historyPath, err)
+		}
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.jobs = make(map[string]*Job)
+	m.order = nil
 	for i := range pf.Jobs {
 		j := pf.Jobs[i]
 		if j.ID == "" || j.Name == "" {
@@ -158,7 +191,31 @@ func (m *Manager) Load() error {
 		m.jobs[j.ID] = &jj
 		m.order = append(m.order, j.ID)
 	}
+	m.history = make(map[string]*DownloadHistory)
+	for i := range hf.Models {
+		h := hf.Models[i]
+		if h.Name == "" {
+			continue
+		}
+		hh := h
+		m.history[h.Name] = &hh
+	}
 	return nil
+}
+
+// History returns persisted aggregate download history for a model.
+func (m *Manager) History(name string) (DownloadHistory, bool) {
+	if name == "" {
+		return DownloadHistory{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	h, ok := m.history[name]
+	if !ok || h == nil {
+		return DownloadHistory{}, false
+	}
+	cp := *h
+	return cp, true
 }
 
 // Start kicks the worker: if there is no active job, it promotes the first
@@ -487,6 +544,7 @@ func (m *Manager) run(ctx context.Context, id string) {
 			j.Status = StatusError
 			j.Error = err.Error()
 		}
+		m.recordHistoryLocked(j.Name, j.Status, j.Error, j.FinishedAt)
 	}
 	m.activeID = ""
 	var finalSnap Job
@@ -526,6 +584,55 @@ func (m *Manager) saveLocked() error {
 		return err
 	}
 	return os.Rename(tmp, m.path)
+}
+
+func (m *Manager) recordHistoryLocked(name string, status Status, errMsg string, when time.Time) {
+	if name == "" || (status != StatusDone && status != StatusError) {
+		return
+	}
+	if when.IsZero() {
+		when = time.Now().UTC()
+	}
+	h := m.history[name]
+	if h == nil {
+		h = &DownloadHistory{Name: name}
+		m.history[name] = h
+	}
+	switch status {
+	case StatusDone:
+		h.DoneCount++
+		h.LastDoneAt = when
+	case StatusError:
+		h.ErrorCount++
+		h.LastErrorAt = when
+		h.LastError = errMsg
+	}
+	if err := m.saveHistoryLocked(); err != nil {
+		m.logger.Printf("jobs: history save failed: %v", err)
+	}
+}
+
+func (m *Manager) saveHistoryLocked() error {
+	if m.historyPath == "" {
+		return nil
+	}
+	pf := historyPersistFile{Models: make([]DownloadHistory, 0, len(m.history))}
+	for _, h := range m.history {
+		if h == nil || h.Name == "" {
+			continue
+		}
+		pf.Models = append(pf.Models, *h)
+	}
+	data, err := json.MarshalIndent(pf, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmp := m.historyPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, m.historyPath)
 }
 
 // Shutdown cancels the active job (if any) without changing state on disk

@@ -50,7 +50,8 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	// Store jobs.json next to config.json so "config" and "jobs" always
 	// travel together.
 	jobsPath := filepath.Join(filepath.Dir(cfg.Path()), "jobs.json")
-	jobMgr := jobs.New(jobsPath, ollamaClient, log.Default())
+	historyPath := filepath.Join(filepath.Dir(cfg.Path()), "download_history.json")
+	jobMgr := jobs.New(jobsPath, historyPath, ollamaClient, log.Default())
 	if err := jobMgr.Load(); err != nil {
 		log.Printf("jobs: could not load %s: %v", jobsPath, err)
 	}
@@ -95,6 +96,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("GET /api/jobs", s.requireAuth(s.handleJobsList))
 	mux.Handle("GET /api/jobs/events", s.requireAuth(s.handleJobsEvents))
+	mux.Handle("GET /api/download-history/{name...}", s.requireAuth(s.handleDownloadHistory))
 	mux.Handle("POST /api/jobs/clear", s.requireAuth(s.handleJobsClear))
 	mux.Handle("POST /api/jobs/{id}/cancel", s.requireAuth(s.handleJobCancel))
 	mux.Handle("DELETE /api/jobs/{id}", s.requireAuth(s.handleJobRemove))

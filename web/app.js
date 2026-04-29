@@ -1886,6 +1886,20 @@ function renderDownloads() {
       }
     });
   });
+
+  // Click on a finished download card opens chat with that model
+  // if the model is still installed.
+  document.querySelectorAll("#downloads-modal .dl-item").forEach((card) => {
+    card.addEventListener("click", async () => {
+      const id = card.dataset.id;
+      if (!id) return;
+      const j = jobs.get(id);
+      if (!j || j.status !== "done" || !j.name) return;
+      await refreshModels();
+      if (!modelByName(j.name)) return;
+      showChatViewWithModel(j.name);
+    });
+  });
 }
 
 function emptyRow() {

@@ -853,6 +853,9 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
+  position: sticky;
+  top: 0;
+  z-index: 3;
 }
 .chat-nav { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .chat-back {
@@ -1657,6 +1660,10 @@ button.chat-send:disabled:hover {
   border-radius: var(--radius);
   background: var(--panel);
   align-self: start;
+  position: sticky;
+  top: 78px;
+  max-height: calc(100vh - 94px);
+  overflow-y: auto;
 }
 .chat-side-card {
   padding: 12px;
@@ -1723,7 +1730,12 @@ button.chat-send:disabled:hover {
   .detail-panel { width: 100vw; }
   button.with-badge span[data-i18n="downloads.button"] { display: none; }
   .chat-view { grid-template-columns: 1fr; }
-  .chat-side { order: -1; }
+  .chat-side {
+    order: -1;
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
   .chat-actions-row { grid-template-columns: 1fr; }
   .chat-upload-actions {
     flex-direction: row;

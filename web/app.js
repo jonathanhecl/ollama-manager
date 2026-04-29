@@ -100,6 +100,10 @@ let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
+const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
+const chatModelDefaultsCache = new Map();
+let chatDefaultsReqSeq = 0;
+let lastChatDefaultsModel = "";
 /** /api/status succeeded since last call */
 let managerApiOk = false;
 /** Ollama host reachable (from /api/status) */
@@ -584,6 +588,7 @@ function showChatView() {
   updateChatCapabilityUI();
   updateChatContextMeter();
   updateChatSendEnabled();
+  void applyChatDefaultsForModel($("chat-model").value);
   setTimeout(() => $("chat-input").focus(), 20);
 }
 
@@ -596,6 +601,7 @@ function showChatViewWithModel(name) {
   sel.value = name;
   updateChatCapabilityUI();
   updateChatContextMeter();
+  void applyChatDefaultsForModel(name, true);
 }
 
 function isGFMTableRow(s) {
@@ -1210,6 +1216,62 @@ function readOptionNumber(id, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function parseModelChatOptionsText(text) {
+  const out = {};
+  const src = String(text || "");
+  if (!src.trim()) return out;
+  for (const rawLine of src.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    line = line.replace(/^parameter\s+/i, "");
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
+    const key = parts[0].toLowerCase();
+    const val = Number(parts[1]);
+    if (!Number.isFinite(val)) continue;
+    if (key === "temperature") out.temperature = val;
+    else if (key === "top_k" || key === "top-k" || key === "topk") out.top_k = val;
+    else if (key === "top_p" || key === "top-p" || key === "topp") out.top_p = val;
+  }
+  return out;
+}
+
+function extractModelChatDefaults(detail) {
+  const fromParams = parseModelChatOptionsText(detail?.parameters);
+  const fromModelfile = parseModelChatOptionsText(detail?.modelfile);
+  return { ...fromParams, ...fromModelfile };
+}
+
+function setChatOptionsValues(opts) {
+  if (opts.temperature != null) $("chat-temperature").value = String(opts.temperature);
+  if (opts.top_k != null) $("chat-top-k").value = String(Math.round(opts.top_k));
+  if (opts.top_p != null) $("chat-top-p").value = String(opts.top_p);
+}
+
+async function applyChatDefaultsForModel(name, force = false) {
+  const model = String(name || "").trim();
+  if (!model) return;
+  if (!force && lastChatDefaultsModel === model) return;
+
+  const reqSeq = ++chatDefaultsReqSeq;
+  let defaults = chatModelDefaultsCache.get(model);
+  if (!defaults) {
+    try {
+      const detail = await api(`/api/models/${encodeURIComponent(model)}`);
+      defaults = extractModelChatDefaults(detail);
+      chatModelDefaultsCache.set(model, defaults);
+    } catch {
+      defaults = {};
+    }
+  }
+
+  if (reqSeq !== chatDefaultsReqSeq) return;
+  if ($("chat-model").value !== model) return;
+
+  setChatOptionsValues({ ...CHAT_OPTION_FALLBACKS, ...defaults });
+  lastChatDefaultsModel = model;
+}
+
 async function readSSEStream(response, onEvent) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1315,9 +1377,9 @@ async function runChatRequest(assistantMsg) {
     model: $("chat-model").value,
     think: canThinkToggle ? !noThink : undefined,
     options: {
-      temperature: readOptionNumber("chat-temperature", 0.7),
-      top_k: Math.round(readOptionNumber("chat-top-k", 40)),
-      top_p: readOptionNumber("chat-top-p", 0.9),
+      temperature: readOptionNumber("chat-temperature", CHAT_OPTION_FALLBACKS.temperature),
+      top_k: Math.round(readOptionNumber("chat-top-k", CHAT_OPTION_FALLBACKS.top_k)),
+      top_p: readOptionNumber("chat-top-p", CHAT_OPTION_FALLBACKS.top_p),
     },
     messages: buildOutboundMessages(),
   };
@@ -1557,6 +1619,7 @@ function bindChatEvents() {
   $("chat-model").addEventListener("change", () => {
     updateChatCapabilityUI();
     updateChatContextMeter();
+    void applyChatDefaultsForModel($("chat-model").value, true);
   });
   $("chat-send-btn").addEventListener("click", sendChatMessage);
   $("chat-messages").addEventListener("click", async (e) => {

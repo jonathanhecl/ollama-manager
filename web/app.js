@@ -606,6 +606,7 @@ function updateChatContextMeter() {
 }
 
 function showModelsView() {
+  stopSpeechPlayback();
   currentView = "models";
   $("models-view").hidden = false;
   $("chat-view").hidden = true;
@@ -767,6 +768,7 @@ function flushChatRender() {
     chatRenderRaf = null;
   }
   renderChatMessages();
+  scrollChatToBottom();
 }
 
 function renderMarkdownSafe(input) {
@@ -1075,16 +1077,17 @@ function renderChatMessages() {
     const modelLabel = m.role === "assistant" && m.model
       ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
       : "";
+    const hideActionsWhileStreaming = m.role === "assistant" && m.streaming;
     const ttsPlaying = m.id === speakingMsgId;
     const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
-    const ttsBtn = `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
+    const ttsBtn = hideActionsWhileStreaming ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
 <svg class="chat-tts-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <path d="M11 5L6 9H3v6h3l5 4V5z"/>
 <path d="M15.5 9.5a4 4 0 0 1 0 5"/>
 <path d="M18.5 7a8 8 0 0 1 0 10"/>
 </svg></button>`;
     const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
-    const copyBtn = `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
+    const copyBtn = hideActionsWhileStreaming ? "" : `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
 <svg class="chat-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <rect x="9" y="9" width="11" height="11" rx="2"/>
 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -1098,6 +1101,14 @@ function renderChatMessages() {
 </svg></button>`
       : "";
 
+    const footActions = `${regenBtn}${ttsBtn}${copyBtn}`;
+    const footBlock = footActions
+      ? `<div class="chat-msg-foot">
+          <div class="chat-msg-foot-actions">
+            ${footActions}
+          </div>
+        </div>`
+      : "";
     const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
     return `
       <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
@@ -1114,13 +1125,7 @@ function renderChatMessages() {
         ${thinkBlock}
         ${tailThinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
-        <div class="chat-msg-foot">
-          <div class="chat-msg-foot-actions">
-            ${regenBtn}
-            ${ttsBtn}
-            ${copyBtn}
-          </div>
-        </div>
+        ${footBlock}
       </article>
     `;
   }).join("");
@@ -1668,9 +1673,12 @@ function newAssistantMessage() {
 
 /** Keep the chat pane pinned to the latest content (streaming + layout). */
 function scrollChatToBottom() {
-  const host = $("chat-messages");
+  const host = $("chat-scroll-shell") || $("chat-messages");
   if (!host) return;
-  const go = () => { host.scrollTop = host.scrollHeight; };
+  const go = () => {
+    host.scrollTop = host.scrollHeight;
+    $("chat-messages")?.lastElementChild?.scrollIntoView({ block: "end" });
+  };
   go();
   requestAnimationFrame(() => {
     go();
@@ -1956,6 +1964,9 @@ async function sendChatMessage() {
 }
 
 function bindChatEvents() {
+  window.addEventListener("pagehide", stopSpeechPlayback);
+  window.addEventListener("beforeunload", stopSpeechPlayback);
+  window.addEventListener("popstate", stopSpeechPlayback);
   $("chat-btn")?.addEventListener("click", showChatView);
   $("chat-back-btn")?.addEventListener("click", () => {
     showModelsView();
@@ -1967,7 +1978,7 @@ function bindChatEvents() {
     void applyChatDefaultsForModel($("chat-model").value, true);
   });
   $("chat-send-btn").addEventListener("click", sendChatMessage);
-  $("chat-messages").addEventListener("click", async (e) => {
+  ($("chat-scroll-shell") || $("chat-messages")).addEventListener("click", async (e) => {
     const regenB = e.target.closest(".chat-regenerate-btn");
     if (regenB) {
       e.preventDefault();

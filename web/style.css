@@ -854,7 +854,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
   position: sticky;
-  top: 0;
+  top: 56px;
   z-index: 3;
 }
 .chat-nav { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -1846,6 +1846,7 @@ button.chat-send:disabled:hover {
     padding: 8px 10px;
     gap: 8px;
     flex-wrap: wrap;
+    top: 54px;
   }
   .chat-model-line label { display: none; }
   .chat-nav { width: 100%; justify-content: space-between; }
@@ -1928,6 +1929,7 @@ button.chat-send:disabled:hover {
   main { padding: 10px; }
   .brand h1 { display: none; }
   .topbar { padding: 8px 10px; }
+  .chat-head { top: 50px; }
   .topbar-actions {
     justify-content: space-between;
     gap: 4px;

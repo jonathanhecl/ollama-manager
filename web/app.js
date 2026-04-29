@@ -962,6 +962,9 @@ function renderChatMessages() {
     const meta = [];
     if (m.role === "assistant" && m.streaming) {
       meta.push(formatMetaElapsed(Math.max(0, Number(m.elapsedMs) || 0)));
+      if (m.tps != null && m.tps > 0 && Number.isFinite(m.tps)) {
+        meta.push(t("chat.meta_tps", { rate: m.tps.toFixed(2) }));
+      }
       meta.push(t("chat.streaming"));
     } else if (m.role === "assistant" && !m.streaming) {
       if (m.elapsedMs > 0) meta.push(formatMetaElapsed(m.elapsedMs));
@@ -1710,6 +1713,16 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.content = parts.answer;
         assistantMsg.inThink = parts.inThink;
         assistantMsg.elapsedMs = Date.now() - turnStartedAt;
+        const chunkEval = Number(data?.eval_count);
+        if (Number.isFinite(chunkEval) && chunkEval >= 0) {
+          assistantMsg.completionTokens = chunkEval;
+        } else if (contentDelta) {
+          // Fallback estimate while streaming when provider omits eval_count in chunks.
+          assistantMsg.completionTokens += Math.max(1, Math.round(contentDelta.length / 4));
+        }
+        if (assistantMsg.elapsedMs > 0 && assistantMsg.completionTokens > 0) {
+          assistantMsg.tps = assistantMsg.completionTokens / (assistantMsg.elapsedMs / 1000);
+        }
         if (parts.inThink && !assistantMsg.thinkStartedAt) {
           assistantMsg.thinkStartedAt = Date.now();
           startThinkTicker(assistantMsg);

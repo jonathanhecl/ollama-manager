@@ -834,7 +834,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 12px;
-  min-height: calc(100vh - 66px);
+  height: calc(100dvh - 66px);
+  overflow: hidden;
 }
 .chat-shell {
   border: 1px solid var(--border);
@@ -842,7 +843,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   background: var(--panel);
   display: flex;
   flex-direction: column;
-  min-height: 70vh;
+  min-height: 0;
+  height: 100%;
   position: relative;
 }
 .chat-head {
@@ -921,6 +923,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 
 .chat-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px;
   display: flex;
@@ -1484,10 +1487,14 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 
 .chat-compose {
   border-top: 1px solid var(--border);
+  background: var(--panel);
   padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
 }
 .chat-stream-bar {
   display: flex;

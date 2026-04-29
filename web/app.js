@@ -54,6 +54,23 @@ function attachmentAudioSrc(a) {
   return `data:${mime};base64,${a.data}`;
 }
 
+function attachmentTextPreview(a, max = 140) {
+  const txt = String(a?.text || "").replace(/\s+/g, " ").trim();
+  if (!txt) return "";
+  if (txt.length <= max) return txt;
+  return `${txt.slice(0, max - 1)}…`;
+}
+
+function isTextAttachmentFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const type = String(file?.type || "").toLowerCase();
+  return type === "text/plain"
+    || type === "text/markdown"
+    || name.endsWith(".txt")
+    || name.endsWith(".md")
+    || name.endsWith(".markdown");
+}
+
 function openImagePreview(src, name) {
   const modal = $("image-preview-modal");
   const img = $("image-preview-img");
@@ -982,6 +999,13 @@ function renderChatMessages() {
           <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
         </div>`;
       }
+      if (a.kind === "text") {
+        const prev = attachmentTextPreview(a);
+        return `<div class="chat-file-item chat-file-item-text">
+          <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
+          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+        </div>`;
+      }
       return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
     }).join("");
 
@@ -1111,6 +1135,16 @@ function renderAttachments() {
         </div>
       </div>`;
     }
+    if (a.kind === "text") {
+      const prev = attachmentTextPreview(a);
+      return `<div class="chat-attach-card chat-attach-card-text">
+        <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
+        <div class="chat-attach-foot">
+          <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+        </div>
+      </div>`;
+    }
     return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
   }).join("");
   box.querySelectorAll(".chat-attach-x").forEach((btn) => {
@@ -1206,6 +1240,7 @@ async function addFiles(files) {
     const type = String(file.type || "");
     if (type.startsWith("image/") && canVision) accepted.push({ file, kind: "image" });
     if (type.startsWith("audio/") && canAudio) accepted.push({ file, kind: "audio" });
+    if (isTextAttachmentFile(file)) accepted.push({ file, kind: "text" });
   }
   if (!accepted.length) {
     toast(t("chat.attach_not_supported"), "error");
@@ -1217,14 +1252,25 @@ async function addFiles(files) {
       toast(t("chat.file_too_large", { name: item.file.name }), "error");
       continue;
     }
-    const data = await toBase64(item.file);
-    chatAttachments.push({
-      id: nanoid(),
-      kind: item.kind,
-      name: item.file.name,
-      mime: item.file.type,
-      data,
-    });
+    if (item.kind === "text") {
+      const text = await item.file.text();
+      chatAttachments.push({
+        id: nanoid(),
+        kind: item.kind,
+        name: item.file.name,
+        mime: item.file.type || "text/plain",
+        text,
+      });
+    } else {
+      const data = await toBase64(item.file);
+      chatAttachments.push({
+        id: nanoid(),
+        kind: item.kind,
+        name: item.file.name,
+        mime: item.file.type,
+        data,
+      });
+    }
   }
   renderAttachments();
 }
@@ -1344,8 +1390,18 @@ function buildOutboundMessages() {
     if (m.role === "user" && m.attachments?.length) {
       const imgs = m.attachments.filter((a) => a.kind === "image").map((a) => a.data);
       const auds = m.attachments.filter((a) => a.kind === "audio").map((a) => a.data);
+      const txts = m.attachments.filter((a) => a.kind === "text" && String(a.text || "").trim());
       if (imgs.length) payload.images = imgs;
       if (auds.length) payload.audios = auds;
+      if (txts.length) {
+        const blocks = txts.map((a) =>
+          `--- ${a.name || "text"} ---\n${String(a.text || "").trim()}`).join("\n\n");
+        const prefix = t("chat.attached_text_files");
+        const extra = `${prefix}\n\n${blocks}`;
+        payload.content = payload.content
+          ? `${payload.content}\n\n${extra}`
+          : extra;
+      }
     }
     out.push(payload);
   }
@@ -1826,6 +1882,7 @@ function bindChatEvents() {
   });
   $("chat-image-btn").addEventListener("click", () => $("chat-image-input").click());
   $("chat-audio-btn").addEventListener("click", () => $("chat-audio-input").click());
+  $("chat-text-btn").addEventListener("click", () => $("chat-text-input").click());
   $("chat-record-btn").addEventListener("click", async () => {
     if (chatMediaRecorder) {
       stopAudioRecording();
@@ -1840,6 +1897,10 @@ function bindChatEvents() {
   $("chat-audio-input").addEventListener("change", async () => {
     await addFiles(Array.from($("chat-audio-input").files || []));
     $("chat-audio-input").value = "";
+  });
+  $("chat-text-input").addEventListener("change", async () => {
+    await addFiles(Array.from($("chat-text-input").files || []));
+    $("chat-text-input").value = "";
   });
 
   const dropHost = $("chat-view");

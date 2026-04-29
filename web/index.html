@@ -104,8 +104,16 @@
                 <circle cx="12" cy="12" r="8"/>
               </svg>
             </button>
+            <button type="button" id="chat-text-btn" class="chat-media-btn chat-media-btn--text" data-i18n-attr="title aria-label" data-i18n="chat.add_text_file">
+              <svg class="chat-media-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2v6h6"/>
+                <path d="M8 13h8M8 17h6M8 9h3"/>
+              </svg>
+            </button>
             <input id="chat-image-input" type="file" accept="image/*" multiple hidden>
             <input id="chat-audio-input" type="file" accept="audio/*" multiple hidden>
+            <input id="chat-text-input" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple hidden>
           </div>
           <textarea id="chat-input" rows="3" data-i18n-attr="placeholder" data-i18n="chat.input_placeholder" placeholder="Write your message..."></textarea>
           <button id="chat-send-btn" class="primary chat-send" data-i18n="chat.send">Send</button>

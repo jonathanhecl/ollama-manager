@@ -1066,6 +1066,10 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   gap: 4px;
   max-width: 120px;
 }
+.chat-attach-card-audio {
+  max-width: 260px;
+  min-width: 220px;
+}
 .chat-attach-thumb {
   display: block;
   padding: 0;
@@ -1108,6 +1112,16 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   flex-direction: column;
   gap: 4px;
   max-width: 120px;
+}
+.chat-file-item-audio {
+  max-width: 280px;
+  min-width: 220px;
+}
+.chat-audio-player {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  border-radius: 8px;
 }
 .chat-msg-file-thumb {
   display: block;

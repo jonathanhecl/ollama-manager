@@ -48,6 +48,12 @@ function attachmentImageSrc(a) {
   return `data:${mime};base64,${a.data}`;
 }
 
+function attachmentAudioSrc(a) {
+  if (!a || a.kind !== "audio" || !a.data) return "";
+  const mime = (a.mime && String(a.mime).trim()) || "audio/webm";
+  return `data:${mime};base64,${a.data}`;
+}
+
 function openImagePreview(src, name) {
   const modal = $("image-preview-modal");
   const img = $("image-preview-img");
@@ -966,6 +972,16 @@ function renderChatMessages() {
           <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
         </div>`;
       }
+      if (a.kind === "audio" && a.data) {
+        const src = attachmentAudioSrc(a);
+        if (!src) {
+          return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+        }
+        return `<div class="chat-file-item chat-file-item-audio">
+          <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
+          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+        </div>`;
+      }
       return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
     }).join("");
 
@@ -1076,6 +1092,19 @@ function renderAttachments() {
         <button type="button" class="image-preview-open chat-attach-thumb" data-name="${escapeHtml(a.name)}" title="${escapeHtml(t("chat.image_preview_title"))}">
           <img src="${src}" alt="" />
         </button>
+        <div class="chat-attach-foot">
+          <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+        </div>
+      </div>`;
+    }
+    if (a.kind === "audio" && a.data) {
+      const src = attachmentAudioSrc(a);
+      if (!src) {
+        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+      }
+      return `<div class="chat-attach-card chat-attach-card-audio">
+        <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
         <div class="chat-attach-foot">
           <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
           <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>

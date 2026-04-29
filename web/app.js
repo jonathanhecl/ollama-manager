@@ -1896,6 +1896,12 @@ function jobCardHTML(j) {
   const sizeLine = j.total > 0
     ? `${fmtBytes(j.completed || 0)} / ${fmtBytes(j.total)}`
     : "";
+  const finishedLine = j.finished_at
+    ? `${t("downloads.finished_at")}: ${fmtDate(j.finished_at)}`
+    : "";
+  const finishedHTML = finishedLine
+    ? `<span class="dl-finished muted">${escapeHtml(finishedLine)}</span>`
+    : "";
   const statusText = jobStatusLabel(j);
   const showBar = j.status === "running" || (j.status === "done") || (j.total > 0);
   const progress = showBar
@@ -1930,6 +1936,7 @@ function jobCardHTML(j) {
       <div class="dl-row2">
         ${pctText}
         <span class="dl-bytes muted">${escapeHtml(sizeLine)}</span>
+        ${finishedHTML}
       </div>
       ${errBlock}
     </div>

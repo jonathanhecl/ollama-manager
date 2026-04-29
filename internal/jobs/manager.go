@@ -299,12 +299,26 @@ func (m *Manager) Remove(id string) error {
 		m.mu.Unlock()
 		return fmt.Errorf("cannot remove job in state %s", j.Status)
 	}
+	status := j.Status
+	name := j.Name
 	delete(m.jobs, id)
 	m.order = removeString(m.order, id)
 	if err := m.saveLocked(); err != nil {
 		m.logger.Printf("jobs: save failed: %v", err)
 	}
 	m.mu.Unlock()
+
+	// Only on manual remove of failed/cancelled jobs, attempt Ollama cleanup.
+	// Ignore cleanup errors so removing from history always succeeds.
+	if (status == StatusError || status == StatusCancelled) && name != "" && m.ollama != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		err := m.ollama.Delete(ctx, name)
+		cancel()
+		if err != nil {
+			m.logger.Printf("jobs: cleanup failed for %q: %v", name, err)
+		}
+	}
+
 	m.broadcast(Event{Kind: EventRemove, ID: id})
 	return nil
 }

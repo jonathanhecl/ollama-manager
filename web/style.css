@@ -904,6 +904,14 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   gap: 8px;
   align-items: center;
 }
+.chat-options-toggle {
+  display: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 8px;
+}
 
 .chat-dropzone {
   position: absolute;
@@ -1782,6 +1790,17 @@ button.chat-send:disabled:hover {
   flex-direction: column;
   gap: 10px;
 }
+.chat-side-top {
+  display: none;
+  justify-content: flex-end;
+}
+.chat-options-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 8px;
+}
 .chat-cap-block { margin: 0 0 2px; }
 .chat-cap-heading {
   margin: 0 0 6px;
@@ -1871,6 +1890,7 @@ button.chat-send:disabled:hover {
     grid-template-columns: 1fr;
     padding: 10px 12px;
     gap: 10px;
+    position: relative;
   }
   .chat-shell {
     min-height: 0;
@@ -1888,20 +1908,45 @@ button.chat-send:disabled:hover {
     width: 100%;
     justify-content: flex-end;
   }
+  .chat-options-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 6px;
+  }
   .chat-messages {
     padding: 10px;
     gap: 8px;
   }
   .chat-side {
-    order: 2;
-    position: static;
+    display: none;
+    position: absolute;
+    z-index: 6;
+    left: 12px;
+    right: 12px;
+    top: 62px;
+    bottom: 10px;
     max-height: none;
-    overflow: visible;
+    overflow: hidden;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
   }
+  .chat-view.chat-options-open .chat-side { display: block; }
   .chat-side-card {
-    padding: 10px;
+    height: 100%;
+    overflow: auto;
+    padding: 12px;
     gap: 8px;
   }
+  .chat-side-top {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-bottom: 4px;
+    background: linear-gradient(180deg, var(--panel) 75%, transparent);
+  }
+  .chat-opt-hint { display: none; }
+  #chat-system { min-height: 64px; }
   .chat-compose {
     position: relative;
     background: color-mix(in srgb, var(--panel) 92%, #0b0b0d);
@@ -1969,6 +2014,12 @@ button.chat-send:disabled:hover {
   }
   #models-table { min-width: 560px; }
   .chat-view { padding: 8px 10px; }
+  .chat-side {
+    left: 10px;
+    right: 10px;
+    top: 58px;
+    bottom: 8px;
+  }
   .chat-msg {
     padding: 8px 9px;
   }

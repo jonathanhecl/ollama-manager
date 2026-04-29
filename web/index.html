@@ -64,6 +64,7 @@
         <div class="chat-context">
           <span data-i18n="chat.context">Context</span>
           <span id="chat-context-meter" class="mono">—</span>
+          <button id="chat-options-toggle" type="button" class="ghost chat-options-toggle" data-i18n-attr="title aria-label" data-i18n="chat.options" title="Options" aria-label="Options">⚙</button>
         </div>
       </header>
 
@@ -125,6 +126,9 @@
 
     <aside class="chat-side">
       <section class="chat-side-card">
+        <div class="chat-side-top">
+          <button id="chat-options-close" type="button" class="ghost chat-options-close" data-i18n-attr="title aria-label" data-i18n="action.close" title="Close" aria-label="Close">×</button>
+        </div>
         <div id="chat-cap-block" class="chat-cap-block" hidden>
           <p class="chat-cap-heading" data-i18n="chat.model_caps">Capabilities</p>
           <div id="chat-cap-flags" class="chat-cap-flags"></div>

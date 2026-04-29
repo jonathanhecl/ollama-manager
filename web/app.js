@@ -606,6 +606,7 @@ function updateChatContextMeter() {
 }
 
 function showModelsView() {
+  $("chat-view")?.classList.remove("chat-options-open");
   stopSpeechPlayback();
   currentView = "models";
   $("models-view").hidden = false;
@@ -639,6 +640,7 @@ function resetChatState() {
 
 function showChatView() {
   currentView = "chat";
+  $("chat-view")?.classList.remove("chat-options-open");
   $("models-view").hidden = true;
   $("chat-view").hidden = false;
   $("chat-btn")?.classList.add("active");
@@ -657,6 +659,7 @@ function showChatView() {
 
 function showChatViewWithModel(name) {
   showChatView();
+  $("chat-view")?.classList.remove("chat-options-open");
   if (!name) return;
   const sel = $("chat-model");
   const exists = Array.from(sel?.options || []).some((o) => o.value === name);
@@ -1967,10 +1970,19 @@ function bindChatEvents() {
   window.addEventListener("pagehide", stopSpeechPlayback);
   window.addEventListener("beforeunload", stopSpeechPlayback);
   window.addEventListener("popstate", stopSpeechPlayback);
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 900) $("chat-view")?.classList.remove("chat-options-open");
+  });
   $("chat-btn")?.addEventListener("click", showChatView);
   $("chat-back-btn")?.addEventListener("click", () => {
     showModelsView();
     resetChatState();
+  });
+  $("chat-options-toggle")?.addEventListener("click", () => {
+    $("chat-view")?.classList.toggle("chat-options-open");
+  });
+  $("chat-options-close")?.addEventListener("click", () => {
+    $("chat-view")?.classList.remove("chat-options-open");
   });
   $("chat-model").addEventListener("change", () => {
     updateChatCapabilityUI();
@@ -2012,6 +2024,10 @@ function bindChatEvents() {
     stopBtn.addEventListener("click", () => stopChatGeneration());
   }
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("chat-view")?.classList.contains("chat-options-open")) {
+      $("chat-view")?.classList.remove("chat-options-open");
+      return;
+    }
     if (e.code !== "Backspace" || !e.ctrlKey || !e.shiftKey) return;
     if (currentView !== "chat" || !chatStreamLock) return;
     e.preventDefault();

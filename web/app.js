@@ -100,6 +100,9 @@ let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
+let chatMediaRecorder = null;
+let chatRecorderStream = null;
+let chatRecorderChunks = [];
 const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
 const chatModelDefaultsCache = new Map();
 let chatDefaultsReqSeq = 0;
@@ -505,8 +508,12 @@ function updateChatCapabilityUI() {
   const canTools = caps.has("tools");
   $("chat-image-btn").hidden = !canVision;
   $("chat-audio-btn").hidden = !canAudio;
+  $("chat-record-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
   $("chat-web-tools-wrap").hidden = !canTools;
+  if (!canAudio && chatMediaRecorder) {
+    stopAudioRecording(true);
+  }
   const webW = $("chat-web-tools");
   if (webW) webW.checked = !!canTools;
 
@@ -553,6 +560,7 @@ function showModelsView() {
 }
 
 function resetChatState() {
+  stopAudioRecording(true);
   if (chatAbortController) {
     try { chatAbortController.abort(); } catch (_) {}
     chatAbortController = null;
@@ -1192,6 +1200,110 @@ async function addFiles(files) {
   renderAttachments();
 }
 
+function recordingMimeType() {
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+  const choices = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  for (const m of choices) {
+    if (MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";
+}
+
+function recordingExt(mime) {
+  const m = String(mime || "").toLowerCase();
+  if (m.includes("ogg")) return "ogg";
+  if (m.includes("mp4")) return "m4a";
+  return "webm";
+}
+
+function setRecordButtonState(isRecording) {
+  const btn = $("chat-record-btn");
+  if (!btn) return;
+  btn.classList.toggle("is-recording", !!isRecording);
+  const key = isRecording ? "chat.record_audio_stop" : "chat.record_audio_start";
+  const label = t(key);
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
+}
+
+function releaseAudioRecorder() {
+  if (chatRecorderStream) {
+    for (const tr of chatRecorderStream.getTracks()) {
+      try { tr.stop(); } catch {}
+    }
+  }
+  chatRecorderStream = null;
+  chatMediaRecorder = null;
+  chatRecorderChunks = [];
+  setRecordButtonState(false);
+}
+
+async function startAudioRecording() {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    toast(t("chat.record_audio_unsupported"), "error");
+    return;
+  }
+  if (chatMediaRecorder) return;
+  const caps = modelCaps($("chat-model").value);
+  if (!caps.has("audio")) {
+    toast(t("chat.attach_not_supported"), "error");
+    return;
+  }
+  try {
+    chatRecorderStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = recordingMimeType();
+    chatMediaRecorder = mime
+      ? new MediaRecorder(chatRecorderStream, { mimeType: mime })
+      : new MediaRecorder(chatRecorderStream);
+    chatRecorderChunks = [];
+    chatMediaRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) chatRecorderChunks.push(ev.data);
+    };
+    chatMediaRecorder.onerror = () => {
+      toast(t("chat.record_audio_error"), "error");
+      releaseAudioRecorder();
+    };
+    chatMediaRecorder.onstop = async () => {
+      const mimeType = chatMediaRecorder?.mimeType || mime || "audio/webm";
+      const chunks = chatRecorderChunks.slice();
+      releaseAudioRecorder();
+      if (!chunks.length) return;
+      const blob = new Blob(chunks, { type: mimeType });
+      if (!blob.size) return;
+      const ext = recordingExt(mimeType);
+      const file = new File([blob], `recording-${Date.now()}.${ext}`, { type: mimeType });
+      await addFiles([file]);
+    };
+    chatMediaRecorder.start();
+    setRecordButtonState(true);
+  } catch (err) {
+    toast(t("toast.error", { msg: err?.message || t("chat.record_audio_error") }), "error");
+    releaseAudioRecorder();
+  }
+}
+
+function stopAudioRecording(silent = false) {
+  if (!chatMediaRecorder) return;
+  const rec = chatMediaRecorder;
+  if (silent) {
+    rec.ondataavailable = null;
+    rec.onstop = null;
+    rec.onerror = null;
+    releaseAudioRecorder();
+    return;
+  }
+  try {
+    if (rec.state !== "inactive") rec.stop();
+  } catch {
+    releaseAudioRecorder();
+  }
+}
+
 function buildOutboundMessages() {
   const out = [];
   const systemPrompt = $("chat-system").value.trim();
@@ -1685,6 +1797,13 @@ function bindChatEvents() {
   });
   $("chat-image-btn").addEventListener("click", () => $("chat-image-input").click());
   $("chat-audio-btn").addEventListener("click", () => $("chat-audio-input").click());
+  $("chat-record-btn").addEventListener("click", async () => {
+    if (chatMediaRecorder) {
+      stopAudioRecording();
+    } else {
+      await startAudioRecording();
+    }
+  });
   $("chat-image-input").addEventListener("change", async () => {
     await addFiles(Array.from($("chat-image-input").files || []));
     $("chat-image-input").value = "";

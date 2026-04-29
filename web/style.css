@@ -1611,6 +1611,27 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   color: #c4ffd8;
   box-shadow: inset 0 1px 0 rgba(80, 200, 140, 0.12), 0 0 0 1px color-mix(in srgb, #3dbd84 35%, transparent), 0 8px 20px rgba(20, 80, 55, 0.35);
 }
+.chat-media-btn--record {
+  border-color: color-mix(in srgb, #d84b4b 55%, var(--border));
+  color: #ffb0b0;
+  background: linear-gradient(165deg, #351617 0%, #1f0f10 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 120, 120, 0.08);
+}
+.chat-media-btn--record:hover {
+  border-color: #ff6b6b;
+  color: #ffd2d2;
+  box-shadow: inset 0 1px 0 rgba(255, 120, 120, 0.14), 0 0 0 1px color-mix(in srgb, #ff6b6b 35%, transparent), 0 8px 20px rgba(90, 20, 20, 0.35);
+}
+.chat-media-btn--record.is-recording {
+  color: #ffeaea;
+  border-color: #ff6b6b;
+  box-shadow: inset 0 1px 0 rgba(255, 120, 120, 0.18), 0 0 0 1px color-mix(in srgb, #ff6b6b 45%, transparent);
+  animation: chat-rec-pulse 1.05s ease-in-out infinite;
+}
+@keyframes chat-rec-pulse {
+  0%, 100% { transform: translateY(0); filter: saturate(1); }
+  50% { transform: translateY(-1px); filter: saturate(1.25); }
+}
 .chat-media-icon {
   width: 21px;
   height: 21px;

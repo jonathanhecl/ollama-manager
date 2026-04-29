@@ -1027,6 +1027,25 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   width: 16px;
   height: 16px;
 }
+.chat-tts-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px;
+  opacity: 0.75;
+  color: var(--text-dim);
+}
+.chat-tts-btn:hover { opacity: 1; color: var(--text); }
+.chat-tts-btn.active {
+  opacity: 1;
+  color: #ffd2d2;
+  border-color: color-mix(in srgb, #ff6b6b 55%, var(--border));
+  background: color-mix(in srgb, #ff6b6b 16%, transparent);
+}
+.chat-tts-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
 .chat-role {
   font-size: 11px;
   text-transform: uppercase;

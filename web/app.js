@@ -107,6 +107,35 @@ function toast(msg, kind = "") {
   setTimeout(() => div.remove(), 4000);
 }
 
+function detectSpeechLang(text) {
+  const s = String(text || "").toLowerCase();
+  if (!s.trim()) return "es-ES";
+  const esHints = /[áéíóúñ¿¡]|\b(el|la|los|las|de|que|para|como|está|estoy|gracias|hola|modelo)\b/.test(s);
+  return esHints ? "es-ES" : "en-US";
+}
+
+function findBestVoice(langTag) {
+  if (!window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices() || [];
+  if (!voices.length) return null;
+  const want = String(langTag || "").toLowerCase();
+  const exact = voices.find((v) => String(v.lang || "").toLowerCase() === want);
+  if (exact) return exact;
+  const prefix = want.split("-")[0];
+  const byPrefix = voices.find((v) => String(v.lang || "").toLowerCase().startsWith(prefix));
+  return byPrefix || voices[0] || null;
+}
+
+function textForSpeech(raw) {
+  let s = String(raw || "");
+  s = s.replace(/```[\s\S]*?```/g, " ");
+  s = s.replace(/`([^`]+)`/g, "$1");
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  s = s.replace(/[#*_>~-]+/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
 // ---------- state ----------
 let models = [];
 let activeName = null;
@@ -126,6 +155,7 @@ let chatPendingQueue = [];
 let chatMediaRecorder = null;
 let chatRecorderStream = null;
 let chatRecorderChunks = [];
+let speakingMsgId = "";
 const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
 const chatModelDefaultsCache = new Map();
 let chatDefaultsReqSeq = 0;
@@ -584,6 +614,7 @@ function showModelsView() {
 
 function resetChatState() {
   stopAudioRecording(true);
+  stopSpeechPlayback();
   if (chatAbortController) {
     try { chatAbortController.abort(); } catch (_) {}
     chatAbortController = null;
@@ -1044,6 +1075,14 @@ function renderChatMessages() {
     const modelLabel = m.role === "assistant" && m.model
       ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
       : "";
+    const ttsPlaying = m.id === speakingMsgId;
+    const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
+    const ttsBtn = `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
+<svg class="chat-tts-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M11 5L6 9H3v6h3l5 4V5z"/>
+<path d="M15.5 9.5a4 4 0 0 1 0 5"/>
+<path d="M18.5 7a8 8 0 0 1 0 10"/>
+</svg></button>`;
     const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
     const copyBtn = `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
 <svg class="chat-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1078,6 +1117,7 @@ function renderChatMessages() {
         <div class="chat-msg-foot">
           <div class="chat-msg-foot-actions">
             ${regenBtn}
+            ${ttsBtn}
             ${copyBtn}
           </div>
         </div>
@@ -1501,6 +1541,47 @@ function formatEmbeddingResult(vec) {
   });
 }
 
+function stopSpeechPlayback() {
+  if (!window.speechSynthesis) return;
+  try { window.speechSynthesis.cancel(); } catch {}
+  speakingMsgId = "";
+}
+
+function speakMessage(msg) {
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+    toast(t("chat.tts_unsupported"), "error");
+    return;
+  }
+  const text = textForSpeech(msg?.content || "");
+  if (!text) return;
+  const isSame = speakingMsgId && speakingMsgId === msg.id;
+  if (isSame && window.speechSynthesis.speaking) {
+    stopSpeechPlayback();
+    renderChatMessages();
+    return;
+  }
+  stopSpeechPlayback();
+
+  const u = new SpeechSynthesisUtterance(text);
+  const lang = detectSpeechLang(text);
+  const voice = findBestVoice(lang);
+  u.lang = voice?.lang || lang;
+  if (voice) u.voice = voice;
+  u.rate = 1;
+  u.pitch = 1;
+  speakingMsgId = msg.id;
+  u.onend = () => {
+    speakingMsgId = "";
+    if (currentView === "chat") renderChatMessages();
+  };
+  u.onerror = () => {
+    speakingMsgId = "";
+    if (currentView === "chat") renderChatMessages();
+  };
+  window.speechSynthesis.speak(u);
+  renderChatMessages();
+}
+
 async function readSSEStream(response, onEvent) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1892,6 +1973,16 @@ function bindChatEvents() {
       e.preventDefault();
       const id = regenB.getAttribute("data-msg-id");
       if (id) await regenerateLastAssistantMessage(id);
+      return;
+    }
+    const ttsB = e.target.closest(".chat-tts-btn");
+    if (ttsB) {
+      e.preventDefault();
+      const id = ttsB.getAttribute("data-msg-id");
+      if (!id) return;
+      const msg = chatMessages.find((x) => x.id === id);
+      if (!msg) return;
+      speakMessage(msg);
       return;
     }
     const btn = e.target.closest(".chat-copy-btn");

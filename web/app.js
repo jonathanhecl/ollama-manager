@@ -1769,6 +1769,7 @@ function connectJobsStream() {
       // so a freshly installed model appears and a cancelled/failed one doesn't
       // leave stale entries.
       if (prev && !isTerminal(prev.status) && isTerminal(j.status) && j.status === "done") {
+        toast(t("downloads.installed", { name: j.name || "model" }), "success");
         refreshModels();
       }
     } catch {}

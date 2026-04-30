@@ -11,6 +11,9 @@ const I18N = {
     "status.online": "ollama on",
     "status.offline": "ollama off",
     "status.unreachable": "offline",
+    "status.disk": "Disk",
+    "status.disk_free_short": "free {free}/{total}",
+    "status.disk_free_title": "Disk free: {free} of {total} ({pct}%)",
 
     "downloads.title": "Downloads",
     "downloads.button": "Downloads",
@@ -201,6 +204,9 @@ const I18N = {
     "status.online": "ollama on",
     "status.offline": "ollama off",
     "status.unreachable": "sin conexión",
+    "status.disk": "Disco",
+    "status.disk_free_short": "libre {free}/{total}",
+    "status.disk_free_title": "Disco libre: {free} de {total} ({pct}%)",
 
     "downloads.title": "Descargas",
     "downloads.button": "Descargas",

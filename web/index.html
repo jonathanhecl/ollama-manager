@@ -14,6 +14,13 @@
       <span id="status-pill" class="pill pill-muted" data-i18n="status.connecting">connecting…</span>
     </div>
     <div class="topbar-actions">
+      <div id="disk-widget" class="disk-widget" hidden>
+        <span class="disk-widget-label" data-i18n="status.disk">Disk</span>
+        <div class="disk-widget-track" aria-hidden="true">
+          <span id="disk-widget-fill" class="disk-widget-fill"></span>
+        </div>
+        <span id="disk-widget-text" class="disk-widget-text mono">—</span>
+      </div>
       <button id="downloads-btn" class="ghost with-badge" data-i18n-attr="title" data-i18n="downloads.title" title="Downloads">
         <span class="dl-icon" aria-hidden="true">⬇</span>
         <span data-i18n="downloads.button">Downloads</span>

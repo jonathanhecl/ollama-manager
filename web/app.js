@@ -21,6 +21,55 @@ const fmtDate = (s) => {
   if (diffDays < 7) return `hace ${diffDays}d`;
   return d.toLocaleDateString();
 };
+const RELATIVE_UNITS = [
+  { unit: "year", ms: 365 * 24 * 60 * 60 * 1000 },
+  { unit: "month", ms: 30 * 24 * 60 * 60 * 1000 },
+  { unit: "day", ms: 24 * 60 * 60 * 1000 },
+  { unit: "hour", ms: 60 * 60 * 1000 },
+  { unit: "minute", ms: 60 * 1000 },
+  { unit: "second", ms: 1000 },
+];
+const _rtfCache = new Map();
+function getRelativeTimeFormatter() {
+  const lang = window.I18n?.getLang?.() || "en";
+  const locale = lang === "es" ? "es-AR" : "en-US";
+  const key = `${locale}:auto`;
+  if (_rtfCache.has(key)) return _rtfCache.get(key);
+  const fmt = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  _rtfCache.set(key, fmt);
+  return fmt;
+}
+function fmtRelativeTime(s) {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (isNaN(d)) return "—";
+  const diff = d.getTime() - Date.now();
+  const abs = Math.abs(diff);
+  const rtf = getRelativeTimeFormatter();
+  if (abs < 1000) return rtf.format(0, "second");
+  for (const u of RELATIVE_UNITS) {
+    if (abs >= u.ms || u.unit === "second") {
+      const value = Math.round(diff / u.ms);
+      return rtf.format(value, u.unit);
+    }
+  }
+  return "—";
+}
+function fmtDateTimeFull(s) {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (isNaN(d)) return "—";
+  const lang = window.I18n?.getLang?.() || "en";
+  const locale = lang === "es" ? "es-AR" : "en-US";
+  return d.toLocaleString(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 const fmtCtx = (n) => {
   if (!n) return "—";
   if (n >= 1024) return `${(n / 1024).toFixed(0)}K`;
@@ -2405,11 +2454,11 @@ function jobCardHTML(j) {
   const sizeLine = j.total > 0
     ? `${fmtBytes(j.completed || 0)} / ${fmtBytes(j.total)}`
     : "";
-  const finishedLine = j.finished_at
-    ? `${t("downloads.finished_at")}: ${fmtDate(j.finished_at)}`
-    : "";
+  const showFinishedAt = (j.status === "done" || j.status === "error") && !!j.finished_at;
+  const finishedLine = showFinishedAt ? fmtRelativeTime(j.finished_at) : "";
+  const finishedTitle = showFinishedAt ? fmtDateTimeFull(j.finished_at) : "";
   const finishedHTML = finishedLine
-    ? `<span class="dl-finished muted">${escapeHtml(finishedLine)}</span>`
+    ? `<span class="dl-finished muted" title="${escapeHtml(finishedTitle)}">${escapeHtml(finishedLine)}</span>`
     : "";
   const statusText = jobStatusLabel(j);
   const showBar = j.status === "running" || (j.status === "done") || (j.total > 0);
@@ -2701,3 +2750,7 @@ updateChatContextMeter();
 updateChatSendEnabled();
 setInterval(refreshStatus, STATUS_REFRESH_MS);
 setInterval(refreshLoadedState, 1000);
+setInterval(() => {
+  const modal = $("downloads-modal");
+  if (modal && !modal.hidden) renderDownloads();
+}, 60_000);

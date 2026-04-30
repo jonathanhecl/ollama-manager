@@ -205,7 +205,7 @@ async function refreshStatus() {
       pill.textContent = t("status.offline");
       pill.className = "pill pill-bad";
     }
-    $("logout-btn").hidden = !s.has_password;
+    $("settings-logout-btn").hidden = !s.has_password;
     updateChatSendEnabled();
   } catch (e) {
     managerApiOk = false;
@@ -2495,11 +2495,13 @@ $("dl-clear-btn").addEventListener("click", async () => {
 });
 
 // ---------- topbar buttons ----------
-$("refresh-btn").addEventListener("click", () => { refreshStatus(); refreshModels(); });
-$("logout-btn").addEventListener("click", async () => {
+async function logoutAndRedirect() {
   await fetch("/logout", { method: "POST", credentials: "same-origin" });
   window.location.href = "/login";
-});
+}
+
+$("refresh-btn").addEventListener("click", () => { refreshStatus(); refreshModels(); });
+$("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 
 // ---------- settings ----------
 let currentConfig = null;
@@ -2532,6 +2534,7 @@ function updatePasswordSection() {
     badge.className = "badge badge-muted";
   }
   $("pwd-clear-btn").hidden = !currentConfig.has_password;
+  $("settings-logout-btn").hidden = !currentConfig.has_password;
 }
 
 function updateBindPreview() {

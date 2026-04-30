@@ -2440,6 +2440,7 @@ function renderDownloads() {
       if (!j || j.status !== "done" || !j.name) return;
       await refreshModels();
       if (!modelByName(j.name)) return;
+      closeDownloads();
       showChatViewWithModel(j.name);
     });
   });
@@ -2483,8 +2484,11 @@ function jobCardHTML(j) {
 
   const errBlock = j.error ? `<div class="dl-error">${escapeHtml(j.error)}</div>` : "";
 
+  const cardClass = j.status === "done"
+    ? `dl-item dl-${j.status} dl-clickable`
+    : `dl-item dl-${j.status}`;
   return `
-    <div class="dl-item dl-${j.status}" data-id="${escapeHtml(j.id)}">
+    <div class="${cardClass}" data-id="${escapeHtml(j.id)}">
       <div class="dl-row1">
         <span class="dl-name mono">${escapeHtml(j.name)}</span>
         <span class="dl-status dl-status-${j.status}">${escapeHtml(statusText)}</span>

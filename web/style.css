@@ -762,6 +762,11 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .dl-item.dl-error   { border-color: #5a2a2a; background: #1a1212; }
 .dl-item.dl-cancelled { opacity: .75; }
 .dl-item.dl-done    { opacity: .9; }
+.dl-item.dl-clickable { cursor: pointer; }
+.dl-item.dl-clickable:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2));
+}
 
 .dl-row1 {
   display: flex;

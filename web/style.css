@@ -460,16 +460,24 @@ tbody tr.row.active .btn-icon.info-btn:hover {
   line-height: 1.45;
 }
 .repair-preview {
+  display: block;
+  width: 100%;
+  min-height: 260px;
   background: #0e0e12;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  color: var(--text);
   padding: 10px 12px;
   font-family: var(--mono);
   font-size: 12px;
   overflow: auto;
   white-space: pre;
+  resize: vertical;
   max-height: 320px;
   margin-top: 10px;
+}
+.repair-preview[hidden] {
+  display: none;
 }
 
 /* ---------- Modal ---------- */

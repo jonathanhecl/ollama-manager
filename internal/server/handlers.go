@@ -628,13 +628,19 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	modelfile := strings.TrimSpace(body.Modelfile)
+	from, template, parameters, err := parseRepairModelfile(modelfile, preview.BaseName, preview)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	replacing := s.modelExists(r.Context(), preview.TargetName)
 	err = s.ollama.Create(r.Context(), ollama.CreateRequest{
 		Model:      preview.TargetName,
-		From:       preview.BaseName,
-		Template:   preview.Template,
-		Parameters: preview.Parameters,
-		Modelfile:  preview.Modelfile,
+		From:       from,
+		Template:   template,
+		Parameters: parameters,
+		Modelfile:  modelfile,
 		Stream:     false,
 	})
 	if err != nil {

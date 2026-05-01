@@ -57,6 +57,42 @@ func TestBuildModelRepairPreviewRejectsFixedSource(t *testing.T) {
 	}
 }
 
+func TestParseRepairModelfileUsesEditedValues(t *testing.T) {
+	modelfile := `FROM qwen3:latest
+
+TEMPLATE """custom template"""
+
+PARAMETER num_ctx 4096
+PARAMETER temperature 0.2
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|custom|>"
+`
+	from, template, params, err := parseRepairModelfile(modelfile, "qwen3:latest", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if from != "qwen3:latest" {
+		t.Fatalf("from = %q", from)
+	}
+	if template != "custom template" {
+		t.Fatalf("template = %q", template)
+	}
+	if params["num_ctx"] != 4096 || params["temperature"] != 0.2 {
+		t.Fatalf("params = %#v", params)
+	}
+	stops, ok := params["stop"].([]string)
+	if !ok || strings.Join(stops, ",") != "<|im_end|>,<|custom|>" {
+		t.Fatalf("stops = %#v", params["stop"])
+	}
+}
+
+func TestParseRepairModelfileRejectsDifferentBase(t *testing.T) {
+	_, _, _, err := parseRepairModelfile("FROM other:latest\n", "qwen3:latest", nil)
+	if err == nil {
+		t.Fatal("expected different FROM to be rejected")
+	}
+}
+
 func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	var created struct {
 		Model      string         `json:"model"`
@@ -92,7 +128,7 @@ func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	defer ollamaSrv.Close()
 
 	srv := newTestServer(t, ollamaSrv.URL)
-	body := bytes.NewBufferString(`{"model":"qwen3:latest","capabilities":["tools"],"template_preset":"qwen35","context_preset":"safe","temperature_preset":"tools","confirm":true}`)
+	body := bytes.NewBufferString(`{"model":"qwen3:latest","capabilities":["tools"],"template_preset":"qwen35","context_preset":"safe","temperature_preset":"tools","modelfile":"FROM qwen3:latest\n\nTEMPLATE \"\"\"edited {{ range .Tools }}template{{ end }}\"\"\"\n\nPARAMETER num_ctx 4096\nPARAMETER temperature 0.2\nPARAMETER stop \"<|edited|>\"\n","confirm":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/model-repair/apply", body)
 	rec := httptest.NewRecorder()
 	srv.Routes().ServeHTTP(rec, req)
@@ -105,13 +141,16 @@ func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	if created.From != "qwen3:latest" {
 		t.Fatalf("created from = %q", created.From)
 	}
-	if !strings.Contains(created.Template, "{{ range .Tools }}") {
+	if !strings.Contains(created.Template, "edited {{ range .Tools }}template") {
 		t.Fatalf("created template = %s", created.Template)
 	}
-	if got := created.Parameters["temperature"]; got != float64(0) {
+	if got := created.Parameters["temperature"]; got != float64(0.2) {
 		t.Fatalf("temperature = %#v", got)
 	}
-	if !strings.Contains(created.Modelfile, "FROM qwen3:latest") {
+	if got := created.Parameters["num_ctx"]; got != float64(4096) {
+		t.Fatalf("num_ctx = %#v", got)
+	}
+	if !strings.Contains(created.Modelfile, "edited") {
 		t.Fatalf("created Modelfile = %s", created.Modelfile)
 	}
 	var out map[string]any

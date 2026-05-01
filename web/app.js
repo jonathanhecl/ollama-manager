@@ -707,7 +707,7 @@ function renderRepairModalContent(d) {
     </div>
     <div id="repair-status" class="muted repair-status"></div>
     <div id="repair-warnings" class="repair-warnings" hidden></div>
-    <pre id="repair-preview" class="repair-preview" hidden></pre>
+    <textarea id="repair-preview" class="repair-preview" spellcheck="false" hidden></textarea>
   </div>`;
 }
 
@@ -754,14 +754,15 @@ function bindRepairControls(d) {
 
   let hasPreview = false;
   const updateApply = () => {
-    applyBtn.disabled = !(hasPreview && confirm.checked);
+    const modelfile = $("repair-preview")?.value?.trim() || "";
+    applyBtn.disabled = !(hasPreview && confirm.checked && modelfile);
   };
   const resetPreview = () => {
     hasPreview = false;
     const pre = $("repair-preview");
     if (pre) {
       pre.hidden = true;
-      pre.textContent = "";
+      pre.value = "";
     }
     const warnings = $("repair-warnings");
     if (warnings) {
@@ -772,6 +773,7 @@ function bindRepairControls(d) {
     updateApply();
   };
   confirm.addEventListener("change", updateApply);
+  $("repair-preview")?.addEventListener("input", updateApply);
   root.querySelectorAll("input[name='repair-cap'], select").forEach((el) => {
     el.addEventListener("change", resetPreview);
   });
@@ -825,12 +827,14 @@ function bindRepairControls(d) {
 
 function collectRepairRequest(d, confirmed) {
   const capabilities = Array.from(document.querySelectorAll("input[name='repair-cap']:checked")).map((el) => el.value);
+  const modelfile = $("repair-preview")?.value || "";
   return {
     model: d.name,
     capabilities,
     template_preset: $("repair-template")?.value || "generic",
     context_preset: $("repair-context")?.value || "safe",
     temperature_preset: $("repair-temperature")?.value || "keep",
+    modelfile: confirmed ? modelfile : "",
     confirm: !!confirmed,
   };
 }
@@ -838,7 +842,7 @@ function collectRepairRequest(d, confirmed) {
 function renderRepairPreview(out) {
   const pre = $("repair-preview");
   pre.hidden = false;
-  pre.textContent = out.modelfile || "";
+  pre.value = out.modelfile || "";
   const warnings = $("repair-warnings");
   const list = out.warnings || [];
   warnings.hidden = !list.length;

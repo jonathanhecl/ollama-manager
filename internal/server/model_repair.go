@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/gense/ollama-manager/internal/ollama"
@@ -20,6 +21,7 @@ type modelRepairRequest struct {
 	TemplatePreset    string   `json:"template_preset"`
 	ContextPreset     string   `json:"context_preset"`
 	TemperaturePreset string   `json:"temperature_preset"`
+	Modelfile         string   `json:"modelfile"`
 	Confirm           bool     `json:"confirm"`
 }
 
@@ -154,6 +156,98 @@ func normalizeRepairCapabilities(in []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairPreview) (string, string, map[string]any, error) {
+	modelfile = strings.TrimSpace(modelfile)
+	if modelfile == "" {
+		return "", "", nil, errors.New("missing edited Modelfile; generate a preview before creating the fixed model")
+	}
+	if len(modelfile) > 64*1024 {
+		return "", "", nil, errors.New("edited Modelfile is too large")
+	}
+
+	from := ""
+	for _, line := range strings.Split(modelfile, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, rest, ok := strings.Cut(line, " ")
+		if ok && strings.EqualFold(key, "FROM") {
+			from = strings.TrimSpace(rest)
+			break
+		}
+	}
+	if from == "" {
+		return "", "", nil, errors.New("edited Modelfile must include FROM")
+	}
+	if from != expectedBase {
+		return "", "", nil, fmt.Errorf("edited Modelfile must keep FROM %s", expectedBase)
+	}
+
+	template := ""
+	const tmplMarker = "TEMPLATE \"\"\""
+	if i := strings.Index(modelfile, tmplMarker); i >= 0 {
+		rest := modelfile[i+len(tmplMarker):]
+		if j := strings.Index(rest, "\"\"\""); j >= 0 {
+			template = rest[:j]
+		} else {
+			return "", "", nil, errors.New("edited Modelfile has an unterminated TEMPLATE block")
+		}
+	}
+	if template == "" && fallback != nil {
+		template = fallback.Template
+	}
+
+	parameters := make(map[string]any)
+	for _, line := range strings.Split(modelfile, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, rest, ok := strings.Cut(line, " ")
+		if !ok || !strings.EqualFold(key, "PARAMETER") {
+			continue
+		}
+		name, value, ok := strings.Cut(strings.TrimSpace(rest), " ")
+		if !ok {
+			return "", "", nil, fmt.Errorf("invalid PARAMETER line %q", line)
+		}
+		name = strings.TrimSpace(name)
+		parsed := parseRepairParameterValue(strings.TrimSpace(value))
+		if name == "stop" {
+			if existing, ok := parameters[name].([]string); ok {
+				parameters[name] = append(existing, fmt.Sprint(parsed))
+			} else {
+				parameters[name] = []string{fmt.Sprint(parsed)}
+			}
+			continue
+		}
+		parameters[name] = parsed
+	}
+	if len(parameters) == 0 && fallback != nil {
+		for k, v := range fallback.Parameters {
+			parameters[k] = v
+		}
+	}
+	return from, template, parameters, nil
+}
+
+func parseRepairParameterValue(raw string) any {
+	if unquoted, err := strconv.Unquote(raw); err == nil {
+		return unquoted
+	}
+	if i, err := strconv.Atoi(raw); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(raw, 64); err == nil {
+		return f
+	}
+	if b, err := strconv.ParseBool(raw); err == nil {
+		return b
+	}
+	return raw
 }
 
 func normalizeRepairPreset(value, fallback string) string {

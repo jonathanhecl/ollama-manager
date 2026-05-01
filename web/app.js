@@ -585,8 +585,10 @@ function renderDetail(d) {
 
   const paramsBlock = d.parameters ? `<div class="detail-section"><h3>${escapeHtml(t("detail.parameters_section"))}</h3><pre>${escapeHtml(d.parameters)}</pre></div>` : "";
   const tmplBlock = d.template ? `<div class="detail-section"><h3>${escapeHtml(t("detail.template"))}</h3><pre>${escapeHtml(d.template)}</pre></div>` : "";
+  const repairBlock = renderRepairBlock(d);
 
-  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${capsBlock}${paramsBlock}${tmplBlock}`;
+  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}`;
+  bindRepairControls(d);
 }
 
 $("detail-close").addEventListener("click", () => {
@@ -594,6 +596,191 @@ $("detail-close").addEventListener("click", () => {
   activeName = null;
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
 });
+
+const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embedding"];
+
+function isFixedModelName(name) {
+  return String(name || "").trim().endsWith(":fixed");
+}
+
+function fixedBaseName(name) {
+  return isFixedModelName(name) ? String(name).trim().slice(0, -":fixed".length) : String(name || "").trim();
+}
+
+function fixedModelName(name) {
+  const s = String(name || "").trim();
+  if (!s) return "";
+  const slash = s.lastIndexOf("/");
+  const colon = s.lastIndexOf(":");
+  if (colon > slash) return `${s.slice(0, colon)}:fixed`;
+  return `${s}:fixed`;
+}
+
+function repairDefaultTemplate(d) {
+  const arch = String(d?.architecture || d?.details?.family || "").toLowerCase();
+  if (arch.includes("qwen")) return "qwen35";
+  if (arch.includes("llama")) return "llama3";
+  return "generic";
+}
+
+function renderRepairBlock(d) {
+  if (isFixedModelName(d.name)) {
+    const base = fixedBaseName(d.name);
+    return `<div class="detail-section repair-card">
+      <h3>${escapeHtml(t("repair.title"))}</h3>
+      <div class="repair-note">${escapeHtml(t("repair.fixed_note", { base }))}</div>
+      <button type="button" class="ghost repair-open-base" data-base="${escapeHtml(base)}">${escapeHtml(t("repair.open_base"))}</button>
+    </div>`;
+  }
+
+  const detected = new Set((d.capabilities || []).map((c) => String(c).toLowerCase()));
+  const detectedHtml = (d.capabilities || []).length
+    ? `<div class="cap-list repair-detected">${(d.capabilities || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("")}</div>`
+    : `<div class="muted">${escapeHtml(t("repair.detected_none"))}</div>`;
+  const capsHtml = REPAIR_CAPS.map((cap) => {
+    const label = t(`chat.cap.${cap}`);
+    const hint = detected.has(cap) ? `<span>${escapeHtml(t("repair.detected"))}</span>` : "";
+    return `<label class="repair-check">
+      <input type="checkbox" name="repair-cap" value="${escapeHtml(cap)}">
+      <span>${escapeHtml(label)}</span>
+      ${hint}
+    </label>`;
+  }).join("");
+  const target = fixedModelName(d.name);
+  const template = repairDefaultTemplate(d);
+  return `<div class="detail-section repair-card">
+    <h3>${escapeHtml(t("repair.title"))}</h3>
+    <div class="repair-warning">${escapeHtml(t("repair.warning"))}</div>
+    <div class="repair-subtitle">${escapeHtml(t("repair.detected_caps"))}</div>
+    ${detectedHtml}
+    <div class="repair-subtitle">${escapeHtml(t("repair.flags"))}</div>
+    <div class="repair-caps">${capsHtml}</div>
+    <div class="repair-form-grid">
+      <label>
+        <span>${escapeHtml(t("repair.template"))}</span>
+        <select id="repair-template">
+          <option value="qwen35"${template === "qwen35" ? " selected" : ""}>Qwen 3 / 3.5</option>
+          <option value="llama3"${template === "llama3" ? " selected" : ""}>Llama 3</option>
+          <option value="generic"${template === "generic" ? " selected" : ""}>ChatML genérico</option>
+        </select>
+      </label>
+      <label>
+        <span>${escapeHtml(t("repair.context"))}</span>
+        <select id="repair-context">
+          <option value="safe">${escapeHtml(t("repair.context_safe"))}</option>
+          <option value="thinking">${escapeHtml(t("repair.context_thinking"))}</option>
+          <option value="keep">${escapeHtml(t("repair.keep"))}</option>
+        </select>
+      </label>
+      <label>
+        <span>${escapeHtml(t("repair.temperature"))}</span>
+        <select id="repair-temperature">
+          <option value="keep">${escapeHtml(t("repair.keep"))}</option>
+          <option value="tools">${escapeHtml(t("repair.temp_tools"))}</option>
+          <option value="low">${escapeHtml(t("repair.temp_low"))}</option>
+        </select>
+      </label>
+    </div>
+    <div class="repair-target">${escapeHtml(t("repair.target", { name: target }))}</div>
+    <label class="repair-confirm">
+      <input id="repair-confirm" type="checkbox">
+      <span>${escapeHtml(t("repair.confirm"))}</span>
+    </label>
+    <div class="repair-actions">
+      <button type="button" class="ghost" id="repair-preview-btn">${escapeHtml(t("repair.preview"))}</button>
+      <button type="button" class="primary" id="repair-apply-btn" disabled>${escapeHtml(t("repair.apply"))}</button>
+    </div>
+    <div id="repair-status" class="muted repair-status"></div>
+    <div id="repair-warnings" class="repair-warnings" hidden></div>
+    <pre id="repair-preview" class="repair-preview" hidden></pre>
+  </div>`;
+}
+
+function bindRepairControls(d) {
+  const openBase = document.querySelector(".repair-open-base");
+  if (openBase) {
+    openBase.addEventListener("click", () => openDetail(openBase.dataset.base));
+    return;
+  }
+
+  const previewBtn = $("repair-preview-btn");
+  const applyBtn = $("repair-apply-btn");
+  const confirm = $("repair-confirm");
+  if (!previewBtn || !applyBtn || !confirm) return;
+
+  let hasPreview = false;
+  const updateApply = () => {
+    applyBtn.disabled = !(hasPreview && confirm.checked);
+  };
+  confirm.addEventListener("change", updateApply);
+
+  previewBtn.addEventListener("click", async () => {
+    try {
+      previewBtn.disabled = true;
+      $("repair-status").textContent = t("repair.previewing");
+      const out = await api("/api/model-repair/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(collectRepairRequest(d, false)),
+      });
+      renderRepairPreview(out);
+      hasPreview = true;
+      $("repair-status").textContent = t("repair.preview_ready");
+    } catch (e) {
+      hasPreview = false;
+      $("repair-status").textContent = t("state.error_prefix") + e.message;
+    } finally {
+      previewBtn.disabled = false;
+      updateApply();
+    }
+  });
+
+  applyBtn.addEventListener("click", async () => {
+    if (!confirm.checked) return;
+    const target = fixedModelName(d.name);
+    const exists = models.some((m) => m.name === target || m.model === target);
+    const msg = exists ? t("repair.replace_confirm", { name: target }) : t("repair.apply_confirm", { name: target });
+    if (!window.confirm(msg)) return;
+    try {
+      applyBtn.disabled = true;
+      $("repair-status").textContent = t("repair.applying");
+      const out = await api("/api/model-repair/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(collectRepairRequest(d, true)),
+      });
+      toast(t(out.replaced ? "repair.replaced" : "repair.created", { name: out.target_name }), "success");
+      await refreshModels();
+      openDetail(out.target_name);
+    } catch (e) {
+      toast(t("toast.error", { msg: e.message }), "error");
+      $("repair-status").textContent = t("state.error_prefix") + e.message;
+      updateApply();
+    }
+  });
+}
+
+function collectRepairRequest(d, confirmed) {
+  const capabilities = Array.from(document.querySelectorAll("input[name='repair-cap']:checked")).map((el) => el.value);
+  return {
+    model: d.name,
+    capabilities,
+    template_preset: $("repair-template")?.value || "generic",
+    context_preset: $("repair-context")?.value || "safe",
+    temperature_preset: $("repair-temperature")?.value || "keep",
+    confirm: !!confirmed,
+  };
+}
+
+function renderRepairPreview(out) {
+  const pre = $("repair-preview");
+  pre.hidden = false;
+  pre.textContent = out.modelfile || "";
+  const warnings = $("repair-warnings");
+  const list = out.warnings || [];
+  warnings.hidden = !list.length;
+  warnings.innerHTML = list.map((w) => `<div>${escapeHtml(w)}</div>`).join("");
+}
 
 // ---------- chat ----------
 function nanoid() {

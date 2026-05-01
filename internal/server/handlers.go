@@ -557,7 +557,106 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": name})
+	resp := map[string]any{"deleted": name}
+	if !isFixedModelName(name) {
+		fixed := fixedModelName(name)
+		if s.modelExists(r.Context(), fixed) {
+			if err := s.ollama.Delete(r.Context(), fixed); err != nil {
+				resp["warning"] = "base model deleted, but fixed model could not be deleted: " + err.Error()
+			} else {
+				resp["deleted_fixed"] = fixed
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRepairPreview(w http.ResponseWriter, r *http.Request) {
+	var body modelRepairRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Model)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if isFixedModelName(name) {
+		writeError(w, http.StatusBadRequest, errors.New("fixed models cannot be repaired; open the base model and apply a new fix"))
+		return
+	}
+	show, err := s.ollama.Show(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	preview, err := buildModelRepairPreview(name, show, body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
+	var body modelRepairRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Model)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if isFixedModelName(name) {
+		writeError(w, http.StatusBadRequest, errors.New("fixed models cannot be repaired; open the base model and apply a new fix"))
+		return
+	}
+	if !body.Confirm {
+		writeError(w, http.StatusBadRequest, errors.New("confirmation is required before applying a repair"))
+		return
+	}
+	show, err := s.ollama.Show(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	preview, err := buildModelRepairPreview(name, show, body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	replacing := s.modelExists(r.Context(), preview.TargetName)
+	err = s.ollama.Create(r.Context(), ollama.CreateRequest{
+		Model:     preview.TargetName,
+		Modelfile: preview.Modelfile,
+		Stream:    false,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"base_name":   preview.BaseName,
+		"target_name": preview.TargetName,
+		"replaced":    replacing,
+		"warnings":    preview.Warnings,
+	})
+}
+
+func (s *Server) modelExists(ctx context.Context, name string) bool {
+	models, err := s.ollama.List(ctx)
+	if err != nil {
+		return false
+	}
+	for _, m := range models {
+		if m.Name == name || m.Model == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------- chat ----------

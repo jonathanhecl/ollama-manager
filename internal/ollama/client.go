@@ -4,6 +4,7 @@
 //   - GET  /api/tags
 //   - GET  /api/ps
 //   - POST /api/show
+//   - POST /api/create
 //   - POST /api/pull   (NDJSON stream)
 //   - POST /api/chat   (NDJSON stream)
 //   - DELETE /api/delete
@@ -141,6 +142,13 @@ type EmbedResponse struct {
 	Embedding []float64 `json:"embedding"`
 }
 
+// CreateRequest is the subset of /api/create used to create derived models.
+type CreateRequest struct {
+	Model     string `json:"model"`
+	Modelfile string `json:"modelfile"`
+	Stream    bool   `json:"stream"`
+}
+
 // ChatChunk is one streamed NDJSON object from /api/chat.
 type ChatChunk struct {
 	Model              string      `json:"model"`
@@ -200,6 +208,21 @@ func (c *Client) Show(ctx context.Context, name string) (*ShowResponse, error) {
 func (c *Client) Delete(ctx context.Context, name string) error {
 	body, _ := json.Marshal(map[string]any{"name": name})
 	resp, err := c.do(ctx, http.MethodDelete, "/api/delete", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return checkStatus(resp)
+}
+
+// Create calls POST /api/create with stream:false.
+func (c *Client) Create(ctx context.Context, req CreateRequest) error {
+	req.Stream = false
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/api/create", bytes.NewReader(body), "application/json")
 	if err != nil {
 		return err
 	}

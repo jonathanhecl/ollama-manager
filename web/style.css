@@ -488,6 +488,9 @@ tbody tr.row.active .btn-icon.info-btn:hover {
   z-index: 20;
   padding: 20px;
 }
+#confirm-modal {
+  z-index: 40;
+}
 .modal-card {
   background: var(--panel);
   border: 1px solid var(--border-strong);

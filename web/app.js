@@ -942,13 +942,23 @@ function updateChatCapabilityUI() {
 function updateChatContextMeter() {
   const selected = modelByName($("chat-model").value);
   const maxCtx = Number(selected?.context_length) || 0;
+  const ring = $("chat-context-ring");
   if (!maxCtx) {
     $("chat-context-meter").textContent = "—";
+    if (ring) {
+      ring.style.setProperty("--ctx-pct", "0%");
+      ring.title = "";
+    }
     return;
   }
   const used = Math.max(0, Number(chatLastUsedTokens) || 0);
   const pct = Math.min(999, Math.round((used / maxCtx) * 100));
+  const ringPct = `${Math.max(0, Math.min(100, (used / maxCtx) * 100))}%`;
   $("chat-context-meter").textContent = `${fmtCtx(used)} / ${fmtCtx(maxCtx)} (${pct}%)`;
+  if (ring) {
+    ring.style.setProperty("--ctx-pct", ringPct);
+    ring.title = `${fmtCtx(used)} / ${fmtCtx(maxCtx)} (${pct}%)`;
+  }
 }
 
 function showModelsView() {
@@ -2239,7 +2249,7 @@ async function runChatRequest(assistantMsg) {
           assistantMsg.tps = null;
         }
         assistantMsg.hasDebug = true;
-        chatLastUsedTokens = assistantMsg.promptTokens || assistantMsg.tokens;
+        chatLastUsedTokens = assistantMsg.tokens || (assistantMsg.promptTokens + assistantMsg.completionTokens);
         updateChatContextMeter();
         flushChatRender();
       }

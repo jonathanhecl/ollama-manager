@@ -1119,6 +1119,17 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   gap: 8px;
   align-items: center;
 }
+.chat-context-ring {
+  --ctx-pct: 0%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, var(--panel) 56%, transparent 58%),
+    conic-gradient(var(--accent) var(--ctx-pct), var(--border-strong) 0);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-strong) 70%, transparent);
+  flex: 0 0 auto;
+}
 .chat-options-toggle {
   display: none;
   width: 30px;

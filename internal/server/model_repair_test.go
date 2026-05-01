@@ -60,6 +60,8 @@ func TestBuildModelRepairPreviewRejectsFixedSource(t *testing.T) {
 func TestParseRepairModelfileUsesEditedValues(t *testing.T) {
 	modelfile := `FROM qwen3:latest
 
+SYSTEM """custom system"""
+
 TEMPLATE """custom template"""
 
 PARAMETER num_ctx 4096
@@ -67,12 +69,15 @@ PARAMETER temperature 0.2
 PARAMETER stop "<|im_end|>"
 PARAMETER stop "<|custom|>"
 `
-	from, template, params, err := parseRepairModelfile(modelfile, "qwen3:latest", nil)
+	from, system, template, params, err := parseRepairModelfile(modelfile, "qwen3:latest", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if from != "qwen3:latest" {
 		t.Fatalf("from = %q", from)
+	}
+	if system != "custom system" {
+		t.Fatalf("system = %q", system)
 	}
 	if template != "custom template" {
 		t.Fatalf("template = %q", template)
@@ -87,9 +92,34 @@ PARAMETER stop "<|custom|>"
 }
 
 func TestParseRepairModelfileRejectsDifferentBase(t *testing.T) {
-	_, _, _, err := parseRepairModelfile("FROM other:latest\n", "qwen3:latest", nil)
+	_, _, _, _, err := parseRepairModelfile("FROM other:latest\n", "qwen3:latest", nil)
 	if err == nil {
 		t.Fatal("expected different FROM to be rejected")
+	}
+}
+
+func TestBuildModelRepairPreviewKeepsExistingTemplateByDefault(t *testing.T) {
+	show := &ollama.ShowResponse{
+		Template: "{{ .Prompt }}",
+	}
+	preview, err := buildModelRepairPreview("base:latest", show, modelRepairRequest{
+		Capabilities:  []string{"tools"},
+		ContextPreset: "safe",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(preview.Modelfile, "TEMPLATE") {
+		t.Fatalf("expected inherited template, got:\n%s", preview.Modelfile)
+	}
+	if !strings.Contains(preview.Modelfile, "SYSTEM") {
+		t.Fatalf("expected system overlay, got:\n%s", preview.Modelfile)
+	}
+	if preview.Template != "" {
+		t.Fatalf("template = %q", preview.Template)
+	}
+	if preview.System == "" {
+		t.Fatal("expected system overlay")
 	}
 }
 
@@ -97,6 +127,7 @@ func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	var created struct {
 		Model      string         `json:"model"`
 		From       string         `json:"from"`
+		System     string         `json:"system"`
 		Template   string         `json:"template"`
 		Parameters map[string]any `json:"parameters"`
 		Modelfile  string         `json:"modelfile"`

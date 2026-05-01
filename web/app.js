@@ -617,6 +617,7 @@ function fixedModelName(name) {
 }
 
 function repairDefaultTemplate(d) {
+  if (String(d?.template || "").trim()) return "keep";
   const arch = String(d?.architecture || d?.details?.family || "").toLowerCase();
   if (arch.includes("qwen")) return "qwen35";
   if (arch.includes("llama")) return "llama3";
@@ -674,6 +675,7 @@ function renderRepairModalContent(d) {
       <label>
         <span>${escapeHtml(t("repair.template"))}</span>
         <select id="repair-template">
+          <option value="keep"${template === "keep" ? " selected" : ""}>${escapeHtml(t("repair.template_keep"))}</option>
           <option value="qwen35"${template === "qwen35" ? " selected" : ""}>Qwen 3 / 3.5</option>
           <option value="llama3"${template === "llama3" ? " selected" : ""}>Llama 3</option>
           <option value="generic"${template === "generic" ? " selected" : ""}>ChatML genérico</option>

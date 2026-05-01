@@ -629,7 +629,7 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	modelfile := strings.TrimSpace(body.Modelfile)
-	from, template, parameters, err := parseRepairModelfile(modelfile, preview.BaseName, preview)
+	from, system, template, parameters, err := parseRepairModelfile(modelfile, preview.BaseName, preview)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -638,6 +638,7 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 	err = s.ollama.Create(r.Context(), ollama.CreateRequest{
 		Model:      preview.TargetName,
 		From:       from,
+		System:     system,
 		Template:   template,
 		Parameters: parameters,
 		Modelfile:  modelfile,

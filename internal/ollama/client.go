@@ -146,6 +146,7 @@ type EmbedResponse struct {
 type CreateRequest struct {
 	Model      string         `json:"model"`
 	From       string         `json:"from,omitempty"`
+	System     string         `json:"system,omitempty"`
 	Template   string         `json:"template,omitempty"`
 	Parameters map[string]any `json:"parameters,omitempty"`
 	Modelfile  string         `json:"modelfile,omitempty"`

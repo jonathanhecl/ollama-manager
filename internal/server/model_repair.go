@@ -32,6 +32,7 @@ type modelRepairPreview struct {
 	Warnings             []string       `json:"warnings,omitempty"`
 	DetectedCapabilities []string       `json:"detected_capabilities,omitempty"`
 	RequiresConfirmation bool           `json:"requires_confirmation"`
+	System               string         `json:"-"`
 	Template             string         `json:"-"`
 	Parameters           map[string]any `json:"-"`
 }
@@ -52,7 +53,11 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	if err != nil {
 		return nil, err
 	}
-	templatePreset := normalizeRepairPreset(req.TemplatePreset, "generic")
+	templateFallback := "generic"
+	if strings.TrimSpace(show.Template) != "" {
+		templateFallback = "keep"
+	}
+	templatePreset := normalizeRepairPreset(req.TemplatePreset, templateFallback)
 	contextPreset := normalizeRepairPreset(req.ContextPreset, "safe")
 	tempPreset := normalizeRepairPreset(req.TemperaturePreset, "keep")
 
@@ -74,14 +79,29 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		warnings = append(warnings, "Audio support depends on model/runtime support; this fix only changes the Modelfile metadata and chat template.")
 	}
 
-	template := repairTemplate(templatePreset, hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
-	if template == "" {
-		return nil, fmt.Errorf("unknown template preset %q", req.TemplatePreset)
+	system := repairSystem(caps)
+	if system != "" {
+		b.WriteString("SYSTEM \"\"\"")
+		b.WriteString(system)
+		b.WriteString("\"\"\"\n\n")
+	}
+
+	template := ""
+	if templatePreset != "keep" {
+		template = repairTemplate(templatePreset, hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
+		if template == "" {
+			return nil, fmt.Errorf("unknown template preset %q", req.TemplatePreset)
+		}
 	}
 	if template != "" {
 		b.WriteString("TEMPLATE \"\"\"")
 		b.WriteString(template)
 		b.WriteString("\"\"\"\n\n")
+	} else if strings.TrimSpace(show.Template) != "" {
+		warnings = append(warnings, "Keeping the original template from the base model. The fixed model will inherit it and only add SYSTEM/PARAMETER changes.")
+		if hasRepairCap(caps, "tools") {
+			warnings = append(warnings, "Tool metadata may still require a template that renders .Tools and .ToolCalls. If the original template does not do that, choose an explicit template preset or edit the preview manually.")
+		}
 	}
 
 	if templatePreset == "qwen35" {
@@ -134,6 +154,7 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		Warnings:             warnings,
 		DetectedCapabilities: append([]string(nil), show.Capabilities...),
 		RequiresConfirmation: true,
+		System:               system,
 		Template:             template,
 		Parameters:           parameters,
 	}, nil
@@ -158,13 +179,13 @@ func normalizeRepairCapabilities(in []string) ([]string, error) {
 	return out, nil
 }
 
-func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairPreview) (string, string, map[string]any, error) {
+func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairPreview) (string, string, string, map[string]any, error) {
 	modelfile = strings.TrimSpace(modelfile)
 	if modelfile == "" {
-		return "", "", nil, errors.New("missing edited Modelfile; generate a preview before creating the fixed model")
+		return "", "", "", nil, errors.New("missing edited Modelfile; generate a preview before creating the fixed model")
 	}
 	if len(modelfile) > 64*1024 {
-		return "", "", nil, errors.New("edited Modelfile is too large")
+		return "", "", "", nil, errors.New("edited Modelfile is too large")
 	}
 
 	from := ""
@@ -180,21 +201,23 @@ func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairP
 		}
 	}
 	if from == "" {
-		return "", "", nil, errors.New("edited Modelfile must include FROM")
+		return "", "", "", nil, errors.New("edited Modelfile must include FROM")
 	}
 	if from != expectedBase {
-		return "", "", nil, fmt.Errorf("edited Modelfile must keep FROM %s", expectedBase)
+		return "", "", "", nil, fmt.Errorf("edited Modelfile must keep FROM %s", expectedBase)
 	}
 
-	template := ""
-	const tmplMarker = "TEMPLATE \"\"\""
-	if i := strings.Index(modelfile, tmplMarker); i >= 0 {
-		rest := modelfile[i+len(tmplMarker):]
-		if j := strings.Index(rest, "\"\"\""); j >= 0 {
-			template = rest[:j]
-		} else {
-			return "", "", nil, errors.New("edited Modelfile has an unterminated TEMPLATE block")
-		}
+	system, err := extractTripleQuotedDirective(modelfile, "SYSTEM")
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	if system == "" && fallback != nil {
+		system = fallback.System
+	}
+
+	template, err := extractTripleQuotedDirective(modelfile, "TEMPLATE")
+	if err != nil {
+		return "", "", "", nil, err
 	}
 	if template == "" && fallback != nil {
 		template = fallback.Template
@@ -212,7 +235,7 @@ func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairP
 		}
 		name, value, ok := strings.Cut(strings.TrimSpace(rest), " ")
 		if !ok {
-			return "", "", nil, fmt.Errorf("invalid PARAMETER line %q", line)
+			return "", "", "", nil, fmt.Errorf("invalid PARAMETER line %q", line)
 		}
 		name = strings.TrimSpace(name)
 		parsed := parseRepairParameterValue(strings.TrimSpace(value))
@@ -231,7 +254,20 @@ func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairP
 			parameters[k] = v
 		}
 	}
-	return from, template, parameters, nil
+	return from, system, template, parameters, nil
+}
+
+func extractTripleQuotedDirective(modelfile, directive string) (string, error) {
+	marker := directive + " \"\"\""
+	upper := strings.ToUpper(modelfile)
+	if i := strings.Index(upper, strings.ToUpper(marker)); i >= 0 {
+		rest := modelfile[i+len(marker):]
+		if j := strings.Index(rest, "\"\"\""); j >= 0 {
+			return rest[:j], nil
+		}
+		return "", fmt.Errorf("edited Modelfile has an unterminated %s block", directive)
+	}
+	return "", nil
 }
 
 func parseRepairParameterValue(raw string) any {
@@ -260,6 +296,35 @@ func normalizeRepairPreset(value, fallback string) string {
 
 func hasRepairCap(caps []string, cap string) bool {
 	return slices.Contains(caps, cap)
+}
+
+func repairSystem(caps []string) string {
+	if len(caps) == 0 {
+		return ""
+	}
+	var parts []string
+	if hasRepairCap(caps, "tools") {
+		parts = append(parts, "This model is expected to support tool use when the runtime provides tools. Use valid tool-call JSON only when a tool is required.")
+	}
+	if hasRepairCap(caps, "thinking") {
+		parts = append(parts, "This model is expected to support structured reasoning traces when the runtime enables thinking.")
+	}
+	if hasRepairCap(caps, "vision") {
+		parts = append(parts, "This model is expected to process image inputs when the runtime and model file support vision.")
+	}
+	if hasRepairCap(caps, "audio") {
+		parts = append(parts, "This model is expected to process audio inputs when the runtime and model file support audio.")
+	}
+	if hasRepairCap(caps, "embedding") {
+		parts = append(parts, "This model is expected to produce embeddings when called through embedding endpoints.")
+	}
+	if hasRepairCap(caps, "completion") {
+		parts = append(parts, "This model is expected to support text completion/chat responses.")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n")
 }
 
 func repairTemplate(preset string, tools, thinking bool) string {

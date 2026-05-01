@@ -1216,12 +1216,12 @@ function assistantMetricParts(m, opts = {}) {
   if (!m || m.role !== "assistant") return [];
   const parts = [];
   const elapsed = Math.max(0, Number(m.elapsedMs) || 0);
-  const tokens = Number(m.completionTokens || m.tokens || 0);
+  const tokens = Math.max(0, Math.round(Number(m.completionTokens || m.tokens || 0)));
   const tps = Number(m.tps);
-  if (elapsed > 0) parts.push(formatMetaElapsed(elapsed));
-  if (tokens > 0) parts.push(t("chat.meta_tokens", { n: tokens }));
-  if (Number.isFinite(tps) && tps > 0) {
-    parts.push(t("chat.meta_tps", { rate: tps.toFixed(2) }));
+  if (elapsed > 0 || opts.showZero) parts.push(formatMetaElapsed(elapsed));
+  if (tokens > 0 || opts.showZero) parts.push(t("chat.meta_tokens", { n: tokens }));
+  if ((Number.isFinite(tps) && tps > 0) || opts.showZero) {
+    parts.push(t("chat.meta_tps", { rate: (Number.isFinite(tps) && tps > 0 ? tps : 0).toFixed(2) }));
   }
   if (opts.streaming) parts.push(t("chat.streaming"));
   return parts;
@@ -1630,13 +1630,19 @@ function startThinkTicker(msg) {
 function updateLiveAssistantMetrics(msg, deltaText) {
   if (!msg) return;
   const chunkEval = Number(msg.lastChunkEvalCount);
-  if (Number.isFinite(chunkEval) && chunkEval >= 0) {
+  if (Number.isFinite(chunkEval) && chunkEval > msg.completionTokens) {
     msg.completionTokens = chunkEval;
   } else if (deltaText) {
     msg.completionTokens += Math.max(1, Math.round(String(deltaText).length / 4));
+  } else {
+    const visibleText = `${msg.thinkContent || ""}${msg.content || ""}`;
+    const estimate = Math.max(0, Math.round(visibleText.length / 4));
+    if (estimate > msg.completionTokens) {
+      msg.completionTokens = estimate;
+    }
   }
   msg.tokens = msg.completionTokens;
-  if (msg.elapsedMs > 0 && msg.completionTokens > 0) {
+  if (msg.elapsedMs > 0) {
     msg.tps = msg.completionTokens / (msg.elapsedMs / 1000);
   }
 }
@@ -2007,7 +2013,7 @@ function updateStreamBar() {
   const label = bar?.querySelector(".chat-stream-label");
   if (bar) bar.hidden = !chatStreamLock;
   if (label) {
-    const metrics = activeStreamMessage ? assistantMetricText(activeStreamMessage) : "";
+    const metrics = activeStreamMessage ? assistantMetricText(activeStreamMessage, { showZero: true }) : "";
     label.textContent = metrics ? `${t("chat.generating")} ${metrics}` : t("chat.generating");
   }
   if (btn) {

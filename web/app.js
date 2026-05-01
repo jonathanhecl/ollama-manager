@@ -807,7 +807,14 @@ function bindRepairControls(d) {
     const target = fixedModelName(d.name);
     const exists = models.some((m) => m.name === target || m.model === target);
     const msg = exists ? t("repair.replace_confirm", { name: target }) : t("repair.apply_confirm", { name: target });
-    if (!window.confirm(msg)) return;
+    const ok = await askConfirm({
+      title: t("repair.apply"),
+      text: msg,
+      okText: exists ? t("repair.replace") : t("repair.create"),
+      okClass: "primary",
+      mono: target,
+    });
+    if (!ok) return;
     try {
       applyBtn.disabled = true;
       $("repair-status").textContent = t("repair.applying");
@@ -940,11 +947,13 @@ function updateChatCapabilityUI() {
 }
 
 function updateChatContextMeter() {
-  const selected = modelByName($("chat-model").value);
+  const meter = $("chat-context-meter");
+  const selectedName = $("chat-model")?.value || "";
+  const selected = modelByName(selectedName);
   const maxCtx = Number(selected?.context_length) || 0;
   const ring = $("chat-context-ring");
   if (!maxCtx) {
-    $("chat-context-meter").textContent = "—";
+    if (meter) meter.textContent = "—";
     if (ring) {
       ring.style.setProperty("--ctx-pct", "0%");
       ring.title = "";
@@ -954,7 +963,7 @@ function updateChatContextMeter() {
   const used = Math.max(0, Number(chatLastUsedTokens) || 0);
   const pct = Math.min(999, Math.round((used / maxCtx) * 100));
   const ringPct = `${Math.max(0, Math.min(100, (used / maxCtx) * 100))}%`;
-  $("chat-context-meter").textContent = `${fmtCtx(used)} / ${fmtCtx(maxCtx)} (${pct}%)`;
+  if (meter) meter.textContent = `${fmtCtx(used)} / ${fmtCtx(maxCtx)} (${pct}%)`;
   if (ring) {
     ring.style.setProperty("--ctx-pct", ringPct);
     ring.title = `${fmtCtx(used)} / ${fmtCtx(maxCtx)} (${pct}%)`;
@@ -962,11 +971,13 @@ function updateChatContextMeter() {
 }
 
 function showModelsView() {
-  $("chat-view")?.classList.remove("chat-options-open");
+  const chatView = $("chat-view");
+  const modelsView = $("models-view");
+  chatView?.classList.remove("chat-options-open");
   stopSpeechPlayback();
   currentView = "models";
-  $("models-view").hidden = false;
-  $("chat-view").hidden = true;
+  if (modelsView) modelsView.hidden = false;
+  if (chatView) chatView.hidden = true;
   $("chat-btn")?.classList.remove("active");
 }
 
@@ -995,10 +1006,16 @@ function resetChatState() {
 }
 
 function showChatView() {
+  const chatView = $("chat-view");
+  const modelsView = $("models-view");
+  if (!chatView || !modelsView) {
+    toast(t("toast.error", { msg: "chat UI is not available; refresh the page" }), "error");
+    return;
+  }
   currentView = "chat";
-  $("chat-view")?.classList.remove("chat-options-open");
-  $("models-view").hidden = true;
-  $("chat-view").hidden = false;
+  chatView.classList.remove("chat-options-open");
+  modelsView.hidden = true;
+  chatView.hidden = false;
   $("chat-btn")?.classList.add("active");
   if ($("detail-panel") && !$("detail-panel").hidden) {
     $("detail-panel").hidden = true;
@@ -1015,6 +1032,7 @@ function showChatView() {
 
 function showChatViewWithModel(name) {
   showChatView();
+  if (!$("chat-view") || $("chat-view").hidden) return;
   $("chat-view")?.classList.remove("chat-options-open");
   if (!name) return;
   const sel = $("chat-model");
@@ -2360,6 +2378,8 @@ async function sendChatMessage() {
 }
 
 function bindChatEvents() {
+  const chatView = $("chat-view");
+  if (!chatView) return;
   window.addEventListener("pagehide", stopSpeechPlayback);
   window.addEventListener("beforeunload", stopSpeechPlayback);
   window.addEventListener("popstate", stopSpeechPlayback);
@@ -2377,13 +2397,13 @@ function bindChatEvents() {
   $("chat-options-close")?.addEventListener("click", () => {
     $("chat-view")?.classList.remove("chat-options-open");
   });
-  $("chat-model").addEventListener("change", () => {
+  $("chat-model")?.addEventListener("change", () => {
     updateChatCapabilityUI();
     updateChatContextMeter();
     void applyChatDefaultsForModel($("chat-model").value, true);
   });
-  $("chat-send-btn").addEventListener("click", sendChatMessage);
-  ($("chat-scroll-shell") || $("chat-messages")).addEventListener("click", async (e) => {
+  $("chat-send-btn")?.addEventListener("click", sendChatMessage);
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("click", async (e) => {
     const regenB = e.target.closest(".chat-regenerate-btn");
     if (regenB) {
       e.preventDefault();
@@ -2426,14 +2446,14 @@ function bindChatEvents() {
     e.preventDefault();
     stopChatGeneration();
   });
-  $("chat-input").addEventListener("keydown", (e) => {
+  $("chat-input")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if ($("chat-send-btn")?.disabled) return;
       sendChatMessage();
     }
   });
-  $("chat-input").addEventListener("paste", async (e) => {
+  $("chat-input")?.addEventListener("paste", async (e) => {
     if (currentView !== "chat") return;
     const cd = e.clipboardData;
     if (!cd?.items?.length) return;
@@ -2458,30 +2478,30 @@ function bindChatEvents() {
       ta.setSelectionRange(pos, pos);
     }
   });
-  $("chat-image-btn").addEventListener("click", () => $("chat-image-input").click());
-  $("chat-audio-btn").addEventListener("click", () => $("chat-audio-input").click());
-  $("chat-text-btn").addEventListener("click", () => $("chat-text-input").click());
-  $("chat-record-btn").addEventListener("click", async () => {
+  $("chat-image-btn")?.addEventListener("click", () => $("chat-image-input")?.click());
+  $("chat-audio-btn")?.addEventListener("click", () => $("chat-audio-input")?.click());
+  $("chat-text-btn")?.addEventListener("click", () => $("chat-text-input")?.click());
+  $("chat-record-btn")?.addEventListener("click", async () => {
     if (chatMediaRecorder) {
       stopAudioRecording();
     } else {
       await startAudioRecording();
     }
   });
-  $("chat-image-input").addEventListener("change", async () => {
+  $("chat-image-input")?.addEventListener("change", async () => {
     await addFiles(Array.from($("chat-image-input").files || []));
     $("chat-image-input").value = "";
   });
-  $("chat-audio-input").addEventListener("change", async () => {
+  $("chat-audio-input")?.addEventListener("change", async () => {
     await addFiles(Array.from($("chat-audio-input").files || []));
     $("chat-audio-input").value = "";
   });
-  $("chat-text-input").addEventListener("change", async () => {
+  $("chat-text-input")?.addEventListener("change", async () => {
     await addFiles(Array.from($("chat-text-input").files || []));
     $("chat-text-input").value = "";
   });
 
-  const dropHost = $("chat-view");
+  const dropHost = chatView;
   dropHost.addEventListener("dragenter", (e) => {
     if (currentView !== "chat") return;
     e.preventDefault();
@@ -2537,30 +2557,58 @@ function bindChatEvents() {
 
 // ---------- delete ----------
 let pendingDelete = null;
+let pendingConfirmResolve = null;
+
+function closeConfirmModal(result) {
+  $("confirm-modal").hidden = true;
+  if (pendingConfirmResolve) {
+    const resolve = pendingConfirmResolve;
+    pendingConfirmResolve = null;
+    resolve(!!result);
+  }
+}
+
+function askConfirm({ title, text, okText, okClass = "primary", mono = "" }) {
+  if (pendingConfirmResolve) closeConfirmModal(false);
+  $("confirm-title").textContent = title || t("confirm.title");
+  const safe = escapeHtml(text || "").replace(
+    mono ? escapeHtml(mono) : "{__NO_MONO__}",
+    mono ? `<span class="mono">${escapeHtml(mono)}</span>` : "{__NO_MONO__}",
+  );
+  $("confirm-text").innerHTML = safe;
+  const ok = $("confirm-ok");
+  ok.textContent = okText || t("confirm.title");
+  ok.className = okClass;
+  $("confirm-modal").hidden = false;
+  return new Promise((resolve) => { pendingConfirmResolve = resolve; });
+}
+
 function confirmDelete(name) {
   pendingDelete = name;
-  $("confirm-title").textContent = t("detail.delete_title");
   // Substitute {name} ourselves so we can wrap it in a mono span.
   const text = t("confirm.delete_text", { name: "{__NAME__}" });
-  const safe = escapeHtml(text).replace("{__NAME__}", `<span class="mono">${escapeHtml(name)}</span>`);
-  $("confirm-text").innerHTML = safe;
-  $("confirm-modal").hidden = false;
+  askConfirm({
+    title: t("detail.delete_title"),
+    text: text.replace("{__NAME__}", name),
+    okText: t("action.delete"),
+    okClass: "danger",
+    mono: name,
+  }).then(async (ok) => {
+    const delName = pendingDelete;
+    pendingDelete = null;
+    if (!ok || !delName) return;
+    try {
+      await api("/api/models/" + encodeURIComponent(delName), { method: "DELETE" });
+      toast(t("toast.deleted", { name: delName }), "success");
+      if (activeName === delName) { $("detail-panel").hidden = true; activeName = null; }
+      refreshModels();
+    } catch (e) {
+      toast(t("toast.delete_error", { msg: e.message }), "error");
+    }
+  });
 }
-$("confirm-cancel").addEventListener("click", () => { $("confirm-modal").hidden = true; pendingDelete = null; });
-$("confirm-ok").addEventListener("click", async () => {
-  const name = pendingDelete;
-  $("confirm-modal").hidden = true;
-  pendingDelete = null;
-  if (!name) return;
-  try {
-    await api("/api/models/" + encodeURIComponent(name), { method: "DELETE" });
-    toast(t("toast.deleted", { name }), "success");
-    if (activeName === name) { $("detail-panel").hidden = true; activeName = null; }
-    refreshModels();
-  } catch (e) {
-    toast(t("toast.delete_error", { msg: e.message }), "error");
-  }
-});
+$("confirm-cancel").addEventListener("click", () => { pendingDelete = null; closeConfirmModal(false); });
+$("confirm-ok").addEventListener("click", () => closeConfirmModal(true));
 
 // ---------- downloads queue ----------
 

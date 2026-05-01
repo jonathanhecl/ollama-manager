@@ -205,6 +205,7 @@ let chatMediaRecorder = null;
 let chatRecorderStream = null;
 let chatRecorderChunks = [];
 let speakingMsgId = "";
+let activeStreamMessage = null;
 const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
 const STATUS_REFRESH_MS = 5000;
 const chatModelDefaultsCache = new Map();
@@ -1211,6 +1212,25 @@ function thinkLabel(ms, streaming) {
   return t("chat.think_done", { t: dur });
 }
 
+function assistantMetricParts(m, opts = {}) {
+  if (!m || m.role !== "assistant") return [];
+  const parts = [];
+  const elapsed = Math.max(0, Number(m.elapsedMs) || 0);
+  const tokens = Number(m.completionTokens || m.tokens || 0);
+  const tps = Number(m.tps);
+  if (elapsed > 0) parts.push(formatMetaElapsed(elapsed));
+  if (tokens > 0) parts.push(t("chat.meta_tokens", { n: tokens }));
+  if (Number.isFinite(tps) && tps > 0) {
+    parts.push(t("chat.meta_tps", { rate: tps.toFixed(2) }));
+  }
+  if (opts.streaming) parts.push(t("chat.streaming"));
+  return parts;
+}
+
+function assistantMetricText(m, opts = {}) {
+  return assistantMetricParts(m, opts).join(" · ");
+}
+
 /**
  * Añade al timeline el texto desde segmentFlushIndex hasta ahora, como think (y opcional bloque md).
  * @param {object} assistantMsg
@@ -1341,19 +1361,6 @@ function renderChatMessages() {
   }
   host.innerHTML = chatMessages.map((m, i) => {
     const meta = [];
-    if (m.role === "assistant" && m.streaming) {
-      meta.push(formatMetaElapsed(Math.max(0, Number(m.elapsedMs) || 0)));
-      if (m.tps != null && m.tps > 0 && Number.isFinite(m.tps)) {
-        meta.push(t("chat.meta_tps", { rate: m.tps.toFixed(2) }));
-      }
-      meta.push(t("chat.streaming"));
-    } else if (m.role === "assistant" && !m.streaming) {
-      if (m.elapsedMs > 0) meta.push(formatMetaElapsed(m.elapsedMs));
-      if (m.tokens > 0) meta.push(t("chat.meta_tokens", { n: m.tokens }));
-      if (m.tps != null && m.tps > 0 && Number.isFinite(m.tps)) {
-        meta.push(t("chat.meta_tps", { rate: m.tps.toFixed(2) }));
-      }
-    }
     if (m.role === "assistant" && !m.streaming && m.stopped) {
       meta.push(t("chat.stopped_badge_short"));
     }
@@ -1450,8 +1457,10 @@ function renderChatMessages() {
       : "";
 
     const footActions = `${regenBtn}${ttsBtn}${copyBtn}`;
-    const footBlock = footActions
+    const finalMetrics = m.role === "assistant" && !m.streaming ? assistantMetricText(m) : "";
+    const footBlock = footActions || finalMetrics
       ? `<div class="chat-msg-foot">
+          ${finalMetrics ? `<span class="chat-msg-final-meta mono">${escapeHtml(finalMetrics)}</span>` : ""}
           <div class="chat-msg-foot-actions">
             ${footActions}
           </div>
@@ -1611,8 +1620,25 @@ function startThinkTicker(msg) {
   chatThinkTicker = setInterval(() => {
     if (!msg || !msg.inThink || !msg.thinkStartedAt) return;
     msg.thinkMs = Date.now() - msg.thinkStartedAt;
+    msg.elapsedMs = Math.max(msg.elapsedMs || 0, Date.now() - (msg.streamStartedAt || msg.thinkStartedAt));
+    updateLiveAssistantMetrics(msg, "");
+    updateStreamBar();
     scheduleRenderChatMessages();
   }, 250);
+}
+
+function updateLiveAssistantMetrics(msg, deltaText) {
+  if (!msg) return;
+  const chunkEval = Number(msg.lastChunkEvalCount);
+  if (Number.isFinite(chunkEval) && chunkEval >= 0) {
+    msg.completionTokens = chunkEval;
+  } else if (deltaText) {
+    msg.completionTokens += Math.max(1, Math.round(String(deltaText).length / 4));
+  }
+  msg.tokens = msg.completionTokens;
+  if (msg.elapsedMs > 0 && msg.completionTokens > 0) {
+    msg.tps = msg.completionTokens / (msg.elapsedMs / 1000);
+  }
 }
 
 function toBase64(file) {
@@ -1978,7 +2004,12 @@ function isAbortError(e) {
 function updateStreamBar() {
   const bar = $("chat-stream-bar");
   const btn = $("chat-stop-btn");
+  const label = bar?.querySelector(".chat-stream-label");
   if (bar) bar.hidden = !chatStreamLock;
+  if (label) {
+    const metrics = activeStreamMessage ? assistantMetricText(activeStreamMessage) : "";
+    label.textContent = metrics ? `${t("chat.generating")} ${metrics}` : t("chat.generating");
+  }
   if (btn) {
     btn.disabled = !chatStreamLock;
     btn.title = t("chat.stop_hint");
@@ -2010,6 +2041,8 @@ function newAssistantMessage() {
     evalDurationNs: 0,
     contextMax: 0,
     tps: null,
+    lastChunkEvalCount: null,
+    streamStartedAt: 0,
     toolLog: [],
     thinkBlockStarted: false,
     thinkBlockClosed: false,
@@ -2075,8 +2108,10 @@ async function runChatRequest(assistantMsg) {
 
   chatAbortController = new AbortController();
   chatStreamLock = true;
+  activeStreamMessage = assistantMsg;
   updateStreamBar();
   const turnStartedAt = Date.now();
+  assistantMsg.streamStartedAt = turnStartedAt;
   let assistantRaw = "";
   try {
     const res = await fetch("/api/chat", {
@@ -2150,14 +2185,9 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.elapsedMs = Date.now() - turnStartedAt;
         const chunkEval = Number(data?.eval_count);
         if (Number.isFinite(chunkEval) && chunkEval >= 0) {
-          assistantMsg.completionTokens = chunkEval;
-        } else if (contentDelta) {
-          // Fallback estimate while streaming when provider omits eval_count in chunks.
-          assistantMsg.completionTokens += Math.max(1, Math.round(contentDelta.length / 4));
+          assistantMsg.lastChunkEvalCount = chunkEval;
         }
-        if (assistantMsg.elapsedMs > 0 && assistantMsg.completionTokens > 0) {
-          assistantMsg.tps = assistantMsg.completionTokens / (assistantMsg.elapsedMs / 1000);
-        }
+        updateLiveAssistantMetrics(assistantMsg, thinkDelta || contentDelta);
         if (parts.inThink && !assistantMsg.thinkStartedAt) {
           assistantMsg.thinkStartedAt = Date.now();
           startThinkTicker(assistantMsg);
@@ -2167,6 +2197,7 @@ async function runChatRequest(assistantMsg) {
           stopThinkTicker();
         }
         assistantMsg._accRaw = assistantRaw;
+        updateStreamBar();
         scheduleRenderChatMessages();
       } else if (event === "error") {
         throw new Error(data?.error || "stream error");
@@ -2232,6 +2263,7 @@ async function runChatRequest(assistantMsg) {
     chatAbortController = null;
     stopThinkTicker();
     chatStreamLock = false;
+    activeStreamMessage = null;
     updateStreamBar();
     flushChatRender();
     if (chatPendingQueue.length > 0) {

@@ -1224,10 +1224,16 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .chat-msg-foot {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+  gap: 10px;
   margin-top: 6px;
   padding-top: 2px;
+}
+.chat-msg-final-meta {
+  color: var(--text-dim);
+  font-size: 11px;
+  min-width: 0;
 }
 .chat-msg-foot-actions {
   display: flex;
@@ -1751,6 +1757,10 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .chat-stream-label {
   flex: 1;
   color: var(--text-dim);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .chat-stop-btn {
   padding: 5px 12px;

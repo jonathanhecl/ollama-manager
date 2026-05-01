@@ -313,11 +313,54 @@ tbody tr.row.active .btn-icon.info-btn:hover {
   white-space: pre;
 }
 
+.repair-entry,
 .repair-card {
   background: rgba(255,255,255,.02);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
+}
+.repair-entry {
+  display: grid;
+  gap: 10px;
+}
+.repair-entry h3 {
+  margin-bottom: 0;
+}
+.repair-entry button {
+  justify-self: start;
+}
+.repair-modal-card {
+  width: min(760px, 100%);
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.repair-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.repair-modal-head h2 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  word-break: break-word;
+}
+.repair-modal-body {
+  overflow: auto;
+  padding: 16px 18px;
+}
+.repair-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
 }
 .repair-warning {
   border: 1px solid rgba(235, 184, 88, .35);
@@ -416,7 +459,15 @@ tbody tr.row.active .btn-icon.info-btn:hover {
   font-size: 12px;
   line-height: 1.45;
 }
-.detail-section pre.repair-preview {
+.repair-preview {
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow: auto;
+  white-space: pre;
   max-height: 320px;
   margin-top: 10px;
 }

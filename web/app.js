@@ -585,10 +585,10 @@ function renderDetail(d) {
 
   const paramsBlock = d.parameters ? `<div class="detail-section"><h3>${escapeHtml(t("detail.parameters_section"))}</h3><pre>${escapeHtml(d.parameters)}</pre></div>` : "";
   const tmplBlock = d.template ? `<div class="detail-section"><h3>${escapeHtml(t("detail.template"))}</h3><pre>${escapeHtml(d.template)}</pre></div>` : "";
-  const repairBlock = renderRepairBlock(d);
+  const repairBlock = renderRepairEntry(d);
 
   $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}`;
-  bindRepairControls(d);
+  bindRepairEntry(d);
 }
 
 $("detail-close").addEventListener("click", () => {
@@ -623,11 +623,27 @@ function repairDefaultTemplate(d) {
   return "generic";
 }
 
-function renderRepairBlock(d) {
+function renderRepairEntry(d) {
   if (isFixedModelName(d.name)) {
     const base = fixedBaseName(d.name);
-    return `<div class="detail-section repair-card">
+    return `<div class="detail-section repair-entry">
       <h3>${escapeHtml(t("repair.title"))}</h3>
+      <div class="repair-note">${escapeHtml(t("repair.fixed_note", { base }))}</div>
+      <button type="button" class="ghost repair-open-base" data-base="${escapeHtml(base)}">${escapeHtml(t("repair.open_base"))}</button>
+    </div>`;
+  }
+  const target = fixedModelName(d.name);
+  return `<div class="detail-section repair-entry">
+    <h3>${escapeHtml(t("repair.title"))}</h3>
+    <div class="repair-note">${escapeHtml(t("repair.entry_note", { name: target }))}</div>
+    <button type="button" class="ghost repair-open-modal">${escapeHtml(t("repair.options_btn"))}</button>
+  </div>`;
+}
+
+function renderRepairModalContent(d) {
+  if (isFixedModelName(d.name)) {
+    const base = fixedBaseName(d.name);
+    return `<div class="repair-card">
       <div class="repair-note">${escapeHtml(t("repair.fixed_note", { base }))}</div>
       <button type="button" class="ghost repair-open-base" data-base="${escapeHtml(base)}">${escapeHtml(t("repair.open_base"))}</button>
     </div>`;
@@ -648,8 +664,7 @@ function renderRepairBlock(d) {
   }).join("");
   const target = fixedModelName(d.name);
   const template = repairDefaultTemplate(d);
-  return `<div class="detail-section repair-card">
-    <h3>${escapeHtml(t("repair.title"))}</h3>
+  return `<div class="repair-card">
     <div class="repair-warning">${escapeHtml(t("repair.warning"))}</div>
     <div class="repair-subtitle">${escapeHtml(t("repair.detected_caps"))}</div>
     ${detectedHtml}
@@ -696,10 +711,39 @@ function renderRepairBlock(d) {
   </div>`;
 }
 
-function bindRepairControls(d) {
+function bindRepairEntry(d) {
   const openBase = document.querySelector(".repair-open-base");
   if (openBase) {
     openBase.addEventListener("click", () => openDetail(openBase.dataset.base));
+  }
+  const openModal = document.querySelector(".repair-open-modal");
+  if (openModal) {
+    openModal.addEventListener("click", () => openRepairModal(d));
+  }
+}
+
+function openRepairModal(d) {
+  $("repair-modal-title").textContent = `${t("repair.title")} · ${d.name}`;
+  $("repair-modal-body").innerHTML = renderRepairModalContent(d);
+  $("repair-modal").hidden = false;
+  bindRepairControls(d);
+}
+
+function closeRepairModal() {
+  const modal = $("repair-modal");
+  if (!modal) return;
+  modal.hidden = true;
+  $("repair-modal-body").innerHTML = "";
+}
+
+function bindRepairControls(d) {
+  const root = $("repair-modal-body");
+  const openBase = root?.querySelector(".repair-open-base");
+  if (openBase) {
+    openBase.addEventListener("click", () => {
+      closeRepairModal();
+      openDetail(openBase.dataset.base);
+    });
     return;
   }
 
@@ -712,7 +756,25 @@ function bindRepairControls(d) {
   const updateApply = () => {
     applyBtn.disabled = !(hasPreview && confirm.checked);
   };
+  const resetPreview = () => {
+    hasPreview = false;
+    const pre = $("repair-preview");
+    if (pre) {
+      pre.hidden = true;
+      pre.textContent = "";
+    }
+    const warnings = $("repair-warnings");
+    if (warnings) {
+      warnings.hidden = true;
+      warnings.innerHTML = "";
+    }
+    $("repair-status").textContent = "";
+    updateApply();
+  };
   confirm.addEventListener("change", updateApply);
+  root.querySelectorAll("input[name='repair-cap'], select").forEach((el) => {
+    el.addEventListener("change", resetPreview);
+  });
 
   previewBtn.addEventListener("click", async () => {
     try {
@@ -751,6 +813,7 @@ function bindRepairControls(d) {
       });
       toast(t(out.replaced ? "repair.replaced" : "repair.created", { name: out.target_name }), "success");
       await refreshModels();
+      closeRepairModal();
       openDetail(out.target_name);
     } catch (e) {
       toast(t("toast.error", { msg: e.message }), "error");
@@ -781,6 +844,9 @@ function renderRepairPreview(out) {
   warnings.hidden = !list.length;
   warnings.innerHTML = list.map((w) => `<div>${escapeHtml(w)}</div>`).join("");
 }
+
+$("repair-modal-x")?.addEventListener("click", closeRepairModal);
+$("repair-modal-close")?.addEventListener("click", closeRepairModal);
 
 // ---------- chat ----------
 function nanoid() {

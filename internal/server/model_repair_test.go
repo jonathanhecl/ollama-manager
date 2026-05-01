@@ -59,9 +59,12 @@ func TestBuildModelRepairPreviewRejectsFixedSource(t *testing.T) {
 
 func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	var created struct {
-		Model     string `json:"model"`
-		Modelfile string `json:"modelfile"`
-		Stream    bool   `json:"stream"`
+		Model      string         `json:"model"`
+		From       string         `json:"from"`
+		Template   string         `json:"template"`
+		Parameters map[string]any `json:"parameters"`
+		Modelfile  string         `json:"modelfile"`
+		Stream     bool           `json:"stream"`
 	}
 	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -98,6 +101,15 @@ func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	}
 	if created.Model != "qwen3:fixed" {
 		t.Fatalf("created model = %q", created.Model)
+	}
+	if created.From != "qwen3:latest" {
+		t.Fatalf("created from = %q", created.From)
+	}
+	if !strings.Contains(created.Template, "{{ range .Tools }}") {
+		t.Fatalf("created template = %s", created.Template)
+	}
+	if got := created.Parameters["temperature"]; got != float64(0) {
+		t.Fatalf("temperature = %#v", got)
 	}
 	if !strings.Contains(created.Modelfile, "FROM qwen3:latest") {
 		t.Fatalf("created Modelfile = %s", created.Modelfile)

@@ -24,12 +24,14 @@ type modelRepairRequest struct {
 }
 
 type modelRepairPreview struct {
-	BaseName             string   `json:"base_name"`
-	TargetName           string   `json:"target_name"`
-	Modelfile            string   `json:"modelfile"`
-	Warnings             []string `json:"warnings,omitempty"`
-	DetectedCapabilities []string `json:"detected_capabilities,omitempty"`
-	RequiresConfirmation bool     `json:"requires_confirmation"`
+	BaseName             string         `json:"base_name"`
+	TargetName           string         `json:"target_name"`
+	Modelfile            string         `json:"modelfile"`
+	Warnings             []string       `json:"warnings,omitempty"`
+	DetectedCapabilities []string       `json:"detected_capabilities,omitempty"`
+	RequiresConfirmation bool           `json:"requires_confirmation"`
+	Template             string         `json:"-"`
+	Parameters           map[string]any `json:"-"`
 }
 
 func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRepairRequest) (*modelRepairPreview, error) {
@@ -85,11 +87,14 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		b.WriteString("PARSER qwen3.5\n\n")
 	}
 
+	parameters := make(map[string]any)
 	switch contextPreset {
 	case "safe":
 		b.WriteString("PARAMETER num_ctx 2048\n")
+		parameters["num_ctx"] = 2048
 	case "thinking":
 		b.WriteString("PARAMETER num_ctx 16384\n")
+		parameters["num_ctx"] = 16384
 	case "keep", "":
 	default:
 		return nil, fmt.Errorf("unknown context preset %q", req.ContextPreset)
@@ -98,14 +103,20 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	switch tempPreset {
 	case "tools":
 		b.WriteString("PARAMETER temperature 0.0\n")
+		parameters["temperature"] = 0.0
 	case "low":
 		b.WriteString("PARAMETER temperature 0.1\n")
+		parameters["temperature"] = 0.1
 	case "keep", "":
 	default:
 		return nil, fmt.Errorf("unknown temperature preset %q", req.TemperaturePreset)
 	}
 
-	for _, stop := range repairStops(templatePreset) {
+	stops := repairStops(templatePreset)
+	if len(stops) > 0 {
+		parameters["stop"] = stops
+	}
+	for _, stop := range stops {
 		fmt.Fprintf(&b, "PARAMETER stop %q\n", stop)
 	}
 
@@ -121,6 +132,8 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		Warnings:             warnings,
 		DetectedCapabilities: append([]string(nil), show.Capabilities...),
 		RequiresConfirmation: true,
+		Template:             template,
+		Parameters:           parameters,
 	}, nil
 }
 

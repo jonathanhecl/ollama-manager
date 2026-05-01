@@ -630,9 +630,12 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 	}
 	replacing := s.modelExists(r.Context(), preview.TargetName)
 	err = s.ollama.Create(r.Context(), ollama.CreateRequest{
-		Model:     preview.TargetName,
-		Modelfile: preview.Modelfile,
-		Stream:    false,
+		Model:      preview.TargetName,
+		From:       preview.BaseName,
+		Template:   preview.Template,
+		Parameters: preview.Parameters,
+		Modelfile:  preview.Modelfile,
+		Stream:     false,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)

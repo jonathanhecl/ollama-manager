@@ -2192,28 +2192,25 @@ button.chat-send:disabled:hover {
   }
   .chat-side {
     display: none;
-    position: fixed !important;
-    z-index: 60;
-    inset: 12px;
-    width: auto;
+    position: static !important;
+    order: -1;
+    z-index: 1;
+    width: 100%;
     height: auto;
-    max-height: none;
+    max-height: min(48dvh, 420px);
     overflow: hidden;
     border-radius: 10px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: none;
     overscroll-behavior: contain;
   }
   .chat-view.chat-options-open .chat-side {
     display: flex;
     flex-direction: column;
   }
-  .chat-view.chat-options-open::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background: rgba(5, 6, 10, 0.72);
-    z-index: 59;
+  .chat-view.chat-options-open {
+    grid-template-rows: auto minmax(0, 1fr);
   }
+  .chat-view.chat-options-open::before { content: none; }
   .chat-view.chat-options-open .chat-shell::after {
     content: none;
   }
@@ -2361,7 +2358,7 @@ button.chat-send:disabled:hover {
   .cell-modified { font-size: 12px; }
   .chat-view { padding: 8px 10px; }
   .chat-side {
-    inset: 10px;
+    max-height: min(50dvh, 430px);
   }
   .chat-msg {
     padding: 8px 9px;

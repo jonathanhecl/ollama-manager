@@ -2133,7 +2133,7 @@ button.chat-send:disabled:hover {
     padding: 10px 12px;
     gap: 10px;
     position: relative;
-    overflow: visible;
+    overflow: hidden;
   }
   .chat-shell {
     min-height: 0;
@@ -2192,12 +2192,11 @@ button.chat-send:disabled:hover {
   }
   .chat-side {
     display: none;
-    position: fixed;
-    z-index: 35;
-    left: 12px;
-    right: 12px;
-    top: calc(env(safe-area-inset-top) + 66px);
-    bottom: max(10px, env(safe-area-inset-bottom));
+    position: fixed !important;
+    z-index: 60;
+    inset: 12px;
+    width: auto;
+    height: auto;
     max-height: none;
     overflow: hidden;
     border-radius: 10px;
@@ -2208,13 +2207,15 @@ button.chat-send:disabled:hover {
     display: flex;
     flex-direction: column;
   }
-  .chat-view.chat-options-open .chat-shell::after {
+  .chat-view.chat-options-open::before {
     content: "";
-    position: absolute;
+    position: fixed;
     inset: 0;
-    background: rgba(5, 6, 10, 0.55);
-    z-index: 3;
-    pointer-events: none;
+    background: rgba(5, 6, 10, 0.72);
+    z-index: 59;
+  }
+  .chat-view.chat-options-open .chat-shell::after {
+    content: none;
   }
   .chat-side-card {
     flex: 1;
@@ -2360,10 +2361,7 @@ button.chat-send:disabled:hover {
   .cell-modified { font-size: 12px; }
   .chat-view { padding: 8px 10px; }
   .chat-side {
-    left: 10px;
-    right: 10px;
-    top: calc(env(safe-area-inset-top) + 60px);
-    bottom: max(8px, env(safe-area-inset-bottom));
+    inset: 10px;
   }
   .chat-msg {
     padding: 8px 9px;

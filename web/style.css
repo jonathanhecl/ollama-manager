@@ -2200,9 +2200,14 @@ button.chat-send:disabled:hover {
     bottom: max(10px, env(safe-area-inset-bottom));
     max-height: none;
     overflow: hidden;
+    border-radius: 10px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    overscroll-behavior: contain;
   }
-  .chat-view.chat-options-open .chat-side { display: block; }
+  .chat-view.chat-options-open .chat-side {
+    display: flex;
+    flex-direction: column;
+  }
   .chat-view.chat-options-open .chat-shell::after {
     content: "";
     position: absolute;
@@ -2212,12 +2217,32 @@ button.chat-send:disabled:hover {
     pointer-events: none;
   }
   .chat-side-card {
+    flex: 1;
+    min-height: 0;
     height: 100%;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     padding: 12px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
     gap: 8px;
+  }
+  .chat-side-card .field {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .chat-side-card .switch-field {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+  }
+  .chat-side-card .field > label {
+    font-size: 12px;
+  }
+  .chat-side-card input[type="number"],
+  #chat-system {
+    font-size: 16px;
   }
   .chat-side-top {
     display: flex;

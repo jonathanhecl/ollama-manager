@@ -2397,6 +2397,12 @@ function bindChatEvents() {
   $("chat-options-close")?.addEventListener("click", () => {
     $("chat-view")?.classList.remove("chat-options-open");
   });
+  chatView.addEventListener("click", (e) => {
+    if (!$("chat-view")?.classList.contains("chat-options-open")) return;
+    if (e.target.closest(".chat-side")) return;
+    if (e.target.closest("#chat-options-toggle")) return;
+    $("chat-view")?.classList.remove("chat-options-open");
+  });
   $("chat-model")?.addEventListener("change", () => {
     updateChatCapabilityUI();
     updateChatContextMeter();
@@ -2885,10 +2891,16 @@ function openDownloads() {
 function closeDownloads() {
   $("downloads-modal").hidden = true;
 }
+function closeSettings() {
+  $("settings-modal").hidden = true;
+}
 
 $("downloads-btn").addEventListener("click", openDownloads);
 $("downloads-close").addEventListener("click", closeDownloads);
 $("downloads-x").addEventListener("click", closeDownloads);
+$("downloads-modal").addEventListener("click", (e) => {
+  if (e.target === $("downloads-modal")) closeDownloads();
+});
 
 $("dl-add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -3003,8 +3015,11 @@ function updateExposeWarning() {
 }
 
 $("settings-btn").addEventListener("click", openSettings);
-$("settings-close").addEventListener("click", () => { $("settings-modal").hidden = true; });
-$("settings-x").addEventListener("click", () => { $("settings-modal").hidden = true; });
+$("settings-close").addEventListener("click", closeSettings);
+$("settings-x").addEventListener("click", closeSettings);
+$("settings-modal").addEventListener("click", (e) => {
+  if (e.target === $("settings-modal")) closeSettings();
+});
 
 // Live language switch on dropdown change.
 $("set-language").addEventListener("change", () => {

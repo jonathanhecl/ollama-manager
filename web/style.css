@@ -2133,6 +2133,7 @@ button.chat-send:disabled:hover {
     padding: 10px 12px;
     gap: 10px;
     position: relative;
+    overflow: visible;
   }
   .chat-shell {
     min-height: 0;
@@ -2191,12 +2192,12 @@ button.chat-send:disabled:hover {
   }
   .chat-side {
     display: none;
-    position: absolute;
-    z-index: 6;
+    position: fixed;
+    z-index: 35;
     left: 12px;
     right: 12px;
-    top: 62px;
-    bottom: 10px;
+    top: calc(env(safe-area-inset-top) + 66px);
+    bottom: max(10px, env(safe-area-inset-bottom));
     max-height: none;
     overflow: hidden;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -2213,7 +2214,9 @@ button.chat-send:disabled:hover {
   .chat-side-card {
     height: 100%;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
     gap: 8px;
   }
   .chat-side-top {
@@ -2334,8 +2337,8 @@ button.chat-send:disabled:hover {
   .chat-side {
     left: 10px;
     right: 10px;
-    top: 58px;
-    bottom: 8px;
+    top: calc(env(safe-area-inset-top) + 60px);
+    bottom: max(8px, env(safe-area-inset-bottom));
   }
   .chat-msg {
     padding: 8px 9px;

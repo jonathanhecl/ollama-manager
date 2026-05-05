@@ -315,7 +315,7 @@ function updateSystemWidgets(status) {
     pct: diskUsedPct,
     text: diskTotal > 0
       ? (compact
-        ? t("status.percent_short", { pct: Math.round(diskFreePct) })
+        ? fmtBytes(clampedFree)
         : t("status.disk_free_short", { free: fmtBytes(clampedFree), total: fmtBytes(diskTotal) }))
       : "—",
     title: diskTotal > 0

@@ -2125,9 +2125,6 @@ button.chat-send:disabled:hover {
     justify-content: flex-end;
     flex-wrap: wrap;
   }
-  .topbar-actions button {
-    min-height: 36px;
-  }
   .metric-widget {
     height: 30px;
     margin-right: 0;
@@ -2170,7 +2167,7 @@ button.chat-send:disabled:hover {
   button.with-badge span[data-i18n="downloads.button"] { display: none; }
   .chat-view {
     grid-template-columns: 1fr;
-    padding: 10px 12px;
+    padding: 10px 9px 30px;
     gap: 10px;
     position: relative;
     overflow: hidden;
@@ -2438,7 +2435,7 @@ button.chat-send:disabled:hover {
   }
   .metric-widget-text {
     font-size: 9px;
-    max-width: 28px;
+    max-width: 60px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

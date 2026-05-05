@@ -8,8 +8,8 @@
 const I18N = {
   en: {
     "status.connecting": "connecting…",
-    "status.online": "ollama on",
-    "status.offline": "ollama off",
+    "status.online": "connected",
+    "status.offline": "disconnected",
     "status.unreachable": "offline",
     "status.cpu": "CPU",
     "status.cpu_short": "{pct}%",
@@ -240,9 +240,9 @@ const I18N = {
 
   es: {
     "status.connecting": "conectando…",
-    "status.online": "ollama on",
-    "status.offline": "ollama off",
-    "status.unreachable": "sin conexión",
+    "status.online": "conectado",
+    "status.offline": "desconectado",
+    "status.unreachable": "desconectado",
     "status.cpu": "CPU",
     "status.cpu_short": "{pct}%",
     "status.percent_short": "{pct}%",

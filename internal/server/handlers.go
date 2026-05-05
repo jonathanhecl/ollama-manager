@@ -16,6 +16,7 @@ import (
 	"github.com/gense/ollama-manager/internal/diskusage"
 	"github.com/gense/ollama-manager/internal/jobs"
 	"github.com/gense/ollama-manager/internal/ollama"
+	"github.com/gense/ollama-manager/internal/sysmetrics"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -141,6 +142,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		diskUsed = diskTotal - diskFree
 		diskUsedPercent = (float64(diskUsed) / float64(diskTotal)) * 100
 	}
+	sys := sysmetrics.Collect(ctx)
 	resp := map[string]any{
 		"ollama_url":       s.cfg.OllamaURL,
 		"expose_network":   s.cfg.ExposeNetwork,
@@ -151,6 +153,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"disk_free_bytes":  diskFree,
 		"disk_used_bytes":  diskUsed,
 		"disk_used_pct":    diskUsedPercent,
+		"cpu_used_pct":     sys.CPUUsedPercent,
+		"memory_total":     sys.MemoryTotal,
+		"memory_free":      sys.MemoryFree,
+		"memory_used":      sys.MemoryUsed,
+		"memory_used_pct":  sys.MemoryUsedPct,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

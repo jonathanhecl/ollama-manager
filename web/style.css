@@ -76,7 +76,7 @@ input:focus { border-color: var(--accent); }
   box-shadow: 0 0 10px var(--accent);
 }
 .topbar-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
-.disk-widget {
+.metric-widget {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -87,13 +87,13 @@ input:focus { border-color: var(--accent); }
   background: #101117;
   color: var(--text-dim);
 }
-.disk-widget-label {
+.metric-widget-label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .6px;
   color: var(--muted);
 }
-.disk-widget-track {
+.metric-widget-track {
   width: 84px;
   height: 7px;
   border-radius: 999px;
@@ -101,20 +101,20 @@ input:focus { border-color: var(--accent); }
   border: 1px solid var(--border-strong);
   background: #0c0d12;
 }
-.disk-widget-fill {
+.metric-widget-fill {
   display: block;
   height: 100%;
   width: 0%;
   background: linear-gradient(90deg, var(--good), #88d9ab);
   transition: width .2s ease, background .2s ease;
 }
-.disk-widget-fill.warn {
+.metric-widget-fill.warn {
   background: linear-gradient(90deg, var(--warn), #f7c683);
 }
-.disk-widget-fill.bad {
+.metric-widget-fill.bad {
   background: linear-gradient(90deg, var(--bad), #ff8a8a);
 }
-.disk-widget-text {
+.metric-widget-text {
   font-size: 11px;
   color: var(--text-dim);
   white-space: nowrap;
@@ -2107,7 +2107,7 @@ button.chat-send:disabled:hover {
   .topbar-actions button {
     min-height: 36px;
   }
-  .disk-widget {
+  .metric-widget {
     order: 0;
     margin-right: 0;
   }
@@ -2342,16 +2342,16 @@ button.chat-send:disabled:hover {
     min-height: 38px;
     padding: 0 10px;
   }
-  .disk-widget {
+  .metric-widget {
     grid-column: 1 / -1;
     min-width: 0;
     width: 100%;
   }
-  .disk-widget-track {
+  .metric-widget-track {
     flex: 1;
     min-width: 56px;
   }
-  .disk-widget-text {
+  .metric-widget-text {
     font-size: 10px;
   }
   #models-table { min-width: 500px; }

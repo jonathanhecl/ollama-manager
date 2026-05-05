@@ -207,7 +207,7 @@ let chatRecorderChunks = [];
 let speakingMsgId = "";
 let activeStreamMessage = null;
 const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
-const STATUS_REFRESH_MS = 5000;
+const STATUS_REFRESH_MS = 1000;
 const chatModelDefaultsCache = new Map();
 let chatDefaultsReqSeq = 0;
 let lastChatDefaultsModel = "";
@@ -257,49 +257,90 @@ async function refreshStatus() {
       pill.className = "pill pill-bad";
     }
     $("settings-logout-btn").hidden = !s.has_password;
-    updateDiskWidget(s);
+    updateSystemWidgets(s);
     updateChatSendEnabled();
   } catch (e) {
     managerApiOk = false;
     ollamaHostOk = false;
     $("status-pill").textContent = t("status.unreachable");
     $("status-pill").className = "pill pill-bad";
-    updateDiskWidget(null);
+    updateSystemWidgets(null);
     updateChatSendEnabled();
   }
 }
 
-function updateDiskWidget(status) {
-  const wrap = $("disk-widget");
-  const fill = $("disk-widget-fill");
-  const text = $("disk-widget-text");
-  if (!wrap || !fill || !text) return;
+function updateSystemWidgets(status) {
+  updateMetricWidget({
+    wrapId: "cpu-widget",
+    fillId: "cpu-widget-fill",
+    textId: "cpu-widget-text",
+    pct: Number(status?.cpu_used_pct),
+    text: t("status.cpu_short", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
+    title: t("status.cpu_title", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
+  });
 
-  const total = Number(status?.disk_total_bytes) || 0;
-  const free = Number(status?.disk_free_bytes) || 0;
-  if (total <= 0) {
+  const memoryTotal = Number(status?.memory_total) || 0;
+  const memoryUsed = Number(status?.memory_used) || 0;
+  const memoryPct = Number(status?.memory_used_pct);
+  updateMetricWidget({
+    wrapId: "memory-widget",
+    fillId: "memory-widget-fill",
+    textId: "memory-widget-text",
+    pct: memoryPct,
+    text: memoryTotal > 0
+      ? t("status.memory_short", { used: fmtBytes(memoryUsed), total: fmtBytes(memoryTotal) })
+      : "—",
+    title: memoryTotal > 0
+      ? t("status.memory_title", {
+          used: fmtBytes(memoryUsed),
+          total: fmtBytes(memoryTotal),
+          pct: Math.round(Number.isFinite(memoryPct) ? memoryPct : 0),
+        })
+      : "",
+  });
+
+  const diskTotal = Number(status?.disk_total_bytes) || 0;
+  const diskFree = Number(status?.disk_free_bytes) || 0;
+  const clampedFree = diskTotal > 0 ? Math.max(0, Math.min(diskFree, diskTotal)) : 0;
+  const diskUsedPct = diskTotal > 0 ? (100 - ((clampedFree / diskTotal) * 100)) : NaN;
+  const diskFreePct = diskTotal > 0 ? ((clampedFree / diskTotal) * 100) : 0;
+  updateMetricWidget({
+    wrapId: "disk-widget",
+    fillId: "disk-widget-fill",
+    textId: "disk-widget-text",
+    pct: diskUsedPct,
+    text: diskTotal > 0
+      ? t("status.disk_free_short", { free: fmtBytes(clampedFree), total: fmtBytes(diskTotal) })
+      : "—",
+    title: diskTotal > 0
+      ? t("status.disk_free_title", {
+          free: fmtBytes(clampedFree),
+          total: fmtBytes(diskTotal),
+          pct: Math.round(diskFreePct),
+        })
+      : "",
+    warn: diskFreePct <= 25 && diskFreePct > 10,
+    bad: diskFreePct <= 10,
+  });
+}
+
+function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = false, bad = false }) {
+  const wrap = $(wrapId);
+  const fill = $(fillId);
+  const textNode = $(textId);
+  if (!wrap || !fill || !textNode) return;
+
+  if (!Number.isFinite(pct)) {
     wrap.hidden = true;
     return;
   }
 
-  const clampedFree = Math.max(0, Math.min(free, total));
-  const used = total - clampedFree;
-  const usedPct = Math.max(0, Math.min(100, (used / total) * 100));
-  const freePct = Math.max(0, Math.min(100, (clampedFree / total) * 100));
-
-  fill.style.width = `${usedPct.toFixed(1)}%`;
-  fill.classList.toggle("warn", freePct <= 25 && freePct > 10);
-  fill.classList.toggle("bad", freePct <= 10);
-
-  text.textContent = t("status.disk_free_short", {
-    free: fmtBytes(clampedFree),
-    total: fmtBytes(total),
-  });
-  wrap.title = t("status.disk_free_title", {
-    free: fmtBytes(clampedFree),
-    total: fmtBytes(total),
-    pct: Math.round(freePct),
-  });
+  const clampedPct = Math.max(0, Math.min(100, pct));
+  fill.style.width = `${clampedPct.toFixed(1)}%`;
+  fill.classList.toggle("warn", !!warn && !bad);
+  fill.classList.toggle("bad", !!bad);
+  textNode.textContent = text || "—";
+  wrap.title = title || "";
   wrap.hidden = false;
 }
 

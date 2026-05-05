@@ -596,6 +596,10 @@ async function openDetail(name) {
   const panel = $("detail-panel");
   panel.hidden = false;
   $("detail-name").textContent = name;
+  if ($("detail-delete")) {
+    $("detail-delete").hidden = false;
+    $("detail-delete").dataset.name = name;
+  }
   $("detail-body").innerHTML = `<div class="muted">${escapeHtml(t("state.loading"))}</div>`;
   document.querySelectorAll("tbody tr.row").forEach((tr) => {
     tr.classList.toggle("active", tr.dataset.name === name);
@@ -641,8 +645,18 @@ function renderDetail(d) {
 
 $("detail-close").addEventListener("click", () => {
   $("detail-panel").hidden = true;
+  if ($("detail-delete")) {
+    $("detail-delete").hidden = true;
+    $("detail-delete").dataset.name = "";
+  }
   activeName = null;
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+});
+
+$("detail-delete")?.addEventListener("click", (e) => {
+  const name = e.currentTarget?.dataset?.name || activeName;
+  if (!name) return;
+  confirmDelete(name);
 });
 
 const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embedding"];

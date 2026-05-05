@@ -38,12 +38,12 @@
         </div>
       </div>
       <button id="downloads-btn" class="ghost with-badge" data-i18n-attr="title" data-i18n="downloads.title" title="Downloads">
-        <span class="dl-icon" aria-hidden="true">⬇</span>
+        <span class="dl-icon" aria-hidden="true">📥</span>
         <span data-i18n="downloads.button">Downloads</span>
         <span id="downloads-count" class="count-badge" hidden>0</span>
       </button>
-      <button id="refresh-btn" class="ghost" data-i18n-attr="title" data-i18n="action.refresh" title="Refresh">↻</button>
-      <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">⚙</button>
+      <button id="refresh-btn" class="ghost" data-i18n-attr="title" data-i18n="action.refresh" title="Refresh">🔄</button>
+      <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">⚙️</button>
     </div>
   </header>
 
@@ -203,7 +203,10 @@
   <aside id="detail-panel" class="detail-panel" hidden>
     <div class="detail-head">
       <h2 id="detail-name">—</h2>
-      <button id="detail-close" class="ghost" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+      <div class="detail-head-actions">
+        <button id="detail-delete" class="ghost danger-text" data-i18n-attr="title" data-i18n="detail.delete_title" title="Delete model" hidden>🗑️</button>
+        <button id="detail-close" class="ghost" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+      </div>
     </div>
     <div id="detail-body" class="detail-body">
       <div class="muted" data-i18n="detail.empty">Select a model.</div>

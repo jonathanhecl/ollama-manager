@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -131,13 +133,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cfgPath := s.cfg.Path()
 	defer s.cfgMu.RUnlock()
 
-	sys := sysmetrics.Collect(ctx, cfgPath)
+	diskPath := resolveDiskProbePath(cfgPath)
+	sys := sysmetrics.Collect(ctx, diskPath)
 	resp := map[string]any{
 		"ollama_url":       s.cfg.OllamaURL,
 		"expose_network":   s.cfg.ExposeNetwork,
 		"has_password":     s.cfg.HasPassword(),
 		"language":         s.cfg.Language,
 		"ollama_reachable": s.ollama.Ping(ctx) == nil,
+		"disk_probe_path":  diskPath,
 		"disk_total_bytes": sys.DiskTotal,
 		"disk_free_bytes":  sys.DiskFree,
 		"disk_used_bytes":  sys.DiskUsed,
@@ -149,6 +153,16 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"memory_used_pct":  sys.MemoryUsedPct,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func resolveDiskProbePath(cfgPath string) string {
+	if p := strings.TrimSpace(os.Getenv("OLLAMA_MODELS")); p != "" {
+		return p
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, ".ollama", "models")
+	}
+	return cfgPath
 }
 
 // ---------- config ----------

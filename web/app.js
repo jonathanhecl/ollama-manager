@@ -327,17 +327,26 @@ function updateSystemWidgets(status) {
       : "",
     warn: diskFreePct <= 25 && diskFreePct > 10,
     bad: diskFreePct <= 10,
+    hideWhenInvalid: false,
   });
 }
 
-function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = false, bad = false }) {
+function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = false, bad = false, hideWhenInvalid = true }) {
   const wrap = $(wrapId);
   const fill = $(fillId);
   const textNode = $(textId);
   if (!wrap || !fill || !textNode) return;
 
   if (!Number.isFinite(pct)) {
-    wrap.hidden = true;
+    if (hideWhenInvalid) {
+      wrap.hidden = true;
+      return;
+    }
+    fill.style.width = "0%";
+    fill.classList.remove("warn", "bad");
+    textNode.textContent = text || "—";
+    wrap.title = title || "";
+    wrap.hidden = false;
     return;
   }
 

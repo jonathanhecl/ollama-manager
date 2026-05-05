@@ -2,6 +2,9 @@ package sysmetrics
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -39,7 +42,7 @@ func Collect(parent context.Context, path string) Snapshot {
 		out.MemoryUsedPct = clampPercent(vm.UsedPercent)
 	}
 
-	if total, free, err := diskForPath(path); err == nil && total > 0 {
+	if total, free, err := diskForPath(existingPathOrParent(path)); err == nil && total > 0 {
 		if free > total {
 			free = total
 		}
@@ -50,6 +53,27 @@ func Collect(parent context.Context, path string) Snapshot {
 	}
 
 	return out
+}
+
+func existingPathOrParent(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return "."
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = p
+	}
+	for {
+		if _, err := os.Stat(abs); err == nil {
+			return abs
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return abs
+		}
+		abs = parent
+	}
 }
 
 func clampPercent(v float64) float64 {

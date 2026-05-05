@@ -327,7 +327,6 @@ function updateSystemWidgets(status) {
       : "",
     warn: diskFreePct <= 25 && diskFreePct > 10,
     bad: diskFreePct <= 10,
-    hideWhenInvalid: false,
   });
 }
 

@@ -19,7 +19,7 @@ const I18N = {
     "status.memory_short": "{used}/{total}",
     "status.memory_title": "Memory used: {used} of {total} ({pct}%)",
     "status.disk": "Disk",
-    "status.disk_free_short": "free {free}/{total}",
+    "status.disk_free_short": "{free}/{total}",
     "status.disk_free_title": "Disk free: {free} of {total} ({pct}%)",
 
     "downloads.title": "Downloads",

@@ -2404,9 +2404,12 @@ button.chat-send:disabled:hover {
     width: 28px;
     padding: 0;
     gap: 0;
+    display: inline-grid;
+    place-items: center;
   }
   .topbar-actions .with-badge .dl-icon {
-    font-size: 12px;
+    font-size: 13px;
+    line-height: 1;
   }
   .topbar-actions .with-badge > span[data-i18n="downloads.button"] {
     display: none;

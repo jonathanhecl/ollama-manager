@@ -15,10 +15,14 @@ type Snapshot struct {
 	MemoryFree     uint64
 	MemoryUsed     uint64
 	MemoryUsedPct  float64
+	DiskTotal      uint64
+	DiskFree       uint64
+	DiskUsed       uint64
+	DiskUsedPct    float64
 }
 
-// Collect reads CPU and memory usage with a short timeout.
-func Collect(parent context.Context) Snapshot {
+// Collect reads CPU, memory, and disk usage with a short timeout.
+func Collect(parent context.Context, path string) Snapshot {
 	ctx, cancel := context.WithTimeout(parent, 900*time.Millisecond)
 	defer cancel()
 
@@ -33,6 +37,16 @@ func Collect(parent context.Context) Snapshot {
 		out.MemoryFree = vm.Available
 		out.MemoryUsed = vm.Used
 		out.MemoryUsedPct = clampPercent(vm.UsedPercent)
+	}
+
+	if total, free, err := diskForPath(path); err == nil && total > 0 {
+		if free > total {
+			free = total
+		}
+		out.DiskTotal = total
+		out.DiskFree = free
+		out.DiskUsed = total - free
+		out.DiskUsedPct = clampPercent((float64(out.DiskUsed) / float64(total)) * 100)
 	}
 
 	return out

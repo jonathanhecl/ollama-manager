@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gense/ollama-manager/internal/config"
-	"github.com/gense/ollama-manager/internal/diskusage"
 	"github.com/gense/ollama-manager/internal/jobs"
 	"github.com/gense/ollama-manager/internal/ollama"
 	"github.com/gense/ollama-manager/internal/sysmetrics"
@@ -132,27 +131,17 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	cfgPath := s.cfg.Path()
 	defer s.cfgMu.RUnlock()
 
-	diskTotal, diskFree, diskErr := diskusage.ForPath(cfgPath)
-	diskUsed := uint64(0)
-	diskUsedPercent := float64(0)
-	if diskErr == nil && diskTotal > 0 {
-		if diskFree > diskTotal {
-			diskFree = diskTotal
-		}
-		diskUsed = diskTotal - diskFree
-		diskUsedPercent = (float64(diskUsed) / float64(diskTotal)) * 100
-	}
-	sys := sysmetrics.Collect(ctx)
+	sys := sysmetrics.Collect(ctx, cfgPath)
 	resp := map[string]any{
 		"ollama_url":       s.cfg.OllamaURL,
 		"expose_network":   s.cfg.ExposeNetwork,
 		"has_password":     s.cfg.HasPassword(),
 		"language":         s.cfg.Language,
 		"ollama_reachable": s.ollama.Ping(ctx) == nil,
-		"disk_total_bytes": diskTotal,
-		"disk_free_bytes":  diskFree,
-		"disk_used_bytes":  diskUsed,
-		"disk_used_pct":    diskUsedPercent,
+		"disk_total_bytes": sys.DiskTotal,
+		"disk_free_bytes":  sys.DiskFree,
+		"disk_used_bytes":  sys.DiskUsed,
+		"disk_used_pct":    sys.DiskUsedPct,
 		"cpu_used_pct":     sys.CPUUsedPercent,
 		"memory_total":     sys.MemoryTotal,
 		"memory_free":      sys.MemoryFree,

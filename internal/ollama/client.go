@@ -219,6 +219,22 @@ func (c *Client) Delete(ctx context.Context, name string) error {
 	return checkStatus(resp)
 }
 
+// Unload asks Ollama to evict a model from memory (keep_alive=0).
+func (c *Client) Unload(ctx context.Context, name string) error {
+	body, _ := json.Marshal(map[string]any{
+		"model":      name,
+		"prompt":     "",
+		"stream":     false,
+		"keep_alive": 0,
+	})
+	resp, err := c.do(ctx, http.MethodPost, "/api/generate", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return checkStatus(resp)
+}
+
 // Create calls POST /api/create with stream:false.
 func (c *Client) Create(ctx context.Context, req CreateRequest) error {
 	req.Stream = false

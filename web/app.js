@@ -215,6 +215,8 @@ let lastChatDefaultsModel = "";
 let managerApiOk = false;
 /** Ollama host reachable (from /api/status) */
 let ollamaHostOk = false;
+let runningModels = [];
+let runningRefreshTimer = null;
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
@@ -461,6 +463,100 @@ async function refreshLoadedState() {
   } catch {
     // Evita toasts ruidosos al sondear; el listado completo o el status ya avisan si hace falta.
   }
+}
+
+function renderRunningModalList() {
+  const list = $("running-list");
+  const empty = $("running-empty");
+  const badge = $("running-count-badge");
+  if (!list || !empty || !badge) return;
+
+  const rows = [...(runningModels || [])]
+    .sort((a, b) => (Number(b.size_vram) || 0) - (Number(a.size_vram) || 0));
+
+  badge.textContent = String(rows.length);
+  badge.hidden = rows.length === 0;
+  empty.hidden = rows.length !== 0;
+
+  if (!rows.length) {
+    list.innerHTML = "";
+    return;
+  }
+
+  list.innerHTML = rows.map((r) => {
+    const name = String(r?.name || "").trim();
+    const vram = fmtBytes(Number(r?.size_vram) || 0);
+    const expires = r?.expires_at ? fmtRelativeTime(r.expires_at) : "—";
+    const expiresFull = r?.expires_at ? fmtDateTimeFull(r.expires_at) : "—";
+    return `
+      <div class="running-item">
+        <div class="running-main">
+          <div class="running-name">${escapeHtml(name || "—")}</div>
+          <div class="running-meta">
+            <span>${escapeHtml(t("running.vram", { size: vram }))}</span>
+            <span title="${escapeHtml(expiresFull)}">${escapeHtml(t("running.expires", { when: expires }))}</span>
+          </div>
+        </div>
+        <button class="danger running-unload-btn" data-name="${escapeHtml(name)}">${escapeHtml(t("running.unload"))}</button>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll(".running-unload-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      const name = String(e.currentTarget?.dataset?.name || "").trim();
+      if (!name) return;
+      btn.disabled = true;
+      try {
+        await api("/api/models/unload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        toast(t("running.unloaded", { name }), "success");
+      } catch (err) {
+        toast(t("running.unload_failed", { name, msg: err.message }), "error");
+      } finally {
+        btn.disabled = false;
+      }
+      await refreshRunningModalList({ silent: true });
+      refreshLoadedState();
+      refreshStatus();
+    });
+  });
+}
+
+async function refreshRunningModalList({ silent = false } = {}) {
+  try {
+    const data = await api("/api/running");
+    runningModels = data.running || [];
+    renderRunningModalList();
+  } catch (e) {
+    runningModels = [];
+    renderRunningModalList();
+    if (!silent) {
+      toast(t("toast.error", { msg: e.message }), "error");
+    }
+  }
+}
+
+function closeRunningModal() {
+  $("running-modal").hidden = true;
+  if (runningRefreshTimer) {
+    clearInterval(runningRefreshTimer);
+    runningRefreshTimer = null;
+  }
+}
+
+function openRunningModal() {
+  $("running-modal").hidden = false;
+  refreshRunningModalList();
+  if (runningRefreshTimer) clearInterval(runningRefreshTimer);
+  runningRefreshTimer = setInterval(() => {
+    const modal = $("running-modal");
+    if (!modal || modal.hidden) return;
+    refreshRunningModalList({ silent: true });
+  }, 3000);
 }
 
 function patchDetailLoadedState() {
@@ -3018,6 +3114,48 @@ $("dl-clear-btn").addEventListener("click", async () => {
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }
+});
+
+$("memory-widget")?.addEventListener("click", () => {
+  openRunningModal();
+});
+$("memory-widget")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    openRunningModal();
+  }
+});
+$("running-refresh")?.addEventListener("click", () => refreshRunningModalList());
+$("running-close")?.addEventListener("click", closeRunningModal);
+$("running-x")?.addEventListener("click", closeRunningModal);
+$("running-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("running-modal")) closeRunningModal();
+});
+$("running-unload-all")?.addEventListener("click", async () => {
+  const ok = await askConfirm({
+    title: t("running.unload_all"),
+    text: t("running.unload_all_confirm"),
+    okText: t("running.unload_all"),
+    okClass: "danger",
+  });
+  if (!ok) return;
+  try {
+    const res = await api("/api/running/unload-all", { method: "POST" });
+    const unloaded = Array.isArray(res?.unloaded) ? res.unloaded : [];
+    if (unloaded.length) {
+      toast(t("running.unload_all_done", { n: unloaded.length }), "success");
+    }
+    const failed = res?.failed && typeof res.failed === "object" ? Object.entries(res.failed) : [];
+    if (failed.length) {
+      const [name, msg] = failed[0];
+      toast(t("running.unload_failed", { name, msg }), "error");
+    }
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+  await refreshRunningModalList({ silent: true });
+  refreshLoadedState();
+  refreshStatus();
 });
 
 // ---------- topbar buttons ----------

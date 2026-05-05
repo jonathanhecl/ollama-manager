@@ -22,7 +22,7 @@
           </div>
           <span id="cpu-widget-text" class="metric-widget-text mono">—</span>
         </div>
-        <div id="memory-widget" class="metric-widget" hidden>
+        <div id="memory-widget" class="metric-widget metric-widget-clickable" hidden role="button" tabindex="0" data-i18n-attr="title" data-i18n="running.open_title" title="Loaded models in memory">
           <span class="metric-widget-label" data-i18n="status.memory">Memory</span>
           <div class="metric-widget-track" aria-hidden="true">
             <span id="memory-widget-fill" class="metric-widget-fill"></span>
@@ -212,6 +212,30 @@
       <div class="muted" data-i18n="detail.empty">Select a model.</div>
     </div>
   </aside>
+
+  <div id="running-modal" class="modal" hidden>
+    <div class="modal-card running-card">
+      <header class="running-head">
+        <h2>
+          <span class="gear">🧠</span>
+          <span data-i18n="running.title">Models in memory</span>
+          <span id="running-count-badge" class="badge badge-muted" hidden></span>
+        </h2>
+        <button id="running-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+      </header>
+      <div class="running-body">
+        <div class="running-tools">
+          <button id="running-refresh" class="ghost" data-i18n="action.refresh">Refresh</button>
+          <button id="running-unload-all" class="danger" data-i18n="running.unload_all">Unload all</button>
+        </div>
+        <div id="running-list" class="running-list"></div>
+        <div id="running-empty" class="running-empty muted" data-i18n="running.empty">No models loaded in memory.</div>
+      </div>
+      <footer class="running-foot">
+        <button id="running-close" class="primary" data-i18n="action.close">Close</button>
+      </footer>
+    </div>
+  </div>
 
   <div id="downloads-modal" class="modal" hidden>
     <div class="modal-card dl-card">

@@ -88,9 +88,11 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("GET /api/models", s.requireAuth(s.handleListModels))
 	mux.Handle("GET /api/running", s.requireAuth(s.handleListRunning))
+	mux.Handle("POST /api/running/unload-all", s.requireAuth(s.handleUnloadAllRunning))
 	mux.Handle("POST /api/model-repair/preview", s.requireAuth(s.handleRepairPreview))
 	mux.Handle("POST /api/model-repair/apply", s.requireAuth(s.handleRepairApply))
 	mux.Handle("GET /api/models/{name...}", s.requireAuth(s.handleShowModel))
+	mux.Handle("POST /api/models/unload", s.requireAuth(s.handleUnloadModel))
 	mux.Handle("DELETE /api/models/{name...}", s.requireAuth(s.handleDeleteModel))
 	mux.Handle("POST /api/chat", s.requireAuth(s.handleChat))
 	mux.Handle("POST /api/embed", s.requireAuth(s.handleEmbed))

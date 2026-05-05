@@ -380,6 +380,55 @@ func (s *Server) handleListRunning(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"running": out})
 }
 
+func (s *Server) handleUnloadModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if err := s.ollama.Unload(r.Context(), name); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"unloaded": name,
+	})
+}
+
+func (s *Server) handleUnloadAllRunning(w http.ResponseWriter, r *http.Request) {
+	running, err := s.ollama.PS(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	unloaded := make([]string, 0, len(running))
+	failed := make(map[string]string)
+	for _, rm := range running {
+		name := strings.TrimSpace(rm.Name)
+		if name == "" {
+			continue
+		}
+		if err := s.ollama.Unload(r.Context(), name); err != nil {
+			failed[name] = err.Error()
+			continue
+		}
+		unloaded = append(unloaded, name)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       len(failed) == 0,
+		"unloaded": unloaded,
+		"failed":   failed,
+	})
+}
+
 type modelMetaCache struct {
 	ContextLength int64
 	Capabilities  []string

@@ -126,6 +126,16 @@ input:focus { border-color: var(--accent); }
   color: var(--text-dim);
   white-space: nowrap;
 }
+.metric-widget-clickable { cursor: pointer; }
+.metric-widget-clickable:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  color: var(--text);
+}
+.metric-widget-clickable:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
 
 /* Downloads button with count badge */
 button.with-badge { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; }
@@ -824,6 +834,88 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .login-card button { background: var(--accent-dim); border-color: var(--accent); color: #fff; padding: 8px; }
 .login-card button:hover { background: var(--accent); }
 .login-card .error { color: var(--bad); margin: 0; font-size: 13px; }
+
+/* ---------- Downloads modal ---------- */
+.running-card {
+  width: min(560px, 100%);
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: min(88vh, 820px);
+}
+.running-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.running-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.running-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.running-body {
+  padding: 10px 18px 14px;
+  overflow-y: auto;
+  flex: 1;
+}
+.running-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.running-item {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.running-main {
+  min-width: 0;
+}
+.running-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.running-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.running-empty {
+  text-align: center;
+  padding: 18px 8px;
+}
+.running-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
 
 /* ---------- Downloads modal ---------- */
 .dl-card {

@@ -270,6 +270,8 @@ async function refreshStatus() {
 }
 
 function updateSystemWidgets(status) {
+  const compact = window.matchMedia("(max-width: 640px)").matches;
+
   updateMetricWidget({
     wrapId: "cpu-widget",
     fillId: "cpu-widget-fill",
@@ -288,7 +290,9 @@ function updateSystemWidgets(status) {
     textId: "memory-widget-text",
     pct: memoryPct,
     text: memoryTotal > 0
-      ? t("status.memory_short", { used: fmtBytes(memoryUsed), total: fmtBytes(memoryTotal) })
+      ? (compact
+        ? t("status.percent_short", { pct: Math.round(Number.isFinite(memoryPct) ? memoryPct : 0) })
+        : t("status.memory_short", { used: fmtBytes(memoryUsed), total: fmtBytes(memoryTotal) }))
       : "—",
     title: memoryTotal > 0
       ? t("status.memory_title", {
@@ -310,7 +314,9 @@ function updateSystemWidgets(status) {
     textId: "disk-widget-text",
     pct: diskUsedPct,
     text: diskTotal > 0
-      ? t("status.disk_free_short", { free: fmtBytes(clampedFree), total: fmtBytes(diskTotal) })
+      ? (compact
+        ? t("status.percent_short", { pct: Math.round(diskFreePct) })
+        : t("status.disk_free_short", { free: fmtBytes(clampedFree), total: fmtBytes(diskTotal) }))
       : "—",
     title: diskTotal > 0
       ? t("status.disk_free_title", {

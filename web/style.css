@@ -20,6 +20,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; }
 body { min-height: 100vh; }
+body { overflow-x: hidden; }
 
 [hidden] { display: none !important; }
 
@@ -76,6 +77,12 @@ input:focus { border-color: var(--accent); }
   box-shadow: 0 0 10px var(--accent);
 }
 .topbar-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+.metrics-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .metric-widget {
   display: inline-flex;
   align-items: center;
@@ -2100,17 +2107,19 @@ button.chat-send:disabled:hover {
   }
   .brand h1 { font-size: 14px; }
   .topbar-actions {
-    width: auto;
+    width: 100%;
     justify-content: flex-end;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+  }
+  .metrics-strip {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
   .topbar-actions button {
     min-height: 36px;
   }
-  .metric-widget {
-    order: 0;
-    margin-right: 0;
-  }
+  .metric-widget { margin-right: 0; }
   .table-wrap {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -2323,16 +2332,30 @@ button.chat-send:disabled:hover {
   .topbar {
     padding: 8px 10px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    align-items: stretch;
+  }
+  .brand { min-width: 0; }
+  .topbar-actions {
+    width: 100%;
+    gap: 6px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
   }
-  .topbar-actions {
-    width: auto;
-    justify-content: flex-end;
+  .metrics-strip {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: center;
     gap: 6px;
   }
   .topbar-actions .ghost {
-    min-width: 38px;
+    min-width: 0;
+    width: 100%;
     height: 38px;
     padding: 0 10px;
     display: inline-grid;
@@ -2340,19 +2363,31 @@ button.chat-send:disabled:hover {
   }
   .topbar-actions .with-badge {
     min-height: 38px;
+    min-width: 0;
+    width: 100%;
     padding: 0 10px;
   }
   .metric-widget {
-    grid-column: 1 / -1;
-    min-width: 0;
     width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 0 6px;
+    gap: 6px;
+  }
+  .metric-widget-label {
+    display: none;
   }
   .metric-widget-track {
+    width: 28px;
+    min-width: 20px;
     flex: 1;
-    min-width: 56px;
   }
   .metric-widget-text {
     font-size: 10px;
+    max-width: 36px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   #models-table { min-width: 500px; }
   .cell-modified { font-size: 12px; }

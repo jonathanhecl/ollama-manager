@@ -14,26 +14,28 @@
       <span id="status-pill" class="pill pill-muted" data-i18n="status.connecting">connecting…</span>
     </div>
     <div class="topbar-actions">
-      <div id="cpu-widget" class="metric-widget" hidden>
-        <span class="metric-widget-label" data-i18n="status.cpu">CPU</span>
-        <div class="metric-widget-track" aria-hidden="true">
-          <span id="cpu-widget-fill" class="metric-widget-fill"></span>
+      <div class="metrics-strip">
+        <div id="cpu-widget" class="metric-widget" hidden>
+          <span class="metric-widget-label" data-i18n="status.cpu">CPU</span>
+          <div class="metric-widget-track" aria-hidden="true">
+            <span id="cpu-widget-fill" class="metric-widget-fill"></span>
+          </div>
+          <span id="cpu-widget-text" class="metric-widget-text mono">—</span>
         </div>
-        <span id="cpu-widget-text" class="metric-widget-text mono">—</span>
-      </div>
-      <div id="memory-widget" class="metric-widget" hidden>
-        <span class="metric-widget-label" data-i18n="status.memory">Memory</span>
-        <div class="metric-widget-track" aria-hidden="true">
-          <span id="memory-widget-fill" class="metric-widget-fill"></span>
+        <div id="memory-widget" class="metric-widget" hidden>
+          <span class="metric-widget-label" data-i18n="status.memory">Memory</span>
+          <div class="metric-widget-track" aria-hidden="true">
+            <span id="memory-widget-fill" class="metric-widget-fill"></span>
+          </div>
+          <span id="memory-widget-text" class="metric-widget-text mono">—</span>
         </div>
-        <span id="memory-widget-text" class="metric-widget-text mono">—</span>
-      </div>
-      <div id="disk-widget" class="metric-widget" hidden>
-        <span class="metric-widget-label" data-i18n="status.disk">Disk</span>
-        <div class="metric-widget-track" aria-hidden="true">
-          <span id="disk-widget-fill" class="metric-widget-fill"></span>
+        <div id="disk-widget" class="metric-widget" hidden>
+          <span class="metric-widget-label" data-i18n="status.disk">Disk</span>
+          <div class="metric-widget-track" aria-hidden="true">
+            <span id="disk-widget-fill" class="metric-widget-fill"></span>
+          </div>
+          <span id="disk-widget-text" class="metric-widget-text mono">—</span>
         </div>
-        <span id="disk-widget-text" class="metric-widget-text mono">—</span>
       </div>
       <button id="downloads-btn" class="ghost with-badge" data-i18n-attr="title" data-i18n="downloads.title" title="Downloads">
         <span class="dl-icon" aria-hidden="true">⬇</span>

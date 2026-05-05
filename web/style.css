@@ -2100,7 +2100,11 @@ button.chat-send:disabled:hover {
 
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
-  main { padding: 12px; }
+  main {
+    width: 100%;
+    max-width: none;
+    padding: 12px;
+  }
   .topbar {
     gap: 10px;
     padding: 10px 12px;
@@ -2119,13 +2123,35 @@ button.chat-send:disabled:hover {
   .topbar-actions button {
     min-height: 36px;
   }
-  .metric-widget { margin-right: 0; }
+  .metric-widget {
+    height: 30px;
+    margin-right: 0;
+    border-radius: 8px;
+    gap: 6px;
+  }
+  .metric-widget-track {
+    display: none;
+  }
+  .metric-widget-label {
+    font-size: 10px;
+    letter-spacing: .45px;
+  }
+  .metric-widget-text {
+    font-size: 10px;
+  }
   .table-wrap {
+    width: 100%;
+    max-width: none;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  #models-table { min-width: 560px; }
-  /* Simplify table on mobile: keep modified date visible and sortable. */
+  #models-table {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    table-layout: auto;
+  }
+  /* Simplify table on smaller screens so it uses the viewport instead of horizontal scrolling. */
   #models-table th:nth-child(3), #models-table td:nth-child(3),
   #models-table th:nth-child(4), #models-table td:nth-child(4),
   #models-table th:nth-child(5), #models-table td:nth-child(5),
@@ -2327,24 +2353,32 @@ button.chat-send:disabled:hover {
 }
 
 @media (max-width: 640px) {
-  main { padding: 10px; }
+  main {
+    width: 100%;
+    max-width: none;
+    padding: 8px;
+  }
   .brand h1 { display: none; }
   .topbar {
     padding: 8px 10px;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     gap: 8px;
     align-items: stretch;
   }
   .brand { min-width: 0; }
   .topbar-actions {
     width: 100%;
-    gap: 6px;
+    gap: 8px 6px;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      "metrics metrics metrics"
+      "downloads refresh settings";
     align-items: center;
   }
   .metrics-strip {
+    grid-area: metrics;
     grid-column: 1 / -1;
     width: 100%;
     min-width: 0;
@@ -2353,6 +2387,9 @@ button.chat-send:disabled:hover {
     align-items: center;
     gap: 6px;
   }
+  #downloads-btn { grid-area: downloads; }
+  #refresh-btn { grid-area: refresh; }
+  #settings-btn { grid-area: settings; }
   .topbar-actions .ghost {
     min-width: 0;
     width: 100%;
@@ -2371,25 +2408,64 @@ button.chat-send:disabled:hover {
     width: 100%;
     min-width: 0;
     max-width: none;
-    padding: 0 6px;
-    gap: 6px;
+    height: 28px;
+    padding: 0 8px;
+    gap: 5px;
+    border-radius: 8px;
+    justify-content: space-between;
+    background: #0f1119;
   }
   .metric-widget-label {
-    display: none;
+    display: inline;
+    font-size: 9px;
+    letter-spacing: .4px;
   }
   .metric-widget-track {
-    width: 28px;
-    min-width: 20px;
-    flex: 1;
+    display: none;
   }
   .metric-widget-text {
     font-size: 10px;
-    max-width: 36px;
+    max-width: 48px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  #models-table { min-width: 500px; }
+  #models-table { min-width: 0; }
+  #models-table {
+    table-layout: fixed;
+  }
+  #models-table th:nth-child(1), #models-table td:nth-child(1) {
+    width: 20px;
+  }
+  #models-table th:nth-child(7), #models-table td:nth-child(7) {
+    width: 62px;
+  }
+  #models-table th:nth-child(8), #models-table td:nth-child(8) {
+    display: none;
+  }
+  #models-table th:nth-child(9), #models-table td:nth-child(9) {
+    display: none;
+  }
+  .model-name-wrap {
+    align-items: center;
+  }
+  .model-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .model-name-block {
+    min-width: 0;
+    flex: 1;
+  }
+  .model-cap-list {
+    overflow: hidden;
+    max-height: 42px;
+  }
+  .model-cap-list .pill {
+    font-size: 10px;
+    padding: 1px 7px;
+  }
   .cell-modified { font-size: 12px; }
   .chat-view { padding: 8px 10px; }
   .chat-side {

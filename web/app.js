@@ -270,7 +270,7 @@ async function refreshStatus() {
 }
 
 function updateSystemWidgets(status) {
-  const compact = window.matchMedia("(max-width: 640px)").matches;
+  const compact = window.matchMedia("(max-width: 900px)").matches;
 
   updateMetricWidget({
     wrapId: "cpu-widget",

@@ -52,6 +52,8 @@ const I18N = {
     "downloads.installed": "{name} installed",
     "downloads.reenqueue_done_confirm": "{name} was already installed/downloaded before. Download again anyway?",
     "downloads.reenqueue_error_confirm": "{name} had a previous failed download. Try downloading again anyway?",
+    "downloads.reenqueue_last_uninstall_reason": "Last uninstall reason: {reason}",
+    "downloads.reenqueue_with_reason_confirm": "{name} was uninstalled before ({reason}). Download again anyway?",
     "downloads.jobs_count": "{n} total",
     "downloads.status.running": "running",
     "downloads.status.queued": "queued",
@@ -133,6 +135,11 @@ const I18N = {
 
     "confirm.title": "Confirm",
     "confirm.delete_text": "{name} will be uninstalled from the system. This action cannot be undone.",
+    "confirm.delete_reason_title": "Reason (optional)",
+    "confirm.delete_reason_load_failed": "Could not load / did not work",
+    "confirm.delete_reason_missing_capabilities": "Did not have the expected capabilities",
+    "confirm.delete_reason_too_slow": "Ran too slow",
+    "confirm.delete_reason_obsolete_or_outdated": "Old / outdated / obsolete",
 
     "settings.title": "Settings",
     "settings.general": "General",
@@ -296,6 +303,8 @@ const I18N = {
     "downloads.installed": "{name} instalado",
     "downloads.reenqueue_done_confirm": "{name} ya fue instalado/descargado previamente. ¿Querés descargarlo de nuevo?",
     "downloads.reenqueue_error_confirm": "{name} tuvo una descarga previa con error. ¿Querés intentar descargarlo igual?",
+    "downloads.reenqueue_last_uninstall_reason": "Último motivo de desinstalación: {reason}",
+    "downloads.reenqueue_with_reason_confirm": "{name} fue desinstalado antes ({reason}). ¿Querés descargarlo de nuevo?",
     "downloads.jobs_count": "{n} en total",
     "downloads.status.running": "descargando",
     "downloads.status.queued": "en cola",
@@ -377,6 +386,11 @@ const I18N = {
 
     "confirm.title": "Confirmar",
     "confirm.delete_text": "Se desinstalará {name} del sistema. Esta acción no se puede deshacer.",
+    "confirm.delete_reason_title": "Motivo (opcional)",
+    "confirm.delete_reason_load_failed": "No se pudo cargar / no funcionó",
+    "confirm.delete_reason_missing_capabilities": "No tenía las capacidades esperadas",
+    "confirm.delete_reason_too_slow": "Funcionaba muy lento",
+    "confirm.delete_reason_obsolete_or_outdated": "Viejo / desactualizado / obsoleto",
 
     "settings.title": "Ajustes",
     "settings.general": "General",

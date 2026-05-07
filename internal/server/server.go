@@ -28,6 +28,7 @@ type Server struct {
 	web    fs.FS
 	tmpl   *template.Template
 	jobs   *jobs.Manager
+	uninst *uninstallHistoryStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -51,11 +52,16 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	// travel together.
 	jobsPath := filepath.Join(filepath.Dir(cfg.Path()), "jobs.json")
 	historyPath := filepath.Join(filepath.Dir(cfg.Path()), "download_history.json")
+	uninstallPath := filepath.Join(filepath.Dir(cfg.Path()), "uninstall_history.json")
 	jobMgr := jobs.New(jobsPath, historyPath, ollamaClient, log.Default())
 	if err := jobMgr.Load(); err != nil {
 		log.Printf("jobs: could not load %s: %v", jobsPath, err)
 	}
 	jobMgr.Start()
+	uninst := newUninstallHistoryStore(uninstallPath)
+	if err := uninst.Load(); err != nil {
+		log.Printf("uninstall-history: could not load %s: %v", uninstallPath, err)
+	}
 
 	return &Server{
 		cfg:       cfg,
@@ -63,6 +69,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		web:       webRoot,
 		tmpl:      tmpl,
 		jobs:      jobMgr,
+		uninst:    uninst,
 		ctxCache:  make(map[string]int64),
 		capsCache: make(map[string][]string),
 	}, nil

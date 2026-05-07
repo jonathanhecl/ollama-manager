@@ -229,6 +229,70 @@ func TestDeleteBaseAlsoDeletesFixed(t *testing.T) {
 	}
 }
 
+func TestDeleteModelRejectsInvalidReason(t *testing.T) {
+	calledDelete := false
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/delete" {
+			calledDelete = true
+		}
+		http.NotFound(w, r)
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	req := httptest.NewRequest(http.MethodDelete, "/api/models/"+url.PathEscape("qwen3:latest"), strings.NewReader(`{"reason":"invalid_reason"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if calledDelete {
+		t.Fatalf("ollama delete should not be called on invalid reason")
+	}
+}
+
+func TestDeleteModelStoresUninstallReason(t *testing.T) {
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/delete":
+			writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
+		case "/api/tags":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	req := httptest.NewRequest(http.MethodDelete, "/api/models/"+url.PathEscape("qwen3:latest"), strings.NewReader(`{"reason":"too_slow"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	hReq := httptest.NewRequest(http.MethodGet, "/api/download-history/"+url.PathEscape("qwen3:latest"), nil)
+	hRec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(hRec, hReq)
+	if hRec.Code != http.StatusOK {
+		t.Fatalf("history status = %d, body = %s", hRec.Code, hRec.Body.String())
+	}
+	var out map[string]any
+	if err := json.NewDecoder(hRec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	uninstall, ok := out["uninstall"].(map[string]any)
+	if !ok {
+		t.Fatalf("uninstall payload missing: %#v", out)
+	}
+	if uninstall["reason"] != "too_slow" {
+		t.Fatalf("uninstall reason = %#v", uninstall["reason"])
+	}
+}
+
 func newTestServer(t *testing.T, ollamaURL string) *Server {
 	t.Helper()
 	cfgPath := filepath.Join(t.TempDir(), "config.json")

@@ -283,6 +283,13 @@
     <div class="modal-card small">
       <h2 id="confirm-title" data-i18n="confirm.title">Confirm</h2>
       <p id="confirm-text" class="muted"></p>
+      <fieldset id="confirm-delete-reason-wrap" class="confirm-reason-wrap" hidden>
+        <legend data-i18n="confirm.delete_reason_title">Reason (optional)</legend>
+        <label><input type="radio" name="confirm-delete-reason" value="load_failed"> <span data-i18n="confirm.delete_reason_load_failed">Could not load / did not work</span></label>
+        <label><input type="radio" name="confirm-delete-reason" value="missing_capabilities"> <span data-i18n="confirm.delete_reason_missing_capabilities">Did not have the expected capabilities</span></label>
+        <label><input type="radio" name="confirm-delete-reason" value="too_slow"> <span data-i18n="confirm.delete_reason_too_slow">Ran too slow</span></label>
+        <label><input type="radio" name="confirm-delete-reason" value="obsolete_or_outdated"> <span data-i18n="confirm.delete_reason_obsolete_or_outdated">Old / outdated / obsolete</span></label>
+      </fieldset>
       <div class="modal-actions">
         <button id="confirm-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
         <button id="confirm-ok" class="danger" data-i18n="action.delete">Delete</button>

@@ -998,7 +998,7 @@ function bindRepairControls(d) {
     const target = fixedModelName(d.name);
     const exists = models.some((m) => m.name === target || m.model === target);
     const msg = exists ? t("repair.replace_confirm", { name: target }) : t("repair.apply_confirm", { name: target });
-    const ok = await askConfirm({
+    const { ok } = await askConfirm({
       title: t("repair.apply"),
       text: msg,
       okText: exists ? t("repair.replace") : t("repair.create"),
@@ -2756,16 +2756,23 @@ function bindChatEvents() {
 let pendingDelete = null;
 let pendingConfirmResolve = null;
 
+function getSelectedDeleteReason() {
+  const checked = document.querySelector("input[name='confirm-delete-reason']:checked");
+  return checked ? String(checked.value || "").trim() : "";
+}
+
 function closeConfirmModal(result) {
+  const reasonWrap = $("confirm-delete-reason-wrap");
+  const reason = (reasonWrap && !reasonWrap.hidden) ? getSelectedDeleteReason() : "";
   $("confirm-modal").hidden = true;
   if (pendingConfirmResolve) {
     const resolve = pendingConfirmResolve;
     pendingConfirmResolve = null;
-    resolve(!!result);
+    resolve({ ok: !!result, reason });
   }
 }
 
-function askConfirm({ title, text, okText, okClass = "primary", mono = "" }) {
+function askConfirm({ title, text, okText, okClass = "primary", mono = "", showDeleteReason = false }) {
   if (pendingConfirmResolve) closeConfirmModal(false);
   $("confirm-title").textContent = title || t("confirm.title");
   const safe = escapeHtml(text || "").replace(
@@ -2773,6 +2780,11 @@ function askConfirm({ title, text, okText, okClass = "primary", mono = "" }) {
     mono ? `<span class="mono">${escapeHtml(mono)}</span>` : "{__NO_MONO__}",
   );
   $("confirm-text").innerHTML = safe;
+  const reasonWrap = $("confirm-delete-reason-wrap");
+  if (reasonWrap) {
+    reasonWrap.hidden = !showDeleteReason;
+    reasonWrap.querySelectorAll("input[name='confirm-delete-reason']").forEach((r) => { r.checked = false; });
+  }
   const ok = $("confirm-ok");
   ok.textContent = okText || t("confirm.title");
   ok.className = okClass;
@@ -2790,12 +2802,17 @@ function confirmDelete(name) {
     okText: t("action.delete"),
     okClass: "danger",
     mono: name,
-  }).then(async (ok) => {
+    showDeleteReason: true,
+  }).then(async ({ ok, reason }) => {
     const delName = pendingDelete;
     pendingDelete = null;
     if (!ok || !delName) return;
     try {
-      await api("/api/models/" + encodeURIComponent(delName), { method: "DELETE" });
+      await api("/api/models/" + encodeURIComponent(delName), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason || "" }),
+      });
       toast(t("toast.deleted", { name: delName }), "success");
       if (activeName === delName) { $("detail-panel").hidden = true; activeName = null; }
       refreshModels();
@@ -3093,6 +3110,19 @@ $("downloads-modal").addEventListener("click", (e) => {
   if (e.target === $("downloads-modal")) closeDownloads();
 });
 
+function uninstallReasonToText(reasonKey) {
+  const key = String(reasonKey || "").trim();
+  if (!key) return "";
+  const byKey = {
+    load_failed: "confirm.delete_reason_load_failed",
+    missing_capabilities: "confirm.delete_reason_missing_capabilities",
+    too_slow: "confirm.delete_reason_too_slow",
+    obsolete_or_outdated: "confirm.delete_reason_obsolete_or_outdated",
+  };
+  const i18nKey = byKey[key];
+  return i18nKey ? t(i18nKey) : "";
+}
+
 $("dl-add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = $("dl-add-input");
@@ -3108,9 +3138,11 @@ $("dl-add-form").addEventListener("submit", async (e) => {
     }
   }
   let previous = null;
+  let uninstallReason = "";
   try {
     const res = await api(`/api/download-history/${encodeURIComponent(name)}`);
     previous = res && res.exists ? res.history : null;
+    uninstallReason = uninstallReasonToText(res?.uninstall?.reason);
   } catch {
     // history endpoint is best-effort for UX warning
   }
@@ -3119,6 +3151,14 @@ $("dl-add-form").addEventListener("submit", async (e) => {
     confirmMsg = t("downloads.reenqueue_done_confirm", { name });
   } else if (previous?.last_error_at || (previous?.error_count || 0) > 0) {
     confirmMsg = t("downloads.reenqueue_error_confirm", { name });
+  }
+  if (uninstallReason) {
+    const reasonLine = t("downloads.reenqueue_last_uninstall_reason", { reason: uninstallReason });
+    if (!confirmMsg) {
+      confirmMsg = t("downloads.reenqueue_with_reason_confirm", { name, reason: uninstallReason });
+    } else {
+      confirmMsg = `${confirmMsg}\n\n${reasonLine}`;
+    }
   }
   if (confirmMsg && !window.confirm(confirmMsg)) return;
   try {
@@ -3158,7 +3198,7 @@ $("running-modal")?.addEventListener("click", (e) => {
   if (e.target === $("running-modal")) closeRunningModal();
 });
 $("running-unload-all")?.addEventListener("click", async () => {
-  const ok = await askConfirm({
+  const { ok } = await askConfirm({
     title: t("running.unload_all"),
     text: t("running.unload_all_confirm"),
     okText: t("running.unload_all"),

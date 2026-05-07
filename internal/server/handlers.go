@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -612,9 +613,29 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
 		return
 	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if r.Body != nil {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+			return
+		}
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason != "" && !allowedUninstallReasons[reason] {
+		writeError(w, http.StatusBadRequest, errors.New("invalid uninstall reason"))
+		return
+	}
 	if err := s.ollama.Delete(r.Context(), name); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
+	}
+	if s.uninst != nil {
+		if err := s.uninst.Record(name, reason, time.Now().UTC()); err != nil {
+			log.Printf("uninstall-history: save failed for %q: %v", name, err)
+		}
 	}
 	resp := map[string]any{"deleted": name}
 	if !isFixedModelName(name) {
@@ -891,19 +912,23 @@ func (s *Server) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("missing name"))
 		return
 	}
-	h, ok := s.jobs.History(name)
-	if !ok {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"name":   name,
-			"exists": false,
-		})
-		return
+	resp := map[string]any{
+		"name":   name,
+		"exists": false,
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"name":    name,
-		"exists":  true,
-		"history": h,
-	})
+	if h, ok := s.jobs.History(name); ok {
+		resp["exists"] = true
+		resp["history"] = h
+	}
+	if s.uninst != nil {
+		if u, ok := s.uninst.Get(name); ok {
+			resp["uninstall"] = map[string]any{
+				"reason": u.LastReason,
+				"at":     u.LastUninstallAt,
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleJobsEvents streams job lifecycle updates as Server-Sent Events.

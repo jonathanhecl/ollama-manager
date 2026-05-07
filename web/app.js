@@ -18,7 +18,7 @@ const fmtDate = (s) => {
   const now = new Date();
   const diffDays = Math.floor((now - d) / 86400000);
   if (diffDays < 1) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (diffDays < 7) return `hace ${diffDays}d`;
+  if (diffDays < 7) return getRelativeTimeFormatter().format(-diffDays, "day");
   return d.toLocaleDateString();
 };
 const RELATIVE_UNITS = [
@@ -156,11 +156,9 @@ function toast(msg, kind = "") {
   setTimeout(() => div.remove(), 4000);
 }
 
-function detectSpeechLang(text) {
-  const s = String(text || "").toLowerCase();
-  if (!s.trim()) return "es-ES";
-  const esHints = /[áéíóúñ¿¡]|\b(el|la|los|las|de|que|para|como|está|estoy|gracias|hola|modelo)\b/.test(s);
-  return esHints ? "es-ES" : "en-US";
+function speechLangFromUi() {
+  const lang = window.I18n?.getLang?.() || "en";
+  return lang === "es" ? "es-ES" : "en-US";
 }
 
 function findBestVoice(langTag) {
@@ -2167,7 +2165,7 @@ function speakMessage(msg) {
   stopSpeechPlayback();
 
   const u = new SpeechSynthesisUtterance(text);
-  const lang = detectSpeechLang(text);
+  const lang = speechLangFromUi();
   const voice = findBestVoice(lang);
   u.lang = voice?.lang || lang;
   if (voice) u.voice = voice;

@@ -121,6 +121,20 @@ input:focus { border-color: var(--accent); }
 .metric-widget-fill.bad {
   background: linear-gradient(90deg, var(--bad), #ff8a8a);
 }
+.metric-widget-track--stack {
+  display: flex;
+}
+.metric-widget-track--stack .metric-widget-fill {
+  width: 0%;
+  flex: 0 0 auto;
+  transition: width .2s ease, background .2s ease;
+}
+.metric-widget-fill.metric-widget-fill-models {
+  background: linear-gradient(90deg, #3dbb72, #7ae0a2);
+}
+.metric-widget-track--stack .metric-widget-fill:not(.metric-widget-fill-models) {
+  background: linear-gradient(90deg, #d9aa42, #f0ca79);
+}
 .metric-widget-text {
   font-size: 11px;
   color: var(--text-dim);

@@ -215,6 +215,7 @@ let lastChatDefaultsModel = "";
 let managerApiOk = false;
 /** Ollama host reachable (from /api/status) */
 let ollamaHostOk = false;
+let lastSystemStatus = null;
 let runningModels = [];
 let runningRefreshTimer = null;
 
@@ -245,6 +246,7 @@ async function api(path, opts = {}) {
 async function refreshStatus() {
   try {
     const s = await api("/api/status");
+    lastSystemStatus = s;
     managerApiOk = true;
     ollamaHostOk = !!s.ollama_reachable;
     if (s.language && s.language !== window.I18n.getLang()) {
@@ -262,6 +264,7 @@ async function refreshStatus() {
     updateSystemWidgets(s);
     updateChatSendEnabled();
   } catch (e) {
+    lastSystemStatus = null;
     managerApiOk = false;
     ollamaHostOk = false;
     $("status-pill").textContent = t("status.unreachable");
@@ -305,31 +308,53 @@ function updateSystemWidgets(status) {
       : "",
   });
 
+  updateDiskWidget(status, compact);
+}
+
+function installedModelsBytes() {
+  return models.reduce((acc, m) => {
+    const size = Number(m?.size);
+    if (!Number.isFinite(size) || size <= 0) return acc;
+    return acc + size;
+  }, 0);
+}
+
+function updateDiskWidget(status, compact) {
+  const wrap = $("disk-widget");
+  const modelsFill = $("disk-widget-fill-models");
+  const otherFill = $("disk-widget-fill");
+  const textNode = $("disk-widget-text");
+  if (!wrap || !modelsFill || !otherFill || !textNode) return;
+
   const diskTotal = Number(status?.disk_total_bytes) || 0;
   const diskFree = Number(status?.disk_free_bytes) || 0;
-  const clampedFree = diskTotal > 0 ? Math.max(0, Math.min(diskFree, diskTotal)) : 0;
-  const diskUsedPct = diskTotal > 0 ? (100 - ((clampedFree / diskTotal) * 100)) : NaN;
-  const diskFreePct = diskTotal > 0 ? ((clampedFree / diskTotal) * 100) : 0;
-  updateMetricWidget({
-    wrapId: "disk-widget",
-    fillId: "disk-widget-fill",
-    textId: "disk-widget-text",
-    pct: diskUsedPct,
-    text: diskTotal > 0
-      ? (compact
-        ? fmtBytes(clampedFree)
-        : t("status.disk_free_short", { free: fmtBytes(clampedFree), total: fmtBytes(diskTotal) }))
-      : "—",
-    title: diskTotal > 0
-      ? t("status.disk_free_title", {
-          free: fmtBytes(clampedFree),
-          total: fmtBytes(diskTotal),
-          pct: Math.round(diskFreePct),
-        })
-      : "",
-    warn: diskFreePct <= 25 && diskFreePct > 10,
-    bad: diskFreePct <= 10,
+  if (diskTotal <= 0) {
+    wrap.hidden = true;
+    return;
+  }
+
+  const clampedFree = Math.max(0, Math.min(diskFree, diskTotal));
+  const diskUsed = Math.max(0, diskTotal - clampedFree);
+  const modelUsed = Math.min(Math.max(0, installedModelsBytes()), diskUsed);
+  const otherUsed = Math.max(0, diskUsed - modelUsed);
+
+  const modelsPct = (modelUsed / diskTotal) * 100;
+  const otherPct = (otherUsed / diskTotal) * 100;
+  const freePct = (clampedFree / diskTotal) * 100;
+  modelsFill.style.width = `${Math.max(0, Math.min(100, modelsPct)).toFixed(1)}%`;
+  otherFill.style.width = `${Math.max(0, Math.min(100, otherPct)).toFixed(1)}%`;
+
+  textNode.textContent = compact
+    ? fmtBytes(clampedFree)
+    : t("status.disk_free_short", { free: fmtBytes(clampedFree), total: fmtBytes(diskTotal) });
+  wrap.title = t("status.disk_breakdown_title", {
+    models: fmtBytes(modelUsed),
+    other: fmtBytes(otherUsed),
+    free: fmtBytes(clampedFree),
+    total: fmtBytes(diskTotal),
+    pct: Math.round(freePct),
   });
+  wrap.hidden = false;
 }
 
 function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = false, bad = false, hideWhenInvalid = true }) {
@@ -406,6 +431,7 @@ async function refreshModels() {
   try {
     const data = await api("/api/models");
     models = data.models || [];
+    updateSystemWidgets(lastSystemStatus);
     renderTable();
     syncChatModelOptions();
     updateChatCapabilityUI();

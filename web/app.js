@@ -282,29 +282,10 @@ function updateSystemWidgets(status) {
     pct: Number(status?.cpu_used_pct),
     text: t("status.cpu_short", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
     title: t("status.cpu_title", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
+    warn: true,
   });
 
-  const memoryTotal = Number(status?.memory_total) || 0;
-  const memoryUsed = Number(status?.memory_used) || 0;
-  const memoryPct = Number(status?.memory_used_pct);
-  updateMetricWidget({
-    wrapId: "memory-widget",
-    fillId: "memory-widget-fill",
-    textId: "memory-widget-text",
-    pct: memoryPct,
-    text: memoryTotal > 0
-      ? (compact
-        ? t("status.percent_short", { pct: Math.round(Number.isFinite(memoryPct) ? memoryPct : 0) })
-        : t("status.memory_short", { used: fmtBytes(memoryUsed), total: fmtBytes(memoryTotal) }))
-      : "—",
-    title: memoryTotal > 0
-      ? t("status.memory_title", {
-          used: fmtBytes(memoryUsed),
-          total: fmtBytes(memoryTotal),
-          pct: Math.round(Number.isFinite(memoryPct) ? memoryPct : 0),
-        })
-      : "",
-  });
+  updateMemoryWidget(status, compact);
 
   updateDiskWidget(status, compact);
 }
@@ -315,6 +296,57 @@ function installedModelsBytes() {
     if (!Number.isFinite(size) || size <= 0) return acc;
     return acc + size;
   }, 0);
+}
+
+function loadedModelsTotalEstimateBytes() {
+  return models.reduce((acc, m) => {
+    if (!m || !m.loaded) return acc;
+    const size = Number(m?.size);
+    const total = Number.isFinite(size) && size > 0 ? size : 0;
+    return acc + total;
+  }, 0);
+}
+
+function updateMemoryWidget(status, compact) {
+  const wrap = $("memory-widget");
+  const modelsFill = $("memory-widget-fill-models");
+  const otherFill = $("memory-widget-fill");
+  const textNode = $("memory-widget-text");
+  if (!wrap || !modelsFill || !otherFill || !textNode) return;
+
+  const memoryTotal = Number(status?.memory_total) || 0;
+  const memoryUsedRaw = Number(status?.memory_used) || 0;
+  const memoryPct = Number(status?.memory_used_pct);
+  if (memoryTotal <= 0 || !Number.isFinite(memoryPct)) {
+    wrap.hidden = true;
+    return;
+  }
+
+  const memoryUsed = Math.max(0, Math.min(memoryUsedRaw, memoryTotal));
+  const hasServerLoadedTotal = !!(status && Object.prototype.hasOwnProperty.call(status, "models_loaded_bytes"));
+  const loadedModelsApprox = hasServerLoadedTotal
+    ? (Number(status?.models_loaded_bytes) || 0)
+    : loadedModelsTotalEstimateBytes();
+  const modelUsed = Math.min(Math.max(0, loadedModelsApprox), memoryUsed);
+  const otherUsed = Math.max(0, memoryUsed - modelUsed);
+
+  const modelsPct = (modelUsed / memoryTotal) * 100;
+  const otherPct = (otherUsed / memoryTotal) * 100;
+  const freePct = ((memoryTotal - memoryUsed) / memoryTotal) * 100;
+
+  modelsFill.style.width = `${Math.max(0, Math.min(100, modelsPct)).toFixed(1)}%`;
+  otherFill.style.width = `${Math.max(0, Math.min(100, otherPct)).toFixed(1)}%`;
+  textNode.textContent = compact
+    ? t("status.percent_short", { pct: Math.round(memoryPct) })
+    : t("status.memory_short", { used: fmtBytes(memoryUsed), total: fmtBytes(memoryTotal) });
+  wrap.title = t("status.memory_breakdown_title", {
+    models: fmtBytes(modelUsed),
+    other: fmtBytes(otherUsed),
+    free: fmtBytes(Math.max(0, memoryTotal - memoryUsed)),
+    total: fmtBytes(memoryTotal),
+    pct: Math.round(freePct),
+  });
+  wrap.hidden = false;
 }
 
 function updateDiskWidget(status, compact) {

@@ -132,15 +132,20 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	s.cfgMu.RLock()
 	cfgPath := s.cfg.Path()
-	defer s.cfgMu.RUnlock()
+	ollamaURL := s.cfg.OllamaURL
+	exposeNetwork := s.cfg.ExposeNetwork
+	hasPassword := s.cfg.HasPassword()
+	language := s.cfg.Language
+	s.cfgMu.RUnlock()
 
 	diskPath := resolveDiskProbePath(cfgPath)
 	sys := sysmetrics.Collect(ctx, diskPath)
+	loadedModelsRAM, loadedModelsVRAM, loadedModelsTotal := s.loadedModelsMemoryUsage(ctx)
 	resp := map[string]any{
-		"ollama_url":       s.cfg.OllamaURL,
-		"expose_network":   s.cfg.ExposeNetwork,
-		"has_password":     s.cfg.HasPassword(),
-		"language":         s.cfg.Language,
+		"ollama_url":       ollamaURL,
+		"expose_network":   exposeNetwork,
+		"has_password":     hasPassword,
+		"language":         language,
 		"ollama_reachable": s.ollama.Ping(ctx) == nil,
 		"disk_probe_path":  diskPath,
 		"disk_total_bytes": sys.DiskTotal,
@@ -152,8 +157,40 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"memory_free":      sys.MemoryFree,
 		"memory_used":      sys.MemoryUsed,
 		"memory_used_pct":  sys.MemoryUsedPct,
+		"models_ram_loaded_bytes":  loadedModelsRAM,
+		"models_vram_loaded_bytes": loadedModelsVRAM,
+		"models_loaded_bytes":      loadedModelsTotal,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) loadedModelsMemoryUsage(ctx context.Context) (ramBytes uint64, vramBytes uint64, totalBytes uint64) {
+	running, err := s.ollama.PS(ctx)
+	if err != nil {
+		return 0, 0, 0
+	}
+	for _, rm := range running {
+		total, vram := normalizeRunningModelSizes(rm.Size, rm.SizeVRAM)
+		ram := total - vram
+		totalBytes += uint64(total)
+		ramBytes += uint64(ram)
+		vramBytes += uint64(vram)
+	}
+	return ramBytes, vramBytes, totalBytes
+}
+
+func normalizeRunningModelSizes(size, sizeVRAM int64) (int64, int64) {
+	if size < 0 {
+		size = 0
+	}
+	if sizeVRAM < 0 {
+		sizeVRAM = 0
+	}
+	// Some Ollama builds may report size_vram larger than size; clamp for stable UI.
+	if sizeVRAM > size {
+		sizeVRAM = size
+	}
+	return size, sizeVRAM
 }
 
 func resolveDiskProbePath(cfgPath string) string {
@@ -341,8 +378,9 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Capabilities:  modelMeta[m.Digest].Capabilities,
 		}
 		if rm, ok := loaded[m.Name]; ok {
+			_, vram := normalizeRunningModelSizes(rm.Size, rm.SizeVRAM)
 			v.Loaded = true
-			v.SizeVRAM = rm.SizeVRAM
+			v.SizeVRAM = vram
 			exp := rm.ExpiresAt
 			v.ExpiresAt = &exp
 		}
@@ -368,9 +406,10 @@ func (s *Server) handleListRunning(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]runningView, 0, len(running))
 	for _, rm := range running {
+		_, vram := normalizeRunningModelSizes(rm.Size, rm.SizeVRAM)
 		v := runningView{
 			Name:     rm.Name,
-			SizeVRAM: rm.SizeVRAM,
+			SizeVRAM: vram,
 		}
 		if !rm.ExpiresAt.IsZero() {
 			exp := rm.ExpiresAt

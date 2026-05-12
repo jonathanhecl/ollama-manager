@@ -24,7 +24,8 @@
         </div>
         <div id="memory-widget" class="metric-widget metric-widget-clickable" hidden role="button" tabindex="0" data-i18n-attr="title" data-i18n="running.open_title" title="Loaded models in memory">
           <span class="metric-widget-label" data-i18n="status.memory">Memory</span>
-          <div class="metric-widget-track" aria-hidden="true">
+          <div class="metric-widget-track metric-widget-track--stack" aria-hidden="true">
+            <span id="memory-widget-fill-models" class="metric-widget-fill metric-widget-fill-models"></span>
             <span id="memory-widget-fill" class="metric-widget-fill"></span>
           </div>
           <span id="memory-widget-text" class="metric-widget-text mono">—</span>

@@ -3,7 +3,7 @@
 Tiny Go web server to manage the [Ollama](https://ollama.com) models installed on a machine.
 
 - List models: name, family, parameters, quantization, size, context, install date, loaded state.
-- Live system meters in the top bar: CPU load, memory usage, and disk free/used.
+- Live system meters in the top bar: CPU load, memory usage (including RAM used by loaded models), and disk free/used.
 - **Chat** in the browser: talk to a selected model with streaming (SSE), optional *thinking* traces, stop/regenerate, and an optional **web tools** mode (`web_search` + `web_fetch` executed on the server) with a **timeline** UI (think → tool → think → answer).
 - **Download queue**: enqueue multiple installs; the manager runs one at a time, persists the queue to `jobs.json`, and resumes after restart (partial layers are kept by Ollama).
 - Cancel/remove/retry individual jobs and clear finished history from the UI.

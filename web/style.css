@@ -135,6 +135,18 @@ input:focus { border-color: var(--accent); }
 .metric-widget-track--stack .metric-widget-fill:not(.metric-widget-fill-models) {
   background: linear-gradient(90deg, #d9aa42, #f0ca79);
 }
+#memory-widget-fill {
+  order: 1;
+}
+#memory-widget-fill-models {
+  order: 2;
+}
+#disk-widget-fill {
+  order: 1;
+}
+#disk-widget-fill-models {
+  order: 2;
+}
 .metric-widget-text {
   font-size: 11px;
   color: var(--text-dim);
@@ -2233,7 +2245,7 @@ button.chat-send:disabled:hover {
 #chat-system:focus { border-color: var(--accent); outline: none; }
 
 /* ---------- Responsive ---------- */
-@media (max-width: 900px) {
+@media (max-width: 1135px) {
   main {
     width: 100%;
     max-width: none;

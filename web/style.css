@@ -404,6 +404,13 @@ tbody tr.row.active .btn-icon.info-btn:hover {
 .repair-entry button {
   justify-self: start;
 }
+.repair-fix-load {
+  background: rgba(245, 180, 97, .08);
+  border-color: rgba(245, 180, 97, .35);
+  color: #f0d49a;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
 .repair-modal-card {
   width: min(760px, 100%);
   max-height: calc(100dvh - 40px);

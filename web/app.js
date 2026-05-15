@@ -934,25 +934,20 @@ function renderRepairModalContent(d) {
     const label = t(`chat.cap.${cap}`);
     const isDetected = detected.has(cap);
     const hint = isDetected ? `<span>${escapeHtml(t("repair.detected"))}</span>` : "";
-    return `<label class="repair-check${isDetected ? " disabled" : ""}">
+    return `<label class="repair-check">
       <input type="checkbox" name="repair-cap" value="${escapeHtml(cap)}"${isDetected ? " checked disabled" : ""}>
       <span>${escapeHtml(label)}</span>
       ${hint}
     </label>`;
   }).join("");
-
   const target = fixedModelName(d.name);
+  const template = repairDefaultTemplate(d);
   return `<div class="repair-card">
+    <label class="repair-check repair-fix-load">
+      <input type="checkbox" id="repair-fix-load">
+      <span>${escapeHtml(t("repair.fix_load"))}</span>
+    </label>
     <div class="repair-warning">${escapeHtml(t("repair.warning"))}</div>
-
-    <div class="repair-form-grid" style="margin-top:15px; margin-bottom:15px; border: 1px solid var(--accent-dim); padding: 10px; border-radius: var(--radius); background: rgba(122, 162, 255, 0.05);">
-      <label class="repair-confirm" style="margin:0; cursor:pointer;">
-        <input type="checkbox" id="repair-fix-load" value="1">
-        <span style="color:var(--accent); font-weight:bold;">Arreglar carga (usar blob de solo texto)</span>
-      </label>
-      <div style="font-size:11px; color:var(--muted); margin-left:24px;">Usa este fix si el modelo da Error 500 al cargar. Extrae el lenguaje y omite la visión/proyector.</div>
-    </div>
-
     <div class="repair-subtitle">${escapeHtml(t("repair.detected_caps"))}</div>
     ${detectedHtml}
     <div class="repair-subtitle">${escapeHtml(t("repair.flags"))}</div>
@@ -961,32 +956,32 @@ function renderRepairModalContent(d) {
       <label>
         <span>${escapeHtml(t("repair.template"))}</span>
         <select id="repair-template">
-          <option value="keep" selected>${escapeHtml(t("repair.template_keep"))}</option>
-          <option value="hf_generic">Hugging Face / GGUF (Unable to load fix)</option>
-          <option value="gemma2_unsloth">Gemma 2 / 4 (Unsloth fix)</option>
-          <option value="qwen35">Qwen 3 / 3.5</option>
-          <option value="llama3">Llama 3</option>
-          <option value="gemma">Gemma (Google fix)</option>
-          <option value="generic">ChatML genérico</option>
+          <option value="keep"${template === "keep" ? " selected" : ""}>${escapeHtml(t("repair.template_keep"))}</option>
+          <option value="qwen35"${template === "qwen35" ? " selected" : ""}>Qwen 3 / 3.5</option>
+          <option value="llama3"${template === "llama3" ? " selected" : ""}>Llama 3</option>
+          <option value="gemma"${template === "gemma" ? " selected" : ""}>Gemma</option>
+          <option value="gemma2_unsloth"${template === "gemma2_unsloth" ? " selected" : ""}>Gemma 2 / 4 (Unsloth)</option>
+          <option value="hf_generic"${template === "hf_generic" ? " selected" : ""}>HuggingFace / GGUF</option>
+          <option value="generic"${template === "generic" ? " selected" : ""}>ChatML</option>
         </select>
       </label>
       <label>
         <span>${escapeHtml(t("repair.context"))}</span>
         <select id="repair-context">
-          <option value="keep" selected>${escapeHtml(t("repair.keep"))}</option>
-          <option value="safe">Safe load · 2048</option>
-          <option value="thinking">Thinking · 16384</option>
+          <option value="safe">${escapeHtml(t("repair.context_safe"))}</option>
+          <option value="thinking">${escapeHtml(t("repair.context_thinking"))}</option>
+          <option value="keep">${escapeHtml(t("repair.keep"))}</option>
         </select>
       </label>
       <label>
         <span>${escapeHtml(t("repair.temperature"))}</span>
         <select id="repair-temperature">
-          <option value="keep" selected>${escapeHtml(t("repair.keep"))}</option>
-          <option value="tools">Tools preciso · 0.0</option>
-          <option value="low">Baja · 0.1</option>
+          <option value="keep">${escapeHtml(t("repair.keep"))}</option>
+          <option value="tools">${escapeHtml(t("repair.temp_tools"))}</option>
+          <option value="low">${escapeHtml(t("repair.temp_low"))}</option>
         </select>
       </label>
-    </div>`;
+    </div>
     <div class="repair-target">${escapeHtml(t("repair.target", { name: target }))}</div>
     <label class="repair-confirm">
       <input id="repair-confirm" type="checkbox">
@@ -1068,6 +1063,7 @@ function bindRepairControls(d) {
   root.querySelectorAll("input[name='repair-cap'], select").forEach((el) => {
     el.addEventListener("change", resetPreview);
   });
+  $("repair-fix-load")?.addEventListener("change", resetPreview);
 
   previewBtn.addEventListener("click", async () => {
     try {
@@ -1124,7 +1120,9 @@ function bindRepairControls(d) {
 }
 
 function collectRepairRequest(d, confirmed) {
-  const capabilities = Array.from(document.querySelectorAll("input[name='repair-cap']:checked")).map((el) => el.value);
+  const capabilities = Array.from(document.querySelectorAll("input[name='repair-cap']"))
+    .filter((el) => el.checked)
+    .map((el) => el.value);
   const modelfile = $("repair-preview")?.value || "";
   return {
     model: d.name,
@@ -1132,6 +1130,7 @@ function collectRepairRequest(d, confirmed) {
     template_preset: $("repair-template")?.value || "generic",
     context_preset: $("repair-context")?.value || "safe",
     temperature_preset: $("repair-temperature")?.value || "keep",
+    fix_load: $("repair-fix-load")?.checked || false,
     modelfile: confirmed ? modelfile : "",
     confirm: !!confirmed,
   };

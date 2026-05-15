@@ -142,21 +142,21 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	sys := sysmetrics.Collect(ctx, diskPath)
 	loadedModelsRAM, loadedModelsVRAM, loadedModelsTotal := s.loadedModelsMemoryUsage(ctx)
 	resp := map[string]any{
-		"ollama_url":       ollamaURL,
-		"expose_network":   exposeNetwork,
-		"has_password":     hasPassword,
-		"language":         language,
-		"ollama_reachable": s.ollama.Ping(ctx) == nil,
-		"disk_probe_path":  diskPath,
-		"disk_total_bytes": sys.DiskTotal,
-		"disk_free_bytes":  sys.DiskFree,
-		"disk_used_bytes":  sys.DiskUsed,
-		"disk_used_pct":    sys.DiskUsedPct,
-		"cpu_used_pct":     sys.CPUUsedPercent,
-		"memory_total":     sys.MemoryTotal,
-		"memory_free":      sys.MemoryFree,
-		"memory_used":      sys.MemoryUsed,
-		"memory_used_pct":  sys.MemoryUsedPct,
+		"ollama_url":               ollamaURL,
+		"expose_network":           exposeNetwork,
+		"has_password":             hasPassword,
+		"language":                 language,
+		"ollama_reachable":         s.ollama.Ping(ctx) == nil,
+		"disk_probe_path":          diskPath,
+		"disk_total_bytes":         sys.DiskTotal,
+		"disk_free_bytes":          sys.DiskFree,
+		"disk_used_bytes":          sys.DiskUsed,
+		"disk_used_pct":            sys.DiskUsedPct,
+		"cpu_used_pct":             sys.CPUUsedPercent,
+		"memory_total":             sys.MemoryTotal,
+		"memory_free":              sys.MemoryFree,
+		"memory_used":              sys.MemoryUsed,
+		"memory_used_pct":          sys.MemoryUsedPct,
 		"models_ram_loaded_bytes":  loadedModelsRAM,
 		"models_vram_loaded_bytes": loadedModelsVRAM,
 		"models_loaded_bytes":      loadedModelsTotal,
@@ -748,17 +748,30 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	modelfile := strings.TrimSpace(body.Modelfile)
-	_, _, _, _, err = parseRepairModelfile(modelfile, preview.BaseName, preview)
+	from, system, template, parameters, err := parseRepairModelfile(modelfile, preview.BaseName, preview)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	renderer := extractLineDirective(modelfile, "RENDERER")
+	parser := extractLineDirective(modelfile, "PARSER")
+	createReq := ollama.CreateRequest{
+		Model:      preview.TargetName,
+		From:       from,
+		System:     system,
+		Template:   template,
+		Parameters: parameters,
+		Renderer:   renderer,
+		Parser:     parser,
+		Modelfile:  modelfile,
+		Stream:     false,
+	}
+	if digest := blobDigest(from); digest != "" {
+		createReq.From = ""
+		createReq.Files = map[string]string{"model.gguf": digest}
+	}
 	replacing := s.modelExists(r.Context(), preview.TargetName)
-	err = s.ollama.Create(r.Context(), ollama.CreateRequest{
-		Model:     preview.TargetName,
-		Modelfile: modelfile,
-		Stream:    false,
-	})
+	err = s.ollama.Create(r.Context(), createReq)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

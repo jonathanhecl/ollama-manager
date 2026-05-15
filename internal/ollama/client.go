@@ -144,13 +144,16 @@ type EmbedResponse struct {
 
 // CreateRequest is the subset of /api/create used to create derived models.
 type CreateRequest struct {
-	Model      string         `json:"model"`
-	From       string         `json:"from,omitempty"`
-	System     string         `json:"system,omitempty"`
-	Template   string         `json:"template,omitempty"`
-	Parameters map[string]any `json:"parameters,omitempty"`
-	Modelfile  string         `json:"modelfile,omitempty"`
-	Stream     bool           `json:"stream"`
+	Model      string            `json:"model"`
+	From       string            `json:"from,omitempty"`
+	Files      map[string]string `json:"files,omitempty"`
+	System     string            `json:"system,omitempty"`
+	Template   string            `json:"template,omitempty"`
+	Parameters map[string]any    `json:"parameters,omitempty"`
+	Renderer   string            `json:"renderer,omitempty"`
+	Parser     string            `json:"parser,omitempty"`
+	Modelfile  string            `json:"modelfile,omitempty"`
+	Stream     bool              `json:"stream"`
 }
 
 // ChatChunk is one streamed NDJSON object from /api/chat.

@@ -63,7 +63,7 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	tempPreset := normalizeRepairPreset(req.TemperaturePreset, "keep")
 
 	var b strings.Builder
-	
+
 	originalBlobs := extractBlobs(show.Modelfile)
 	useBlobFrom := false
 	if req.FixLoad && len(originalBlobs) > 0 {
@@ -90,7 +90,6 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	if strings.Contains(arch, "gemma") {
 		warnings = append(warnings, "Gemma models from Hugging Face often fail with Error 500 due to missing metadata. Use the 'Gemma' template preset and ensure 'Safe load' context is selected.")
 	}
-
 	if hasRepairCap(caps, "vision") {
 		warnings = append(warnings, "Vision fixes do not add ADAPTER/mmproj automatically. Use a GGUF with embedded vision tensors or an official multimodal Ollama model.")
 	}
@@ -298,6 +297,37 @@ func extractTripleQuotedDirective(modelfile, directive string) (string, error) {
 		return "", fmt.Errorf("edited Modelfile has an unterminated %s block", directive)
 	}
 	return "", nil
+}
+
+func extractLineDirective(modelfile, directive string) string {
+	for _, line := range strings.Split(modelfile, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, rest, ok := strings.Cut(line, " ")
+		if ok && strings.EqualFold(key, directive) {
+			return strings.Trim(strings.TrimSpace(rest), `"`)
+		}
+	}
+	return ""
+}
+
+func blobDigest(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	if strings.HasPrefix(ref, "sha256:") {
+		return ref
+	}
+	if i := strings.LastIndex(ref, "sha256-"); i >= 0 {
+		hex := strings.TrimSpace(ref[i+len("sha256-"):])
+		if hex != "" {
+			return "sha256:" + hex
+		}
+	}
+	return ""
 }
 
 func parseRepairParameterValue(raw string) any {

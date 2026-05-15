@@ -125,13 +125,16 @@ func TestBuildModelRepairPreviewKeepsExistingTemplateByDefault(t *testing.T) {
 
 func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	var created struct {
-		Model      string         `json:"model"`
-		From       string         `json:"from"`
-		System     string         `json:"system"`
-		Template   string         `json:"template"`
-		Parameters map[string]any `json:"parameters"`
-		Modelfile  string         `json:"modelfile"`
-		Stream     bool           `json:"stream"`
+		Model      string            `json:"model"`
+		From       string            `json:"from"`
+		Files      map[string]string `json:"files"`
+		System     string            `json:"system"`
+		Template   string            `json:"template"`
+		Parameters map[string]any    `json:"parameters"`
+		Renderer   string            `json:"renderer"`
+		Parser     string            `json:"parser"`
+		Modelfile  string            `json:"modelfile"`
+		Stream     bool              `json:"stream"`
 	}
 	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -181,8 +184,15 @@ func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	if got := created.Parameters["num_ctx"]; got != float64(4096) {
 		t.Fatalf("num_ctx = %#v", got)
 	}
-	if !strings.Contains(created.Modelfile, "edited") {
-		t.Fatalf("created Modelfile = %s", created.Modelfile)
+	for _, want := range []string{
+		"FROM qwen3:latest",
+		"edited {{ range .Tools }}template",
+		"PARAMETER num_ctx 4096",
+		"PARAMETER temperature 0.2",
+	} {
+		if !strings.Contains(created.Modelfile, want) {
+			t.Fatalf("created Modelfile missing %q:\n%s", want, created.Modelfile)
+		}
 	}
 	var out map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
@@ -190,6 +200,50 @@ func TestRepairApplyCreatesFixedModel(t *testing.T) {
 	}
 	if out["replaced"] != true {
 		t.Fatalf("replaced = %#v", out["replaced"])
+	}
+}
+
+func TestRepairApplyBlobFromUsesFilesCreateRequest(t *testing.T) {
+	var created struct {
+		Model string            `json:"model"`
+		From  string            `json:"from"`
+		Files map[string]string `json:"files"`
+	}
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/show":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"modelfile": "FROM C:\\\\Ollama\\\\blobs\\\\sha256-abc123\nFROM C:\\\\Ollama\\\\blobs\\\\sha256-projector\n",
+				"model_info": map[string]any{
+					"general.architecture": "gemma4",
+				},
+			})
+		case "/api/tags":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{{"name": "gemma4:latest"}}})
+		case "/api/create":
+			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
+				t.Fatal(err)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	body := bytes.NewBufferString(`{"model":"gemma4:latest","capabilities":["completion"],"template_preset":"gemma4","context_preset":"keep","temperature_preset":"keep","fix_load":true,"modelfile":"FROM C:\\Ollama\\blobs\\sha256-abc123\n\nTEMPLATE \"\"\"{{ .Prompt }}\"\"\"\n\nRENDERER gemma4\nPARSER gemma4\n","confirm":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/model-repair/apply", body)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if created.From != "" {
+		t.Fatalf("created from = %q", created.From)
+	}
+	if got := created.Files["model.gguf"]; got != "sha256:abc123" {
+		t.Fatalf("created files = %#v", created.Files)
 	}
 }
 

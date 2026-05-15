@@ -361,6 +361,26 @@ tbody tr.row.active .btn-icon.info-btn:hover {
   white-space: pre;
 }
 
+.detail-update-section {
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.detail-update-btn {
+  width: 100%;
+  text-align: center;
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  color: var(--accent);
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  transition: background .15s, border-color .15s, color .15s;
+}
+.detail-update-btn:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .repair-entry,
 .repair-card {
   background: rgba(255,255,255,.02);

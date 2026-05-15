@@ -799,8 +799,36 @@ function renderDetail(d) {
   const tmplBlock = d.template ? `<div class="detail-section"><h3>${escapeHtml(t("detail.template"))}</h3><pre>${escapeHtml(d.template)}</pre></div>` : "";
   const repairBlock = renderRepairEntry(d);
 
-  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}`;
+  const updateBlock = `<div class="detail-section detail-update-section">
+    <button type="button" class="ghost detail-update-btn" id="detail-update-btn" data-name="${escapeHtml(d.name)}">⟳ ${escapeHtml(t("detail.update_btn"))}</button>
+  </div>`;
+
+  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${updateBlock}${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}`;
   bindRepairEntry(d);
+  bindUpdateButton();
+}
+
+function bindUpdateButton() {
+  const btn = $("detail-update-btn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const name = btn.dataset.name;
+    if (!name) return;
+    btn.disabled = true;
+    try {
+      await api("/api/pull", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      toast(t("detail.update_enqueued", { name }), "success");
+      openDownloads();
+    } catch (err) {
+      toast(t("toast.error", { msg: err.message }), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 $("detail-close").addEventListener("click", () => {

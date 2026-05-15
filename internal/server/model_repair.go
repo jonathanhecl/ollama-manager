@@ -23,6 +23,7 @@ type modelRepairRequest struct {
 	TemperaturePreset string   `json:"temperature_preset"`
 	Modelfile         string   `json:"modelfile"`
 	Confirm           bool     `json:"confirm"`
+	FixLoad           bool     `json:"fix_load"`
 }
 
 type modelRepairPreview struct {
@@ -66,7 +67,7 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	// Extraction of blobs from the original Modelfile to support "stripping vision"
 	originalBlobs := extractBlobs(show.Modelfile)
 	useBlobFrom := false
-	if req.TemplatePreset == "gemma2_unsloth" && len(originalBlobs) > 0 {
+	if (req.FixLoad || req.TemplatePreset == "gemma2_unsloth") && len(originalBlobs) > 0 {
 		useBlobFrom = true
 	}
 

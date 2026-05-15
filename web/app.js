@@ -897,6 +897,8 @@ function repairDefaultTemplate(d) {
   const arch = String(d?.architecture || d?.details?.family || "").toLowerCase();
   if (arch.includes("qwen")) return "qwen35";
   if (arch.includes("llama")) return "llama3";
+  if (arch.includes("gemma4") || arch.includes("gemma-4")) return "gemma4";
+  if (arch.includes("gemma")) return "gemma";
   return "generic";
 }
 
@@ -960,6 +962,7 @@ function renderRepairModalContent(d) {
           <option value="qwen35"${template === "qwen35" ? " selected" : ""}>Qwen 3 / 3.5</option>
           <option value="llama3"${template === "llama3" ? " selected" : ""}>Llama 3</option>
           <option value="gemma"${template === "gemma" ? " selected" : ""}>Gemma</option>
+          <option value="gemma4"${template === "gemma4" ? " selected" : ""}>Gemma 4</option>
           <option value="gemma2_unsloth"${template === "gemma2_unsloth" ? " selected" : ""}>Gemma 2 / 4 (Unsloth)</option>
           <option value="hf_generic"${template === "hf_generic" ? " selected" : ""}>HuggingFace / GGUF</option>
           <option value="generic"${template === "generic" ? " selected" : ""}>ChatML</option>

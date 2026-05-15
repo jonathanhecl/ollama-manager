@@ -63,23 +63,7 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	tempPreset := normalizeRepairPreset(req.TemperaturePreset, "keep")
 
 	var b strings.Builder
-	
-	// Extraction of blobs from the original Modelfile to support "stripping vision"
-	originalBlobs := extractBlobs(show.Modelfile)
-	useBlobFrom := false
-	if req.FixLoad && len(originalBlobs) > 0 {
-		useBlobFrom = true
-	}
-
-	if useBlobFrom {
-		fmt.Fprintf(&b, "FROM %s\n", originalBlobs[0])
-		for i := 1; i < len(originalBlobs); i++ {
-			fmt.Fprintf(&b, "# FROM %s (vision blob stripped to fix load error)\n", originalBlobs[i])
-		}
-		b.WriteString("\n")
-	} else {
-		fmt.Fprintf(&b, "FROM %s\n\n", base)
-	}
+	fmt.Fprintf(&b, "FROM %s\n\n", base)
 
 	warnings := []string{
 		"Only enable capabilities that the GGUF/model architecture actually supports. Wrong flags or templates can still fail after the model is created.",
@@ -124,9 +108,18 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		}
 	}
 
-	if templatePreset == "qwen35" {
-		b.WriteString("RENDERER qwen3.5\n")
-		b.WriteString("PARSER qwen3.5\n\n")
+	// Add RENDERER/PARSER directives for architectures that need them
+	renderer := repairRenderer(templatePreset, arch)
+	if renderer != "" {
+		fmt.Fprintf(&b, "RENDERER %s\n", renderer)
+		fmt.Fprintf(&b, "PARSER %s\n\n", renderer)
+	}
+	if req.FixLoad && renderer == "" {
+		// If fix_load is on but we couldn't detect renderer, try from arch
+		if r := rendererFromArch(arch); r != "" {
+			fmt.Fprintf(&b, "RENDERER %s\n", r)
+			fmt.Fprintf(&b, "PARSER %s\n\n", r)
+		}
 	}
 
 	parameters := make(map[string]any)
@@ -223,7 +216,9 @@ func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairP
 	if from == "" {
 		return "", "", "", nil, errors.New("edited Modelfile must include FROM")
 	}
-	if from != expectedBase {
+	// Allow blob-based FROM when the user is fixing a load error
+	isBlobFrom := strings.Contains(from, "blobs/sha256-")
+	if from != expectedBase && !isBlobFrom {
 		return "", "", "", nil, fmt.Errorf("edited Modelfile must keep FROM %s", expectedBase)
 	}
 
@@ -397,6 +392,8 @@ You may call tools. Available tools:
 {{ .Content }}<end_of_turn>
 {{ end }}<start_of_turn>assistant
 `
+	case "gemma4":
+		return "{{ .Prompt }}"
 	case "gemma2_unsloth":
 		return `{{- if .System }}<bos><|turn>system
 {{ .System }}<turn|>
@@ -431,6 +428,8 @@ func repairStops(preset string) []string {
 		return []string{"<|eot_id|>", "<|end_of_text|>"}
 	case "gemma":
 		return []string{"<end_of_turn>", "<eos>"}
+	case "gemma4":
+		return nil // renderer handles stops
 	case "gemma2_unsloth":
 		return []string{"<bos>", "<|turn|>", "<turn|>", "<|turn|>user"}
 	case "hf_generic":
@@ -440,6 +439,53 @@ func repairStops(preset string) []string {
 	default:
 		return nil
 	}
+}
+
+// repairRenderer returns the RENDERER/PARSER value for a given template preset.
+func repairRenderer(preset, arch string) string {
+	switch preset {
+	case "qwen35", "qwen":
+		return "qwen3.5"
+	case "gemma4":
+		return "gemma4"
+	case "gemma", "gemma2_unsloth":
+		if strings.Contains(arch, "gemma4") {
+			return "gemma4"
+		}
+		if strings.Contains(arch, "gemma3") {
+			return "gemma3"
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+// rendererFromArch auto-detects the renderer from the model's architecture.
+// Used as a fallback when fix_load is on but the template preset didn't set a renderer.
+func rendererFromArch(arch string) string {
+	if strings.Contains(arch, "gemma4") {
+		return "gemma4"
+	}
+	if strings.Contains(arch, "gemma3") {
+		return "gemma3"
+	}
+	if strings.Contains(arch, "gemma2") {
+		return "gemma2"
+	}
+	if strings.Contains(arch, "gemma") {
+		return "gemma"
+	}
+	if strings.Contains(arch, "llama") {
+		return "llama"
+	}
+	if strings.Contains(arch, "qwen3.5") || strings.Contains(arch, "qwen35") {
+		return "qwen3.5"
+	}
+	if strings.Contains(arch, "qwen") {
+		return "qwen"
+	}
+	return ""
 }
 
 func fixedModelName(base string) string {
@@ -480,24 +526,3 @@ func extractArchitecture(show *ollama.ShowResponse) string {
 	return ""
 }
 
-func extractBlobs(modelfile string) []string {
-	var blobs []string
-	for _, line := range strings.Split(modelfile, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		// Look for FROM or ADAPTER followed by a blob path
-		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			key := strings.ToUpper(parts[0])
-			if key == "FROM" || key == "ADAPTER" {
-				val := parts[1]
-				if strings.Contains(val, "blobs/sha256-") {
-					blobs = append(blobs, val)
-				}
-			}
-		}
-	}
-	return blobs
-}

@@ -954,6 +954,9 @@ function renderRepairModalContent(d) {
           <option value="keep"${template === "keep" ? " selected" : ""}>${escapeHtml(t("repair.template_keep"))}</option>
           <option value="qwen35"${template === "qwen35" ? " selected" : ""}>Qwen 3 / 3.5</option>
           <option value="llama3"${template === "llama3" ? " selected" : ""}>Llama 3</option>
+          <option value="gemma"${template === "gemma" ? " selected" : ""}>Gemma (Google fix)</option>
+          <option value="gemma2_unsloth"${template === "gemma2_unsloth" ? " selected" : ""}>Gemma 2 / 4 (Unsloth fix)</option>
+          <option value="hf_generic"${template === "hf_generic" ? " selected" : ""}>Hugging Face / GGUF (Unable to load fix)</option>
           <option value="generic"${template === "generic" ? " selected" : ""}>ChatML genérico</option>
         </select>
       </label>

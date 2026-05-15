@@ -71,6 +71,9 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	if strings.Contains(arch, "qwen35") || strings.Contains(arch, "qwen3.5") {
 		warnings = append(warnings, "If Ollama reports an unknown qwen35/qwen35moe architecture, a Modelfile cannot patch missing runtime support.")
 	}
+	if strings.Contains(arch, "gemma") {
+		warnings = append(warnings, "Gemma models from Hugging Face often fail with Error 500 due to missing metadata. Use the 'Gemma' template preset and ensure 'Safe load' context is selected.")
+	}
 
 	if hasRepairCap(caps, "vision") {
 		warnings = append(warnings, "Vision fixes do not add ADAPTER/mmproj automatically. Use a GGUF with embedded vision tensors or an official multimodal Ollama model.")
@@ -370,6 +373,28 @@ You may call tools. Available tools:
 {{ .Content }}<|eot_id|>{{ end }}<|start_header_id|>assistant<|end_header_id|>
 
 `
+	case "gemma":
+		return `{{- if .System }}<start_of_turn>system
+{{ .System }}<end_of_turn>
+{{ end }}{{- range .Messages }}<start_of_turn>{{ .Role }}
+{{ .Content }}<end_of_turn>
+{{ end }}<start_of_turn>assistant
+`
+	case "gemma2_unsloth":
+		return `{{- if .System }}<bos><|turn>system
+{{ .System }}<turn|>
+{{ end }}{{- range .Messages }}<|turn|>{{ .Role }}
+{{ .Content }}<turn|>
+{{ end }}<|turn>model
+`
+	case "hf_generic":
+		return `{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end -}}
+{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end -}}<|im_start|>assistant
+`
 	case "generic", "chatml", "":
 		return `{{- if .System }}<|im_start|>system
 {{ .System }}<|im_end|>
@@ -387,6 +412,12 @@ func repairStops(preset string) []string {
 	switch preset {
 	case "llama3":
 		return []string{"<|eot_id|>", "<|end_of_text|>"}
+	case "gemma":
+		return []string{"<end_of_turn>", "<eos>"}
+	case "gemma2_unsloth":
+		return []string{"<bos>", "<|turn|>", "<turn|>", "<|turn|>user"}
+	case "hf_generic":
+		return []string{"<|im_end|>", "<|endoftext|>", "<|file_separator|>"}
 	case "qwen35", "qwen", "generic", "chatml", "":
 		return []string{"<|im_end|>"}
 	default:

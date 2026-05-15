@@ -62,7 +62,23 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	tempPreset := normalizeRepairPreset(req.TemperaturePreset, "keep")
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "FROM %s\n\n", base)
+	
+	// Extraction of blobs from the original Modelfile to support "stripping vision"
+	originalBlobs := extractBlobs(show.Modelfile)
+	useBlobFrom := false
+	if req.TemplatePreset == "gemma2_unsloth" && len(originalBlobs) > 0 {
+		useBlobFrom = true
+	}
+
+	if useBlobFrom {
+		fmt.Fprintf(&b, "FROM %s\n", originalBlobs[0])
+		for i := 1; i < len(originalBlobs); i++ {
+			fmt.Fprintf(&b, "# FROM %s (vision blob stripped to fix load error)\n", originalBlobs[i])
+		}
+		b.WriteString("\n")
+	} else {
+		fmt.Fprintf(&b, "FROM %s\n\n", base)
+	}
 
 	warnings := []string{
 		"Only enable capabilities that the GGUF/model architecture actually supports. Wrong flags or templates can still fail after the model is created.",
@@ -461,4 +477,26 @@ func extractArchitecture(show *ollama.ShowResponse) string {
 		}
 	}
 	return ""
+}
+
+func extractBlobs(modelfile string) []string {
+	var blobs []string
+	for _, line := range strings.Split(modelfile, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Look for FROM or ADAPTER followed by a blob path
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			key := strings.ToUpper(parts[0])
+			if key == "FROM" || key == "ADAPTER" {
+				val := parts[1]
+				if strings.Contains(val, "blobs/sha256-") {
+					blobs = append(blobs, val)
+				}
+			}
+		}
+	}
+	return blobs
 }

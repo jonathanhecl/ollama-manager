@@ -670,6 +670,30 @@ function renderTable() {
     return;
   }
   const sorted = applySort(models);
+
+  // Combine with pending downloads (jobs that are running or queued and NOT in the models list yet)
+  const installedNames = new Set(models.map(m => m.name));
+  const pendingModels = [];
+  for (const j of jobs.values()) {
+    if ((j.status === "running" || j.status === "queued") && !installedNames.has(j.name)) {
+      pendingModels.push({
+        name: j.name,
+        isPending: true,
+        family: "—",
+        parameter_size: "—",
+        quantization: "—",
+        context_length: 0,
+        size: 0,
+        modified_at: j.created_at,
+        capabilities: []
+      });
+    }
+  }
+  
+  // Combine and re-sort if necessary, or just append pending at the end.
+  // User usually wants to see what's happening, so we'll add them and sort again.
+  const allToRender = applySort([...sorted, ...pendingModels]);
+
   const dotLoadedTxt = t("detail.dot_loaded");
   const dotNotLoadedTxt = t("detail.dot_not_loaded");
   const deleteTitle = t("detail.delete_title");
@@ -677,10 +701,12 @@ function renderTable() {
   const renderCapabilities = (caps) => (caps || [])
     .map((c) => `<span class="pill">${escapeHtml(c)}</span>`)
     .join("");
-  tbody.innerHTML = sorted.map((m) => {
+
+  tbody.innerHTML = allToRender.map((m) => {
     const capsHtml = renderCapabilities(m.capabilities);
+    const rowClass = m.isPending ? "row pending" : `row${m.name === activeName ? " active" : ""}`;
     return `
-    <tr class="row${m.name === activeName ? " active" : ""}" data-name="${escapeHtml(m.name)}">
+    <tr class="${rowClass}" data-name="${escapeHtml(m.name)}" ${m.isPending ? 'title="Downloading..." style="pointer-events: none;"' : ''}>
       <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
       <td class="cell-name">
         <div class="model-name-wrap">
@@ -688,17 +714,17 @@ function renderTable() {
             <div class="model-name">${escapeHtml(m.name)}</div>
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
-          <button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>
+          ${!m.isPending ? `<button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>` : ""}
         </div>
       </td>
       <td>${escapeHtml(m.family || "—")}</td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
-      <td class="cell-ctx">${fmtCtx(m.context_length)}</td>
-      <td class="cell-size">${fmtBytes(m.size)}</td>
-      <td class="cell-modified">${fmtDate(m.modified_at)}</td>
+      <td class="cell-ctx">${m.isPending ? "—" : fmtCtx(m.context_length)}</td>
+      <td class="cell-size">${m.isPending ? "—" : fmtBytes(m.size)}</td>
+      <td class="cell-modified">${m.isPending ? "—" : fmtDate(m.modified_at)}</td>
       <td class="col-actions">
-        <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
+        ${!m.isPending ? `<button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : ""}
       </td>
     </tr>
   `;
@@ -2974,6 +3000,7 @@ function isTerminal(status) {
 function onJobsChanged() {
   updateDownloadsBadge();
   if (!$("downloads-modal").hidden) renderDownloads();
+  renderTable(); // Update main model list to show/hide pending downloads
 }
 
 function jobsByStatus() {

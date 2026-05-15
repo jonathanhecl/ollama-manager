@@ -230,6 +230,12 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr.row { cursor: pointer; transition: background .1s; }
 tbody tr.row:hover { background: #181820; }
 tbody tr.row.active { background: #1c1d28; }
+tbody tr.row.pending {
+  opacity: 0.5;
+  filter: grayscale(0.8);
+  cursor: default;
+}
+tbody tr.row.pending:hover { background: transparent; }
 tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 
 .col-state { width: 22px; text-align: center; }

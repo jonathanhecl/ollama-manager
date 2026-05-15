@@ -232,7 +232,7 @@ func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairP
 		return "", "", "", nil, errors.New("edited Modelfile must include FROM")
 	}
 	// Allow blob-based FROM when the user is fixing a load error
-	isBlobFrom := strings.Contains(from, "blobs/sha256-")
+	isBlobFrom := strings.Contains(from, "sha256-")
 	if from != expectedBase && !isBlobFrom {
 		return "", "", "", nil, fmt.Errorf("edited Modelfile must keep FROM %s", expectedBase)
 	}
@@ -548,12 +548,13 @@ func extractBlobs(modelfile string) []string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			key := strings.ToUpper(parts[0])
-			if key == "FROM" || key == "ADAPTER" {
-				val := parts[1]
-				if strings.Contains(val, "blobs/sha256-") {
+		upperLine := strings.ToUpper(line)
+		if strings.HasPrefix(upperLine, "FROM ") || strings.HasPrefix(upperLine, "ADAPTER ") {
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) == 2 {
+				val := strings.TrimSpace(parts[1])
+				// Support any path format as long as it's a blob
+				if strings.Contains(val, "sha256-") {
 					blobs = append(blobs, val)
 				}
 			}

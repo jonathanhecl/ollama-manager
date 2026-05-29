@@ -184,24 +184,26 @@ If you control the GGUF creation process, add metadata keys before quantization:
 **How we fixed it:**
 1. Run `ollama show` on the base model to extract the **exact** Modelfile
 2. Programmatically prepend `PARSER lfm2-thinking` (or `lfm2` if thinking is not desired)
-3. **Do NOT regenerate the template or stop parameters** — they contain special invisible token characters
-4. Create a new model from the modified Modelfile
+3. **If `tools` is requested**: use the **same approach as the official `lfm2.5-thinking` model**:
+   - `TEMPLATE {{ .Prompt }}`
+   - `RENDERER lfm2-thinking`
+   - `PARSER lfm2-thinking`
+   The built-in `lfm2-thinking` renderer handles **all** formatting internally, including tool injection, message history, and stop tokens. This is why the official model works with tools despite using the simple `{{ .Prompt }}` template.
+4. **If `tools` is NOT requested**: preserve the **exact original Modelfile** — the template and stops contain special invisible token characters that must not be regenerated.
+5. Inject the specialized LFM2 SYSTEM prompt via `repairLFM2System()` to teach the model the native tool output format
+6. Create a new model from the modified Modelfile
 
-**Critical warning:** The third `PARAMETER stop` in the LFM2.5 Modelfile is NOT an empty string or a space. It is a special token character sequence. If you recreate this Modelfile manually in a text editor, you will almost certainly get the wrong character sequence, and the model will stop after generating the first token.
+**Critical insight:** The key to making tools work is not a complex template with `.Tools` / `.Messages` variables, but the **RENDERER `lfm2-thinking`**. The renderer is a Go component in Ollama that intercepts the prompt before tokenization and formats it according to LFM2 conventions. When tools are present, the renderer injects tool definitions in the exact format LFM2 expects. Without the renderer, Ollama's generic template engine cannot produce the correct LFM2 tool format.
 
 **Behavior after fix:**
 - `thinking`: Works perfectly. Ollama automatically strips thinking tags from `content` and populates the `thinking` field in the API response.
-- `tools`: Ollama detects the capability. The repair injects a specialized SYSTEM prompt that teaches the model the native LFM2 tool format (`<|tool_call_start|>[func(args)]`). However, because the legacy template cannot render `.Tools`, **tool definitions must be passed manually in the system prompt** using the LFM2 native format:
-
-      List of tools: [{"name": "get_weather", "description": "Get current weather for a city", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}]
-
-  The model will then generate tool calls in its native format:
+- `tools` **with RENDERER**: When `tools` capability is requested, ollama-manager generates `TEMPLATE {{ .Prompt }}` + `RENDERER lfm2-thinking` + `PARSER lfm2-thinking`. The renderer handles tool injection natively, and the model generates tool calls in its native format:
 
       <|tool_call_start|>[get_weather(city="Buenos Aires")]
 
-  **Note:** Most chat UIs that use Ollama's `/api/chat` `tools` parameter will not auto-inject definitions for LFM2 because the template lacks `.Tools` rendering. You must either:
-  - Manually prepend tool definitions to the system prompt in your chat client
-  - Use a client that supports LFM2's native tool format
+  Ollama returns these as proper `tool_calls` in the API response.
+
+- `tools` **without RENDERER** (legacy): If you manually create a fixed model without requesting `tools` during repair, the original legacy template is preserved. In this case, tool definitions must be passed manually in the system prompt.
 
 ### Qwen 3.5
 
@@ -265,8 +267,13 @@ The ollama-manager web app already implements automatic parser detection in `int
 1. Backend detects `general.architecture` contains `lfm2` or `lfm2moe`
 2. Shows warning: *"LFM2 models use special token characters in their template/stop parameters. The repair will preserve the original Modelfile exactly."*
 3. Extracts the original Modelfile via `ollama show`
-4. Strips any existing `PARSER` / `RENDERER` directives from the original
-5. Injects `PARSER lfm2-thinking` (or `PARSER lfm2`) right after the `FROM` line
+4. **If `tools` capability is requested**: uses the **official approach**:
+   - `FROM <base>`
+   - `RENDERER lfm2-thinking`
+   - `PARSER lfm2-thinking`
+   - `TEMPLATE {{ .Prompt }}`
+   The built-in renderer handles all formatting, tool injection, and stop tokens internally.
+5. **If `tools` is NOT requested**: preserves the **exact original Modelfile** and only injects `PARSER lfm2-thinking` (critical for invisible token characters).
 6. **Injects a specialized `SYSTEM` prompt** (`repairLFM2System()`) that teaches the model:
    - How to use tools in the native LFM2 format: `<|tool_call_start|>[function_name(args)]`
    - That tool definitions will be provided as a JSON array under `"List of tools:"`
@@ -276,9 +283,9 @@ The ollama-manager web app already implements automatic parser detection in `int
 ### Key code paths:
 
 - `isLFM2Arch(arch string) bool` — detects LFM2 architectures
-- `buildLFM2RepairPreview(...)` — preserves exact Modelfile + injects parser + specialized SYSTEM
+- `buildLFM2RepairPreview(...)` — conditionally generates `TEMPLATE {{ .Prompt }}` + `RENDERER`/`PARSER` (with tools) or preserves original + `PARSER` only (without tools)
 - `repairLFM2System(caps []string) string` — generates LFM2-specific SYSTEM prompt with native tool format instructions
-- `rendererFromArch(arch string) string` — maps architecture to parser name
+- `rendererFromArch(arch string) string` — maps architecture to parser/renderer name
 - `repairRenderer(preset, arch)` — same mapping for template preset mode
 
 ### For other families:

@@ -50,7 +50,7 @@ func TestBuildModelRepairPreviewQwenToolsThinking(t *testing.T) {
 	}
 }
 
-func TestBuildModelRepairPreviewLFM2PreservesExactModelfile(t *testing.T) {
+func TestBuildModelRepairPreviewLFM2WithToolsUsesModernTemplate(t *testing.T) {
 	originalModelfile := `FROM hf.co/LiquidAI/LFM2.5-8B-A1B-GGUF:Q4_K_M
 TEMPLATE """{{ if .System }}<|startoftext|><|im_start|>system
 {{ .System }}
@@ -61,7 +61,7 @@ TEMPLATE """{{ if .System }}<|startoftext|><|im_start|>system
 """
 PARAMETER stop <|startoftext|>
 PARAMETER stop <|im_start|>
-PARAMETER stop  """)
+PARAMETER stop  ""
 `
 	show := &ollama.ShowResponse{
 		Capabilities: []string{"completion"},
@@ -83,20 +83,19 @@ PARAMETER stop  """)
 	if preview.TargetName != "lfm2.5:fixed" {
 		t.Fatalf("target = %q", preview.TargetName)
 	}
-	// Must preserve original template exactly (special tokens are invisible but matter)
+	// When tools are requested, use the official approach: TEMPLATE {{ .Prompt }} + RENDERER + PARSER
 	if !strings.Contains(preview.Modelfile, "PARSER lfm2-thinking") {
 		t.Fatalf("missing PARSER lfm2-thinking:\n%s", preview.Modelfile)
+	}
+	if !strings.Contains(preview.Modelfile, "RENDERER lfm2-thinking") {
+		t.Fatalf("missing RENDERER lfm2-thinking:\n%s", preview.Modelfile)
 	}
 	if strings.Contains(preview.Modelfile, "PARSER lfm2\n") {
 		t.Fatalf("should use lfm2-thinking when thinking capability is requested:\n%s", preview.Modelfile)
 	}
-	// Original template must be preserved
-	if !strings.Contains(preview.Modelfile, "{{ if .System }}") {
-		t.Fatalf("original template not preserved:\n%s", preview.Modelfile)
-	}
-	// Stop parameters must be preserved
-	if !strings.Contains(preview.Modelfile, `PARAMETER stop <|startoftext|>`) {
-		t.Fatalf("original stop parameters not preserved:\n%s", preview.Modelfile)
+	// Must use TEMPLATE {{ .Prompt }} like the official model
+	if !strings.Contains(preview.Modelfile, "TEMPLATE {{ .Prompt }}") {
+		t.Fatalf("expected TEMPLATE {{ .Prompt }} like official model:\n%s", preview.Modelfile)
 	}
 	// num_ctx should be injected because contextPreset is safe
 	if !strings.Contains(preview.Modelfile, "PARAMETER num_ctx 2048") {
@@ -115,7 +114,7 @@ PARAMETER stop  """)
 	}
 }
 
-func TestBuildModelRepairPreviewLFM2WithoutThinkingUsesLFM2Parser(t *testing.T) {
+func TestBuildModelRepairPreviewLFM2WithoutToolsPreservesOriginal(t *testing.T) {
 	originalModelfile := `FROM lfm2.5:latest
 TEMPLATE """{{ .Prompt }}"""
 `
@@ -128,18 +127,19 @@ TEMPLATE """{{ .Prompt }}"""
 		},
 	}
 	preview, err := buildModelRepairPreview("lfm2.5:latest", show, modelRepairRequest{
-		Capabilities:   []string{"tools"},
+		Capabilities:   []string{"thinking"},
 		TemplatePreset: "keep",
 		ContextPreset:  "keep",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(preview.Modelfile, "PARSER lfm2\n") {
-		t.Fatalf("expected PARSER lfm2 (without thinking):\n%s", preview.Modelfile)
+	if !strings.Contains(preview.Modelfile, "PARSER lfm2-thinking") {
+		t.Fatalf("expected PARSER lfm2-thinking:\n%s", preview.Modelfile)
 	}
-	if strings.Contains(preview.Modelfile, "PARSER lfm2-thinking") {
-		t.Fatalf("should not use lfm2-thinking when thinking is not requested:\n%s", preview.Modelfile)
+	// Without tools, original template must be preserved
+	if !strings.Contains(preview.Modelfile, "{{ .Prompt }}") {
+		t.Fatalf("original template not preserved when tools not requested:\n%s", preview.Modelfile)
 	}
 }
 

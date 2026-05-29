@@ -139,9 +139,10 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		}
 	}
 
-	// LFM2 special path: preserve exact original Modelfile and inject parser
+	// LFM2 special path: when tools are requested, use a modern template so Ollama can
+	// inject tool definitions natively. Otherwise preserve the exact original Modelfile.
 	if isLFM2Arch(arch) {
-		return buildLFM2RepairPreview(base, show, req, caps, arch, contextPreset, tempPreset, warnings)
+		return buildLFM2RepairPreview(base, show, req, caps, arch, contextPreset, tempPreset, warnings, templatePreset)
 	}
 
 	parameters := make(map[string]any)
@@ -200,48 +201,57 @@ func isLFM2Arch(arch string) bool {
 	return strings.Contains(arch, "lfm2") || strings.Contains(arch, "lfm2moe")
 }
 
-// buildLFM2RepairPreview preserves the exact original Modelfile (critical because
-// LFM2 templates contain special invisible token characters) and only injects
-// the PARSER directive plus any requested PARAMETER overrides.
-func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRepairRequest, caps []string, arch, contextPreset, tempPreset string, warnings []string) (*modelRepairPreview, error) {
+// buildLFM2RepairPreview handles LFM2 models. When tools are requested it generates
+// a modern template with .Tools/.Messages support so Ollama can inject tool
+// definitions natively. Otherwise it preserves the exact original Modelfile.
+func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRepairRequest, caps []string, arch, contextPreset, tempPreset string, warnings []string, templatePreset string) (*modelRepairPreview, error) {
 	parser := "lfm2"
 	if hasRepairCap(caps, "thinking") {
 		parser = "lfm2-thinking"
 	}
 
-	// Start from the original Modelfile to preserve exact template/stop characters
-	original := strings.TrimSpace(show.Modelfile)
-	if original == "" {
-		return nil, errors.New("cannot repair LFM2 model: original Modelfile is empty")
-	}
-
-	var lines []string
-	var addedParser bool
-	for _, line := range strings.Split(original, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		// Remove any existing PARSER/RENDERER directives so we can insert the correct one
-		upper := strings.ToUpper(trimmed)
-		if strings.HasPrefix(upper, "PARSER ") || strings.HasPrefix(upper, "RENDERER ") {
-			continue
-		}
-		lines = append(lines, line)
-		// Insert PARSER right after the first FROM line
-		if !addedParser && strings.HasPrefix(upper, "FROM ") {
-			lines = append(lines, "PARSER "+parser)
-			addedParser = true
-		}
-	}
-	if !addedParser {
-		return nil, errors.New("cannot repair LFM2 model: original Modelfile has no FROM directive")
-	}
+	useModernTemplate := hasRepairCap(caps, "tools")
 
 	var b strings.Builder
-	for _, line := range lines {
-		b.WriteString(line)
-		b.WriteByte('\n')
+	var lines []string
+	var addedParser bool
+
+	if useModernTemplate {
+		// Use the same approach as the official lfm2.5-thinking model:
+		// TEMPLATE {{ .Prompt }} + RENDERER/PARSER so the built-in renderer handles
+		// all formatting including tool injection natively.
+		fmt.Fprintf(&b, "FROM %s\n\n", base)
+		b.WriteString("RENDERER " + parser + "\n")
+		b.WriteString("PARSER " + parser + "\n\n")
+		b.WriteString("TEMPLATE {{ .Prompt }}\n")
+	} else {
+		// Preserve exact original Modelfile (critical for invisible token characters)
+		original := strings.TrimSpace(show.Modelfile)
+		if original == "" {
+			return nil, errors.New("cannot repair LFM2 model: original Modelfile is empty")
+		}
+		for _, line := range strings.Split(original, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			upper := strings.ToUpper(trimmed)
+			if strings.HasPrefix(upper, "PARSER ") || strings.HasPrefix(upper, "RENDERER ") {
+				continue
+			}
+			lines = append(lines, line)
+			if !addedParser && strings.HasPrefix(upper, "FROM ") {
+				lines = append(lines, "PARSER "+parser)
+				addedParser = true
+			}
+		}
+		if !addedParser {
+			return nil, errors.New("cannot repair LFM2 model: original Modelfile has no FROM directive")
+		}
+		for _, line := range lines {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
 	}
 
 	// Inject SYSTEM if capabilities require it
@@ -584,6 +594,23 @@ You may call tools. Available tools:
 {{ .Content }}<turn|>
 {{ end }}<|turn>model
 `
+	case "lfm2":
+		var b strings.Builder
+		b.WriteString(`{{- if .System }}<|startoftext|><|im_start|>system
+{{ .System }}<|im_end|>
+{{ end -}}`)
+		if tools {
+			b.WriteString(`
+{{- if .Tools }}<|im_start|>system
+List of tools: [{{ range $i, $t := .Tools }}{{ if $i }}, {{ end }}{{ $t }}{{ end }}]<|im_end|>
+{{ end -}}`)
+		}
+		b.WriteString(`
+{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end -}}<|im_start|>assistant
+`)
+		return b.String()
 	case "hf_generic":
 		return `{{- if .System }}<|im_start|>system
 {{ .System }}<|im_end|>
@@ -615,6 +642,8 @@ func repairStops(preset string) []string {
 		return nil // renderer handles stops
 	case "gemma2_unsloth":
 		return []string{"<bos>", "<|turn|>", "<turn|>", "<|turn|>user"}
+	case "lfm2":
+		return []string{"<|startoftext|>", "<|im_start|>", "<|im_end|>"}
 	case "hf_generic":
 		return []string{"<|im_end|>", "<|endoftext|>", "<|file_separator|>"}
 	case "qwen35", "qwen", "generic", "chatml", "":

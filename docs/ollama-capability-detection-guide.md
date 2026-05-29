@@ -191,7 +191,17 @@ If you control the GGUF creation process, add metadata keys before quantization:
 
 **Behavior after fix:**
 - `thinking`: Works perfectly. Ollama automatically strips thinking tags from `content` and populates the `thinking` field in the API response.
-- `tools`: Ollama detects the capability, but the legacy template cannot render `.Tools`, so tool definitions are not automatically injected. The model still generates native tool calls when tools are passed manually in the system prompt.
+- `tools`: Ollama detects the capability. The repair injects a specialized SYSTEM prompt that teaches the model the native LFM2 tool format (`<|tool_call_start|>[func(args)]`). However, because the legacy template cannot render `.Tools`, **tool definitions must be passed manually in the system prompt** using the LFM2 native format:
+
+      List of tools: [{"name": "get_weather", "description": "Get current weather for a city", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}]
+
+  The model will then generate tool calls in its native format:
+
+      <|tool_call_start|>[get_weather(city="Buenos Aires")]
+
+  **Note:** Most chat UIs that use Ollama's `/api/chat` `tools` parameter will not auto-inject definitions for LFM2 because the template lacks `.Tools` rendering. You must either:
+  - Manually prepend tool definitions to the system prompt in your chat client
+  - Use a client that supports LFM2's native tool format
 
 ### Qwen 3.5
 
@@ -257,13 +267,17 @@ The ollama-manager web app already implements automatic parser detection in `int
 3. Extracts the original Modelfile via `ollama show`
 4. Strips any existing `PARSER` / `RENDERER` directives from the original
 5. Injects `PARSER lfm2-thinking` (or `PARSER lfm2`) right after the `FROM` line
-6. Adds `SYSTEM`, `PARAMETER num_ctx`, `PARAMETER temperature` based on user-selected presets
-7. Creates the `:fixed` model with the modified Modelfile
+6. **Injects a specialized `SYSTEM` prompt** (`repairLFM2System()`) that teaches the model:
+   - How to use tools in the native LFM2 format: `<|tool_call_start|>[function_name(args)]`
+   - That tool definitions will be provided as a JSON array under `"List of tools:"`
+7. Adds `PARAMETER num_ctx`, `PARAMETER temperature` based on user-selected presets
+8. Creates the `:fixed` model with the modified Modelfile
 
 ### Key code paths:
 
 - `isLFM2Arch(arch string) bool` — detects LFM2 architectures
-- `buildLFM2RepairPreview(...)` — preserves exact Modelfile + injects parser
+- `buildLFM2RepairPreview(...)` — preserves exact Modelfile + injects parser + specialized SYSTEM
+- `repairLFM2System(caps []string) string` — generates LFM2-specific SYSTEM prompt with native tool format instructions
 - `rendererFromArch(arch string) string` — maps architecture to parser name
 - `repairRenderer(preset, arch)` — same mapping for template preset mode
 

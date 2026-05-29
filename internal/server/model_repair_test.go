@@ -106,6 +106,13 @@ PARAMETER stop  """)
 	if !strings.Contains(preview.Modelfile, "SYSTEM") {
 		t.Fatalf("missing SYSTEM overlay:\n%s", preview.Modelfile)
 	}
+	// SYSTEM must contain LFM2 native tool format instructions
+	if !strings.Contains(preview.Modelfile, "<|tool_call_start|>") {
+		t.Fatalf("missing LFM2 tool format in SYSTEM:\n%s", preview.Modelfile)
+	}
+	if !strings.Contains(preview.Modelfile, "List of tools:") {
+		t.Fatalf("missing LFM2 tool definitions hint in SYSTEM:\n%s", preview.Modelfile)
+	}
 }
 
 func TestBuildModelRepairPreviewLFM2WithoutThinkingUsesLFM2Parser(t *testing.T) {

@@ -90,6 +90,9 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	if strings.Contains(arch, "gemma") {
 		warnings = append(warnings, "Gemma models from Hugging Face often fail with Error 500 due to missing metadata. Use the 'Gemma' template preset and ensure 'Safe load' context is selected.")
 	}
+	if isLFM2Arch(arch) {
+		warnings = append(warnings, "LFM2 models use special token characters in their template/stop parameters. The repair will preserve the original Modelfile exactly and only inject the PARSER directive.")
+	}
 	if hasRepairCap(caps, "vision") {
 		warnings = append(warnings, "Vision fixes do not add ADAPTER/mmproj automatically. Use a GGUF with embedded vision tensors or an official multimodal Ollama model.")
 	}
@@ -124,7 +127,7 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 
 	// Add RENDERER/PARSER directives for architectures that need them
 	renderer := repairRenderer(templatePreset, arch)
-	if renderer != "" {
+	if renderer != "" && !isLFM2Arch(arch) {
 		fmt.Fprintf(&b, "RENDERER %s\n", renderer)
 		fmt.Fprintf(&b, "PARSER %s\n\n", renderer)
 	}
@@ -134,6 +137,11 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 			fmt.Fprintf(&b, "RENDERER %s\n", r)
 			fmt.Fprintf(&b, "PARSER %s\n\n", r)
 		}
+	}
+
+	// LFM2 special path: preserve exact original Modelfile and inject parser
+	if isLFM2Arch(arch) {
+		return buildLFM2RepairPreview(base, show, req, caps, arch, contextPreset, tempPreset, warnings)
 	}
 
 	parameters := make(map[string]any)
@@ -183,6 +191,100 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		RequiresConfirmation: true,
 		System:               system,
 		Template:             template,
+		Parameters:           parameters,
+	}, nil
+}
+
+func isLFM2Arch(arch string) bool {
+	arch = strings.ToLower(arch)
+	return strings.Contains(arch, "lfm2") || strings.Contains(arch, "lfm2moe")
+}
+
+// buildLFM2RepairPreview preserves the exact original Modelfile (critical because
+// LFM2 templates contain special invisible token characters) and only injects
+// the PARSER directive plus any requested PARAMETER overrides.
+func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRepairRequest, caps []string, arch, contextPreset, tempPreset string, warnings []string) (*modelRepairPreview, error) {
+	parser := "lfm2"
+	if hasRepairCap(caps, "thinking") {
+		parser = "lfm2-thinking"
+	}
+
+	// Start from the original Modelfile to preserve exact template/stop characters
+	original := strings.TrimSpace(show.Modelfile)
+	if original == "" {
+		return nil, errors.New("cannot repair LFM2 model: original Modelfile is empty")
+	}
+
+	var lines []string
+	var addedParser bool
+	for _, line := range strings.Split(original, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Remove any existing PARSER/RENDERER directives so we can insert the correct one
+		upper := strings.ToUpper(trimmed)
+		if strings.HasPrefix(upper, "PARSER ") || strings.HasPrefix(upper, "RENDERER ") {
+			continue
+		}
+		lines = append(lines, line)
+		// Insert PARSER right after the first FROM line
+		if !addedParser && strings.HasPrefix(upper, "FROM ") {
+			lines = append(lines, "PARSER "+parser)
+			addedParser = true
+		}
+	}
+	if !addedParser {
+		return nil, errors.New("cannot repair LFM2 model: original Modelfile has no FROM directive")
+	}
+
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+
+	// Inject SYSTEM if capabilities require it
+	system := repairSystem(caps)
+	if system != "" {
+		b.WriteString("SYSTEM \"\"\"")
+		b.WriteString(system)
+		b.WriteString("\"\"\"\n")
+	}
+
+	parameters := make(map[string]any)
+	switch contextPreset {
+	case "safe":
+		b.WriteString("PARAMETER num_ctx 2048\n")
+		parameters["num_ctx"] = 2048
+	case "thinking":
+		b.WriteString("PARAMETER num_ctx 16384\n")
+		parameters["num_ctx"] = 16384
+	}
+
+	switch tempPreset {
+	case "tools":
+		b.WriteString("PARAMETER temperature 0.0\n")
+		parameters["temperature"] = 0.0
+	case "low":
+		b.WriteString("PARAMETER temperature 0.1\n")
+		parameters["temperature"] = 0.1
+	}
+
+	modelfile := strings.TrimSpace(b.String()) + "\n"
+	if len(modelfile) > 64*1024 {
+		return nil, errors.New("generated Modelfile is too large")
+	}
+
+	return &modelRepairPreview{
+		BaseName:             base,
+		TargetName:           fixedModelName(base),
+		Modelfile:            modelfile,
+		Warnings:             warnings,
+		DetectedCapabilities: append([]string(nil), show.Capabilities...),
+		RequiresConfirmation: true,
+		System:               system,
+		Template:             show.Template,
 		Parameters:           parameters,
 	}, nil
 }
@@ -501,6 +603,11 @@ func repairRenderer(preset, arch string) string {
 			return "gemma3"
 		}
 		return ""
+	case "lfm2":
+		if hasRepairCap([]string{"thinking"}, "thinking") {
+			return "lfm2-thinking"
+		}
+		return "lfm2"
 	default:
 		return ""
 	}
@@ -529,6 +636,9 @@ func rendererFromArch(arch string) string {
 	}
 	if strings.Contains(arch, "qwen") {
 		return "qwen"
+	}
+	if strings.Contains(arch, "lfm2moe") || strings.Contains(arch, "lfm2") {
+		return "lfm2-thinking"
 	}
 	return ""
 }

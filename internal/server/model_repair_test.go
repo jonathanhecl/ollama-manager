@@ -50,6 +50,92 @@ func TestBuildModelRepairPreviewQwenToolsThinking(t *testing.T) {
 	}
 }
 
+func TestBuildModelRepairPreviewLFM2PreservesExactModelfile(t *testing.T) {
+	originalModelfile := `FROM hf.co/LiquidAI/LFM2.5-8B-A1B-GGUF:Q4_K_M
+TEMPLATE """{{ if .System }}<|startoftext|><|im_start|>system
+{{ .System }}
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}
+{{ end }}<|im_start|>assistant
+{{ .Response }}
+"""
+PARAMETER stop <|startoftext|>
+PARAMETER stop <|im_start|>
+PARAMETER stop  """)
+`
+	show := &ollama.ShowResponse{
+		Capabilities: []string{"completion"},
+		Template:     `{{ if .System }}<|startoftext|><|im_start|>system\n{{ .System }}\n{{ end }}{{ if .Prompt }}<|im_start|>user\n{{ .Prompt }}\n{{ end }}<|im_start|>assistant\n{{ .Response }}\n`,
+		Modelfile:    originalModelfile,
+		ModelInfo: map[string]json.RawMessage{
+			"general.architecture": json.RawMessage(`"lfm2moe"`),
+		},
+	}
+	preview, err := buildModelRepairPreview("lfm2.5:latest", show, modelRepairRequest{
+		Capabilities:      []string{"tools", "thinking"},
+		TemplatePreset:    "keep",
+		ContextPreset:     "safe",
+		TemperaturePreset: "keep",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.TargetName != "lfm2.5:fixed" {
+		t.Fatalf("target = %q", preview.TargetName)
+	}
+	// Must preserve original template exactly (special tokens are invisible but matter)
+	if !strings.Contains(preview.Modelfile, "PARSER lfm2-thinking") {
+		t.Fatalf("missing PARSER lfm2-thinking:\n%s", preview.Modelfile)
+	}
+	if strings.Contains(preview.Modelfile, "PARSER lfm2\n") {
+		t.Fatalf("should use lfm2-thinking when thinking capability is requested:\n%s", preview.Modelfile)
+	}
+	// Original template must be preserved
+	if !strings.Contains(preview.Modelfile, "{{ if .System }}") {
+		t.Fatalf("original template not preserved:\n%s", preview.Modelfile)
+	}
+	// Stop parameters must be preserved
+	if !strings.Contains(preview.Modelfile, `PARAMETER stop <|startoftext|>`) {
+		t.Fatalf("original stop parameters not preserved:\n%s", preview.Modelfile)
+	}
+	// num_ctx should be injected because contextPreset is safe
+	if !strings.Contains(preview.Modelfile, "PARAMETER num_ctx 2048") {
+		t.Fatalf("missing num_ctx override:\n%s", preview.Modelfile)
+	}
+	// SYSTEM should be injected because capabilities are set
+	if !strings.Contains(preview.Modelfile, "SYSTEM") {
+		t.Fatalf("missing SYSTEM overlay:\n%s", preview.Modelfile)
+	}
+}
+
+func TestBuildModelRepairPreviewLFM2WithoutThinkingUsesLFM2Parser(t *testing.T) {
+	originalModelfile := `FROM lfm2.5:latest
+TEMPLATE """{{ .Prompt }}"""
+`
+	show := &ollama.ShowResponse{
+		Capabilities: []string{"completion"},
+		Template:     `{{ .Prompt }}`,
+		Modelfile:    originalModelfile,
+		ModelInfo: map[string]json.RawMessage{
+			"general.architecture": json.RawMessage(`"lfm2"`),
+		},
+	}
+	preview, err := buildModelRepairPreview("lfm2.5:latest", show, modelRepairRequest{
+		Capabilities:   []string{"tools"},
+		TemplatePreset: "keep",
+		ContextPreset:  "keep",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(preview.Modelfile, "PARSER lfm2\n") {
+		t.Fatalf("expected PARSER lfm2 (without thinking):\n%s", preview.Modelfile)
+	}
+	if strings.Contains(preview.Modelfile, "PARSER lfm2-thinking") {
+		t.Fatalf("should not use lfm2-thinking when thinking is not requested:\n%s", preview.Modelfile)
+	}
+}
+
 func TestBuildModelRepairPreviewRejectsFixedSource(t *testing.T) {
 	_, err := buildModelRepairPreview("qwen3:fixed", &ollama.ShowResponse{}, modelRepairRequest{})
 	if err == nil {

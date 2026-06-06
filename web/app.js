@@ -199,9 +199,13 @@ let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
-let chatMediaRecorder = null;
+let chatIsRecording = false;
 let chatRecorderStream = null;
-let chatRecorderChunks = [];
+let chatAudioContext = null;
+let chatAudioSource = null;
+let chatAudioProcessor = null;
+let chatAudioBuffers = [];
+let chatAudioSampleRate = 0;
 let speakingMsgId = "";
 let activeStreamMessage = null;
 const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
@@ -1207,7 +1211,7 @@ function updateChatCapabilityUI() {
   $("chat-record-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
   $("chat-web-tools-wrap").hidden = !canTools;
-  if (!canAudio && chatMediaRecorder) {
+  if (!canAudio && chatIsRecording) {
     stopAudioRecording(true);
   }
   const webW = $("chat-web-tools");
@@ -2022,27 +2026,6 @@ async function addFiles(files) {
   renderAttachments();
 }
 
-function recordingMimeType() {
-  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
-  const choices = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  for (const m of choices) {
-    if (MediaRecorder.isTypeSupported(m)) return m;
-  }
-  return "";
-}
-
-function recordingExt(mime) {
-  const m = String(mime || "").toLowerCase();
-  if (m.includes("ogg")) return "ogg";
-  if (m.includes("mp4")) return "m4a";
-  return "webm";
-}
-
 function setRecordButtonState(isRecording) {
   const btn = $("chat-record-btn");
   if (!btn) return;
@@ -2051,57 +2034,73 @@ function setRecordButtonState(isRecording) {
   const label = t(key);
   btn.title = label;
   btn.setAttribute("aria-label", label);
+
+  const inputEl = $("chat-input");
+  if (inputEl) {
+    if (isRecording) {
+      inputEl.placeholder = t("chat.recording_placeholder") || "Recording audio... Speak now...";
+      inputEl.classList.add("recording-active");
+    } else {
+      inputEl.placeholder = t("chat.input_placeholder") || "Write your message...";
+      inputEl.classList.remove("recording-active");
+    }
+  }
 }
 
 function releaseAudioRecorder() {
+  if (chatAudioProcessor) {
+    try { chatAudioProcessor.disconnect(); } catch {}
+    chatAudioProcessor.onaudioprocess = null;
+    chatAudioProcessor = null;
+  }
+  if (chatAudioSource) {
+    try { chatAudioSource.disconnect(); } catch {}
+    chatAudioSource = null;
+  }
+  if (chatAudioContext) {
+    try { chatAudioContext.close(); } catch {}
+    chatAudioContext = null;
+  }
   if (chatRecorderStream) {
     for (const tr of chatRecorderStream.getTracks()) {
       try { tr.stop(); } catch {}
     }
+    chatRecorderStream = null;
   }
-  chatRecorderStream = null;
-  chatMediaRecorder = null;
-  chatRecorderChunks = [];
+  chatAudioBuffers = [];
+  chatAudioSampleRate = 0;
+  chatIsRecording = false;
   setRecordButtonState(false);
 }
 
 async function startAudioRecording() {
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+  if (!navigator.mediaDevices?.getUserMedia) {
     toast(t("chat.record_audio_unsupported"), "error");
     return;
   }
-  if (chatMediaRecorder) return;
   const caps = modelCaps($("chat-model").value);
   if (!caps.has("audio")) {
     toast(t("chat.attach_not_supported"), "error");
     return;
   }
+  if (chatIsRecording) return;
   try {
     chatRecorderStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mime = recordingMimeType();
-    chatMediaRecorder = mime
-      ? new MediaRecorder(chatRecorderStream, { mimeType: mime })
-      : new MediaRecorder(chatRecorderStream);
-    chatRecorderChunks = [];
-    chatMediaRecorder.ondataavailable = (ev) => {
-      if (ev.data && ev.data.size > 0) chatRecorderChunks.push(ev.data);
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    chatAudioContext = new AudioContextClass();
+    if (chatAudioContext.state === "suspended") {
+      await chatAudioContext.resume();
+    }
+    chatAudioSampleRate = chatAudioContext.sampleRate;
+    chatAudioBuffers = [];
+    chatAudioSource = chatAudioContext.createMediaStreamSource(chatRecorderStream);
+    chatAudioProcessor = chatAudioContext.createScriptProcessor(4096, 1, 1);
+    chatAudioProcessor.onaudioprocess = (event) => {
+      chatAudioBuffers.push(new Float32Array(event.inputBuffer.getChannelData(0)));
     };
-    chatMediaRecorder.onerror = () => {
-      toast(t("chat.record_audio_error"), "error");
-      releaseAudioRecorder();
-    };
-    chatMediaRecorder.onstop = async () => {
-      const mimeType = chatMediaRecorder?.mimeType || mime || "audio/webm";
-      const chunks = chatRecorderChunks.slice();
-      releaseAudioRecorder();
-      if (!chunks.length) return;
-      const blob = new Blob(chunks, { type: mimeType });
-      if (!blob.size) return;
-      const ext = recordingExt(mimeType);
-      const file = new File([blob], `recording-${Date.now()}.${ext}`, { type: mimeType });
-      await addFiles([file]);
-    };
-    chatMediaRecorder.start();
+    chatAudioSource.connect(chatAudioProcessor);
+    chatAudioProcessor.connect(chatAudioContext.destination);
+    chatIsRecording = true;
     setRecordButtonState(true);
   } catch (err) {
     toast(t("toast.error", { msg: err?.message || t("chat.record_audio_error") }), "error");
@@ -2110,19 +2109,73 @@ async function startAudioRecording() {
 }
 
 function stopAudioRecording(silent = false) {
-  if (!chatMediaRecorder) return;
-  const rec = chatMediaRecorder;
+  if (!chatIsRecording) return;
+  chatIsRecording = false;
+  setRecordButtonState(false);
+  
   if (silent) {
-    rec.ondataavailable = null;
-    rec.onstop = null;
-    rec.onerror = null;
+    if (chatAudioProcessor) {
+      chatAudioProcessor.onaudioprocess = null;
+    }
     releaseAudioRecorder();
     return;
   }
-  try {
-    if (rec.state !== "inactive") rec.stop();
-  } catch {
-    releaseAudioRecorder();
+  
+  const buffers = chatAudioBuffers.slice();
+  const sampleRate = chatAudioSampleRate;
+  releaseAudioRecorder();
+  
+  if (!buffers.length || !sampleRate) return;
+  const blob = createWavBlob(buffers, sampleRate);
+  if (blob.size === 0) return;
+  
+  const file = new File([blob], `recording-${Date.now()}.wav`, { type: "audio/wav" });
+  addFiles([file]);
+}
+
+function createWavBlob(buffers, sampleRate) {
+  if (!buffers.length || !sampleRate) return new Blob([], { type: "audio/wav" });
+  const samples = mergeAudioBuffers(buffers);
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  writePcm16(view, 44, samples);
+  return new Blob([view], { type: "audio/wav" });
+}
+
+function mergeAudioBuffers(buffers) {
+  const length = buffers.reduce((sum, buffer) => sum + buffer.length, 0);
+  const merged = new Float32Array(length);
+  let offset = 0;
+  for (const buffer of buffers) {
+    merged.set(buffer, offset);
+    offset += buffer.length;
+  }
+  return merged;
+}
+
+function writePcm16(view, offset, samples) {
+  for (let i = 0; i < samples.length; i++) {
+    const sample = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+}
+
+function writeAscii(view, offset, value) {
+  for (let i = 0; i < value.length; i++) {
+    view.setUint8(offset + i, value.charCodeAt(i));
   }
 }
 
@@ -2138,7 +2191,8 @@ function buildOutboundMessages() {
       const imgs = m.attachments.filter((a) => a.kind === "image").map((a) => a.data);
       const auds = m.attachments.filter((a) => a.kind === "audio").map((a) => a.data);
       const txts = m.attachments.filter((a) => a.kind === "text" && String(a.text || "").trim());
-      if (imgs.length) payload.images = imgs;
+      const media = [...imgs, ...auds];
+      if (media.length) payload.images = media;
       if (auds.length) payload.audios = auds;
       if (txts.length) {
         const blocks = txts.map((a) =>
@@ -2778,7 +2832,7 @@ function bindChatEvents() {
   $("chat-audio-btn")?.addEventListener("click", () => $("chat-audio-input")?.click());
   $("chat-text-btn")?.addEventListener("click", () => $("chat-text-input")?.click());
   $("chat-record-btn")?.addEventListener("click", async () => {
-    if (chatMediaRecorder) {
+    if (chatIsRecording) {
       stopAudioRecording();
     } else {
       await startAudioRecording();

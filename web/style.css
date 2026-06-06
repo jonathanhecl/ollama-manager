@@ -2135,10 +2135,10 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   box-shadow: inset 0 1px 0 rgba(255, 120, 120, 0.14), 0 0 0 1px color-mix(in srgb, #ff6b6b 35%, transparent), 0 8px 20px rgba(90, 20, 20, 0.35);
 }
 .chat-media-btn--record.is-recording {
-  color: #ffeaea;
-  border-color: #ff6b6b;
-  box-shadow: inset 0 1px 0 rgba(255, 120, 120, 0.18), 0 0 0 1px color-mix(in srgb, #ff6b6b 45%, transparent);
-  animation: chat-rec-pulse 1.05s ease-in-out infinite;
+  color: #ffffff;
+  border-color: #ff3b30;
+  background: linear-gradient(165deg, #ff3b30 0%, #c31212 100%) !important;
+  animation: chat-rec-pulse 1.3s cubic-bezier(0.25, 0, 0, 1) infinite;
 }
 .chat-media-btn--text {
   border-color: color-mix(in srgb, #6a7bd8 55%, var(--border));
@@ -2152,8 +2152,25 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   box-shadow: inset 0 1px 0 rgba(150, 170, 255, 0.15), 0 0 0 1px color-mix(in srgb, #8798ff 35%, transparent), 0 8px 20px rgba(20, 30, 80, 0.35);
 }
 @keyframes chat-rec-pulse {
-  0%, 100% { transform: translateY(0); filter: saturate(1); }
-  50% { transform: translateY(-1px); filter: saturate(1.25); }
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0px rgba(255, 59, 48, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  70% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 12px rgba(255, 59, 48, 0), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0px rgba(255, 59, 48, 0), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+}
+
+#chat-input.recording-active {
+  border-color: #ff3b30 !important;
+  box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.25) !important;
+  background: #1c0e0f !important;
+  color: #ffb0b0 !important;
 }
 .chat-media-icon {
   width: 21px;

@@ -23,21 +23,24 @@ Tiny Go web server to manage the [Ollama](https://ollama.com) models installed o
 ## Build
 
 ```bash
+# Standard build (commits metadata automatically embedded via vcs settings)
 go build -o ollama-manager .
-# Windows
-go build -o ollama-manager.exe .
+
+# Embed compilation date/time manually (e.g. for display on startup)
+go build -ldflags "-X 'main.buildTime=$(date +'%F %T')'" -o ollama-manager .
 ```
 
 Cross-compile (from any OS):
 
 ```bash
-GOOS=linux   GOARCH=amd64 go build -o dist/ollama-manager-linux .
-GOOS=darwin  GOARCH=arm64 go build -o dist/ollama-manager-macos .
-GOOS=windows GOARCH=amd64 go build -o dist/ollama-manager.exe .
+GOOS=linux   GOARCH=amd64 go build -ldflags "-X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager-linux .
+GOOS=darwin  GOARCH=arm64 go build -ldflags "-s -w -X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager-macos .
+GOOS=windows GOARCH=amd64 go build -ldflags "-X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager.exe .
 ```
 
 ```powershell
-$env:CGO_ENABLED = "0"; $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -trimpath -ldflags="-s -w" -o ollama-manager .
+# Windows PowerShell example
+$env:CGO_ENABLED = "0"; $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -trimpath -ldflags="-s -w -X 'main.buildTime=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))'" -o ollama-manager .
 ```
 
 ## Usage

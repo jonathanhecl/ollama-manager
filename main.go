@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/gense/ollama-manager/internal/config"
@@ -31,13 +32,49 @@ var webFS embed.FS
 
 const version = "0.1.0"
 
+var buildTime = ""
+
+func getVersionInfo() string {
+	info, ok := debug.ReadBuildInfo()
+	var vcsTime, vcsRevision string
+	var vcsModified bool
+	if ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				vcsRevision = setting.Value
+			case "vcs.time":
+				vcsTime = setting.Value
+			case "vcs.modified":
+				vcsModified = setting.Value == "true"
+			}
+		}
+	}
+
+	res := version
+	if buildTime != "" {
+		res += fmt.Sprintf(" (built at %s)", buildTime)
+	} else if vcsTime != "" {
+		shortRev := vcsRevision
+		if len(shortRev) > 7 {
+			shortRev = shortRev[:7]
+		}
+		modStr := ""
+		if vcsModified {
+			modStr = " (modified)"
+		}
+		res += fmt.Sprintf(" (built from %s [%s]%s)", vcsTime, shortRev, modStr)
+	}
+	return res
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags)
 	log.SetPrefix("[ollama-manager] ")
 
 	configPath := flag.String("config", "config.json", "path to config.json")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "ollama-manager %s\n\n", version)
+		fmt.Fprintf(os.Stderr, "ollama-manager %s\n\n", getVersionInfo())
 		fmt.Fprintf(os.Stderr, "usage:\n")
 		fmt.Fprintf(os.Stderr, "  ollama-manager [-config path]\n")
 		fmt.Fprintf(os.Stderr, "  ollama-manager set-password <password>\n")
@@ -49,7 +86,7 @@ func main() {
 
 	switch flag.Arg(0) {
 	case "version":
-		fmt.Println(version)
+		fmt.Println(getVersionInfo())
 		return
 	case "set-password":
 		if flag.NArg() < 2 {
@@ -98,6 +135,7 @@ func main() {
 	defer stop()
 
 	addr := cfg.BindAddress()
+	log.Printf("ollama-manager %s starting...", getVersionInfo())
 	log.Printf("listening on http://%s  (ollama: %s)", addr, cfg.OllamaURL)
 	if err := srv.ListenAndServe(ctx); err != nil {
 		log.Fatalf("server: %v", err)

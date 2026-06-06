@@ -88,8 +88,18 @@ restarting the process to take effect (the UI warns you).
 ./ollama-manager
 ```
 
+> [!WARNING]
 > If you enable `expose_network` without a password, the manager prints a
 > warning and anyone on your LAN can delete/install models. Set a password.
+
+#### Secure Contexts and Audio Recording (LAN Troubleshooting)
+When accessing the manager from another machine on your LAN (e.g., a phone or a remote laptop), modern browsers will block microphone access (making the **Record audio** button show a "browser does not support recording" warning) because the connection is over insecure `http://` instead of `localhost` or `https://`.
+
+To allow audio recording on remote LAN devices in Google Chrome (or other Chromium-based browsers like Edge or Brave):
+1. Navigate to `chrome://flags/#unsafely-treat-insecure-origin-as-secure` on the remote device.
+2. Search for **Insecure origins treated as secure** and set it to **Enabled**.
+3. In the text field, enter the address of your manager (e.g., `http://192.168.1.50:7860`).
+4. Click **Relaunch** to restart the browser. The browser will now treat this LAN address as secure, allowing microphone access.
 
 ### HTTP endpoints
 

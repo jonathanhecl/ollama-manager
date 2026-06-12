@@ -467,6 +467,7 @@ type GenerateChunk struct {
 	Model              string    `json:"model"`
 	CreatedAt          time.Time `json:"created_at"`
 	Response           string    `json:"response"`
+	Image              string    `json:"image,omitempty"`
 	Error              string    `json:"error,omitempty"`
 	Done               bool      `json:"done"`
 	Completed          int       `json:"completed,omitempty"`

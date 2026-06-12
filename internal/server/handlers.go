@@ -973,10 +973,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				Completed: chunk.Completed,
 				Total:     chunk.Total,
 			}
-			if chunk.Response != "" {
+			content := chunk.Response
+			if content == "" && chunk.Image != "" {
+				content = chunk.Image
+			}
+			if content != "" {
 				chatChunk.Message = ollama.ChatMessage{
 					Role:    "assistant",
-					Content: chunk.Response,
+					Content: content,
 				}
 			}
 			send("chunk", chatChunk)

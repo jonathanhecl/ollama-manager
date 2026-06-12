@@ -1268,6 +1268,9 @@ function syncChatModelOptions() {
 
 function updateChatCapabilityUI() {
   const model = $("chat-model").value;
+  if ($("chat-model-name-value")) {
+    $("chat-model-name-value").textContent = model;
+  }
   const caps = modelCaps(model);
   const canVision = caps.has("vision");
   const canAudio = caps.has("audio");
@@ -2818,6 +2821,12 @@ function bindChatEvents() {
     updateChatCapabilityUI();
     updateChatContextMeter();
     void applyChatDefaultsForModel($("chat-model").value, true);
+  });
+  $("chat-model-copy-btn")?.addEventListener("click", async () => {
+    const val = $("chat-model-name-value")?.textContent || "";
+    if (!val) return;
+    const ok = await copyTextToClipboard(val);
+    toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
   });
   $("chat-send-btn")?.addEventListener("click", sendChatMessage);
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("click", async (e) => {

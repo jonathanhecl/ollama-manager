@@ -2317,6 +2317,41 @@ button.chat-send:disabled:hover {
   background: color-mix(in srgb, var(--accent) 11%, #0c0c12);
 }
 
+/* Model Copy Container inside Options sidebar */
+.chat-model-copy-container {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.chat-model-copy-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.chat-model-copy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#chat-model-name-value {
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+  user-select: all;
+  color: var(--text-dim);
+}
+.chat-model-copy-row button {
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1135px) {
   main {

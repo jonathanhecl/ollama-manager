@@ -1,3 +1,5 @@
 {
-  "models": []
+  "models": [
+    "test-lfm2-renderer:latest"
+  ]
 }

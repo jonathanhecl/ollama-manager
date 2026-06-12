@@ -239,7 +239,7 @@ tbody tr.row.pending:hover { background: transparent; }
 tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 
 .col-state { width: 22px; text-align: center; }
-.col-actions { width: 80px; text-align: right; }
+.col-actions { width: 48px; text-align: right; }
 .state-dot {
   display: inline-block;
   width: 8px; height: 8px;

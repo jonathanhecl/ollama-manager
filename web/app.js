@@ -742,9 +742,6 @@ function renderTable() {
       <td class="cell-modified">${m.isPending ? "—" : fmtDate(m.modified_at)}</td>
       <td class="col-actions">
         ${!m.isPending ? `
-          <button class="btn-icon archive-btn" title="${m.archived ? escapeHtml(unarchiveTitle) : escapeHtml(archiveTitle)}" data-name="${escapeHtml(m.name)}">
-            ${m.archived ? "📥" : "📦"}
-          </button>
           <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
         ` : ""}
       </td>
@@ -756,7 +753,6 @@ function renderTable() {
     tr.addEventListener("click", (e) => {
       if (e.target.closest(".info-btn")) return;
       if (e.target.closest(".delete-btn")) return;
-      if (e.target.closest(".archive-btn")) return;
       showChatViewWithModel(tr.dataset.name);
     });
   });
@@ -764,16 +760,6 @@ function renderTable() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       openDetail(btn.dataset.name);
-    });
-  });
-  tbody.querySelectorAll(".archive-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const name = btn.dataset.name;
-      const m = models.find(x => x.name === name);
-      if (m) {
-        toggleArchived(name, !m.archived);
-      }
     });
   });
   tbody.querySelectorAll(".delete-btn").forEach((btn) => {

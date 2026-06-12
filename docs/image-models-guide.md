@@ -154,3 +154,27 @@ const chunkJson = JSON.parse(responseText.match(/event: chunk\ndata: (\{.*?\})/g
 const base64Image = chunkJson.message.content; 
 require('fs').writeFileSync('output.png', Buffer.from(base64Image, 'base64'));
 ```
+
+---
+
+## 5. OS & Hardware Compatibility (MLX Model Runners)
+
+Many diffusion-based models (like experimental `Flux` or `Z-Image-Turbo` Ollama packages) utilize Apple's MLX machine learning framework as their runner engine. 
+
+### Compatibility Warning:
+* **MLX-based models run exclusively on Apple Silicon (macOS) devices.**
+* They are **not compatible** with Windows or Linux operating systems due to the lack of native MLX runner dynamic libraries.
+
+### Error Signature:
+If a user attempts to run an MLX-based model on Windows or Linux, Ollama will return a `500 Internal Server Error` with the following structure:
+```json
+{
+  "error": "mlx runner failed: Error: failed to initialize MLX: failed to load MLX dynamic library (searched: [...]) (exit: exit status 1)"
+}
+```
+
+### How `ollama-manager` Handles It:
+To improve user experience on unsupported platforms, `ollama-manager` intercepts this signature at both the backend and frontend layers:
+1. **Error Translation**: The raw technical error is translated into a user-friendly, localized notice (English/Spanish).
+2. **Graceful UI Fallback**: The chat interface displays the notice as a standard text message in the chat timeline rather than rendering a broken/failed image, and displays a toast notification with the details.
+

@@ -1902,7 +1902,10 @@ function renderChatMessages() {
           </div>`;
         } else {
           const cleanedContent = String(m.content || "").replace(/\s+/g, "");
-          if (cleanedContent) {
+          const isError = m.isError || String(m.content || "").startsWith("Error:") || String(m.content || "").startsWith("Error ");
+          if (isError) {
+            bodyHTML = renderMarkdownSafe(m.content || "");
+          } else if (cleanedContent) {
             const imgSrc = `data:image/png;base64,${cleanedContent}`;
             const imgName = `${m.model.replace(/[^a-zA-Z0-9]/g, "_")}_${m.id}.png`;
             bodyHTML = `<div class="chat-generated-image-container">
@@ -2836,7 +2839,9 @@ async function runChatRequest(assistantMsg) {
       if (errMsg.includes("mlx runner failed") || errMsg.includes("failed to initialize MLX") || errMsg.includes("failed to load MLX")) {
         errMsg = t("chat.error_mlx_unsupported");
       }
-      if (!assistantMsg.content) {
+      assistantMsg.isError = true;
+      const isImg = assistantMsg.model && modelCaps(assistantMsg.model).has("image");
+      if (!assistantMsg.content || isImg) {
         assistantMsg.content = t("chat.error_reply", { msg: errMsg });
       }
       toast(t("toast.error", { msg: errMsg }), "error");

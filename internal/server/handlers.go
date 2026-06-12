@@ -940,6 +940,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		log.Printf("[image-gen] request: model=%s, prompt=%q, images_count=%d", body.Model, prompt, len(images))
+
 		genReq := ollama.GenerateRequest{
 			Model:   body.Model,
 			Prompt:  prompt,

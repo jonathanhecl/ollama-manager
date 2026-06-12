@@ -2152,7 +2152,48 @@ function updateLiveAssistantMetrics(msg, deltaText) {
   }
 }
 
+function resizeImageToBase64(file, maxDim = 1024) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("could not get canvas 2d context"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      const mime = file.type || "image/jpeg";
+      const dataUrl = canvas.toDataURL(mime);
+      resolve(dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("failed to load image for resizing"));
+    };
+    img.src = url;
+  });
+}
+
 function toBase64(file) {
+  if (file.type && file.type.startsWith("image/")) {
+    return resizeImageToBase64(file, 1024);
+  }
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
     fr.onload = () => {

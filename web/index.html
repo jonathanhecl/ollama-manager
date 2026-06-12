@@ -170,21 +170,21 @@
           <div id="chat-cap-flags" class="chat-cap-flags"></div>
         </div>
         <h3 data-i18n="chat.options">Options</h3>
-        <div class="field">
+        <div class="field" id="chat-system-field">
           <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
           <textarea id="chat-system" rows="4" data-i18n-attr="placeholder" data-i18n="chat.system_placeholder" placeholder="Optional system instruction"></textarea>
         </div>
-        <div class="field">
+        <div class="field" id="chat-temperature-field">
           <label for="chat-temperature" data-i18n="chat.temperature">Temperature</label>
           <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7">
           <small class="muted chat-opt-hint" data-i18n="chat.temperature_hint">—</small>
         </div>
-        <div class="field">
+        <div class="field" id="chat-top-k-field">
           <label for="chat-top-k" data-i18n="chat.top_k">Top-k</label>
           <input id="chat-top-k" type="number" min="0" step="1" value="40">
           <small class="muted chat-opt-hint" data-i18n="chat.top_k_hint">—</small>
         </div>
-        <div class="field">
+        <div class="field" id="chat-top-p-field">
           <label for="chat-top-p" data-i18n="chat.top_p">Top-p</label>
           <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9">
           <small class="muted chat-opt-hint" data-i18n="chat.top_p_hint">—</small>
@@ -208,6 +208,26 @@
             <input id="chat-web-tools" type="checkbox">
             <span class="switch-slider"></span>
           </label>
+        </div>
+        <div id="chat-image-options-wrap" class="chat-image-options-wrap" hidden>
+          <h4 data-i18n="chat.image_generation_options">Image Generation Options</h4>
+          <div class="field">
+            <label for="chat-image-width" data-i18n="chat.image_width">Width (px)</label>
+            <input id="chat-image-width" type="number" min="128" max="1024" step="64" value="512">
+          </div>
+          <div class="field">
+            <label for="chat-image-height" data-i18n="chat.image_height">Height (px)</label>
+            <input id="chat-image-height" type="number" min="128" max="1024" step="64" value="512">
+          </div>
+          <div class="field">
+            <label for="chat-image-steps" data-i18n="chat.image_steps">Steps</label>
+            <input id="chat-image-steps" type="number" min="1" max="100" step="1" value="4">
+          </div>
+          <div class="field">
+            <label for="chat-image-seed" data-i18n="chat.image_seed">Seed</label>
+            <input id="chat-image-seed" type="number" min="0" step="1" value="0">
+            <small class="muted chat-opt-hint" data-i18n="chat.image_seed_hint">0 for random seed</small>
+          </div>
         </div>
       </section>
     </aside>

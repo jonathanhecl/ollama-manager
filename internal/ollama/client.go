@@ -164,6 +164,8 @@ type ChatChunk struct {
 	Error              string      `json:"error,omitempty"`
 	Done               bool        `json:"done"`
 	DoneReason         string      `json:"done_reason,omitempty"`
+	Completed          int         `json:"completed,omitempty"`
+	Total              int         `json:"total,omitempty"`
 	PromptEvalCount    int         `json:"prompt_eval_count,omitempty"`
 	EvalCount          int         `json:"eval_count,omitempty"`
 	PromptEvalDuration int64       `json:"prompt_eval_duration,omitempty"`
@@ -317,7 +319,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest, onChunk func(ChatChu
 	}
 
 	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
@@ -449,4 +451,72 @@ func checkStatus(resp *http.Response) error {
 		msg = resp.Status
 	}
 	return fmt.Errorf("ollama %s: %s", resp.Status, msg)
+}
+
+// GenerateRequest is the request payload for /api/generate.
+type GenerateRequest struct {
+	Model   string         `json:"model"`
+	Prompt  string         `json:"prompt"`
+	Images  []string       `json:"images,omitempty"`
+	Stream  bool           `json:"stream"`
+	Options map[string]any `json:"options,omitempty"`
+}
+
+// GenerateChunk is one streamed event from /api/generate.
+type GenerateChunk struct {
+	Model              string    `json:"model"`
+	CreatedAt          time.Time `json:"created_at"`
+	Response           string    `json:"response"`
+	Error              string    `json:"error,omitempty"`
+	Done               bool      `json:"done"`
+	Completed          int       `json:"completed,omitempty"`
+	Total              int       `json:"total,omitempty"`
+	PromptEvalCount    int         `json:"prompt_eval_count,omitempty"`
+	EvalCount          int         `json:"eval_count,omitempty"`
+	PromptEvalDuration int64       `json:"prompt_eval_duration,omitempty"`
+	EvalDuration       int64       `json:"eval_duration,omitempty"`
+	TotalDuration      int64       `json:"total_duration,omitempty"`
+}
+
+// Generate starts POST /api/generate and invokes onChunk for every NDJSON object
+// until the stream completes, the context is cancelled, or onChunk returns an error.
+func (c *Client) Generate(ctx context.Context, req GenerateRequest, onChunk func(GenerateChunk) error) error {
+	if !req.Stream {
+		req.Stream = true
+	}
+	body, _ := json.Marshal(req)
+	resp, err := c.do(ctx, http.MethodPost, "/api/generate", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return err
+	}
+
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var ev GenerateChunk
+		if err := json.Unmarshal(line, &ev); err != nil {
+			return fmt.Errorf("decode generate chunk: %w (line=%q)", err, string(line))
+		}
+		if ev.Error != "" {
+			return fmt.Errorf("ollama: %s", ev.Error)
+		}
+		if err := onChunk(ev); err != nil {
+			return err
+		}
+	}
+	if err := sc.Err(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("read generate stream: %w", err)
+	}
+	return nil
 }

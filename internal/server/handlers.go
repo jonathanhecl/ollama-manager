@@ -918,6 +918,102 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isImageModel := false
+	if show, err := s.ollama.Show(r.Context(), body.Model); err == nil && show != nil {
+		for _, cap := range show.Capabilities {
+			if cap == "image" {
+				isImageModel = true
+				break
+			}
+		}
+	}
+
+	if isImageModel {
+		var prompt string
+		var images []string
+		for i := len(body.Messages) - 1; i >= 0; i-- {
+			msg := body.Messages[i]
+			if msg.Role == "user" {
+				prompt = msg.Content
+				images = msg.Images
+				break
+			}
+		}
+
+		genReq := ollama.GenerateRequest{
+			Model:   body.Model,
+			Prompt:  prompt,
+			Images:  images,
+			Stream:  true,
+			Options: body.Options,
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+
+		send := func(event string, payload any) {
+			buf, _ := json.Marshal(payload)
+			if event != "" {
+				fmt.Fprintf(w, "event: %s\n", event)
+			}
+			fmt.Fprintf(w, "data: %s\n\n", buf)
+			flusher.Flush()
+		}
+
+		startedAt := time.Now()
+		var final ollama.GenerateChunk
+		err := s.ollama.Generate(r.Context(), genReq, func(chunk ollama.GenerateChunk) error {
+			chatChunk := ollama.ChatChunk{
+				Model:     chunk.Model,
+				CreatedAt: chunk.CreatedAt,
+				Done:      chunk.Done,
+				Completed: chunk.Completed,
+				Total:     chunk.Total,
+			}
+			if chunk.Response != "" {
+				chatChunk.Message = ollama.ChatMessage{
+					Role:    "assistant",
+					Content: chunk.Response,
+				}
+			}
+			send("chunk", chatChunk)
+			if chunk.Done {
+				final = chunk
+			}
+			return nil
+		})
+		if err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "mlx runner failed") || strings.Contains(errMsg, "failed to initialize MLX") || strings.Contains(errMsg, "failed to load MLX") {
+				if s.cfg.Language == "es" {
+					errMsg = "El modelo de generación de imágenes no está soportado en este sistema operativo (Windows/Linux). Los modelos basados en MLX solo funcionan de forma nativa en dispositivos Apple Silicon (macOS)."
+				} else {
+					errMsg = "This image generation model is not supported on this operating system (Windows/Linux). MLX-based models only run natively on Apple Silicon (macOS) devices."
+				}
+			}
+			send("error", map[string]any{"error": errMsg})
+			return
+		}
+
+		totalTokens := final.PromptEvalCount + final.EvalCount
+		send("done", map[string]any{
+			"elapsed_ms":         time.Since(startedAt).Milliseconds(),
+			"prompt_tokens":      final.PromptEvalCount,
+			"completion_tokens":  final.EvalCount,
+			"total_tokens":       totalTokens,
+			"prompt_duration_ns": final.PromptEvalDuration,
+			"eval_duration_ns":   final.EvalDuration,
+			"total_duration_ns":  final.TotalDuration,
+		})
+		return
+	}
+
 	chatReq := ollama.ChatRequest{
 		Model:    body.Model,
 		Messages: body.Messages,
@@ -954,7 +1050,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() != nil {
 			return
 		}
-		send("error", map[string]any{"error": err.Error()})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "mlx runner failed") || strings.Contains(errMsg, "failed to initialize MLX") || strings.Contains(errMsg, "failed to load MLX") {
+			if s.cfg.Language == "es" {
+				errMsg = "El modelo de generación de imágenes no está soportado en este sistema operativo (Windows/Linux). Los modelos basados en MLX solo funcionan de forma nativa en dispositivos Apple Silicon (macOS)."
+			} else {
+				errMsg = "This image generation model is not supported on this operating system (Windows/Linux). MLX-based models only run natively on Apple Silicon (macOS) devices."
+			}
+		}
+		send("error", map[string]any{"error": errMsg})
 		return
 	}
 

@@ -1288,7 +1288,8 @@ function updateChatCapabilityUI() {
     $("chat-model-name-value").textContent = model;
   }
   const caps = modelCaps(model);
-  const canVision = caps.has("vision");
+  const isImageModel = caps.has("image");
+  const canVision = caps.has("vision") || isImageModel;
   const canAudio = caps.has("audio");
   const canThinkToggle = caps.has("thinking");
   const canTools = caps.has("tools");
@@ -1297,11 +1298,30 @@ function updateChatCapabilityUI() {
   $("chat-record-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
   $("chat-web-tools-wrap").hidden = !canTools;
+  
+  const imgOpts = $("chat-image-options-wrap");
+  if (imgOpts) imgOpts.hidden = !isImageModel;
+  const sysField = $("chat-system-field");
+  if (sysField) sysField.hidden = isImageModel;
+  const tempField = $("chat-temperature-field");
+  if (tempField) tempField.hidden = isImageModel;
+  const topKField = $("chat-top-k-field");
+  if (topKField) topKField.hidden = isImageModel;
+  const topPField = $("chat-top-p-field");
+  if (topPField) topPField.hidden = isImageModel;
+
+  const inputEl = $("chat-input");
+  if (inputEl && !chatIsRecording) {
+    inputEl.placeholder = isImageModel
+      ? (t("chat.image_input_placeholder") || "Describe the image you want to generate…")
+      : (t("chat.input_placeholder") || "Write your message…");
+  }
+
   if (!canAudio && chatIsRecording) {
     stopAudioRecording(true);
   }
   const webW = $("chat-web-tools");
-  if (webW) webW.checked = !!canTools;
+  if (webW) webW.checked = !isImageModel && !!canTools;
 
   const m = modelByName(model);
   const list = m?.capabilities && m.capabilities.length
@@ -1860,24 +1880,70 @@ function renderChatMessages() {
         </details>`
       : "";
 
-    const bodyHTML = m.role === "assistant"
-      ? renderMarkdownSafe(m.content || "")
-      : `<p>${escapeHtml(m.content || "")}</p>`;
+    let bodyHTML = "";
+    const isImageModel = m.role === "assistant" && m.model && modelCaps(m.model).has("image");
+    if (m.role === "assistant") {
+      if (isImageModel) {
+        if (m.streaming) {
+          let progressInfo = "";
+          if (m.completedSteps != null && m.totalSteps) {
+            const pct = Math.min(100, Math.round((m.completedSteps / m.totalSteps) * 100));
+            progressInfo = `<div class="chat-image-progress-text">Step ${m.completedSteps}/${m.totalSteps} (${pct}%)</div>
+            <div class="chat-image-progress-bar-wrap">
+              <div class="chat-image-progress-bar" style="width: ${pct}%"></div>
+            </div>`;
+          }
+          bodyHTML = `<div class="chat-image-generating-card">
+            <div class="chat-image-generating">
+              <span class="chat-tool-ic chat-tool-pulse"></span>
+              <span>${escapeHtml(t("chat.generating_image"))}</span>
+            </div>
+            ${progressInfo}
+          </div>`;
+        } else {
+          const cleanedContent = String(m.content || "").replace(/\s+/g, "");
+          if (cleanedContent) {
+            const imgSrc = `data:image/png;base64,${cleanedContent}`;
+            const imgName = `${m.model.replace(/[^a-zA-Z0-9]/g, "_")}_${m.id}.png`;
+            bodyHTML = `<div class="chat-generated-image-container">
+              <button type="button" class="image-preview-open chat-generated-image-thumb" data-name="${escapeHtml(imgName)}">
+                <img src="${imgSrc}" alt="${escapeHtml(imgName)}" class="chat-generated-image" />
+              </button>
+              <div class="chat-generated-image-actions">
+                <a href="${imgSrc}" download="${escapeHtml(imgName)}" class="btn-icon download-generated-image-btn" title="${escapeHtml(t("chat.download_image"))}">
+                  <svg class="chat-download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </a>
+              </div>
+            </div>`;
+          } else {
+            bodyHTML = `<p class="muted">${escapeHtml(t("state.error_prefix"))} Empty response</p>`;
+          }
+        }
+      } else {
+        bodyHTML = renderMarkdownSafe(m.content || "");
+      }
+    } else {
+      bodyHTML = `<p>${escapeHtml(m.content || "")}</p>`;
+    }
     const roleLabel = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
     const modelLabel = m.role === "assistant" && m.model
       ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
       : "";
-    const hideActionsWhileStreaming = m.role === "assistant" && m.streaming;
+    const hideActions = (m.role === "assistant" && m.streaming) || isImageModel;
     const ttsPlaying = m.id === speakingMsgId;
     const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
-    const ttsBtn = hideActionsWhileStreaming ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
+    const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
 <svg class="chat-tts-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <path d="M11 5L6 9H3v6h3l5 4V5z"/>
 <path d="M15.5 9.5a4 4 0 0 1 0 5"/>
 <path d="M18.5 7a8 8 0 0 1 0 10"/>
 </svg></button>`;
     const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
-    const copyBtn = hideActionsWhileStreaming ? "" : `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
+    const copyBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
 <svg class="chat-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <rect x="9" y="9" width="11" height="11" rx="2"/>
 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -2097,7 +2163,7 @@ function toBase64(file) {
 async function addFiles(files) {
   const selectedModel = $("chat-model").value;
   const caps = modelCaps(selectedModel);
-  const canVision = caps.has("vision");
+  const canVision = caps.has("vision") || caps.has("image");
   const canAudio = caps.has("audio");
   const accepted = [];
   for (const file of files) {
@@ -2294,7 +2360,9 @@ function writeAscii(view, offset, value) {
 
 function buildOutboundMessages() {
   const out = [];
-  const systemPrompt = $("chat-system").value.trim();
+  const selectedModel = $("chat-model").value;
+  const isImageModel = selectedModel && modelCaps(selectedModel).has("image");
+  const systemPrompt = isImageModel ? "" : $("chat-system").value.trim();
   if (systemPrompt) out.push({ role: "system", content: systemPrompt });
   for (const m of chatMessages) {
     if (m.role !== "user" && m.role !== "assistant") continue;
@@ -2581,18 +2649,31 @@ async function runChatRequest(assistantMsg) {
   }
 
   const caps = modelCaps(modelName);
+  const isImageModel = caps.has("image");
   const canThinkToggle = caps.has("thinking");
   const noThink = canThinkToggle ? $("chat-no-think").checked : false;
   const canTools = caps.has("tools");
-  const webToolsOn = canTools && $("chat-web-tools").checked;
+  const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
+
+  const options = {};
+  if (isImageModel) {
+    options.width = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-width", 512))));
+    options.height = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-height", 512))));
+    options.steps = Math.max(1, Math.round(readOptionNumber("chat-image-steps", 4)));
+    const seedVal = Math.round(readOptionNumber("chat-image-seed", 0));
+    if (seedVal > 0) {
+      options.seed = seedVal;
+    }
+  } else {
+    options.temperature = readOptionNumber("chat-temperature", CHAT_OPTION_FALLBACKS.temperature);
+    options.top_k = Math.round(readOptionNumber("chat-top-k", CHAT_OPTION_FALLBACKS.top_k));
+    options.top_p = readOptionNumber("chat-top-p", CHAT_OPTION_FALLBACKS.top_p);
+  }
+
   const payload = {
     model: modelName,
     think: canThinkToggle ? !noThink : undefined,
-    options: {
-      temperature: readOptionNumber("chat-temperature", CHAT_OPTION_FALLBACKS.temperature),
-      top_k: Math.round(readOptionNumber("chat-top-k", CHAT_OPTION_FALLBACKS.top_k)),
-      top_p: readOptionNumber("chat-top-p", CHAT_OPTION_FALLBACKS.top_p),
-    },
+    options,
     messages: buildOutboundMessages(),
   };
   if (webToolsOn) payload.web_tools = true;
@@ -2650,6 +2731,12 @@ async function runChatRequest(assistantMsg) {
         assistantMsg._accRaw = assistantRaw;
         scheduleRenderChatMessages();
       } else if (event === "chunk") {
+        if (data?.completed != null) {
+          assistantMsg.completedSteps = data.completed;
+        }
+        if (data?.total != null) {
+          assistantMsg.totalSteps = data.total;
+        }
         const thinkDelta = data?.message?.thinking || "";
         const contentDelta = data?.message?.content || "";
         if (thinkDelta) {
@@ -2745,10 +2832,14 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.content = t("chat.stopped_empty");
       }
     } else {
-      if (!assistantMsg.content) {
-        assistantMsg.content = t("chat.error_reply", { msg: e.message || "failed" });
+      let errMsg = e.message || "failed";
+      if (errMsg.includes("mlx runner failed") || errMsg.includes("failed to initialize MLX") || errMsg.includes("failed to load MLX")) {
+        errMsg = t("chat.error_mlx_unsupported");
       }
-      toast(t("toast.error", { msg: e.message || "chat failed" }), "error");
+      if (!assistantMsg.content) {
+        assistantMsg.content = t("chat.error_reply", { msg: errMsg });
+      }
+      toast(t("toast.error", { msg: errMsg }), "error");
     }
   } finally {
     chatAbortController = null;

@@ -1322,6 +1322,7 @@ function updateChatCapabilityUI() {
   }
   const webW = $("chat-web-tools");
   if (webW) webW.checked = !isImageModel && !!canTools;
+  restoreChatOptionsFromSession();
 
   const m = modelByName(model);
   const list = m?.capabilities && m.capabilities.length
@@ -2430,6 +2431,63 @@ function setChatOptionsValues(opts) {
   if (opts.top_p != null) $("chat-top-p").value = String(opts.top_p);
 }
 
+function saveChatOptionsToSession() {
+  const opts = {
+    system: $("chat-system")?.value,
+    temperature: $("chat-temperature")?.value,
+    top_k: $("chat-top-k")?.value,
+    top_p: $("chat-top-p")?.value,
+    no_think: $("chat-no-think")?.checked,
+    web_tools: $("chat-web-tools")?.checked,
+    image_width: $("chat-image-width")?.value,
+    image_height: $("chat-image-height")?.value,
+    image_steps: $("chat-image-steps")?.value,
+    image_seed: $("chat-image-seed")?.value
+  };
+  localStorage.setItem("ollama_manager_chat_options", JSON.stringify(opts));
+}
+
+function restoreChatOptionsFromSession() {
+  const raw = localStorage.getItem("ollama_manager_chat_options");
+  if (!raw) return;
+  try {
+    const opts = JSON.parse(raw);
+    if (!opts) return;
+    if (opts.system !== undefined && $("chat-system")) {
+      $("chat-system").value = opts.system;
+    }
+    if (opts.temperature !== undefined && $("chat-temperature")) {
+      $("chat-temperature").value = opts.temperature;
+    }
+    if (opts.top_k !== undefined && $("chat-top-k")) {
+      $("chat-top-k").value = opts.top_k;
+    }
+    if (opts.top_p !== undefined && $("chat-top-p")) {
+      $("chat-top-p").value = opts.top_p;
+    }
+    if (opts.no_think !== undefined && $("chat-no-think")) {
+      $("chat-no-think").checked = opts.no_think;
+    }
+    if (opts.web_tools !== undefined && $("chat-web-tools")) {
+      $("chat-web-tools").checked = opts.web_tools;
+    }
+    if (opts.image_width !== undefined && $("chat-image-width")) {
+      $("chat-image-width").value = opts.image_width;
+    }
+    if (opts.image_height !== undefined && $("chat-image-height")) {
+      $("chat-image-height").value = opts.image_height;
+    }
+    if (opts.image_steps !== undefined && $("chat-image-steps")) {
+      $("chat-image-steps").value = opts.image_steps;
+    }
+    if (opts.image_seed !== undefined && $("chat-image-seed")) {
+      $("chat-image-seed").value = opts.image_seed;
+    }
+  } catch (e) {
+    console.error("Error restoring chat options", e);
+  }
+}
+
 async function applyChatDefaultsForModel(name, force = false) {
   const model = String(name || "").trim();
   if (!model) return;
@@ -2452,6 +2510,7 @@ async function applyChatDefaultsForModel(name, force = false) {
 
   setChatOptionsValues({ ...CHAT_OPTION_FALLBACKS, ...defaults });
   lastChatDefaultsModel = model;
+  restoreChatOptionsFromSession();
 }
 
 function isEmbeddingOnlyModel(modelName) {
@@ -3131,6 +3190,26 @@ function bindChatEvents() {
       closeImagePreview();
     }
   });
+
+  const optionIds = [
+    "chat-system",
+    "chat-temperature",
+    "chat-top-k",
+    "chat-top-p",
+    "chat-no-think",
+    "chat-web-tools",
+    "chat-image-width",
+    "chat-image-height",
+    "chat-image-steps",
+    "chat-image-seed"
+  ];
+  for (const id of optionIds) {
+    const el = $(id);
+    if (el) {
+      const eventName = el.type === "checkbox" ? "change" : "input";
+      el.addEventListener(eventName, saveChatOptionsToSession);
+    }
+  }
 }
 
 // ---------- delete ----------
@@ -3790,6 +3869,7 @@ syncChatModelOptions();
 updateChatCapabilityUI();
 updateChatContextMeter();
 updateChatSendEnabled();
+restoreChatOptionsFromSession();
 setInterval(refreshStatus, STATUS_REFRESH_MS);
 setInterval(refreshLoadedState, 1000);
 setInterval(() => {

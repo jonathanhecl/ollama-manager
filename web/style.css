@@ -2381,7 +2381,8 @@ button.chat-send:disabled:hover {
     gap: 6px;
   }
   .metric-widget-track {
-    display: none;
+    display: block;
+    width: 60px;
   }
   .metric-widget-label {
     font-size: 10px;
@@ -2680,7 +2681,8 @@ button.chat-send:disabled:hover {
     letter-spacing: .35px;
   }
   .metric-widget-track {
-    display: none;
+    display: block;
+    width: 36px;
   }
   .metric-widget-text {
     font-size: 9px;

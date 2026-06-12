@@ -1,0 +1,8 @@
+{
+  "port": 7861,
+  "expose_network": false,
+  "password_hash": "",
+  "session_secret": "2cd1ab2a66ff32aaf49eae5402dd5a38e32d278fd411292e50cbb6c43f125dce",
+  "ollama_url": "http://localhost:11434",
+  "language": "es"
+}

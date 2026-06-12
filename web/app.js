@@ -471,6 +471,7 @@ async function refreshModels() {
     syncChatModelOptions();
     updateChatCapabilityUI();
     updateChatContextMeter();
+    handleRouting();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
     $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
@@ -805,6 +806,10 @@ function openDetail(name) {
     $("detail-delete").hidden = false;
     $("detail-delete").dataset.name = name;
   }
+  if ($("detail-chat")) {
+    $("detail-chat").hidden = false;
+    $("detail-chat").dataset.name = name;
+  }
   if ($("detail-archive")) {
     $("detail-archive").hidden = false;
     $("detail-archive").dataset.name = name;
@@ -891,8 +896,33 @@ $("detail-close").addEventListener("click", () => {
     $("detail-archive").hidden = true;
     $("detail-archive").dataset.name = "";
   }
+  if ($("detail-chat")) {
+    $("detail-chat").hidden = true;
+    $("detail-chat").dataset.name = "";
+  }
   activeName = null;
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+});
+
+$("detail-chat")?.addEventListener("click", (e) => {
+  const name = e.currentTarget?.dataset?.name || activeName;
+  if (!name) return;
+  $("detail-panel").hidden = true;
+  if ($("detail-delete")) {
+    $("detail-delete").hidden = true;
+    $("detail-delete").dataset.name = "";
+  }
+  if ($("detail-archive")) {
+    $("detail-archive").hidden = true;
+    $("detail-archive").dataset.name = "";
+  }
+  if ($("detail-chat")) {
+    $("detail-chat").hidden = true;
+    $("detail-chat").dataset.name = "";
+  }
+  activeName = null;
+  document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+  showChatViewWithModel(name);
 });
 
 $("detail-archive")?.addEventListener("click", (e) => {
@@ -1329,6 +1359,9 @@ function showModelsView() {
   if (modelsView) modelsView.hidden = false;
   if (chatView) chatView.hidden = true;
   $("chat-btn")?.classList.remove("active");
+  if (window.location.pathname !== "/") {
+    history.pushState(null, "", "/");
+  }
 }
 
 function resetChatState() {
@@ -1392,6 +1425,30 @@ function showChatViewWithModel(name) {
   updateChatCapabilityUI();
   updateChatContextMeter();
   void applyChatDefaultsForModel(name, true);
+  
+  const model = modelByName(name);
+  if (model && model.digest) {
+    const urlDigest = model.digest.replace(":", "-");
+    const newPath = "/chat/" + urlDigest;
+    if (window.location.pathname !== newPath) {
+      history.pushState(null, "", newPath);
+    }
+  }
+}
+
+function handleRouting() {
+  const path = window.location.pathname;
+  if (path.startsWith("/chat/")) {
+    const urlDigest = path.substring(6);
+    const model = models.find(m => m.digest && m.digest.replace(":", "-") === urlDigest);
+    if (model) {
+      showChatViewWithModel(model.name);
+    } else {
+      showModelsView();
+    }
+  } else if (path === "/") {
+    showModelsView();
+  }
 }
 
 function isGFMTableRow(s) {
@@ -2782,7 +2839,10 @@ function bindChatEvents() {
   if (!chatView) return;
   window.addEventListener("pagehide", stopSpeechPlayback);
   window.addEventListener("beforeunload", stopSpeechPlayback);
-  window.addEventListener("popstate", stopSpeechPlayback);
+  window.addEventListener("popstate", () => {
+    stopSpeechPlayback();
+    handleRouting();
+  });
   window.addEventListener("resize", () => {
     if (window.innerWidth > 900) $("chat-view")?.classList.remove("chat-options-open");
   });
@@ -2807,6 +2867,16 @@ function bindChatEvents() {
     updateChatCapabilityUI();
     updateChatContextMeter();
     void applyChatDefaultsForModel($("chat-model").value, true);
+    
+    const name = $("chat-model").value;
+    const model = modelByName(name);
+    if (model && model.digest) {
+      const urlDigest = model.digest.replace(":", "-");
+      const newPath = "/chat/" + urlDigest;
+      if (window.location.pathname !== newPath) {
+        history.replaceState(null, "", newPath);
+      }
+    }
   });
   $("chat-model-copy-btn")?.addEventListener("click", async () => {
     const val = $("chat-model-name-value")?.textContent || "";

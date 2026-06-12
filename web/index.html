@@ -50,6 +50,10 @@
   </header>
 
   <main id="models-view">
+    <div id="archived-banner" class="archived-banner" hidden>
+      <span data-i18n="archived.banner_text">Showing Archived Models</span>
+      <button id="btn-back-active" class="ghost" data-i18n="archived.back_to_active">Back to Active Models</button>
+    </div>
     <section class="table-wrap">
       <table id="models-table">
         <thead>
@@ -206,6 +210,7 @@
     <div class="detail-head">
       <h2 id="detail-name">—</h2>
       <div class="detail-head-actions">
+        <button id="detail-archive" class="ghost" data-i18n-attr="title" data-i18n="detail.archive_title" title="Archive model" hidden>📦</button>
         <button id="detail-delete" class="ghost danger-text" data-i18n-attr="title" data-i18n="detail.delete_title" title="Delete model" hidden>🗑️</button>
         <button id="detail-close" class="ghost" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
       </div>
@@ -333,6 +338,11 @@
               <option value="es">Español</option>
             </select>
           </div>
+        </section>
+
+        <section class="settings-section">
+          <h3 data-i18n="settings.archived_section">Archived Models</h3>
+          <button id="settings-archived-btn" class="primary" data-i18n="settings.go_to_archived" style="width: 100%; text-align: center;">Go to Archived Models</button>
         </section>
 
         <section class="settings-section">

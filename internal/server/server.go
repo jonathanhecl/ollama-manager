@@ -29,6 +29,7 @@ type Server struct {
 	tmpl   *template.Template
 	jobs   *jobs.Manager
 	uninst *uninstallHistoryStore
+	archived *archivedModelsStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -62,6 +63,11 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	if err := uninst.Load(); err != nil {
 		log.Printf("uninstall-history: could not load %s: %v", uninstallPath, err)
 	}
+	archivedPath := filepath.Join(filepath.Dir(cfg.Path()), "archived_models.json")
+	archivedStore := newArchivedModelsStore(archivedPath)
+	if err := archivedStore.Load(); err != nil {
+		log.Printf("archived-models: could not load %s: %v", archivedPath, err)
+	}
 
 	return &Server{
 		cfg:       cfg,
@@ -70,6 +76,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		tmpl:      tmpl,
 		jobs:      jobMgr,
 		uninst:    uninst,
+		archived:  archivedStore,
 		ctxCache:  make(map[string]int64),
 		capsCache: make(map[string][]string),
 	}, nil
@@ -100,6 +107,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/model-repair/apply", s.requireAuth(s.handleRepairApply))
 	mux.Handle("GET /api/models/{name...}", s.requireAuth(s.handleShowModel))
 	mux.Handle("POST /api/models/unload", s.requireAuth(s.handleUnloadModel))
+	mux.Handle("POST /api/models/archive", s.requireAuth(s.handleArchiveModel))
+	mux.Handle("POST /api/models/unarchive", s.requireAuth(s.handleUnarchiveModel))
 	mux.Handle("DELETE /api/models/{name...}", s.requireAuth(s.handleDeleteModel))
 	mux.Handle("POST /api/chat", s.requireAuth(s.handleChat))
 	mux.Handle("POST /api/embed", s.requireAuth(s.handleEmbed))

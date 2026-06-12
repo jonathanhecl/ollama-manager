@@ -2294,6 +2294,29 @@ button.chat-send:disabled:hover {
 }
 #chat-system:focus { border-color: var(--accent); outline: none; }
 
+/* ---------- Archived Models ---------- */
+.archived-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(122, 162, 255, 0.08);
+  border: 1px dashed var(--accent-dim);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.archived-banner button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.btn-icon.archive-btn:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 11%, #0c0c12);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1135px) {
   main {

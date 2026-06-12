@@ -340,6 +340,7 @@ type modelView struct {
 	Loaded        bool       `json:"loaded"`
 	SizeVRAM      int64      `json:"size_vram,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Archived      bool       `json:"archived"`
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -376,6 +377,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Quantization:  m.Details.QuantizationLevel,
 			ContextLength: modelMeta[m.Digest].ContextLength,
 			Capabilities:  modelMeta[m.Digest].Capabilities,
+			Archived:      s.archived.IsArchived(m.Name),
 		}
 		if rm, ok := loaded[m.Name]; ok {
 			_, vram := normalizeRunningModelSizes(rm.Size, rm.SizeVRAM)
@@ -440,6 +442,52 @@ func (s *Server) handleUnloadModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
 		"unloaded": name,
+	})
+}
+
+func (s *Server) handleArchiveModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if err := s.archived.Archive(name); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"archived": name,
+	})
+}
+
+func (s *Server) handleUnarchiveModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if err := s.archived.Unarchive(name); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"unarchived": name,
 	})
 }
 

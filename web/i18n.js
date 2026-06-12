@@ -257,9 +257,18 @@ const I18N = {
     "chat.send_disabled_manager": "Cannot reach the server",
     "chat.send_disabled_ollama": "Ollama is offline — check status in the bar",
 
-    "toast.deleted": "Deleted {name}",
+    "toast.deleted": "{name} deleted",
     "toast.delete_error": "Error deleting: {msg}",
     "toast.error": "Error: {msg}",
+    "settings.archived_section": "Archived Models",
+    "settings.go_to_archived": "Go to Archived Models",
+    "archived.banner_text": "Showing Archived Models",
+    "archived.back_to_active": "Back to Active Models",
+    "detail.archive_title": "Archive model",
+    "detail.unarchive_title": "Unarchive model",
+    "toast.archived": "{name} archived",
+    "toast.unarchived": "{name} unarchived",
+    "state.empty_archived": "No archived models.",
   },
 
   es: {
@@ -516,6 +525,15 @@ const I18N = {
     "toast.deleted": "Eliminado {name}",
     "toast.delete_error": "Error eliminando: {msg}",
     "toast.error": "Error: {msg}",
+    "settings.archived_section": "Modelos Archivados",
+    "settings.go_to_archived": "Ir a Modelos Archivados",
+    "archived.banner_text": "Mostrando Modelos Archivados",
+    "archived.back_to_active": "Volver a Modelos Activos",
+    "detail.archive_title": "Archivar modelo",
+    "detail.unarchive_title": "Desarchivar modelo",
+    "toast.archived": "{name} archivado",
+    "toast.unarchived": "{name} desarchivado",
+    "state.empty_archived": "No hay modelos archivados.",
   },
 };
 

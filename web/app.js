@@ -190,6 +190,7 @@ let jobs = new Map();   // id -> job
 let jobsStream = null;  // EventSource for /api/jobs/events
 let jobsBackoffMs = 1000;
 let currentView = "models";
+let showArchivedOnly = false;
 let chatMessages = [];
 let chatAttachments = [];
 let chatStreamLock = false;
@@ -669,28 +670,38 @@ function applySort(arr) {
 function renderTable() {
   updateSortIndicators();
   const tbody = $("models-tbody");
-  if (!models.length) {
+  
+  // Filter models based on archived state
+  const filteredModels = models.filter(m => !!m.archived === showArchivedOnly);
+  
+  if (!filteredModels.length && showArchivedOnly) {
+    tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
+    return;
+  }
+  if (!filteredModels.length && !showArchivedOnly) {
     tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
     return;
   }
-  const sorted = applySort(models);
+  const sorted = applySort(filteredModels);
 
   // Combine with pending downloads (jobs that are running or queued and NOT in the models list yet)
   const installedNames = new Set(models.map(m => m.name));
   const pendingModels = [];
-  for (const j of jobs.values()) {
-    if ((j.status === "running" || j.status === "queued") && !installedNames.has(j.name)) {
-      pendingModels.push({
-        name: j.name,
-        isPending: true,
-        family: "—",
-        parameter_size: "—",
-        quantization: "—",
-        context_length: 0,
-        size: 0,
-        modified_at: j.created_at,
-        capabilities: []
-      });
+  if (!showArchivedOnly) {
+    for (const j of jobs.values()) {
+      if ((j.status === "running" || j.status === "queued") && !installedNames.has(j.name)) {
+        pendingModels.push({
+          name: j.name,
+          isPending: true,
+          family: "—",
+          parameter_size: "—",
+          quantization: "—",
+          context_length: 0,
+          size: 0,
+          modified_at: j.created_at,
+          capabilities: []
+        });
+      }
     }
   }
   
@@ -702,6 +713,8 @@ function renderTable() {
   const dotNotLoadedTxt = t("detail.dot_not_loaded");
   const deleteTitle = t("detail.delete_title");
   const infoTitle = t("detail.info_btn");
+  const archiveTitle = t("detail.archive_title");
+  const unarchiveTitle = t("detail.unarchive_title");
   const renderCapabilities = (caps) => (caps || [])
     .map((c) => `<span class="pill">${escapeHtml(c)}</span>`)
     .join("");
@@ -728,7 +741,12 @@ function renderTable() {
       <td class="cell-size">${m.isPending ? "—" : fmtBytes(m.size)}</td>
       <td class="cell-modified">${m.isPending ? "—" : fmtDate(m.modified_at)}</td>
       <td class="col-actions">
-        ${!m.isPending ? `<button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : ""}
+        ${!m.isPending ? `
+          <button class="btn-icon archive-btn" title="${m.archived ? escapeHtml(unarchiveTitle) : escapeHtml(archiveTitle)}" data-name="${escapeHtml(m.name)}">
+            ${m.archived ? "📥" : "📦"}
+          </button>
+          <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
+        ` : ""}
       </td>
     </tr>
   `;
@@ -738,6 +756,7 @@ function renderTable() {
     tr.addEventListener("click", (e) => {
       if (e.target.closest(".info-btn")) return;
       if (e.target.closest(".delete-btn")) return;
+      if (e.target.closest(".archive-btn")) return;
       showChatViewWithModel(tr.dataset.name);
     });
   });
@@ -745,6 +764,16 @@ function renderTable() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       openDetail(btn.dataset.name);
+    });
+  });
+  tbody.querySelectorAll(".archive-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      const m = models.find(x => x.name === name);
+      if (m) {
+        toggleArchived(name, !m.archived);
+      }
     });
   });
   tbody.querySelectorAll(".delete-btn").forEach((btn) => {
@@ -781,7 +810,7 @@ document.querySelectorAll("#models-table th.sortable").forEach((th) => {
 });
 
 // ---------- detail ----------
-async function openDetail(name) {
+function openDetail(name) {
   activeName = name;
   const panel = $("detail-panel");
   panel.hidden = false;
@@ -790,16 +819,21 @@ async function openDetail(name) {
     $("detail-delete").hidden = false;
     $("detail-delete").dataset.name = name;
   }
+  if ($("detail-archive")) {
+    $("detail-archive").hidden = false;
+    $("detail-archive").dataset.name = name;
+    const m = models.find(x => x.name === name);
+    const isArchived = !!(m && m.archived);
+    $("detail-archive").textContent = isArchived ? "📥" : "📦";
+    $("detail-archive").title = isArchived ? t("detail.unarchive_title") : t("detail.archive_title");
+  }
   $("detail-body").innerHTML = `<div class="muted">${escapeHtml(t("state.loading"))}</div>`;
   document.querySelectorAll("tbody tr.row").forEach((tr) => {
     tr.classList.toggle("active", tr.dataset.name === name);
   });
-  try {
-    const d = await api("/api/models/" + encodeURIComponent(name));
-    renderDetail(d);
-  } catch (e) {
+  api("/api/models/" + encodeURIComponent(name)).then(renderDetail).catch((e) => {
     $("detail-body").innerHTML = `<div class="muted">${escapeHtml(t("state.error_prefix") + e.message)}</div>`;
-  }
+  });
 }
 
 function renderDetail(d) {
@@ -867,8 +901,21 @@ $("detail-close").addEventListener("click", () => {
     $("detail-delete").hidden = true;
     $("detail-delete").dataset.name = "";
   }
+  if ($("detail-archive")) {
+    $("detail-archive").hidden = true;
+    $("detail-archive").dataset.name = "";
+  }
   activeName = null;
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+});
+
+$("detail-archive")?.addEventListener("click", (e) => {
+  const name = e.currentTarget?.dataset?.name || activeName;
+  if (!name) return;
+  const m = models.find(x => x.name === name);
+  if (m) {
+    toggleArchived(name, !m.archived);
+  }
 });
 
 $("detail-delete")?.addEventListener("click", (e) => {
@@ -876,6 +923,24 @@ $("detail-delete")?.addEventListener("click", (e) => {
   if (!name) return;
   confirmDelete(name);
 });
+
+async function toggleArchived(name, toArchive) {
+  try {
+    const endpoint = toArchive ? "/api/models/archive" : "/api/models/unarchive";
+    await api(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    toast(toArchive ? t("toast.archived", { name }) : t("toast.unarchived", { name }), "success");
+    await refreshModels();
+    if (activeName === name) {
+      openDetail(name);
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
 
 const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embedding"];
 
@@ -1185,7 +1250,9 @@ function syncChatModelOptions() {
   const sel = $("chat-model");
   if (!sel) return;
   const previous = sel.value;
-  const sorted = applySort(models);
+  // Filter out archived models so they do not clutter chat view select dropdown
+  const activeModels = models.filter(m => !m.archived);
+  const sorted = applySort(activeModels);
   sel.innerHTML = sorted.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
   if (!sorted.length) return;
   if (previous && sorted.some((m) => m.name === previous)) {
@@ -3536,6 +3603,19 @@ $("pwd-clear-btn").addEventListener("click", async () => {
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
   }
+});
+
+$("settings-archived-btn")?.addEventListener("click", () => {
+  closeSettings();
+  showArchivedOnly = true;
+  $("archived-banner").hidden = false;
+  renderTable();
+});
+
+$("btn-back-active")?.addEventListener("click", () => {
+  showArchivedOnly = false;
+  $("archived-banner").hidden = true;
+  renderTable();
 });
 
 // ---------- init ----------

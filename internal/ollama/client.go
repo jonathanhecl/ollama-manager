@@ -463,7 +463,6 @@ type GenerateRequest struct {
 	Width   int            `json:"width,omitempty"`
 	Height  int            `json:"height,omitempty"`
 	Steps   int            `json:"steps,omitempty"`
-	Seed    int            `json:"seed,omitempty"`
 }
 
 // GenerateChunk is one streamed event from /api/generate.
@@ -476,11 +475,11 @@ type GenerateChunk struct {
 	Done               bool      `json:"done"`
 	Completed          int       `json:"completed,omitempty"`
 	Total              int       `json:"total,omitempty"`
-	PromptEvalCount    int         `json:"prompt_eval_count,omitempty"`
-	EvalCount          int         `json:"eval_count,omitempty"`
-	PromptEvalDuration int64       `json:"prompt_eval_duration,omitempty"`
-	EvalDuration       int64       `json:"eval_duration,omitempty"`
-	TotalDuration      int64       `json:"total_duration,omitempty"`
+	PromptEvalCount    int       `json:"prompt_eval_count,omitempty"`
+	EvalCount          int       `json:"eval_count,omitempty"`
+	PromptEvalDuration int64     `json:"prompt_eval_duration,omitempty"`
+	EvalDuration       int64     `json:"eval_duration,omitempty"`
+	TotalDuration      int64     `json:"total_duration,omitempty"`
 }
 
 // Generate starts POST /api/generate and invokes onChunk for every NDJSON object

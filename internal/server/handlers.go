@@ -856,7 +856,6 @@ type chatRequestBody struct {
 	Width    int                  `json:"width,omitempty"`
 	Height   int                  `json:"height,omitempty"`
 	Steps    int                  `json:"steps,omitempty"`
-	Seed     int                  `json:"seed,omitempty"`
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
@@ -955,7 +954,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			Width:   body.Width,
 			Height:  body.Height,
 			Steps:   body.Steps,
-			Seed:    body.Seed,
 		}
 		// Fallback: if root-level fields are zero, try reading from options for backward compatibility
 		if genReq.Width == 0 {
@@ -985,16 +983,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if genReq.Seed == 0 {
-			if v, ok := body.Options["seed"]; ok {
-				if vi, ok2 := v.(float64); ok2 {
-					genReq.Seed = int(vi)
-				} else if vi, ok2 := v.(int); ok2 {
-					genReq.Seed = vi
-				}
-			}
-		}
-
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache, no-transform")
 		w.Header().Set("Connection", "keep-alive")

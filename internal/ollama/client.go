@@ -460,6 +460,10 @@ type GenerateRequest struct {
 	Images  []string       `json:"images,omitempty"`
 	Stream  bool           `json:"stream"`
 	Options map[string]any `json:"options,omitempty"`
+	Width   int            `json:"width,omitempty"`
+	Height  int            `json:"height,omitempty"`
+	Steps   int            `json:"steps,omitempty"`
+	Seed    int            `json:"seed,omitempty"`
 }
 
 // GenerateChunk is one streamed event from /api/generate.

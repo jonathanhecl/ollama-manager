@@ -2759,13 +2759,14 @@ async function runChatRequest(assistantMsg) {
   const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
 
   const options = {};
+  const imageParams = {};
   if (isImageModel) {
-    options.width = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-width", 512))));
-    options.height = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-height", 512))));
-    options.steps = Math.max(1, Math.round(readOptionNumber("chat-image-steps", 4)));
+    imageParams.width = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-width", 512))));
+    imageParams.height = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-height", 512))));
+    imageParams.steps = Math.max(1, Math.round(readOptionNumber("chat-image-steps", 4)));
     const seedVal = Math.round(readOptionNumber("chat-image-seed", 0));
     if (seedVal > 0) {
-      options.seed = seedVal;
+      imageParams.seed = seedVal;
     }
   } else {
     options.temperature = readOptionNumber("chat-temperature", CHAT_OPTION_FALLBACKS.temperature);
@@ -2778,6 +2779,7 @@ async function runChatRequest(assistantMsg) {
     think: canThinkToggle ? !noThink : undefined,
     options,
     messages: buildOutboundMessages(),
+    ...imageParams,
   };
   if (webToolsOn) payload.web_tools = true;
 

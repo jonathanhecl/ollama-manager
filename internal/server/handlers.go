@@ -853,6 +853,10 @@ type chatRequestBody struct {
 	Think    *bool                `json:"think,omitempty"`
 	Options  map[string]any       `json:"options,omitempty"`
 	WebTools *bool                `json:"web_tools,omitempty"`
+	Width    int                  `json:"width,omitempty"`
+	Height   int                  `json:"height,omitempty"`
+	Steps    int                  `json:"steps,omitempty"`
+	Seed     int                  `json:"seed,omitempty"`
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
@@ -948,6 +952,47 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			Images:  images,
 			Stream:  true,
 			Options: body.Options,
+			Width:   body.Width,
+			Height:  body.Height,
+			Steps:   body.Steps,
+			Seed:    body.Seed,
+		}
+		// Fallback: if root-level fields are zero, try reading from options for backward compatibility
+		if genReq.Width == 0 {
+			if v, ok := body.Options["width"]; ok {
+				if vi, ok2 := v.(float64); ok2 {
+					genReq.Width = int(vi)
+				} else if vi, ok2 := v.(int); ok2 {
+					genReq.Width = vi
+				}
+			}
+		}
+		if genReq.Height == 0 {
+			if v, ok := body.Options["height"]; ok {
+				if vi, ok2 := v.(float64); ok2 {
+					genReq.Height = int(vi)
+				} else if vi, ok2 := v.(int); ok2 {
+					genReq.Height = vi
+				}
+			}
+		}
+		if genReq.Steps == 0 {
+			if v, ok := body.Options["steps"]; ok {
+				if vi, ok2 := v.(float64); ok2 {
+					genReq.Steps = int(vi)
+				} else if vi, ok2 := v.(int); ok2 {
+					genReq.Steps = vi
+				}
+			}
+		}
+		if genReq.Seed == 0 {
+			if v, ok := body.Options["seed"]; ok {
+				if vi, ok2 := v.(float64); ok2 {
+					genReq.Seed = int(vi)
+				} else if vi, ok2 := v.(int); ok2 {
+					genReq.Seed = vi
+				}
+			}
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")

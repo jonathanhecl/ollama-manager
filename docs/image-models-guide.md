@@ -39,12 +39,10 @@ Send a `POST` request to `/api/chat`. By default, this endpoint streams SSE (Ser
       "content": "A high-tech cyberpunk cat wearing neon sunglasses, detailed digital art"
     }
   ],
-  "options": {
-    "width": 512,
-    "height": 512,
-    "steps": 4,
-    "seed": 42
-  }
+  "width": 512,
+  "height": 512,
+  "steps": 4,
+  "seed": 42
 }
 ```
 
@@ -63,18 +61,16 @@ To modify or perform variations of an existing image, include a base64-encoded s
       ]
     }
   ],
-  "options": {
-    "width": 512,
-    "height": 512,
-    "steps": 8
-  }
+  "width": 512,
+  "height": 512,
+  "steps": 8
 }
 ```
 
-### Option Parameters
-These parameters must be placed inside the `"options"` object:
-* **`width`**: (Integer) Width of the output image in pixels. Resolution max is `1024`.
-* **`height`**: (Integer) Height of the output image in pixels. Resolution max is `1024`.
+### Image Generation Parameters
+These parameters must be placed at the **root level** of the request payload (not inside `"options"`):
+* **`width`**: (Integer) Width of the output image in pixels. Supported range is `16` to `1024`.
+* **`height`**: (Integer) Height of the output image in pixels. Supported range is `16` to `1024`.
 * **`steps`**: (Integer) Inference steps. For accelerated/Turbo models, values between `4` and `8` are recommended. For standard models, use `20` to `30`.
 * **`seed`**: (Integer) Random seed. If omitted or set to `0`, a random seed is selected for every new generation.
 
@@ -137,11 +133,9 @@ curl -s -X POST http://127.0.0.1:7860/api/chat \
   -d '{
     "model": "x/flux2-klein:4b",
     "messages": [{"role": "user", "content": "A mystical forest at sunrise"}],
-    "options": {
-      "width": 512,
-      "height": 512,
-      "steps": 4
-    }
+    "width": 512,
+    "height": 512,
+    "steps": 4
   }'
 ```
 

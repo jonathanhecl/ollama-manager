@@ -1375,6 +1375,9 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border-color: color-mix(in srgb, #3d6eb8 45%, var(--border));
   background: #0f1a2c;
 }
+.chat-user .chat-md p {
+  white-space: pre-wrap;
+}
 .chat-assistant {
   border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
 }

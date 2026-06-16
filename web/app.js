@@ -1756,9 +1756,9 @@ function renderTestEditorAttachments() {
     }
     if (a.kind === "audio") {
       const src = `data:${a.mime};base64,${a.data}`;
-      return `<div class="te-attach-item" data-id="${escapeHtml(a.id)}">
-        <audio controls preload="metadata" src="${src}" class="te-attach-audio"></audio>
+      return `<div class="te-attach-item te-attach-item-audio" data-id="${escapeHtml(a.id)}">
         <span class="te-attach-name mono">${escapeHtml(a.name)}</span>
+        <audio controls preload="metadata" src="${src}" class="te-attach-audio"></audio>
         <button type="button" class="btn-icon te-attach-remove" data-id="${escapeHtml(a.id)}" title="Remove">×</button>
       </div>`;
     }

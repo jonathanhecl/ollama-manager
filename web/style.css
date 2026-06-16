@@ -3121,6 +3121,13 @@ button.chat-send:disabled:hover {
   max-width: 160px;
   position: relative;
 }
+.te-attach-item-audio {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 10px;
+}
 .te-attach-thumb {
   width: 100%;
   height: 100px;
@@ -3129,9 +3136,9 @@ button.chat-send:disabled:hover {
   background: #0a0c12;
 }
 .te-attach-audio {
-  width: 100%;
-  max-width: 140px;
-  height: 36px;
+  width: 180px;
+  height: 32px;
+  flex-shrink: 0;
 }
 .te-attach-name {
   font-size: 11px;
@@ -3139,7 +3146,11 @@ button.chat-send:disabled:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
+  max-width: 140px;
+}
+.te-attach-item-audio .te-attach-name {
+  max-width: none;
+  flex: 1;
 }
 .te-attach-remove {
   position: absolute;

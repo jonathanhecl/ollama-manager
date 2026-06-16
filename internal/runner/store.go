@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 )
 
 // persistFile is the on-disk format for test_results.json.
@@ -97,6 +98,49 @@ func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) err
 		}
 	}
 	return errors.New("result not found")
+}
+
+// TestHistoryItem is a single result for a test across all runs.
+type TestHistoryItem struct {
+	RunID          string    `json:"run_id"`
+	Timestamp      time.Time `json:"timestamp"`
+	GroupName      string    `json:"group_name"`
+	Model          string    `json:"model"`
+	Passed         *bool     `json:"passed,omitempty"`
+	ResponseTimeMs int64     `json:"response_time_ms"`
+	ReasoningUsed  bool      `json:"reasoning_used"`
+	HumanRating    string    `json:"human_rating,omitempty"`
+	ModelResponse  string    `json:"model_response,omitempty"`
+	Error          string    `json:"error,omitempty"`
+}
+
+// GetTestHistory returns all historical results for a specific test, newest first.
+func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []TestHistoryItem
+	for _, run := range s.runs {
+		for _, res := range run.Results {
+			if res.TestID == testID {
+				out = append(out, TestHistoryItem{
+					RunID:          run.ID,
+					Timestamp:      run.Timestamp,
+					GroupName:      run.GroupName,
+					Model:          res.Model,
+					Passed:         res.Passed,
+					ResponseTimeMs: res.ResponseTimeMs,
+					ReasoningUsed:  res.ReasoningUsed,
+					HumanRating:    res.HumanRating,
+					ModelResponse:  res.ModelResponse,
+					Error:          res.Error,
+				})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Timestamp.After(out[j].Timestamp)
+	})
+	return out
 }
 
 // DeleteRun removes a run by ID.

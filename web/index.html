@@ -632,6 +632,20 @@
     </div>
   </div>
 
+  <!-- Per-test history modal -->
+  <div id="test-history-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card test-history-modal-card">
+      <div class="test-history-modal-header">
+        <h3 id="test-history-modal-title" data-i18n="tests.history_title">Test History</h3>
+        <button type="button" id="test-history-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div id="test-history-modal-body" class="test-history-modal-body"></div>
+      <div class="modal-actions">
+        <button type="button" id="test-history-modal-done" class="primary" data-i18n="action.done">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Battery runner model picker modal -->
   <div id="battery-modal" class="modal" hidden role="dialog" aria-modal="true">
     <div class="modal-card battery-modal-card">

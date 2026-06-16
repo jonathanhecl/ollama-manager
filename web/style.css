@@ -3388,6 +3388,12 @@ button.chat-send:disabled:hover {
   .battery-table .cell-response { max-width: 180px; }
 }
 
+/* test history modal */
+.test-history-modal-card { width: min(900px, 100%); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
+.test-history-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.test-history-modal-header h3 { margin: 0; font-size: 15px; }
+.test-history-modal-body { overflow-y: auto; flex: 1; min-height: 0; }
+
 /* battery progress */
 .battery-progress-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 60px; }
 .battery-progress-spinner {

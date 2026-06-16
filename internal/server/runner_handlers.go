@@ -157,5 +157,15 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *Server) handleGetTestHistory(w http.ResponseWriter, r *http.Request) {
+	testID := r.PathValue("id")
+	if testID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing test id"))
+		return
+	}
+	history := s.runnerStore.GetTestHistory(testID)
+	writeJSON(w, http.StatusOK, map[string]any{"history": history})
+}
+
 // Ensure runner types are used.
 var _ = runner.BatteryRun{}

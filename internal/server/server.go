@@ -181,6 +181,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/runner/runs/{id}", s.requireAuth(s.handleGetRun))
 	mux.Handle("PUT /api/runner/runs/{id}/rate", s.requireAuth(s.handleRateRun))
 	mux.Handle("DELETE /api/runner/runs/{id}", s.requireAuth(s.handleDeleteRun))
+	mux.Handle("GET /api/runner/test-history/{id}", s.requireAuth(s.handleGetTestHistory))
 
 	return logging(mux)
 }

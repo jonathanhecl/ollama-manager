@@ -1681,6 +1681,7 @@ function renderTestsList() {
         </div>
         <div class="tests-item-actions">
           ${test.evaluation_type === "agent" ? `<button class="ghost tests-item-run" data-id="${escapeHtml(test.id)}">${t("tests.agent_run")}</button>` : ""}
+          <button class="ghost tests-item-history" data-id="${escapeHtml(test.id)}">${t("tests.history_short")}</button>
           <button class="ghost tests-item-edit" data-i18n="action.edit">Edit</button>
           <button class="ghost tests-item-toggle" data-id="${escapeHtml(test.id)}">${test.active ? t("tests.suspend") : t("tests.activate")}</button>
           <button class="ghost danger-text tests-item-delete" data-id="${escapeHtml(test.id)}">×</button>
@@ -1700,6 +1701,13 @@ function renderTestsList() {
       e.stopPropagation();
       const id = btn.closest(".tests-item")?.dataset?.id;
       if (id) showTestEditorView(id);
+    });
+  });
+  list.querySelectorAll(".tests-item-history").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (id) openTestHistoryModal(id);
     });
   });
   list.querySelectorAll(".tests-item-toggle").forEach((btn) => {
@@ -5116,6 +5124,79 @@ async function renderBatteryHistory() {
     body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
   }
 }
+
+// ---------- per-test history modal ----------
+
+function openTestHistoryModal(testId) {
+  const test = tests.find((t) => t.id === testId);
+  const titleEl = $("test-history-modal-title");
+  if (titleEl && test) titleEl.textContent = t("tests.history_title") + " — " + escapeHtml(test.name);
+  $("test-history-modal").hidden = false;
+  void renderTestHistoryModal(testId);
+}
+
+function closeTestHistoryModal() {
+  $("test-history-modal").hidden = true;
+}
+
+async function renderTestHistoryModal(testId) {
+  const body = $("test-history-modal-body");
+  if (!body) return;
+  body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
+  try {
+    const data = await api("/api/runner/test-history/" + encodeURIComponent(testId));
+    const history = data.history || [];
+    if (history.length === 0) {
+      body.innerHTML = `<div class="battery-empty">${t("tests.no_history")}</div>`;
+      return;
+    }
+    let rows = "";
+    for (const h of history) {
+      const date = fmtDateTimeFull(h.timestamp);
+      let badge = "";
+      if (h.passed === true) badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
+      else if (h.passed === false) badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+      else badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+      const rating = h.human_rating ? ` · ${t("battery.human_review")}: ${escapeHtml(h.human_rating)}` : "";
+      const reasoning = h.reasoning_used ? "🧠" : "";
+      rows += `
+        <tr>
+          <td class="cell-time">${escapeHtml(date)}</td>
+          <td class="cell-model">${escapeHtml(h.model)}</td>
+          <td>${badge}</td>
+          <td class="cell-time">${h.response_time_ms}ms ${reasoning}</td>
+          <td class="cell-response">${escapeHtml((h.model_response || "").slice(0, 200))}${(h.model_response || "").length > 200 ? "…" : ""}</td>
+          <td class="cell-time">${escapeHtml(h.group_name)}${rating}</td>
+        </tr>
+      `;
+    }
+    body.innerHTML = `
+      <div class="battery-table-wrap">
+        <table class="battery-table">
+          <thead>
+            <tr>
+              <th>${t("battery.date")}</th>
+              <th>${t("chat.model")}</th>
+              <th>${t("battery.results")}</th>
+              <th>${t("battery.response_time")}</th>
+              <th>${t("chat.response")}</th>
+              <th>${t("tests.group")}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+$("test-history-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("test-history-modal")) closeTestHistoryModal();
+});
+$("test-history-modal-close")?.addEventListener("click", closeTestHistoryModal);
+$("test-history-modal-done")?.addEventListener("click", closeTestHistoryModal);
 
 $("tests-run-battery-btn")?.addEventListener("click", () => {
   openBatteryModal();

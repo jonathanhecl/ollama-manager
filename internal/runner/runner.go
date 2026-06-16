@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gense/ollama-manager/internal/ollama"
@@ -37,19 +38,60 @@ type TestResult struct {
 	Error          string `json:"error,omitempty"`
 }
 
+// Progress tracks the current state of a battery run.
+type Progress struct {
+	RunID      string `json:"run_id"`
+	Model      string `json:"model"`
+	TestID     string `json:"test_id"`
+	TestName   string `json:"test_name"`
+	TestIndex  int    `json:"test_index"`
+	TotalTests int    `json:"total_tests"`
+	Done       bool   `json:"done"`
+	Error      string `json:"error,omitempty"`
+}
+
 // Client wraps an Ollama client and executes tests.
 type Client struct {
-	ollama *ollama.Client
+	ollama     *ollama.Client
+	progressMu sync.Mutex
+	progress   map[string]*Progress
 }
 
 // NewClient creates a runner client.
 func NewClient(ollamaClient *ollama.Client) *Client {
-	return &Client{ollama: ollamaClient}
+	return &Client{
+		ollama:   ollamaClient,
+		progress: make(map[string]*Progress),
+	}
 }
 
-// ExecuteBattery runs all active non-agent tests in the given group against each model sequentially.
-// modelCaps maps model name -> slice of capability strings.
-func (c *Client) ExecuteBattery(ctx context.Context, group tests.Group, testsList []tests.Test, modelIDs []string, modelCaps map[string][]string) (*BatteryRun, error) {
+func (c *Client) setProgress(p Progress) {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	c.progress[p.RunID] = &p
+}
+
+// GetProgress returns the current progress for a run.
+func (c *Client) GetProgress(runID string) (Progress, bool) {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	p, ok := c.progress[runID]
+	if !ok || p == nil {
+		return Progress{}, false
+	}
+	return *p, true
+}
+
+// ClearProgress removes progress tracking for a run.
+func (c *Client) ClearProgress(runID string) {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	delete(c.progress, runID)
+}
+
+// ExecuteBatteryAsync starts the battery run in a goroutine and returns the run ID immediately.
+// The caller should poll GetProgress and then retrieve the run from the store when Done is true.
+func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, testsList []tests.Test, modelIDs []string, modelCaps map[string][]string, onComplete func(*BatteryRun)) string {
 	run := &BatteryRun{
 		ID:        newRunID(),
 		Timestamp: time.Now().UTC(),
@@ -73,19 +115,51 @@ func (c *Client) ExecuteBattery(ctx context.Context, group tests.Group, testsLis
 		activeTests = append(activeTests, t)
 	}
 
+	total := 0
 	for _, model := range modelIDs {
 		caps := modelCaps[model]
 		for _, test := range activeTests {
-			// Skip if model lacks required capabilities.
-			if !hasAllCaps(caps, test.RequiredCaps) {
-				continue
+			if hasAllCaps(caps, test.RequiredCaps) {
+				total++
 			}
-			res := c.runTest(ctx, model, test)
-			run.Results = append(run.Results, res)
 		}
 	}
 
-	return run, nil
+	c.setProgress(Progress{RunID: run.ID, TotalTests: total})
+
+	go func() {
+		idx := 0
+		var runErr string
+		for _, model := range modelIDs {
+			caps := modelCaps[model]
+			for _, test := range activeTests {
+				if !hasAllCaps(caps, test.RequiredCaps) {
+					continue
+				}
+				idx++
+				c.setProgress(Progress{
+					RunID:      run.ID,
+					Model:      model,
+					TestID:     test.ID,
+					TestName:   test.Name,
+					TestIndex:  idx,
+					TotalTests: total,
+				})
+				res := c.runTest(ctx, model, test)
+				run.Results = append(run.Results, res)
+			}
+		}
+		if runErr != "" {
+			c.setProgress(Progress{RunID: run.ID, Done: true, Error: runErr, TotalTests: total})
+		} else {
+			c.setProgress(Progress{RunID: run.ID, Done: true, TotalTests: total})
+		}
+		if onComplete != nil {
+			onComplete(run)
+		}
+	}()
+
+	return run.ID
 }
 
 func (c *Client) runTest(ctx context.Context, model string, test tests.Test) TestResult {

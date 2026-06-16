@@ -353,6 +353,9 @@ const I18N = {
     "tests.agent_empty_sandbox": "Sandbox is empty.",
     "tests.agent_sandbox_error": "Could not load sandbox.",
     "tests.agent_delete_confirm": "Delete this agent session? All turns and sandbox files will be removed.",
+    "tests.history_title": "Test History",
+    "tests.history_short": "History",
+    "tests.no_history": "No historical results for this test yet.",
     "battery.run": "Run Tests",
     "battery.select_models": "Select models",
     "battery.select_models_hint": "Choose one or more models to run the battery. Only models with completion capability are shown.",
@@ -374,8 +377,10 @@ const I18N = {
     "battery.status_running": "Running…",
     "battery.status_pending": "Pending",
     "battery.status_done": "Done",
+    "battery.date": "Date",
     "action.save": "Save",
     "action.edit": "Edit",
+    "action.done": "Done",
   },
 
   es: {
@@ -725,6 +730,9 @@ const I18N = {
     "tests.agent_empty_sandbox": "El sandbox está vacío.",
     "tests.agent_sandbox_error": "No se pudo cargar el sandbox.",
     "tests.agent_delete_confirm": "¿Eliminar esta sesión de agente? Se borrarán todos los turnos y archivos del sandbox.",
+    "tests.history_title": "Historial del Test",
+    "tests.history_short": "Historial",
+    "tests.no_history": "Aún no hay resultados históricos para este test.",
     "battery.run": "Ejecutar Tests",
     "battery.select_models": "Seleccionar modelos",
     "battery.select_models_hint": "Elegí uno o más modelos para ejecutar la batería. Solo se muestran modelos con capacidad de completion.",
@@ -746,8 +754,10 @@ const I18N = {
     "battery.status_running": "Ejecutando…",
     "battery.status_pending": "Pendiente",
     "battery.status_done": "Listo",
+    "battery.date": "Fecha",
     "action.save": "Guardar",
     "action.edit": "Editar",
+    "action.done": "Listo",
   },
 };
 

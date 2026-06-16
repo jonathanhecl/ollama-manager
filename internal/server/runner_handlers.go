@@ -54,16 +54,11 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	run, err := s.runner.ExecuteBattery(ctx, group, testsList, body.ModelIDs, modelCaps)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	if err := s.runnerStore.SaveRun(run); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, run)
+	runID := s.runner.ExecuteBatteryAsync(ctx, group, testsList, body.ModelIDs, modelCaps, func(run *runner.BatteryRun) {
+		_ = s.runnerStore.SaveRun(run)
+		s.runner.ClearProgress(run.ID)
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
 }
 
 func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +150,21 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleBatteryProgress(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing run id"))
+		return
+	}
+	p, ok := s.runner.GetProgress(id)
+	if !ok {
+		// If no active progress, maybe it's already done — return done flag.
+		writeJSON(w, http.StatusOK, runner.Progress{RunID: id, Done: true})
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 func (s *Server) handleGetTestHistory(w http.ResponseWriter, r *http.Request) {

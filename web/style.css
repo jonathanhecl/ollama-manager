@@ -3396,6 +3396,25 @@ button.chat-send:disabled:hover {
 
 /* battery progress */
 .battery-progress-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 60px; }
+.battery-progress-current {
+  margin: 16px 0 20px;
+  padding: 16px 20px;
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: rgba(122,162,255,.08);
+  text-align: center;
+  max-width: 520px;
+  width: 100%;
+}
+.battery-progress-current .test-name {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.battery-progress-current .test-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
 .battery-progress-spinner {
   width: 56px; height: 56px; border-radius: 50%;
   border: 4px solid var(--border);

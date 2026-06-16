@@ -179,6 +179,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/runner/battery", s.requireAuth(s.handleBatteryRun))
 	mux.Handle("GET /api/runner/runs", s.requireAuth(s.handleListRuns))
 	mux.Handle("GET /api/runner/runs/{id}", s.requireAuth(s.handleGetRun))
+	mux.Handle("GET /api/runner/runs/{id}/progress", s.requireAuth(s.handleBatteryProgress))
 	mux.Handle("PUT /api/runner/runs/{id}/rate", s.requireAuth(s.handleRateRun))
 	mux.Handle("DELETE /api/runner/runs/{id}", s.requireAuth(s.handleDeleteRun))
 	mux.Handle("GET /api/runner/test-history/{id}", s.requireAuth(s.handleGetTestHistory))

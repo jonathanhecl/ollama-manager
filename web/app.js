@@ -4876,21 +4876,83 @@ async function renderBatteryModalModels() {
   });
 }
 
-function showBatteryProgressView(modelIDs) {
+let batteryPollTimer = null;
+
+function showBatteryProgressView(modelIDs, runID) {
   hideAllMainViews();
   currentView = "battery-progress";
   $("battery-progress-view").hidden = false;
   const sub = $("battery-progress-sub");
   if (sub) sub.textContent = t("battery.progress_sub", { count: String(modelIDs.length) });
   const container = $("battery-progress-models");
-  if (!container) return;
-  container.innerHTML = modelIDs.map((m, i) => `
-    <div class="battery-progress-model ${i === 0 ? "running" : ""}" data-model="${escapeHtml(m)}">
-      <span class="battery-progress-dot"></span>
-      <span class="battery-progress-name">${escapeHtml(m)}</span>
-      <span class="battery-progress-status">${i === 0 ? t("battery.status_running") : t("battery.status_pending")}</span>
-    </div>
-  `).join("");
+  if (container) {
+    container.innerHTML = modelIDs.map((m) => `
+      <div class="battery-progress-model" data-model="${escapeHtml(m)}">
+        <span class="battery-progress-dot"></span>
+        <span class="battery-progress-name">${escapeHtml(m)}</span>
+        <span class="battery-progress-status">${t("battery.status_pending")}</span>
+      </div>
+    `).join("");
+  }
+  void pollBatteryProgress(runID, modelIDs);
+}
+
+async function pollBatteryProgress(runID, modelIDs) {
+  if (batteryPollTimer) {
+    clearTimeout(batteryPollTimer);
+    batteryPollTimer = null;
+  }
+  try {
+    const p = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/progress");
+    // Update current test info.
+    const currentDiv = $("battery-progress-current");
+    if (currentDiv && p.test_name) {
+      currentDiv.innerHTML = `
+        <div class="test-name">${escapeHtml(p.test_name)}</div>
+        <div class="test-meta">${escapeHtml(p.model)} — ${p.test_index} / ${p.total_tests}</div>
+      `;
+    } else if (currentDiv) {
+      currentDiv.innerHTML = "";
+    }
+    // Update model cards.
+    const container = $("battery-progress-models");
+    if (container && p.model) {
+      const currentModelIndex = modelIDs.indexOf(p.model);
+      container.querySelectorAll(".battery-progress-model").forEach((el) => {
+        const modelName = el.dataset.model;
+        const statusEl = el.querySelector(".battery-progress-status");
+        if (modelName === p.model) {
+          el.classList.add("running");
+          el.classList.remove("done");
+          if (statusEl) statusEl.textContent = t("battery.status_running");
+        } else {
+          el.classList.remove("running");
+          const thisModelIndex = modelIDs.indexOf(modelName);
+          if (thisModelIndex !== -1 && currentModelIndex !== -1 && thisModelIndex < currentModelIndex) {
+            el.classList.add("done");
+            if (statusEl) statusEl.textContent = t("battery.status_done");
+          }
+        }
+      });
+    }
+    if (p.done) {
+      // Fetch full run and show results.
+      try {
+        const run = await api("/api/runner/runs/" + encodeURIComponent(runID));
+        currentBatteryRun = run;
+        history.pushState(null, "", "/tests/battery/results/" + run.id);
+        renderBatteryResults(run);
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+        showTestsView();
+      }
+      return;
+    }
+    batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, modelIDs), 2000);
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+    showTestsView();
+  }
 }
 
 async function confirmBatteryRun() {
@@ -4900,16 +4962,18 @@ async function confirmBatteryRun() {
   }
   closeBatteryModal();
   const modelIDs = Array.from(batterySelectedModels);
-  showBatteryProgressView(modelIDs);
   try {
-    const run = await api("/api/runner/battery", {
+    const data = await api("/api/runner/battery", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ group_id: selectedGroupId, model_ids: modelIDs }),
     });
-    currentBatteryRun = run;
-    history.pushState(null, "", "/tests/battery/results/" + run.id);
-    renderBatteryResults(run);
+    const runID = data.run_id;
+    if (!runID) {
+      toast(t("toast.error", { msg: "No run_id returned" }), "error");
+      return;
+    }
+    showBatteryProgressView(modelIDs, runID);
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
     showTestsView();

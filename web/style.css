@@ -2986,7 +2986,35 @@ button.chat-send:disabled:hover {
   font-size: 11px;
   color: var(--muted);
   font-family: var(--mono);
+  margin-left: auto;
 }
+.tests-group-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  opacity: 0;
+  transition: opacity .12s;
+  margin-left: 6px;
+}
+.tests-group-item:hover .tests-group-actions { opacity: 1; }
+.te-group-rename,
+.te-group-delete {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.te-group-rename:hover { color: var(--accent); background: rgba(122,162,255,0.08); }
+.te-group-delete:hover { color: #ff6b6b; background: rgba(255,107,107,0.08); }
 .tests-main {
   flex: 1;
   padding: 12px;

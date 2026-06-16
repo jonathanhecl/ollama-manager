@@ -1579,15 +1579,32 @@ function renderTestsSidebar() {
     const count = tests.filter((t) => t.group_id === g.id).length;
     html += `<div class="${cls}" data-group-id="${escapeHtml(g.id)}">
       <span class="tests-group-name">${escapeHtml(g.name)}</span>
+      <span class="tests-group-actions">
+        <button type="button" class="btn-icon te-group-rename" data-group-id="${escapeHtml(g.id)}" data-group-name="${escapeHtml(g.name)}" title="Rename">✎</button>
+        <button type="button" class="btn-icon te-group-delete" data-group-id="${escapeHtml(g.id)}" title="Delete">×</button>
+      </span>
       <span class="tests-group-count">${count}</span>
     </div>`;
   }
   container.innerHTML = html;
   container.querySelectorAll(".tests-group-item").forEach((el) => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".te-group-rename") || e.target.closest(".te-group-delete")) return;
       selectedGroupId = el.dataset.groupId;
       renderTestsSidebar();
       renderTestsList();
+    });
+  });
+  container.querySelectorAll(".te-group-rename").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void renameGroup(btn.dataset.groupId, btn.dataset.groupName);
+    });
+  });
+  container.querySelectorAll(".te-group-delete").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void deleteGroup(btn.dataset.groupId);
     });
   });
 }
@@ -1849,6 +1866,40 @@ async function createNewGroup() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), order: testsGroups.length }),
     });
+    await refreshTests();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function renameGroup(id, currentName) {
+  const name = prompt("Rename group:", currentName);
+  if (!name || !name.trim() || name.trim() === currentName) return;
+  try {
+    await api("/api/test-groups/" + encodeURIComponent(id), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    await refreshTests();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function deleteGroup(id) {
+  const group = testsGroups.find((g) => g.id === id);
+  const name = group ? group.name : id;
+  const { ok } = await askConfirm({
+    title: "Delete group",
+    text: `Delete "${name}"? Tests in this group will become ungrouped.`,
+    okText: t("action.delete"),
+    okClass: "danger",
+  });
+  if (!ok) return;
+  try {
+    await api("/api/test-groups/" + encodeURIComponent(id), { method: "DELETE" });
+    if (selectedGroupId === id) selectedGroupId = "";
     await refreshTests();
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");

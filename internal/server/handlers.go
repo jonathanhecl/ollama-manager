@@ -1194,7 +1194,7 @@ func (s *Server) handleJobsEvents(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	send("snapshot", map[string]any{"jobs": s.jobs.List()})
+	send("snapshot", map[string]any{"jobs": s.jobs.List(), "queue_paused": s.jobs.IsQueuePaused()})
 
 	ch, cancel := s.jobs.Subscribe()
 	defer cancel()
@@ -1254,6 +1254,42 @@ func (s *Server) handleJobRemove(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleJobsClear(w http.ResponseWriter, r *http.Request) {
 	removed := s.jobs.ClearFinished()
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
+}
+
+func (s *Server) handleJobPause(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing id"))
+		return
+	}
+	if err := s.jobs.Pause(id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleJobResume(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing id"))
+		return
+	}
+	if err := s.jobs.Resume(id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleJobsPauseQueue(w http.ResponseWriter, r *http.Request) {
+	s.jobs.PauseQueue()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "queue_paused": true})
+}
+
+func (s *Server) handleJobsResumeQueue(w http.ResponseWriter, r *http.Request) {
+	s.jobs.ResumeQueue()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "queue_paused": false})
 }
 
 // ---------- helpers ----------

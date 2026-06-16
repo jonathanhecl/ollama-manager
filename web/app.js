@@ -87,6 +87,17 @@ function formatMetaElapsed(ms) {
   }
   return t("chat.meta_time", { s: Math.round(sec) });
 }
+function fmtETA(totalSeconds) {
+  if (!isFinite(totalSeconds) || totalSeconds <= 0) return "";
+  const secs = Math.ceil(totalSeconds);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const s = secs % 60;
+  if (mins < 60) return `${mins}m ${s}s`;
+  const hrs = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${hrs}h ${m}m`;
+}
 const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -189,6 +200,7 @@ let activeName = null;
 let jobs = new Map();   // id -> job
 let jobsStream = null;  // EventSource for /api/jobs/events
 let jobsBackoffMs = 1000;
+let queuePaused = false;
 let currentView = "models";
 let showArchivedOnly = false;
 let chatMessages = [];
@@ -688,12 +700,15 @@ function renderTable() {
   // Combine with pending downloads (jobs that are running or queued and NOT in the models list yet)
   const installedNames = new Set(models.map(m => m.name));
   const pendingModels = [];
+  const runningJobByName = new Map();
   if (!showArchivedOnly) {
     for (const j of jobs.values()) {
+      if (j.status === "running") runningJobByName.set(j.name, j);
       if ((j.status === "running" || j.status === "queued") && !installedNames.has(j.name)) {
         pendingModels.push({
           name: j.name,
           isPending: true,
+          job: j,
           family: "—",
           parameter_size: "—",
           quantization: "—",
@@ -705,7 +720,7 @@ function renderTable() {
       }
     }
   }
-  
+
   // Combine and re-sort if necessary, or just append pending at the end.
   // User usually wants to see what's happening, so we'll add them and sort again.
   const allToRender = applySort([...sorted, ...pendingModels]);
@@ -723,6 +738,11 @@ function renderTable() {
   tbody.innerHTML = allToRender.map((m) => {
     const capsHtml = renderCapabilities(m.capabilities);
     const rowClass = m.isPending ? "row pending" : `row${m.name === activeName ? " active" : ""}`;
+    const job = m.job || runningJobByName.get(m.name);
+    const pct = job && job.status === "running" ? Math.max(0, Math.min(100, job.percent || 0)) : 0;
+    const progressHtml = job && job.status === "running"
+      ? `<div class="model-progress"><div class="model-progress-bar" style="width:${pct.toFixed(1)}%"></div></div>`
+      : "";
     return `
     <tr class="${rowClass}" data-name="${escapeHtml(m.name)}" ${m.isPending ? 'title="Downloading..." style="pointer-events: none;"' : ''}>
       <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
@@ -730,6 +750,7 @@ function renderTable() {
         <div class="model-name-wrap">
           <div class="model-name-block">
             <div class="model-name">${escapeHtml(m.name)}</div>
+            ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
           ${!m.isPending ? `<button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>` : ""}
@@ -3368,6 +3389,7 @@ function connectJobsStream() {
     try {
       const data = JSON.parse(ev.data);
       jobs = new Map((data.jobs || []).map((j) => [j.id, j]));
+      queuePaused = !!data.queue_paused;
       onJobsChanged();
     } catch {}
   });
@@ -3423,10 +3445,11 @@ function onJobsChanged() {
 }
 
 function jobsByStatus() {
-  const buckets = { active: [], queued: [], finished: [] };
+  const buckets = { active: [], queued: [], paused: [], finished: [] };
   for (const j of jobs.values()) {
     if (j.status === "running") buckets.active.push(j);
     else if (j.status === "queued") buckets.queued.push(j);
+    else if (j.status === "paused") buckets.paused.push(j);
     else buckets.finished.push(j);
   }
   // Active and queued keep their natural (creation) order; finished shows
@@ -3434,6 +3457,7 @@ function jobsByStatus() {
   const byCreated = (a, b) => new Date(a.created_at) - new Date(b.created_at);
   buckets.active.sort(byCreated);
   buckets.queued.sort(byCreated);
+  buckets.paused.sort(byCreated);
   buckets.finished.sort((a, b) => new Date(b.finished_at || b.created_at) - new Date(a.finished_at || a.created_at));
   return buckets;
 }
@@ -3441,7 +3465,7 @@ function jobsByStatus() {
 function updateDownloadsBadge() {
   let activeCount = 0;
   for (const j of jobs.values()) {
-    if (j.status === "running" || j.status === "queued") activeCount++;
+    if (j.status === "running" || j.status === "queued" || j.status === "paused") activeCount++;
   }
   const badge = $("downloads-count");
   if (activeCount > 0) {
@@ -3456,9 +3480,11 @@ function renderDownloads() {
   const buckets = jobsByStatus();
   $("dl-count-active").textContent = String(buckets.active.length);
   $("dl-count-queued").textContent = String(buckets.queued.length);
+  $("dl-count-paused").textContent = String(buckets.paused.length);
   $("dl-count-finished").textContent = String(buckets.finished.length);
   $("dl-list-active").innerHTML = buckets.active.map(jobCardHTML).join("") || emptyRow();
   $("dl-list-queued").innerHTML = buckets.queued.map(jobCardHTML).join("") || emptyRow();
+  $("dl-list-paused").innerHTML = buckets.paused.map(jobCardHTML).join("") || emptyRow();
   $("dl-list-finished").innerHTML = buckets.finished.map(jobCardHTML).join("") || emptyRow();
   const hasAny = jobs.size > 0;
   $("dl-empty").hidden = hasAny;
@@ -3467,6 +3493,16 @@ function renderDownloads() {
     $("dl-total-badge").textContent = t("downloads.jobs_count", { n: jobs.size });
   }
   $("dl-clear-btn").disabled = buckets.finished.length === 0;
+
+  // Global pause/resume button
+  const pauseBtn = $("dl-pause-btn");
+  if (hasAny || queuePaused) {
+    pauseBtn.hidden = false;
+    pauseBtn.title = queuePaused ? t("downloads.resume_queue") : t("downloads.pause_queue");
+    pauseBtn.textContent = queuePaused ? "▶" : "⏸";
+  } else {
+    pauseBtn.hidden = true;
+  }
 
   // Wire per-card buttons.
   document.querySelectorAll("#downloads-modal .dl-item [data-action]").forEach((btn) => {
@@ -3484,6 +3520,18 @@ function renderDownloads() {
       } else if (action === "remove") {
         try {
           await api(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
+        }
+      } else if (action === "pause") {
+        try {
+          await api(`/api/jobs/${encodeURIComponent(id)}/pause`, { method: "POST" });
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
+        }
+      } else if (action === "resume") {
+        try {
+          await api(`/api/jobs/${encodeURIComponent(id)}/resume`, { method: "POST" });
         } catch (err) {
           toast(t("toast.error", { msg: err.message }), "error");
         }
@@ -3535,17 +3583,28 @@ function jobCardHTML(j) {
     ? `<span class="dl-finished muted" title="${escapeHtml(finishedTitle)}">${escapeHtml(finishedLine)}</span>`
     : "";
   const statusText = jobStatusLabel(j);
-  const showBar = j.status === "running" || (j.status === "done") || (j.total > 0);
+  const showBar = j.status === "running" || j.status === "done" || j.status === "paused" || (j.total > 0);
   const progress = showBar
     ? `<div class="dl-progress"><div class="dl-progress-bar dl-progress-${j.status}" style="width:${pct.toFixed(1)}%"></div></div>`
     : "";
-  const pctText = j.status === "running" || j.status === "done"
+  const pctText = j.status === "running" || j.status === "done" || j.status === "paused"
     ? `<span class="dl-pct mono">${pct.toFixed(1)}%</span>`
     : "";
+  let etaHTML = "";
+  if (j.status === "running" && j.total > 0 && j.speed > 0) {
+    const remaining = (j.total - (j.completed || 0)) / j.speed;
+    etaHTML = `<span class="dl-eta muted">~${fmtETA(remaining)}</span>`;
+  }
 
   let actionBtn = "";
   if (j.status === "running" || j.status === "queued") {
-    actionBtn = `<button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
+    actionBtn = `
+      <button class="ghost dl-pause" data-action="pause" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.pause"))}">⏸</button>
+      <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
+  } else if (j.status === "paused") {
+    actionBtn = `
+      <button class="ghost dl-resume" data-action="resume" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.resume"))}">▶</button>
+      <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "error" || j.status === "cancelled") {
     actionBtn = `
       <button class="ghost dl-retry" data-action="retry" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.retry"))}">↻</button>
@@ -3560,6 +3619,9 @@ function jobCardHTML(j) {
   const cardClass = j.status === "done"
     ? `dl-item dl-${j.status} dl-clickable`
     : `dl-item dl-${j.status}`;
+  const pausedNote = j.status === "paused" && queuePaused
+    ? `<div class="dl-note muted">${escapeHtml(t("downloads.queue_paused_note"))}</div>`
+    : "";
   return `
     <div class="${cardClass}" data-id="${escapeHtml(j.id)}">
       <div class="dl-row1">
@@ -3570,9 +3632,11 @@ function jobCardHTML(j) {
       ${progress}
       <div class="dl-row2">
         ${pctText}
+        ${etaHTML}
         <span class="dl-bytes muted">${escapeHtml(sizeLine)}</span>
         ${finishedHTML}
       </div>
+      ${pausedNote}
       ${errBlock}
     </div>
   `;
@@ -3584,6 +3648,8 @@ function jobStatusLabel(j) {
       return j.status_text ? j.status_text : t("downloads.status.running");
     case "queued":
       return t("downloads.status.queued");
+    case "paused":
+      return t("downloads.status.paused");
     case "done":
       return t("downloads.status.done");
     case "error":
@@ -3612,6 +3678,21 @@ $("downloads-close").addEventListener("click", closeDownloads);
 $("downloads-x").addEventListener("click", closeDownloads);
 $("downloads-modal").addEventListener("click", (e) => {
   if (e.target === $("downloads-modal")) closeDownloads();
+});
+
+$("dl-pause-btn").addEventListener("click", async () => {
+  try {
+    if (queuePaused) {
+      await api("/api/jobs/resume", { method: "POST" });
+      queuePaused = false;
+    } else {
+      await api("/api/jobs/pause", { method: "POST" });
+      queuePaused = true;
+    }
+    renderDownloads();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
 });
 
 function uninstallReasonToText(reasonKey) {

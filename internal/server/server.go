@@ -23,12 +23,12 @@ type WebFS = embed.FS
 
 // Server holds shared state for HTTP handlers.
 type Server struct {
-	cfg    *config.Config
-	ollama *ollama.Client
-	web    fs.FS
-	tmpl   *template.Template
-	jobs   *jobs.Manager
-	uninst *uninstallHistoryStore
+	cfg      *config.Config
+	ollama   *ollama.Client
+	web      fs.FS
+	tmpl     *template.Template
+	jobs     *jobs.Manager
+	uninst   *uninstallHistoryStore
 	archived *archivedModelsStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
@@ -119,7 +119,11 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/jobs/events", s.requireAuth(s.handleJobsEvents))
 	mux.Handle("GET /api/download-history/{name...}", s.requireAuth(s.handleDownloadHistory))
 	mux.Handle("POST /api/jobs/clear", s.requireAuth(s.handleJobsClear))
+	mux.Handle("POST /api/jobs/pause", s.requireAuth(s.handleJobsPauseQueue))
+	mux.Handle("POST /api/jobs/resume", s.requireAuth(s.handleJobsResumeQueue))
 	mux.Handle("POST /api/jobs/{id}/cancel", s.requireAuth(s.handleJobCancel))
+	mux.Handle("POST /api/jobs/{id}/pause", s.requireAuth(s.handleJobPause))
+	mux.Handle("POST /api/jobs/{id}/resume", s.requireAuth(s.handleJobResume))
 	mux.Handle("DELETE /api/jobs/{id}", s.requireAuth(s.handleJobRemove))
 
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))

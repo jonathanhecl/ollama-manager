@@ -39,6 +39,7 @@ const (
 	StatusDone      Status = "done"
 	StatusError     Status = "error"
 	StatusCancelled Status = "cancelled"
+	StatusPaused    Status = "paused"
 )
 
 // IsTerminal reports whether s is a final, non-active state.
@@ -57,6 +58,7 @@ type Job struct {
 	Completed  int64     `json:"completed"`
 	Total      int64     `json:"total"`
 	Percent    float64   `json:"percent"`
+	Speed      float64   `json:"speed,omitempty"` // bytes per second while running
 	Digest     string    `json:"digest,omitempty"`
 	StatusText string    `json:"status_text,omitempty"`
 	Error      string    `json:"error,omitempty"`
@@ -64,6 +66,11 @@ type Job struct {
 	// cancel is set while the job is running so Cancel() can abort the
 	// underlying /api/pull stream.
 	cancel context.CancelFunc `json:"-"`
+
+	// pauseIntent is set by Pause() so the runner goroutine knows to
+	// transition to StatusPaused instead of StatusCancelled on context
+	// cancellation.
+	pauseIntent bool `json:"-"`
 }
 
 // clone returns a value copy safe to hand out to callers / SSE subscribers.
@@ -90,7 +97,8 @@ type Event struct {
 
 // persistFile is the disk format for jobs.json.
 type persistFile struct {
-	Jobs []Job `json:"jobs"`
+	Jobs        []Job `json:"jobs"`
+	QueuePaused bool  `json:"queue_paused,omitempty"`
 }
 
 // DownloadHistory stores aggregate outcomes for a model name across time,
@@ -115,6 +123,7 @@ type Manager struct {
 	jobs        map[string]*Job
 	order       []string // insertion order of job ids
 	activeID    string   // id of the currently running job, or ""
+	queuePaused bool     // when true, new jobs are queued but not started
 	path        string
 	historyPath string
 	history     map[string]*DownloadHistory
@@ -174,6 +183,7 @@ func (m *Manager) Load() error {
 	defer m.mu.Unlock()
 	m.jobs = make(map[string]*Job)
 	m.order = nil
+	m.queuePaused = pf.QueuePaused
 	for i := range pf.Jobs {
 		j := pf.Jobs[i]
 		if j.ID == "" || j.Name == "" {
@@ -185,6 +195,7 @@ func (m *Manager) Load() error {
 			j.Percent = 0
 			j.Completed = 0
 			j.Total = 0
+			j.Speed = 0
 			j.StatusText = ""
 		}
 		jj := j
@@ -259,7 +270,7 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 			continue
 		}
 		switch j.Status {
-		case StatusQueued, StatusRunning:
+		case StatusQueued, StatusRunning, StatusPaused:
 			snap := j.clone()
 			m.mu.Unlock()
 			return snap, nil
@@ -272,6 +283,7 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 			j.Completed = 0
 			j.Total = 0
 			j.Percent = 0
+			j.Speed = 0
 			j.StatusText = ""
 			j.Error = ""
 			j.Digest = ""
@@ -321,9 +333,10 @@ func (m *Manager) Cancel(id string) error {
 		return errors.New("job not found")
 	}
 	switch j.Status {
-	case StatusQueued:
+	case StatusQueued, StatusPaused:
 		j.Status = StatusCancelled
 		j.FinishedAt = time.Now().UTC()
+		j.pauseIntent = false
 		snap := j.clone()
 		if err := m.saveLocked(); err != nil {
 			m.logger.Printf("jobs: save failed: %v", err)
@@ -342,6 +355,93 @@ func (m *Manager) Cancel(id string) error {
 		m.mu.Unlock()
 		return fmt.Errorf("job already %s", j.Status)
 	}
+}
+
+// Pause stops a queued job from starting or cancels a running job so the
+// runner transitions it to StatusPaused.
+func (m *Manager) Pause(id string) error {
+	m.mu.Lock()
+	j, ok := m.jobs[id]
+	if !ok {
+		m.mu.Unlock()
+		return errors.New("job not found")
+	}
+	switch j.Status {
+	case StatusQueued:
+		j.Status = StatusPaused
+		snap := j.clone()
+		if err := m.saveLocked(); err != nil {
+			m.logger.Printf("jobs: save failed: %v", err)
+		}
+		m.mu.Unlock()
+		m.broadcast(Event{Kind: EventUpdate, Job: &snap})
+		return nil
+	case StatusRunning:
+		j.pauseIntent = true
+		if j.cancel != nil {
+			j.cancel()
+		}
+		// The runner goroutine will transition to paused and broadcast.
+		m.mu.Unlock()
+		return nil
+	default:
+		m.mu.Unlock()
+		return fmt.Errorf("job already %s", j.Status)
+	}
+}
+
+// Resume puts a paused job back into the queue and tries to start it.
+func (m *Manager) Resume(id string) error {
+	m.mu.Lock()
+	j, ok := m.jobs[id]
+	if !ok {
+		m.mu.Unlock()
+		return errors.New("job not found")
+	}
+	if j.Status != StatusPaused {
+		m.mu.Unlock()
+		return fmt.Errorf("job is %s", j.Status)
+	}
+	j.Status = StatusQueued
+	j.pauseIntent = false
+	snap := j.clone()
+	m.tryStartNextLocked()
+	if err := m.saveLocked(); err != nil {
+		m.logger.Printf("jobs: save failed: %v", err)
+	}
+	m.mu.Unlock()
+	m.broadcast(Event{Kind: EventUpdate, Job: &snap})
+	return nil
+}
+
+// PauseQueue prevents new jobs from starting until ResumeQueue is called.
+// A currently running job is allowed to finish.
+func (m *Manager) PauseQueue() {
+	m.mu.Lock()
+	m.queuePaused = true
+	if err := m.saveLocked(); err != nil {
+		m.logger.Printf("jobs: save failed: %v", err)
+	}
+	m.mu.Unlock()
+}
+
+// ResumeQueue allows queued jobs to start again.
+func (m *Manager) ResumeQueue() {
+	m.mu.Lock()
+	m.queuePaused = false
+	if err := m.saveLocked(); err != nil {
+		m.logger.Printf("jobs: save failed: %v", err)
+	}
+	m.tryStartNextLocked()
+	m.mu.Unlock()
+}
+
+// IsQueuePaused reports whether the queue is currently paused.
+func (m *Manager) IsQueuePaused() bool {
+	m.mu.Lock()
+	v := m.queuePaused
+	m.mu.Unlock()
+	return v
 }
 
 // Remove deletes a job from history. Only terminal jobs can be removed.
@@ -448,7 +548,7 @@ func (m *Manager) broadcast(ev Event) {
 // tryStartNextLocked must be called with m.mu held. If no job is currently
 // running it promotes the first queued job and launches the runner.
 func (m *Manager) tryStartNextLocked() {
-	if m.activeID != "" {
+	if m.activeID != "" || m.queuePaused {
 		return
 	}
 	for _, id := range m.order {
@@ -512,6 +612,10 @@ func (m *Manager) run(ctx context.Context, id string) {
 				pct = 100
 			}
 			j.Percent = pct
+			elapsed := time.Since(j.StartedAt).Seconds()
+			if elapsed > 0 {
+				j.Speed = float64(ev.Completed) / elapsed
+			}
 		}
 		// Throttle broadcasts to avoid overwhelming SSE subscribers.
 		if time.Since(lastEmit) < emitEvery {
@@ -535,10 +639,17 @@ func (m *Manager) run(ctx context.Context, id string) {
 		case err == nil:
 			j.Status = StatusDone
 			j.Percent = 100
+			j.Speed = 0
 			j.StatusText = "success"
 			j.Error = ""
 		case errors.Is(err, context.Canceled) || ctx.Err() != nil:
-			j.Status = StatusCancelled
+			if j.pauseIntent {
+				j.Status = StatusPaused
+			} else {
+				j.Status = StatusCancelled
+			}
+			j.pauseIntent = false
+			j.Speed = 0
 			j.Error = ""
 		default:
 			j.Status = StatusError
@@ -567,7 +678,7 @@ func (m *Manager) saveLocked() error {
 	if m.path == "" {
 		return nil
 	}
-	pf := persistFile{Jobs: make([]Job, 0, len(m.order))}
+	pf := persistFile{Jobs: make([]Job, 0, len(m.order)), QueuePaused: m.queuePaused}
 	for _, id := range m.order {
 		if j, ok := m.jobs[id]; ok {
 			pf.Jobs = append(pf.Jobs, j.clone())

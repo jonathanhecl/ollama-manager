@@ -266,6 +266,21 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
   transition: border-color .12s, box-shadow .12s, color .12s;
 }
 .model-cap-list { margin-top: 4px; }
+.model-progress {
+  margin-top: 5px;
+  height: 4px;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  max-width: 240px;
+}
+.model-progress-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width .3s ease;
+}
 .cell-size, .cell-quant, .cell-params, .cell-ctx { font-family: var(--mono); color: var(--text-dim); }
 .cell-modified { color: var(--text-dim); white-space: nowrap; }
 
@@ -1034,6 +1049,11 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   color: var(--accent);
   font-size: 13px;
 }
+.dl-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .dl-head .btn-icon {
   width: 28px; height: 28px;
   color: var(--muted);
@@ -1118,6 +1138,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .dl-item.dl-error   { border-color: #5a2a2a; background: #1a1212; }
 .dl-item.dl-cancelled { opacity: .75; }
 .dl-item.dl-done    { opacity: .9; }
+.dl-item.dl-paused  { border-color: #5a4a2a; background: color-mix(in srgb, var(--warn) 6%, var(--panel-2)); }
 .dl-item.dl-clickable { cursor: pointer; }
 .dl-item.dl-clickable:hover {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
@@ -1152,6 +1173,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .dl-status-running   { color: var(--accent); border-color: var(--accent-dim); }
 .dl-status-queued    { color: var(--text-dim); }
+.dl-status-paused    { color: var(--warn); border-color: #5a4a2a; }
 .dl-status-done      { color: var(--good); border-color: #2c4a3a; }
 .dl-status-error     { color: var(--bad); border-color: #5a2a2a; }
 .dl-status-cancelled { color: var(--muted); }
@@ -1183,6 +1205,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .dl-progress-done      { background: var(--good); }
 .dl-progress-error     { background: var(--bad); }
 .dl-progress-cancelled { background: var(--muted); }
+.dl-progress-paused    { background: var(--warn); }
 
 .dl-row2 {
   display: flex;
@@ -1191,8 +1214,14 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   font-size: 11px;
 }
 .dl-pct { color: var(--text-dim); }
+.dl-eta { color: var(--muted); margin-left: 6px; }
 .dl-bytes { color: var(--muted); }
 
+.dl-note {
+  font-size: 11px;
+  color: var(--warn);
+  margin-top: 2px;
+}
 .dl-error {
   font-family: var(--mono);
   font-size: 11px;

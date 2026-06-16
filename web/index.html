@@ -280,7 +280,10 @@
           <span data-i18n="downloads.title">Downloads</span>
           <span id="dl-total-badge" class="badge badge-muted" hidden></span>
         </h2>
-        <button id="downloads-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+        <div class="dl-head-actions">
+          <button id="dl-pause-btn" class="ghost" hidden>⏸</button>
+          <button id="downloads-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+        </div>
       </header>
 
       <div class="dl-add">
@@ -298,6 +301,10 @@
         <section class="dl-section" data-section="queued">
           <h3><span data-i18n="downloads.section_queued">Queued</span> <span class="dl-count" id="dl-count-queued">0</span></h3>
           <div class="dl-list" id="dl-list-queued"></div>
+        </section>
+        <section class="dl-section" data-section="paused">
+          <h3><span data-i18n="downloads.section_paused">Paused</span> <span class="dl-count" id="dl-count-paused">0</span></h3>
+          <div class="dl-list" id="dl-list-paused"></div>
         </section>
         <section class="dl-section" data-section="finished">
           <h3><span data-i18n="downloads.section_finished">Finished</span> <span class="dl-count" id="dl-count-finished">0</span></h3>

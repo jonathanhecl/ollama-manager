@@ -25,6 +25,15 @@ type Group struct {
 	Order        int      `json:"order"`
 }
 
+// Attachment is a file attached to a test (image or audio stored as base64).
+type Attachment struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"` // "image" or "audio"
+	Name string `json:"name"` // original filename
+	Mime string `json:"mime"` // MIME type
+	Data string `json:"data"` // base64 content
+}
+
 // Test is a single evaluation prompt template.
 type Test struct {
 	ID               string          `json:"id"`
@@ -38,6 +47,7 @@ type Test struct {
 	EvaluationType   string          `json:"evaluation_type"`
 	EvaluationConfig json.RawMessage `json:"evaluation_config,omitempty"`
 	RequiredCaps     []string        `json:"required_caps,omitempty"`
+	Attachments      []Attachment    `json:"attachments,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 }
@@ -179,6 +189,7 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 		EvaluationType:   in.EvaluationType,
 		EvaluationConfig: in.EvaluationConfig,
 		RequiredCaps:     in.RequiredCaps,
+		Attachments:      in.Attachments,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -216,6 +227,7 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	}
 	t.EvaluationConfig = in.EvaluationConfig
 	t.RequiredCaps = in.RequiredCaps
+	t.Attachments = in.Attachments
 	t.UpdatedAt = time.Now().UTC()
 	cp := *t
 	if err := s.saveLocked(); err != nil {

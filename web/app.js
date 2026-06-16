@@ -247,6 +247,7 @@ let testsGroups = [];
 let tests = [];
 let selectedGroupId = "";
 let currentTestId = null; // null for new, id for edit
+let testEditorAttachments = []; // {id, kind, name, mime, data}
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
@@ -1525,6 +1526,8 @@ function showTestEditorView(id) {
       $("te-eval-config").value = test.evaluation_config ? JSON.stringify(test.evaluation_config, null, 2) : "";
       $("te-required-caps").value = (test.required_caps || []).join(", ");
       $("te-order").value = String(test.order || 0);
+      testEditorAttachments = (test.attachments || []).map((a) => ({ ...a }));
+      renderTestEditorAttachments();
       $("test-editor-delete").hidden = false;
       if (window.location.pathname !== "/tests/edit/" + id) {
         history.pushState(null, "", "/tests/edit/" + id);
@@ -1543,6 +1546,8 @@ function showTestEditorView(id) {
   $("te-eval-config").value = "";
   $("te-required-caps").value = "";
   $("te-order").value = "0";
+  testEditorAttachments = [];
+  renderTestEditorAttachments();
   $("test-editor-delete").hidden = true;
   if (window.location.pathname !== "/tests/new") {
     history.pushState(null, "", "/tests/new");
@@ -1686,6 +1691,85 @@ function renderTestsList() {
   });
 }
 
+function getAutoCapsFromAttachments() {
+  const caps = new Set();
+  for (const a of testEditorAttachments) {
+    if (a.kind === "image") caps.add("vision");
+    if (a.kind === "audio") caps.add("audio");
+  }
+  return Array.from(caps);
+}
+
+function updateTestEditorAutoCaps() {
+  const el = $("te-auto-caps");
+  if (!el) return;
+  const auto = getAutoCapsFromAttachments();
+  const userRaw = $("te-required-caps")?.value || "";
+  const user = userRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const all = new Set([...user, ...auto]);
+  if (!all.size) {
+    el.innerHTML = "";
+    return;
+  }
+  const pills = Array.from(all).map((c) => {
+    const isAuto = auto.includes(c) && !user.includes(c);
+    return `<span class="pill${isAuto ? " te-auto-pill" : ""}" title="${isAuto ? "Auto-detected from attachments" : "Manually set"}">${escapeHtml(c)}</span>`;
+  }).join("");
+  el.innerHTML = `<div class="te-auto-caps-label">Effective capabilities:</div><div class="te-auto-caps-pills">${pills}</div>`;
+}
+
+function renderTestEditorAttachments() {
+  const list = $("te-attach-list");
+  if (!list) return;
+  if (!testEditorAttachments.length) {
+    list.innerHTML = "";
+    updateTestEditorAutoCaps();
+    return;
+  }
+  list.innerHTML = testEditorAttachments.map((a) => {
+    if (a.kind === "image") {
+      const src = `data:${a.mime};base64,${a.data}`;
+      return `<div class="te-attach-item" data-id="${escapeHtml(a.id)}">
+        <img src="${src}" alt="" class="te-attach-thumb">
+        <span class="te-attach-name mono">${escapeHtml(a.name)}</span>
+        <button type="button" class="btn-icon te-attach-remove" data-id="${escapeHtml(a.id)}" title="Remove">×</button>
+      </div>`;
+    }
+    if (a.kind === "audio") {
+      const src = `data:${a.mime};base64,${a.data}`;
+      return `<div class="te-attach-item" data-id="${escapeHtml(a.id)}">
+        <audio controls preload="metadata" src="${src}" class="te-attach-audio"></audio>
+        <span class="te-attach-name mono">${escapeHtml(a.name)}</span>
+        <button type="button" class="btn-icon te-attach-remove" data-id="${escapeHtml(a.id)}" title="Remove">×</button>
+      </div>`;
+    }
+    return "";
+  }).join("");
+  list.querySelectorAll(".te-attach-remove").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      testEditorAttachments = testEditorAttachments.filter((x) => x.id !== btn.dataset.id);
+      renderTestEditorAttachments();
+    });
+  });
+  updateTestEditorAutoCaps();
+}
+
+async function handleTestEditorFileInput(files, kind) {
+  for (const file of files) {
+    const data = await toBase64(file);
+    testEditorAttachments.push({
+      id: nanoid(),
+      kind,
+      name: file.name,
+      mime: file.type || (kind === "image" ? "image/jpeg" : "audio/webm"),
+      data,
+    });
+  }
+  renderTestEditorAttachments();
+}
+
 function populateTestEditorGroupSelect() {
   const sel = $("te-group");
   if (!sel) return;
@@ -1714,6 +1798,7 @@ async function saveTestEditor() {
     evaluation_type: $("te-eval-type").value,
     evaluation_config: evalConfig,
     required_caps: $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean),
+    attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
     order: Number($("te-order").value) || 0,
   };
   try {
@@ -4216,6 +4301,31 @@ $("test-editor-save")?.addEventListener("click", () => {
 });
 $("test-editor-delete")?.addEventListener("click", () => {
   void deleteTestEditor();
+});
+
+// Test editor attachments
+$("te-add-image-btn")?.addEventListener("click", () => {
+  $("te-image-input")?.click();
+});
+$("te-add-audio-btn")?.addEventListener("click", () => {
+  $("te-audio-input")?.click();
+});
+$("te-image-input")?.addEventListener("change", (e) => {
+  const files = e.target.files;
+  if (files?.length) {
+    void handleTestEditorFileInput(Array.from(files), "image");
+  }
+  e.target.value = "";
+});
+$("te-audio-input")?.addEventListener("change", (e) => {
+  const files = e.target.files;
+  if (files?.length) {
+    void handleTestEditorFileInput(Array.from(files), "audio");
+  }
+  e.target.value = "";
+});
+$("te-required-caps")?.addEventListener("input", () => {
+  updateTestEditorAutoCaps();
 });
 
 // ---------- settings ----------

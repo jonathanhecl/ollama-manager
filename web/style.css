@@ -3066,6 +3066,85 @@ button.chat-send:disabled:hover {
   .test-editor-body .field { grid-template-columns: 1fr; }
 }
 
+/* ---------- Test editor attachments ---------- */
+.te-attach-field { align-items: flex-start; }
+.te-attach-col { display: flex; flex-direction: column; gap: 10px; }
+.te-attach-actions { display: flex; gap: 8px; }
+.te-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.te-attach-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.te-attach-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  max-width: 160px;
+  position: relative;
+}
+.te-attach-thumb {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #0a0c12;
+}
+.te-attach-audio {
+  width: 100%;
+  max-width: 140px;
+  height: 36px;
+}
+.te-attach-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.te-attach-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10,10,18,0.8);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.te-attach-remove:hover { color: #ff6b6b; border-color: #8a3535; }
+
+/* Test editor auto-caps */
+.te-caps-col { display: flex; flex-direction: column; gap: 8px; }
+.te-auto-caps-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+.te-auto-caps-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.te-auto-pill {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, #0a0c12);
+}
+
 /* ---------- Math rendering ---------- */
 .math-inline { display: inline; }
 .math-display {

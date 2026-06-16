@@ -4940,6 +4940,9 @@ async function pollBatteryProgress(runID, modelIDs) {
       try {
         const run = await api("/api/runner/runs/" + encodeURIComponent(runID));
         currentBatteryRun = run;
+        hideAllMainViews();
+        currentView = "battery-results";
+        $("battery-results-view").hidden = false;
         history.pushState(null, "", "/tests/battery/results/" + run.id);
         renderBatteryResults(run);
       } catch (err) {

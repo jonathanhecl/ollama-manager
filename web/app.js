@@ -677,13 +677,13 @@ function parseParamSize(s) {
 
 function applySort(arr) {
   const { col, dir } = sort;
-  // Special ordering for modified_at: queued/paused first (newest), running second, installed last (newest)
+  // Special ordering for modified_at: queued first (newest), running second, installed last (newest)
   if (col === "modified_at") {
     return [...arr].sort((a, b) => {
-      const isActiveA = a.job && (a.job.status === "queued" || a.job.status === "paused");
-      const isActiveB = b.job && (b.job.status === "queued" || b.job.status === "paused");
-      const typeA = isActiveA ? 0 : a.job?.status === "running" ? 1 : 2;
-      const typeB = isActiveB ? 0 : b.job?.status === "running" ? 1 : 2;
+      const isQueuedA = a.job?.status === "queued";
+      const isQueuedB = b.job?.status === "queued";
+      const typeA = isQueuedA ? 0 : a.job?.status === "running" ? 1 : 2;
+      const typeB = isQueuedB ? 0 : b.job?.status === "running" ? 1 : 2;
       if (typeA !== typeB) return dir === "asc" ? (typeB - typeA) : (typeA - typeB);
       const timeA = a.job?.created_at ? new Date(a.job.created_at).getTime() : new Date(a.modified_at).getTime();
       const timeB = b.job?.created_at ? new Date(b.job.created_at).getTime() : new Date(b.modified_at).getTime();
@@ -716,14 +716,15 @@ function renderTable() {
     tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
     return;
   }
-  // Attach active jobs to installed models so they participate in sorting and display
+  // Attach active jobs to installed models so they participate in sorting and display.
+  // Only queued and running jobs appear in the main list; paused ones stay in the downloads modal.
   const installedNames = new Set(models.map(m => m.name));
   const pendingModels = [];
   const runningJobByName = new Map();
   if (!showArchivedOnly) {
     for (const j of jobs.values()) {
       if (j.status === "running") runningJobByName.set(j.name, j);
-      if (["running", "queued", "paused"].includes(j.status)) {
+      if (j.status === "running" || j.status === "queued") {
         const model = filteredModels.find(m => m.name === j.name);
         if (model) {
           model.job = j;

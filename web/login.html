@@ -10,9 +10,9 @@
   <main class="login-card">
     <h1>{{.Heading}}</h1>
     <p class="muted">{{.Subtitle}}</p>
-    <form method="POST" action="/login" autocomplete="on">
+    <form method="POST" action="/login" autocomplete="off">
       <label for="password">{{.Label}}</label>
-      <input id="password" name="password" type="password" autofocus required>
+      <input id="password" name="password" type="password" autofocus required autocomplete="off">
       {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
       <button type="submit">{{.Submit}}</button>
     </form>

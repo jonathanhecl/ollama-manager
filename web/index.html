@@ -87,7 +87,7 @@
             <label for="chat-model" data-i18n="chat.model">Model</label>
             <div class="chat-model-picker">
               <span id="chat-model-load-dot" class="state-dot" role="img" aria-hidden="true"></span>
-              <select id="chat-model"></select>
+              <select id="chat-model" autocomplete="off"></select>
             </div>
           </div>
         </div>
@@ -145,11 +145,11 @@
                 <path d="M8 13h8M8 17h6M8 9h3"/>
               </svg>
             </button>
-            <input id="chat-image-input" type="file" accept="image/*" multiple hidden>
-            <input id="chat-audio-input" type="file" accept="audio/*" multiple hidden>
-            <input id="chat-text-input" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple hidden>
+            <input id="chat-image-input" type="file" accept="image/*" multiple hidden autocomplete="off">
+            <input id="chat-audio-input" type="file" accept="audio/*" multiple hidden autocomplete="off">
+            <input id="chat-text-input" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple hidden autocomplete="off">
           </div>
-          <textarea id="chat-input" rows="3" data-i18n-attr="placeholder" data-i18n="chat.input_placeholder" placeholder="Write your message..."></textarea>
+          <textarea id="chat-input" rows="3" data-i18n-attr="placeholder" data-i18n="chat.input_placeholder" placeholder="Write your message..." autocomplete="off"></textarea>
           <button id="chat-send-btn" class="primary chat-send" data-i18n="chat.send">Send</button>
         </div>
       </footer>
@@ -174,21 +174,21 @@
         <h3 data-i18n="chat.options">Options</h3>
         <div class="field" id="chat-system-field">
           <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
-          <textarea id="chat-system" rows="4" data-i18n-attr="placeholder" data-i18n="chat.system_placeholder" placeholder="Optional system instruction"></textarea>
+          <textarea id="chat-system" rows="4" data-i18n-attr="placeholder" data-i18n="chat.system_placeholder" placeholder="Optional system instruction" autocomplete="off"></textarea>
         </div>
         <div class="field" id="chat-temperature-field">
           <label for="chat-temperature" data-i18n="chat.temperature">Temperature</label>
-          <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7">
+          <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
           <small class="muted chat-opt-hint" data-i18n="chat.temperature_hint">—</small>
         </div>
         <div class="field" id="chat-top-k-field">
           <label for="chat-top-k" data-i18n="chat.top_k">Top-k</label>
-          <input id="chat-top-k" type="number" min="0" step="1" value="40">
+          <input id="chat-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
           <small class="muted chat-opt-hint" data-i18n="chat.top_k_hint">—</small>
         </div>
         <div class="field" id="chat-top-p-field">
           <label for="chat-top-p" data-i18n="chat.top_p">Top-p</label>
-          <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9">
+          <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off">
           <small class="muted chat-opt-hint" data-i18n="chat.top_p_hint">—</small>
         </div>
         <div id="chat-think-wrap" class="field switch-field" hidden>
@@ -197,7 +197,7 @@
             <small class="muted" data-i18n="chat.no_think_hint">Skip think traces for supported models.</small>
           </div>
           <label class="switch">
-            <input id="chat-no-think" type="checkbox">
+            <input id="chat-no-think" type="checkbox" autocomplete="off">
             <span class="switch-slider"></span>
           </label>
         </div>
@@ -207,7 +207,7 @@
             <small class="muted" data-i18n="chat.web_tools_hint">Server runs web_search and web_fetch in a loop until the model answers.</small>
           </div>
           <label class="switch">
-            <input id="chat-web-tools" type="checkbox">
+            <input id="chat-web-tools" type="checkbox" autocomplete="off">
             <span class="switch-slider"></span>
           </label>
         </div>
@@ -215,19 +215,19 @@
           <h4 data-i18n="chat.image_generation_options">Image Generation Options</h4>
           <div class="field">
             <label for="chat-image-width" data-i18n="chat.image_width">Width (px)</label>
-            <input id="chat-image-width" type="number" min="128" max="1024" step="64" value="512">
+            <input id="chat-image-width" type="number" min="128" max="1024" step="64" value="512" autocomplete="off">
           </div>
           <div class="field">
             <label for="chat-image-height" data-i18n="chat.image_height">Height (px)</label>
-            <input id="chat-image-height" type="number" min="128" max="1024" step="64" value="512">
+            <input id="chat-image-height" type="number" min="128" max="1024" step="64" value="512" autocomplete="off">
           </div>
           <div class="field">
             <label for="chat-image-steps" data-i18n="chat.image_steps">Steps</label>
-            <input id="chat-image-steps" type="number" min="1" max="100" step="1" value="4">
+            <input id="chat-image-steps" type="number" min="1" max="100" step="1" value="4" autocomplete="off">
           </div>
           <div class="field">
             <label for="chat-image-seed" data-i18n="chat.image_seed">Seed</label>
-            <input id="chat-image-seed" type="number" min="0" step="1" value="0">
+            <input id="chat-image-seed" type="number" min="0" step="1" value="0" autocomplete="off">
             <small class="muted chat-opt-hint" data-i18n="chat.image_seed_hint">0 for random seed</small>
           </div>
         </div>
@@ -266,15 +266,15 @@
       <div class="test-editor-body">
         <div class="field">
           <label for="te-name" data-i18n="tests.name">Name</label>
-          <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition">
+          <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition" autocomplete="off">
         </div>
         <div class="field">
           <label for="te-description" data-i18n="tests.description">Description</label>
-          <input id="te-description" type="text" data-i18n-attr="placeholder" data-i18n="tests.description_placeholder" placeholder="Optional description">
+          <input id="te-description" type="text" data-i18n-attr="placeholder" data-i18n="tests.description_placeholder" placeholder="Optional description" autocomplete="off">
         </div>
         <div class="field">
           <label for="te-group" data-i18n="tests.group">Group</label>
-          <select id="te-group"></select>
+          <select id="te-group" autocomplete="off"></select>
         </div>
         <div class="field switch-field">
           <div class="switch-label">
@@ -282,17 +282,17 @@
             <small class="muted" data-i18n="tests.active_hint">Inactive tests are skipped in battery runs.</small>
           </div>
           <label class="switch">
-            <input id="te-active" type="checkbox" checked>
+            <input id="te-active" type="checkbox" checked autocomplete="off">
             <span class="switch-slider"></span>
           </label>
         </div>
         <div class="field">
           <label for="te-prompt" data-i18n="tests.prompt">Prompt</label>
-          <textarea id="te-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="tests.prompt_placeholder" placeholder="The prompt sent to the model..."></textarea>
+          <textarea id="te-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="tests.prompt_placeholder" placeholder="The prompt sent to the model..." autocomplete="off"></textarea>
         </div>
         <div class="field">
           <label for="te-system" data-i18n="tests.system_prompt">System prompt</label>
-          <textarea id="te-system" rows="3" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..."></textarea>
+          <textarea id="te-system" rows="3" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
         </div>
         <div class="field te-attach-field">
           <label>Attachments</label>
@@ -306,15 +306,15 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v3"/></svg>
                 <span>Audio</span>
               </button>
-              <input id="te-image-input" type="file" accept="image/*" multiple hidden>
-              <input id="te-audio-input" type="file" accept="audio/*" multiple hidden>
+              <input id="te-image-input" type="file" accept="image/*" multiple hidden autocomplete="off">
+              <input id="te-audio-input" type="file" accept="audio/*" multiple hidden autocomplete="off">
             </div>
             <div id="te-attach-list" class="te-attach-list"></div>
           </div>
         </div>
         <div class="field">
           <label for="te-eval-type" data-i18n="tests.eval_type">Evaluation type</label>
-          <select id="te-eval-type">
+          <select id="te-eval-type" autocomplete="off">
             <option value="exact_match" data-i18n="tests.eval_exact_match">Exact match</option>
             <option value="contains" data-i18n="tests.eval_contains">Contains</option>
             <option value="regex" data-i18n="tests.eval_regex">Regex</option>
@@ -324,18 +324,18 @@
         </div>
         <div id="te-eval-config-wrap" class="field">
           <label for="te-eval-config" data-i18n="tests.eval_config">Evaluation config (JSON)</label>
-          <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"expected": "42"}'></textarea>
+          <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"expected": "42"}' autocomplete="off"></textarea>
         </div>
         <div class="field">
           <label for="te-required-caps" data-i18n="tests.required_caps">Required capabilities</label>
           <div class="te-caps-col">
-            <input id="te-required-caps" type="text" data-i18n-attr="placeholder" data-i18n="tests.required_caps_placeholder" placeholder="tools, vision (comma-separated)">
+            <input id="te-required-caps" type="text" data-i18n-attr="placeholder" data-i18n="tests.required_caps_placeholder" placeholder="tools, vision (comma-separated)" autocomplete="off">
             <div id="te-auto-caps" class="te-auto-caps"></div>
           </div>
         </div>
         <div class="field">
           <label for="te-order" data-i18n="tests.order">Order</label>
-          <input id="te-order" type="number" value="0">
+          <input id="te-order" type="number" value="0" autocomplete="off">
         </div>
       </div>
       <footer class="test-editor-foot">
@@ -510,7 +510,7 @@
 
           <div class="field">
             <label for="set-port" data-i18n="settings.port">HTTP port</label>
-            <input id="set-port" type="number" min="1" max="65535" inputmode="numeric">
+            <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
           </div>
 
           <div class="field switch-field">
@@ -519,7 +519,7 @@
               <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
             </div>
             <label class="switch">
-              <input id="set-expose" type="checkbox">
+              <input id="set-expose" type="checkbox" autocomplete="off">
               <span class="switch-slider"></span>
             </label>
           </div>

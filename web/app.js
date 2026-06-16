@@ -4379,6 +4379,13 @@ $("te-required-caps")?.addEventListener("input", () => {
   updateTestEditorAutoCaps();
 });
 
+// Disable autocomplete globally for all inputs, textareas, and selects.
+document.querySelectorAll("input, textarea, select").forEach((el) => {
+  if (!el.hasAttribute("autocomplete")) {
+    el.setAttribute("autocomplete", "off");
+  }
+});
+
 // ---------- settings ----------
 let currentConfig = null;
 

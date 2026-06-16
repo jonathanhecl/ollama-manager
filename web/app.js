@@ -5068,9 +5068,15 @@ function renderBatteryResults(run) {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       let badge = "";
-      if (r.passed === true) badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
-      else if (r.passed === false) badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
-      else badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+      if (r.error) {
+        badge = `<span class="badge badge-fail" title="${escapeHtml(r.error)}">${t("battery.fail")}</span>`;
+      } else if (r.passed === true) {
+        badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
+      } else if (r.passed === false) {
+        badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+      } else {
+        badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+      }
 
       const rating = r.human_rating || "";
       const ratingHtml = `

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -54,7 +55,9 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	runID := s.runner.ExecuteBatteryAsync(ctx, group, testsList, body.ModelIDs, modelCaps, func(run *runner.BatteryRun) {
+	// Use background context so async execution survives HTTP request completion.
+	bgCtx := context.Background()
+	runID := s.runner.ExecuteBatteryAsync(bgCtx, group, testsList, body.ModelIDs, modelCaps, func(run *runner.BatteryRun) {
 		_ = s.runnerStore.SaveRun(run)
 		s.runner.ClearProgress(run.ID)
 	})

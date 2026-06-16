@@ -426,6 +426,7 @@ func (m *Manager) Resume(id string) error {
 	}
 	j.Status = StatusQueued
 	j.pauseIntent = false
+	m.queuePaused = false
 	snap := j.clone()
 	m.tryStartNextLocked()
 	if err := m.saveLocked(); err != nil {

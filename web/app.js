@@ -3643,11 +3643,15 @@ function jobCardHTML(j) {
       </div>
       ${progress}
       <div class="dl-row2">
-        ${pctText}
-        ${speedHTML}
-        ${etaHTML}
-        <span class="dl-bytes muted">${escapeHtml(sizeLine)}</span>
-        ${finishedHTML}
+        <div class="dl-left">
+          ${pctText}
+          ${speedHTML}
+          ${etaHTML}
+        </div>
+        <div class="dl-right">
+          <span class="dl-bytes muted">${escapeHtml(sizeLine)}</span>
+          ${finishedHTML}
+        </div>
       </div>
       ${pausedNote}
       ${errBlock}

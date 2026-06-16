@@ -1210,12 +1210,23 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .dl-row2 {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-family: var(--mono);
   font-size: 11px;
 }
-.dl-pct { color: var(--text-dim); }
-.dl-speed { color: var(--text-dim); margin-left: 6px; }
-.dl-eta { color: var(--muted); margin-left: 6px; }
+.dl-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dl-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dl-pct { color: var(--text); font-weight: 600; font-size: 12px; min-width: 44px; }
+.dl-speed { color: var(--good); }
+.dl-eta { color: var(--warn); }
 .dl-bytes { color: var(--muted); }
 
 .dl-note {

@@ -677,11 +677,13 @@ function parseParamSize(s) {
 
 function applySort(arr) {
   const { col, dir } = sort;
-  // Special ordering for modified_at: queued first (newest), running second, installed last (newest)
+  // Special ordering for modified_at: queued/paused first (newest), running second, installed last (newest)
   if (col === "modified_at") {
     return [...arr].sort((a, b) => {
-      const typeA = a.job?.status === "queued" ? 0 : a.job?.status === "running" ? 1 : 2;
-      const typeB = b.job?.status === "queued" ? 0 : b.job?.status === "running" ? 1 : 2;
+      const isActiveA = a.job && (a.job.status === "queued" || a.job.status === "paused");
+      const isActiveB = b.job && (b.job.status === "queued" || b.job.status === "paused");
+      const typeA = isActiveA ? 0 : a.job?.status === "running" ? 1 : 2;
+      const typeB = isActiveB ? 0 : b.job?.status === "running" ? 1 : 2;
       if (typeA !== typeB) return dir === "asc" ? (typeB - typeA) : (typeA - typeB);
       const timeA = a.job?.created_at ? new Date(a.job.created_at).getTime() : new Date(a.modified_at).getTime();
       const timeB = b.job?.created_at ? new Date(b.job.created_at).getTime() : new Date(b.modified_at).getTime();
@@ -704,8 +706,8 @@ function renderTable() {
   const tbody = $("models-tbody");
   
   // Filter models based on archived state
-  const filteredModels = models.filter(m => !!m.archived === showArchivedOnly);
-  
+  const filteredModels = models.filter(m => !!m.archived === showArchivedOnly).map(m => ({...m}));
+
   if (!filteredModels.length && showArchivedOnly) {
     tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
     return;
@@ -721,7 +723,7 @@ function renderTable() {
   if (!showArchivedOnly) {
     for (const j of jobs.values()) {
       if (j.status === "running") runningJobByName.set(j.name, j);
-      if (j.status === "running" || j.status === "queued") {
+      if (["running", "queued", "paused"].includes(j.status)) {
         const model = filteredModels.find(m => m.name === j.name);
         if (model) {
           model.job = j;
@@ -3417,6 +3419,7 @@ function connectJobsStream() {
   jobsStream.addEventListener("update", (ev) => {
     try {
       const data = JSON.parse(ev.data);
+      if ("queue_paused" in data) queuePaused = !!data.queue_paused;
       const j = data.job;
       if (!j || !j.id) return;
       const prev = jobs.get(j.id);
@@ -3435,6 +3438,7 @@ function connectJobsStream() {
   jobsStream.addEventListener("remove", (ev) => {
     try {
       const data = JSON.parse(ev.data);
+      if ("queue_paused" in data) queuePaused = !!data.queue_paused;
       if (!data.id) return;
       jobs.delete(data.id);
       onJobsChanged();

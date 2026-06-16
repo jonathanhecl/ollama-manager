@@ -1214,9 +1214,9 @@ func (s *Server) handleJobsEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			switch ev.Kind {
 			case jobs.EventUpdate:
-				send("update", map[string]any{"job": ev.Job})
+				send("update", map[string]any{"job": ev.Job, "queue_paused": s.jobs.IsQueuePaused()})
 			case jobs.EventRemove:
-				send("remove", map[string]any{"id": ev.ID})
+				send("remove", map[string]any{"id": ev.ID, "queue_paused": s.jobs.IsQueuePaused()})
 			}
 		case <-ticker.C:
 			fmt.Fprint(w, ": ping\n\n")

@@ -281,7 +281,11 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 			return snap, nil
 		case StatusDone, StatusError, StatusCancelled:
 			// Reuse this slot: reset and re-queue at the end.
-			j.Status = StatusQueued
+			if m.queuePaused {
+				j.Status = StatusPaused
+			} else {
+				j.Status = StatusQueued
+			}
 			j.CreatedAt = time.Now().UTC()
 			j.StartedAt = time.Time{}
 			j.FinishedAt = time.Time{}
@@ -310,9 +314,14 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 		return Job{}, err
 	}
 	j := &Job{
-		ID:        id,
-		Name:      name,
-		Status:    StatusQueued,
+		ID:   id,
+		Name: name,
+		Status: func() Status {
+			if m.queuePaused {
+				return StatusPaused
+			}
+			return StatusQueued
+		}(),
 		CreatedAt: time.Now().UTC(),
 	}
 	m.jobs[id] = j
@@ -420,25 +429,47 @@ func (m *Manager) Resume(id string) error {
 }
 
 // PauseQueue prevents new jobs from starting until ResumeQueue is called.
-// A currently running job is allowed to finish.
+// A currently running job is allowed to finish. All queued jobs are moved
+// to the paused state so they appear in the paused section.
 func (m *Manager) PauseQueue() {
 	m.mu.Lock()
 	m.queuePaused = true
+	var snaps []Job
+	for _, j := range m.jobs {
+		if j.Status == StatusQueued {
+			j.Status = StatusPaused
+			snaps = append(snaps, j.clone())
+		}
+	}
 	if err := m.saveLocked(); err != nil {
 		m.logger.Printf("jobs: save failed: %v", err)
 	}
 	m.mu.Unlock()
+	for _, snap := range snaps {
+		m.broadcast(Event{Kind: EventUpdate, Job: &snap})
+	}
 }
 
-// ResumeQueue allows queued jobs to start again.
+// ResumeQueue allows queued jobs to start again. All paused jobs are
+// moved back to the queued state so they appear in the queue section.
 func (m *Manager) ResumeQueue() {
 	m.mu.Lock()
 	m.queuePaused = false
+	var snaps []Job
+	for _, j := range m.jobs {
+		if j.Status == StatusPaused {
+			j.Status = StatusQueued
+			snaps = append(snaps, j.clone())
+		}
+	}
 	if err := m.saveLocked(); err != nil {
 		m.logger.Printf("jobs: save failed: %v", err)
 	}
 	m.tryStartNextLocked()
 	m.mu.Unlock()
+	for _, snap := range snaps {
+		m.broadcast(Event{Kind: EventUpdate, Job: &snap})
+	}
 }
 
 // IsQueuePaused reports whether the queue is currently paused.

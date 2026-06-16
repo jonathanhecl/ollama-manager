@@ -4830,18 +4830,18 @@ async function renderBatteryModalModels() {
     for (const c of t.required_caps || []) requiredCaps.add(c);
   }
 
-  const items = batteryModels.map((m) => {
-    const caps = m.capabilities || [];
-    const hasCompletions = caps.includes("completion");
-    const missing = [];
-    for (const c of requiredCaps) {
-      if (!caps.includes(c)) missing.push(c);
-    }
-    if (!hasCompletions) missing.push("completion");
-    const disabled = missing.length > 0;
-    const title = disabled ? t("battery.model_unsupported_caps") + ": " + missing.join(", ") : "";
-    return { m, disabled, title };
-  });
+  const items = batteryModels
+    .filter((m) => (m.capabilities || []).includes("completion"))
+    .map((m) => {
+      const caps = m.capabilities || [];
+      const missing = [];
+      for (const c of requiredCaps) {
+        if (!caps.includes(c)) missing.push(c);
+      }
+      const disabled = missing.length > 0;
+      const title = disabled ? t("battery.model_unsupported_caps") + ": " + missing.join(", ") : "";
+      return { m, disabled, title };
+    });
 
   if (items.length === 0) {
     container.innerHTML = `<div class="muted">${t("state.empty_models")}</div>`;
@@ -5101,7 +5101,9 @@ async function renderBatteryHistory() {
 $("tests-run-battery-btn")?.addEventListener("click", () => {
   openBatteryModal();
 });
-$("battery-modal-backdrop")?.addEventListener("click", closeBatteryModal);
+$("battery-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("battery-modal")) closeBatteryModal();
+});
 $("battery-modal-close")?.addEventListener("click", closeBatteryModal);
 $("battery-modal-cancel")?.addEventListener("click", closeBatteryModal);
 $("battery-modal-confirm")?.addEventListener("click", () => {

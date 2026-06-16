@@ -1110,6 +1110,16 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
+#dl-pause-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  border-radius: 4px;
+  display: inline-grid;
+  place-items: center;
+  margin-left: auto;
+}
 
 .dl-list {
   display: flex;

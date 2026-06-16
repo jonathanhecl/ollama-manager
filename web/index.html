@@ -281,7 +281,6 @@
           <span id="dl-total-badge" class="badge badge-muted" hidden></span>
         </h2>
         <div class="dl-head-actions">
-          <button id="dl-pause-btn" class="ghost" hidden>⏸</button>
           <button id="downloads-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
         </div>
       </header>
@@ -299,7 +298,11 @@
           <div class="dl-list" id="dl-list-active"></div>
         </section>
         <section class="dl-section" data-section="queued">
-          <h3><span data-i18n="downloads.section_queued">Queued</span> <span class="dl-count" id="dl-count-queued">0</span></h3>
+          <h3>
+            <span data-i18n="downloads.section_queued">Queued</span>
+            <span class="dl-count" id="dl-count-queued">0</span>
+            <button id="dl-pause-btn" class="ghost" hidden></button>
+          </h3>
           <div class="dl-list" id="dl-list-queued"></div>
         </section>
         <section class="dl-section" data-section="paused">

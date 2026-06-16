@@ -670,6 +670,21 @@
       <p class="muted battery-progress-sub" id="battery-progress-sub"></p>
       <div id="battery-progress-current" class="battery-progress-current"></div>
       <div id="battery-progress-models" class="battery-progress-models"></div>
+      <div id="battery-stream-panel" class="battery-stream-panel" hidden>
+        <div class="battery-stream-header">
+          <span data-i18n="battery.stream_prompt">Prompt</span>
+          <span class="muted" id="battery-stream-prompt-name"></span>
+        </div>
+        <div class="battery-stream-block" id="battery-stream-prompt"></div>
+        <div class="battery-stream-header">
+          <span data-i18n="battery.stream_thinking">Thinking</span>
+        </div>
+        <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
+        <div class="battery-stream-header">
+          <span data-i18n="battery.stream_response">Response</span>
+        </div>
+        <div class="battery-stream-block response" id="battery-stream-response"></div>
+      </div>
     </div>
   </main>
 

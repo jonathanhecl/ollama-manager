@@ -4921,6 +4921,28 @@ async function pollBatteryProgress(runID, modelIDs) {
     } else if (currentDiv) {
       currentDiv.innerHTML = "";
     }
+    // Update streaming panel.
+    const streamPanel = $("battery-stream-panel");
+    if (streamPanel && p.test_name && !p.done) {
+      streamPanel.hidden = false;
+      const promptName = $("battery-stream-prompt-name");
+      const promptBlock = $("battery-stream-prompt");
+      const thinkingBlock = $("battery-stream-thinking");
+      const responseBlock = $("battery-stream-response");
+      if (promptName) promptName.textContent = escapeHtml(p.test_name);
+      // Find prompt text from tests array.
+      const currentTest = tests.find((t) => t.id === p.test_id);
+      if (promptBlock && currentTest) promptBlock.textContent = currentTest.prompt || "";
+      if (thinkingBlock) {
+        thinkingBlock.textContent = p.partial_thinking || "";
+        thinkingBlock.parentElement.hidden = !p.partial_thinking;
+        if (thinkingBlock.previousElementSibling) thinkingBlock.previousElementSibling.hidden = !p.partial_thinking;
+      }
+      if (responseBlock) responseBlock.textContent = p.partial_response || "";
+    } else if (streamPanel) {
+      streamPanel.hidden = true;
+    }
+
     // Update model cards.
     const container = $("battery-progress-models");
     if (container && p.model) {

@@ -41,15 +41,17 @@ type TestResult struct {
 
 // Progress tracks the current state of a battery run.
 type Progress struct {
-	RunID      string `json:"run_id"`
-	Model      string `json:"model"`
-	TestID     string `json:"test_id"`
-	TestName   string `json:"test_name"`
-	TestIndex  int    `json:"test_index"`
-	TotalTests int    `json:"total_tests"`
-	IsThinking bool   `json:"is_thinking"`
-	Done       bool   `json:"done"`
-	Error      string `json:"error,omitempty"`
+	RunID           string `json:"run_id"`
+	Model           string `json:"model"`
+	TestID          string `json:"test_id"`
+	TestName        string `json:"test_name"`
+	TestIndex       int    `json:"test_index"`
+	TotalTests      int    `json:"total_tests"`
+	IsThinking      bool   `json:"is_thinking"`
+	PartialResponse string `json:"partial_response,omitempty"`
+	PartialThinking string `json:"partial_thinking,omitempty"`
+	Done            bool   `json:"done"`
+	Error           string `json:"error,omitempty"`
 }
 
 // Client wraps an Ollama client and executes tests.
@@ -212,22 +214,21 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	err := c.ollama.Chat(ctx, req, func(chunk ollama.ChatChunk) error {
 		if chunk.Message.Content != "" {
 			fullContent.WriteString(chunk.Message.Content)
-			// Detect thinking tags in real-time.
-			content := fullContent.String()
-			if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
-				if !isThinking {
-					isThinking = true
-					c.updateProgressThinking(runID, true)
-				}
-			}
-			if isThinking && (strings.Contains(content, "</thinking>") || strings.Contains(content, "</stitching>") || strings.Contains(content, "</throat>")) {
-				isThinking = false
-				c.updateProgressThinking(runID, false)
-			}
 		}
 		if chunk.Message.Thinking != "" {
 			fullThinking.WriteString(chunk.Message.Thinking)
 		}
+		// Detect thinking tags in real-time and update progress with partial content.
+		content := fullContent.String()
+		wasThinking := isThinking
+		if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
+			isThinking = true
+		}
+		if isThinking && (strings.Contains(content, "</thinking>") || strings.Contains(content, "</stitching>") || strings.Contains(content, "</throat>")) {
+			isThinking = false
+		}
+		c.updateProgressStream(runID, isThinking, content, fullThinking.String())
+		_ = wasThinking
 		if chunk.Done {
 			chunkMeta = &chunk
 		}
@@ -260,11 +261,13 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	return res
 }
 
-func (c *Client) updateProgressThinking(runID string, thinking bool) {
+func (c *Client) updateProgressStream(runID string, thinking bool, content, reasoning string) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
 	if p, ok := c.progress[runID]; ok && p != nil {
 		p.IsThinking = thinking
+		p.PartialResponse = content
+		p.PartialThinking = reasoning
 	}
 }
 

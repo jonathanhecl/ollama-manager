@@ -1430,6 +1430,8 @@ function showModelsView() {
   currentView = "models";
   if (modelsView) modelsView.hidden = false;
   if (chatView) chatView.hidden = true;
+  $("tests-view") && ($("tests-view").hidden = true);
+  $("test-editor-view") && ($("test-editor-view").hidden = true);
   $("chat-btn")?.classList.remove("active");
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");

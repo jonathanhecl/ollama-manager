@@ -3519,12 +3519,21 @@ function renderDownloads() {
   }
   $("dl-clear-btn").disabled = buckets.finished.length === 0;
 
-  // Global pause/resume button
+  // Section-level pause/resume button: pause-all when queued exist, resume-all when only paused exist.
+  const hasQueued = buckets.queued.length > 0;
+  const hasPaused = buckets.paused.length > 0;
   const pauseBtn = $("dl-pause-btn");
-  if (hasAny || queuePaused) {
+  if (hasQueued || hasPaused) {
     pauseBtn.hidden = false;
-    pauseBtn.title = queuePaused ? t("downloads.resume_queue") : t("downloads.pause_queue");
-    pauseBtn.textContent = queuePaused ? "▶" : "⏸";
+    if (hasQueued) {
+      pauseBtn.title = t("downloads.pause_queue");
+      pauseBtn.textContent = "⏸";
+      pauseBtn.dataset.action = "pause";
+    } else {
+      pauseBtn.title = t("downloads.resume_queue");
+      pauseBtn.textContent = "▶";
+      pauseBtn.dataset.action = "resume";
+    }
   } else {
     pauseBtn.hidden = true;
   }
@@ -3711,15 +3720,13 @@ $("downloads-modal").addEventListener("click", (e) => {
 });
 
 $("dl-pause-btn").addEventListener("click", async () => {
+  const btn = $("dl-pause-btn");
   try {
-    if (queuePaused) {
-      await api("/api/jobs/resume", { method: "POST" });
-      queuePaused = false;
-    } else {
+    if (btn.dataset.action === "pause") {
       await api("/api/jobs/pause", { method: "POST" });
-      queuePaused = true;
+    } else {
+      await api("/api/jobs/resume", { method: "POST" });
     }
-    renderDownloads();
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }

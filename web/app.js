@@ -4189,6 +4189,10 @@ async function logoutAndRedirect() {
   window.location.href = "/login";
 }
 
+document.querySelector(".brand")?.addEventListener("click", () => {
+  showModelsView();
+  history.pushState(null, "", "/");
+});
 $("refresh-btn").addEventListener("click", () => { refreshStatus(); refreshModels(); });
 $("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 

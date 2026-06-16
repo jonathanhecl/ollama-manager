@@ -69,7 +69,8 @@ input:focus { border-color: var(--accent); }
   background: var(--panel);
   position: sticky; top: 0; z-index: 5;
 }
-.brand { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.brand:hover { opacity: 0.85; }
 .brand h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .2px; }
 .brand .dot {
   width: 8px; height: 8px; border-radius: 50%;

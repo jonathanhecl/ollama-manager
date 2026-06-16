@@ -45,12 +45,20 @@ func (s *Store) SeedIfEmpty() error {
 		Description: "JSON schema and structured format tests",
 		Order:       3,
 	}
+	gAgent := &Group{
+		ID:           "agent",
+		Name:         "Multi-Turn Agent",
+		Description:  "Multi-turn agent capability tests with sandboxed file system",
+		RequiredCaps: []string{"tools"},
+		Order:        4,
+	}
 
 	s.groups = map[string]*Group{
 		gCore.ID:  gCore,
 		gTools.ID: gTools,
 		gMulti.ID: gMulti,
 		gJSON.ID:  gJSON,
+		gAgent.ID: gAgent,
 	}
 
 	// ---------- Tests ----------
@@ -266,6 +274,110 @@ Respond ONLY with the correct tool call. No extra text.`,
 			}),
 			CreatedAt: now,
 			UpdatedAt: now,
+		},
+
+		// === Multi-Turn Agent (human review) ===
+		{
+			ID:          "t12",
+			Name:        "Animated Solar System",
+			Description: "Build a complete animated solar system with HTML/CSS/JS. The model must create files, iterate, and accept human feedback.",
+			GroupID:     gAgent.ID,
+			Active:      true,
+			Order:       0,
+			Prompt: `Create a complete animated solar system using HTML, CSS, and JavaScript.
+Requirements:
+- The sun in the center with a glow effect
+- At least 4 planets orbiting at different speeds (relative to real orbital periods)
+- Pause / resume controls
+- Zoom controls
+- Smooth animations using CSS or Canvas
+
+Use the available tools to create files in the sandbox. Start by creating index.html, style.css, and script.js.`,
+			SystemPrompt: `You are a web developer agent. You have access to file tools (read_file, write_file, list_dir, exec).
+Your task is to build a web project by creating and editing files in the sandbox.
+When you need to make changes, use the tools directly. Do not ask for permission.
+After each change, explain what you did.`,
+			EvaluationType: "agent",
+			EvaluationConfig: mustJSON(map[string]any{
+				"max_turns": 15,
+				"initial_files": []map[string]string{
+					{"path": "index.html", "content": "<!DOCTYPE html>\n<html>\n<head><title>Solar System</title><link rel=\"stylesheet\" href=\"style.css\"></head>\n<body>\n<div id=\"solar-system\"></div>\n<script src=\"script.js\"></script>\n</body>\n</html>"},
+					{"path": "style.css", "content": "body { margin: 0; background: #000; overflow: hidden; }\n#solar-system { width: 100vw; height: 100vh; position: relative; }"},
+					{"path": "script.js", "content": "// Solar system logic goes here\n"},
+				},
+				"tools":        []string{"read_file", "write_file", "list_dir", "exec"},
+				"human_review": true,
+			}),
+			RequiredCaps: []string{"tools"},
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			ID:          "t13",
+			Name:        "Shoe Store Website",
+			Description: "Build a single-page shoe store with product grid, cart, and responsive layout.",
+			GroupID:     gAgent.ID,
+			Active:      true,
+			Order:       1,
+			Prompt: `Build a single-page shoe store website.
+Requirements:
+- A product grid showing at least 6 different shoes with images (use placeholder URLs), names, and prices
+- An "Add to cart" button on each product
+- A shopping cart sidebar that shows added items, quantities, and total price
+- A responsive layout that works on mobile and desktop
+- Use vanilla HTML, CSS, and JavaScript (no external libraries)
+
+Create the necessary files using the sandbox tools.`,
+			SystemPrompt: `You are a web developer agent with access to file tools (read_file, write_file, list_dir, exec).
+Build the requested web project by creating and editing files. Use the tools directly.
+Explain your changes after each action.`,
+			EvaluationType: "agent",
+			EvaluationConfig: mustJSON(map[string]any{
+				"max_turns": 12,
+				"initial_files": []map[string]string{
+					{"path": "index.html", "content": "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>Shoe Store</title><link rel=\"stylesheet\" href=\"style.css\"></head>\n<body>\n<header><h1>Shoe Store</h1></header>\n<main id=\"app\"></main>\n<script src=\"app.js\"></script>\n</body>\n</html>"},
+					{"path": "style.css", "content": "* { box-sizing: border-box; margin: 0; padding: 0; }\nbody { font-family: sans-serif; background: #f5f5f5; }"},
+					{"path": "app.js", "content": "// Shoe store logic goes here\n"},
+				},
+				"tools":        []string{"read_file", "write_file", "list_dir", "exec"},
+				"human_review": true,
+			}),
+			RequiredCaps: []string{"tools"},
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			ID:          "t14",
+			Name:        "To-Do App",
+			Description: "Create a functional to-do list in a single HTML file with localStorage persistence.",
+			GroupID:     gAgent.ID,
+			Active:      true,
+			Order:       2,
+			Prompt: `Create a fully functional to-do list application in a single HTML file.
+Requirements:
+- Add new tasks with a text input and a button
+- Mark tasks as complete (strikethrough or checkbox)
+- Delete individual tasks
+- Filter tasks by: All, Active, Completed
+- Persist tasks in localStorage so they survive page reloads
+- Clean, modern UI with CSS
+
+Create index.html and implement everything inside it (HTML + CSS + JS).`,
+			SystemPrompt: `You are a web developer agent with access to file tools (read_file, write_file, list_dir, exec).
+Build the requested application by creating and editing files in the sandbox.
+Use the tools directly. Explain your changes after each action.`,
+			EvaluationType: "agent",
+			EvaluationConfig: mustJSON(map[string]any{
+				"max_turns": 10,
+				"initial_files": []map[string]string{
+					{"path": "index.html", "content": "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>To-Do App</title></head>\n<body>\n<div id=\"app\"></div>\n<script></script>\n</body>\n</html>"},
+				},
+				"tools":        []string{"read_file", "write_file", "list_dir", "exec"},
+				"human_review": true,
+			}),
+			RequiredCaps: []string{"tools"},
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		},
 	}
 

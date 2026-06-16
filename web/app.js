@@ -249,6 +249,10 @@ let selectedGroupId = "";
 let currentTestId = null; // null for new, id for edit
 let testEditorAttachments = []; // {id, kind, name, mime, data}
 
+// Agent session state.
+let currentAgentSession = null; // session object from API
+let currentAgentTestId = null;
+
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
 let sort = { col: "modified_at", dir: "desc" };
@@ -1494,6 +1498,7 @@ function hideAllMainViews() {
   $("chat-view").hidden = true;
   $("tests-view").hidden = true;
   $("test-editor-view").hidden = true;
+  $("agent-session-view").hidden = true;
   $("detail-panel").hidden = true;
 }
 
@@ -1525,7 +1530,18 @@ function showTestEditorView(id) {
       $("te-prompt").value = test.prompt || "";
       $("te-system").value = test.system_prompt || "";
       $("te-eval-type").value = test.evaluation_type || "exact_match";
+      updateAgentSettingsVisibility();
       $("te-eval-config").value = test.evaluation_config ? JSON.stringify(test.evaluation_config, null, 2) : "";
+      if (test.evaluation_type === "agent" && test.evaluation_config) {
+        const cfg = test.evaluation_config;
+        $("te-agent-max-turns").value = String(cfg.max_turns || 10);
+        $("te-agent-initial-files").value = cfg.initial_files ? JSON.stringify(cfg.initial_files, null, 2) : "";
+        const toolChecks = $("te-agent-settings")?.querySelectorAll('input[type="checkbox"]');
+        if (toolChecks) {
+          const allowed = new Set(cfg.tools || []);
+          toolChecks.forEach((cb) => { cb.checked = allowed.has(cb.value); });
+        }
+      }
       $("te-required-caps").value = (test.required_caps || []).join(", ");
       $("te-order").value = String(test.order || 0);
       testEditorAttachments = (test.attachments || []).map((a) => ({ ...a }));
@@ -1650,6 +1666,7 @@ function renderTestsList() {
           ${test.description ? `<div class="tests-item-desc muted">${escapeHtml(test.description)}</div>` : ""}
         </div>
         <div class="tests-item-actions">
+          ${test.evaluation_type === "agent" ? `<button class="ghost tests-item-run" data-id="${escapeHtml(test.id)}">${t("tests.agent_run")}</button>` : ""}
           <button class="ghost tests-item-edit" data-i18n="action.edit">Edit</button>
           <button class="ghost tests-item-toggle" data-id="${escapeHtml(test.id)}">${test.active ? t("tests.suspend") : t("tests.activate")}</button>
           <button class="ghost danger-text tests-item-delete" data-id="${escapeHtml(test.id)}">×</button>
@@ -1706,6 +1723,13 @@ function renderTestsList() {
       } catch (err) {
         toast(t("toast.error", { msg: err.message }), "error");
       }
+    });
+  });
+  list.querySelectorAll(".tests-item-run").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (id) showAgentSessionView(id);
     });
   });
 }
@@ -1807,6 +1831,27 @@ async function saveTestEditor() {
       return;
     }
   }
+  let agentConfig = evalConfig;
+  if ($("te-eval-type").value === "agent") {
+    const maxTurns = Number($("te-agent-max-turns").value) || 10;
+    const initialFilesRaw = $("te-agent-initial-files").value.trim();
+    let initialFiles = [];
+    if (initialFilesRaw) {
+      try { initialFiles = JSON.parse(initialFilesRaw); } catch { /* ignore */ }
+    }
+    const toolChecks = $("te-agent-settings")?.querySelectorAll('input[type="checkbox"]');
+    const tools = [];
+    if (toolChecks) {
+      toolChecks.forEach((cb) => { if (cb.checked) tools.push(cb.value); });
+    }
+    agentConfig = {
+      max_turns: maxTurns,
+      initial_files: Array.isArray(initialFiles) ? initialFiles : [],
+      tools: tools,
+      human_review: true,
+    };
+  }
+
   const payload = {
     name: $("te-name").value.trim(),
     description: $("te-description").value.trim(),
@@ -1815,7 +1860,7 @@ async function saveTestEditor() {
     prompt: $("te-prompt").value,
     system_prompt: $("te-system").value,
     evaluation_type: $("te-eval-type").value,
-    evaluation_config: evalConfig,
+    evaluation_config: agentConfig,
     required_caps: $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean),
     attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
     order: Number($("te-order").value) || 0,
@@ -1948,6 +1993,9 @@ function handleRouting() {
   } else if (path.startsWith("/tests/edit/")) {
     const id = path.substring(12);
     showTestEditorView(id);
+  } else if (path.startsWith("/tests/agent/")) {
+    const id = path.substring(13);
+    showAgentSessionView(id);
   } else if (path === "/") {
     showModelsView();
   }
@@ -4355,6 +4403,15 @@ $("test-editor-save")?.addEventListener("click", () => {
 $("test-editor-delete")?.addEventListener("click", () => {
   void deleteTestEditor();
 });
+$("te-eval-type")?.addEventListener("change", () => {
+  updateAgentSettingsVisibility();
+});
+
+function updateAgentSettingsVisibility() {
+  const isAgent = $("te-eval-type")?.value === "agent";
+  const panel = $("te-agent-settings");
+  if (panel) panel.hidden = !isAgent;
+}
 
 // Test editor attachments
 $("te-add-image-btn")?.addEventListener("click", () => {
@@ -4561,6 +4618,181 @@ window.addEventListener("resize", () => {
   const btn = $("tests-btn");
   if (btn) btn.hidden = window.innerWidth <= 900;
 });
+// ---------- agent session ----------
+
+async function showAgentSessionView(testId) {
+  currentAgentTestId = testId;
+  hideAllMainViews();
+  currentView = "agent-session";
+  $("agent-session-view").hidden = false;
+  if (window.location.pathname !== "/tests/agent/" + testId) {
+    history.pushState(null, "", "/tests/agent/" + testId);
+  }
+
+  // Look up the test to display title.
+  const test = tests.find((t) => t.id === testId);
+  $("agent-session-title").textContent = test ? test.name : "Agent Test";
+
+  // Try to find an existing session for this test, or create one.
+  try {
+    const sessions = await api("/api/tests/agent/sessions");
+    const existing = sessions.find((s) => s.test_id === testId);
+    if (existing) {
+      currentAgentSession = existing;
+      renderAgentSession();
+      return;
+    }
+  } catch {
+    // ignore, will create below
+  }
+
+  try {
+    const created = await api("/api/tests/agent/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ test_id: testId, model_id: null }),
+    });
+    currentAgentSession = created;
+    renderAgentSession();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function refreshAgentSession() {
+  if (!currentAgentSession) return;
+  try {
+    const s = await api("/api/tests/agent/sessions/" + encodeURIComponent(currentAgentSession.id));
+    currentAgentSession = s;
+    renderAgentSession();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+function renderAgentSession() {
+  const s = currentAgentSession;
+  if (!s) return;
+
+  $("agent-meta-max-turns").textContent = String(s.max_turns || "—");
+  $("agent-meta-current-turn").textContent = String(s.turns?.length || 0);
+  $("agent-meta-model").textContent = s.model_id || t("tests.agent_no_model");
+
+  const statusBadge = $("agent-session-status");
+  if (s.completed) {
+    statusBadge.textContent = t("tests.agent_completed");
+    statusBadge.className = "agent-status-badge completed";
+    $("agent-feedback-area").hidden = true;
+  } else {
+    statusBadge.textContent = t("tests.agent_in_progress");
+    statusBadge.className = "agent-status-badge in-progress";
+    $("agent-feedback-area").hidden = false;
+  }
+
+  renderAgentTurns(s.turns || []);
+  renderAgentSandbox(s.id);
+}
+
+function renderAgentTurns(turns) {
+  const container = $("agent-turns-timeline");
+  if (!container) return;
+  if (!turns.length) {
+    container.innerHTML = `<div class="muted">${escapeHtml(t("tests.agent_no_turns"))}</div>`;
+    return;
+  }
+  container.innerHTML = turns.map((turn, idx) => {
+    const roleClass = turn.role === "tool" ? "agent-turn-tool" : turn.role === "system" ? "agent-turn-system" : "agent-turn-user";
+    const content = escapeHtml(turn.content || "");
+    const toolCall = turn.tool_call ? `<pre class="agent-turn-tool-call">${escapeHtml(JSON.stringify(turn.tool_call, null, 2))}</pre>` : "";
+    return `<div class="agent-turn ${roleClass}">
+      <div class="agent-turn-header">#${idx + 1} — ${escapeHtml(turn.role)}</div>
+      <div class="agent-turn-body">${content || ""}</div>
+      ${toolCall}
+      ${turn.tool_result ? `<pre class="agent-turn-tool-result">${escapeHtml(JSON.stringify(turn.tool_result, null, 2))}</pre>` : ""}
+    </div>`;
+  }).join("");
+  container.scrollTop = container.scrollHeight;
+}
+
+async function renderAgentSandbox(sessionId) {
+  const container = $("agent-sandbox-tree");
+  if (!container) return;
+  try {
+    const files = await api("/api/tests/agent/sessions/" + encodeURIComponent(sessionId) + "/files");
+    if (!files || !files.length) {
+      container.innerHTML = `<div class="muted">${escapeHtml(t("tests.agent_empty_sandbox"))}</div>`;
+      return;
+    }
+    container.innerHTML = files.map((f) => {
+      const icon = f.is_dir ? "📁" : "📄";
+      return `<div class="agent-sandbox-item" data-path="${escapeHtml(f.path)}">
+        <span>${icon} ${escapeHtml(f.name)}</span>
+      </div>`;
+    }).join("");
+  } catch {
+    container.innerHTML = `<div class="muted">${escapeHtml(t("tests.agent_sandbox_error"))}</div>`;
+  }
+}
+
+async function submitAgentFeedback() {
+  if (!currentAgentSession) return;
+  const input = $("agent-feedback-input");
+  const content = input.value.trim();
+  if (!content) return;
+  try {
+    await api("/api/tests/agent/sessions/" + encodeURIComponent(currentAgentSession.id) + "/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "user", content }),
+    });
+    input.value = "";
+    await refreshAgentSession();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function resetAgentSession() {
+  if (!currentAgentSession) return;
+  try {
+    await api("/api/tests/agent/sessions/" + encodeURIComponent(currentAgentSession.id) + "/reset", { method: "POST" });
+    await refreshAgentSession();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function deleteAgentSession() {
+  if (!currentAgentSession) return;
+  const ok = await askConfirm({
+    title: t("tests.agent_delete_session"),
+    text: t("tests.agent_delete_confirm"),
+    okText: t("action.delete"),
+    okClass: "danger",
+  });
+  if (!ok.ok) return;
+  try {
+    await api("/api/tests/agent/sessions/" + encodeURIComponent(currentAgentSession.id), { method: "DELETE" });
+    currentAgentSession = null;
+    showTestsView();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+$("agent-session-back")?.addEventListener("click", () => {
+  showTestsView();
+});
+$("agent-session-reset")?.addEventListener("click", () => {
+  void resetAgentSession();
+});
+$("agent-session-delete")?.addEventListener("click", () => {
+  void deleteAgentSession();
+});
+$("agent-feedback-send")?.addEventListener("click", () => {
+  void submitAgentFeedback();
+});
+
 window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
 refreshStatus();
 refreshModels();

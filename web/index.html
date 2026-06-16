@@ -321,11 +321,35 @@
             <option value="regex" data-i18n="tests.eval_regex">Regex</option>
             <option value="json_schema" data-i18n="tests.eval_json_schema">JSON schema</option>
             <option value="human_review" data-i18n="tests.eval_human_review">Human review</option>
+            <option value="agent" data-i18n="tests.eval_agent">Agent (multi-turn)</option>
           </select>
         </div>
         <div id="te-eval-config-wrap" class="field">
           <label for="te-eval-config" data-i18n="tests.eval_config">Evaluation config (JSON)</label>
           <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"expected": "42"}' autocomplete="off"></textarea>
+        </div>
+        <div id="te-agent-settings" class="field te-agent-settings" hidden>
+          <label data-i18n="tests.agent_settings">Agent settings</label>
+          <div class="te-agent-settings-body">
+            <div class="field">
+              <label for="te-agent-max-turns" data-i18n="tests.agent_max_turns">Max turns</label>
+              <input id="te-agent-max-turns" type="number" value="10" min="1" max="50" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="te-agent-initial-files" data-i18n="tests.agent_initial_files">Initial files</label>
+              <textarea id="te-agent-initial-files" rows="6" placeholder='[{"path":"index.html","content":"<!DOCTYPE html>..."}]' autocomplete="off"></textarea>
+              <small class="muted">JSON array of {path, content} objects</small>
+            </div>
+            <div class="field">
+              <label data-i18n="tests.agent_tools">Available tools</label>
+              <div class="te-agent-tools">
+                <label><input type="checkbox" value="read_file" checked autocomplete="off"> read_file</label>
+                <label><input type="checkbox" value="write_file" checked autocomplete="off"> write_file</label>
+                <label><input type="checkbox" value="list_dir" checked autocomplete="off"> list_dir</label>
+                <label><input type="checkbox" value="exec" checked autocomplete="off"> exec</label>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="field">
           <label for="te-required-caps" data-i18n="tests.required_caps">Required capabilities</label>
@@ -346,6 +370,44 @@
           <button id="test-editor-save" class="primary" data-i18n="action.save">Save</button>
         </div>
       </footer>
+    </div>
+  </main>
+
+  <main id="agent-session-view" hidden>
+    <div class="agent-session-wrap">
+      <header class="agent-session-head">
+        <button id="agent-session-back" class="ghost" data-i18n="tests.back_to_list">← Back to list</button>
+        <h2 id="agent-session-title">Agent Test</h2>
+        <span id="agent-session-status" class="agent-status-badge"></span>
+      </header>
+      <div class="agent-session-body">
+        <aside class="agent-session-sidebar">
+          <div class="agent-session-section">
+            <h3 data-i18n="tests.agent_sandbox">Sandbox</h3>
+            <div id="agent-sandbox-tree" class="agent-sandbox-tree"></div>
+          </div>
+          <div class="agent-session-section">
+            <h3 data-i18n="tests.agent_status">Status</h3>
+            <div class="agent-meta">
+              <div><span data-i18n="tests.agent_max_turns">Max turns</span>: <span id="agent-meta-max-turns">—</span></div>
+              <div><span data-i18n="tests.agent_turns">Turns</span>: <span id="agent-meta-current-turn">—</span></div>
+              <div>Model: <span id="agent-meta-model">—</span></div>
+            </div>
+            <div class="agent-session-actions">
+              <button id="agent-session-reset" class="ghost" data-i18n="tests.agent_reset">Reset session</button>
+              <button id="agent-session-delete" class="ghost danger-text" data-i18n="tests.agent_delete_session">Delete session</button>
+            </div>
+          </div>
+        </aside>
+        <section class="agent-session-main">
+          <div id="agent-turns-timeline" class="agent-turns-timeline"></div>
+          <div id="agent-feedback-area" class="agent-feedback-area" hidden>
+            <label data-i18n="tests.agent_feedback">Feedback</label>
+            <textarea id="agent-feedback-input" rows="3" data-i18n-attr="placeholder" data-i18n="tests.agent_feedback" placeholder="Enter feedback or corrections..." autocomplete="off"></textarea>
+            <button id="agent-feedback-send" class="primary" data-i18n="tests.agent_send_feedback">Send feedback</button>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
 

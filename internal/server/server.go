@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/gense/ollama-manager/internal/agent"
 	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/jobs"
 	"github.com/gense/ollama-manager/internal/ollama"
@@ -32,6 +33,7 @@ type Server struct {
 	uninst     *uninstallHistoryStore
 	archived   *archivedModelsStore
 	testsStore *tests.Store
+	agentStore *agent.SessionStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -80,6 +82,8 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		log.Printf("tests: seed failed: %v", err)
 	}
 
+	agentStore := agent.NewSessionStore(filepath.Dir(cfg.Path()))
+
 	return &Server{
 		cfg:        cfg,
 		ollama:     ollamaClient,
@@ -89,6 +93,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		uninst:     uninst,
 		archived:   archivedStore,
 		testsStore: testsStore,
+		agentStore: agentStore,
 		ctxCache:   make(map[string]int64),
 		capsCache:  make(map[string][]string),
 	}, nil
@@ -150,6 +155,15 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/test-groups", s.requireAuth(s.handleTestGroupsCreate))
 	mux.Handle("PUT /api/test-groups/{id}", s.requireAuth(s.handleTestGroupsUpdate))
 	mux.Handle("DELETE /api/test-groups/{id}", s.requireAuth(s.handleTestGroupsDelete))
+
+	mux.Handle("GET /api/tests/agent/sessions", s.requireAuth(s.handleAgentSessionsList))
+	mux.Handle("POST /api/tests/agent/sessions", s.requireAuth(s.handleAgentSessionsCreate))
+	mux.Handle("GET /api/tests/agent/sessions/{id}", s.requireAuth(s.handleAgentSessionGet))
+	mux.Handle("POST /api/tests/agent/sessions/{id}/message", s.requireAuth(s.handleAgentSessionMessage))
+	mux.Handle("POST /api/tests/agent/sessions/{id}/tool", s.requireAuth(s.handleAgentSessionTool))
+	mux.Handle("POST /api/tests/agent/sessions/{id}/reset", s.requireAuth(s.handleAgentSessionReset))
+	mux.Handle("DELETE /api/tests/agent/sessions/{id}", s.requireAuth(s.handleAgentSessionDestroy))
+	mux.Handle("GET /api/tests/agent/sessions/{id}/files", s.requireAuth(s.handleAgentSessionFiles))
 
 	return logging(mux)
 }

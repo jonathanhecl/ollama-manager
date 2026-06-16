@@ -1,22 +1,22 @@
 [
   {
-    "id": "t5",
-    "name": "Calculator Tool Call",
-    "description": "One-shot: model must use calculator tool for complex math.",
+    "id": "t4",
+    "name": "Weather Tool Call",
+    "description": "One-shot: model must emit a get_weather call.",
     "group_id": "tools",
     "active": true,
-    "order": 1,
-    "prompt": "Compute exactly 47 * 128 + 93.",
-    "system_prompt": "You have access to the following tool:\ncalculator(expression: string) -\u003e number\nWhen a calculation is requested, respond ONLY with the tool call. Example:\ncalculator(\"12 * 34\")\nDo not add any other text.",
+    "order": 0,
+    "prompt": "What is the weather like in Paris right now?",
+    "system_prompt": "You have access to the following tool:\nget_weather(location: string) -\u003e {temperature: number, condition: string}\nWhen the user asks about weather, respond ONLY with the tool call. Example:\nget_weather(\"London\")\nDo not add any other text.",
     "evaluation_type": "regex",
     "evaluation_config": {
-      "pattern": "(?i)calculator\\s*\\(\\s*\".*47.*\\*.*128.*\\+.*93.*\"\\s*\\)"
+      "pattern": "(?i)get_weather\\s*\\(\\s*\"Paris\"\\s*\\)"
     },
     "required_caps": [
       "tools"
     ],
-    "created_at": "2026-06-16T06:28:32.9946641Z",
-    "updated_at": "2026-06-16T06:28:32.9946641Z"
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
   },
   {
     "id": "t7",
@@ -34,27 +34,27 @@
     "required_caps": [
       "tools"
     ],
-    "created_at": "2026-06-16T06:28:32.9946641Z",
-    "updated_at": "2026-06-16T06:28:32.9946641Z"
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
   },
   {
-    "id": "t4",
-    "name": "Weather Tool Call",
-    "description": "One-shot: model must emit a get_weather call.",
+    "id": "t5",
+    "name": "Calculator Tool Call",
+    "description": "One-shot: model must use calculator tool for complex math.",
     "group_id": "tools",
     "active": true,
-    "order": 0,
-    "prompt": "What is the weather like in Paris right now?",
-    "system_prompt": "You have access to the following tool:\nget_weather(location: string) -\u003e {temperature: number, condition: string}\nWhen the user asks about weather, respond ONLY with the tool call. Example:\nget_weather(\"London\")\nDo not add any other text.",
+    "order": 1,
+    "prompt": "Compute exactly 47 * 128 + 93.",
+    "system_prompt": "You have access to the following tool:\ncalculator(expression: string) -\u003e number\nWhen a calculation is requested, respond ONLY with the tool call. Example:\ncalculator(\"12 * 34\")\nDo not add any other text.",
     "evaluation_type": "regex",
     "evaluation_config": {
-      "pattern": "(?i)get_weather\\s*\\(\\s*\"Paris\"\\s*\\)"
+      "pattern": "(?i)calculator\\s*\\(\\s*\".*47.*\\*.*128.*\\+.*93.*\"\\s*\\)"
     },
     "required_caps": [
       "tools"
     ],
-    "created_at": "2026-06-16T06:28:32.9946641Z",
-    "updated_at": "2026-06-16T06:28:32.9946641Z"
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
   },
   {
     "id": "t6",
@@ -72,7 +72,7 @@
     "required_caps": [
       "tools"
     ],
-    "created_at": "2026-06-16T06:28:32.9946641Z",
-    "updated_at": "2026-06-16T06:28:32.9946641Z"
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
   }
 ]

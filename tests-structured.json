@@ -1,5 +1,28 @@
 [
   {
+    "id": "t11",
+    "name": "JSON Array of Items",
+    "description": "Model must return a JSON array with exactly 3 items.",
+    "group_id": "structured",
+    "active": true,
+    "order": 1,
+    "prompt": "List three programming languages invented before 1990. Return ONLY a JSON array of strings. No markdown.",
+    "system_prompt": "Respond with a raw JSON array. No extra text.",
+    "evaluation_type": "json_schema",
+    "evaluation_config": {
+      "schema": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      }
+    },
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
+  },
+  {
     "id": "t10",
     "name": "JSON Person Object",
     "description": "Model must return strictly valid JSON matching a schema.",
@@ -34,30 +57,7 @@
         "type": "object"
       }
     },
-    "created_at": "2026-06-16T06:28:32.9946641Z",
-    "updated_at": "2026-06-16T06:28:32.9946641Z"
-  },
-  {
-    "id": "t11",
-    "name": "JSON Array of Items",
-    "description": "Model must return a JSON array with exactly 3 items.",
-    "group_id": "structured",
-    "active": true,
-    "order": 1,
-    "prompt": "List three programming languages invented before 1990. Return ONLY a JSON array of strings. No markdown.",
-    "system_prompt": "Respond with a raw JSON array. No extra text.",
-    "evaluation_type": "json_schema",
-    "evaluation_config": {
-      "schema": {
-        "items": {
-          "type": "string"
-        },
-        "maxItems": 3,
-        "minItems": 3,
-        "type": "array"
-      }
-    },
-    "created_at": "2026-06-16T06:28:32.9946641Z",
-    "updated_at": "2026-06-16T06:28:32.9946641Z"
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
   }
 ]

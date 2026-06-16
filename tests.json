@@ -1,18 +1,6 @@
 {
   "groups": [
     {
-      "id": "structured",
-      "name": "Structured Output",
-      "description": "JSON schema and structured format tests",
-      "order": 3
-    },
-    {
-      "id": "core",
-      "name": "Core Skills",
-      "description": "Basic reasoning, math, and logic",
-      "order": 0
-    },
-    {
       "id": "tools",
       "name": "One-Shot Tool Use",
       "description": "Single-turn tool-calling capability tests",
@@ -26,6 +14,27 @@
       "name": "Multimodal",
       "description": "Vision, audio, and file input tests",
       "order": 2
+    },
+    {
+      "id": "structured",
+      "name": "Structured Output",
+      "description": "JSON schema and structured format tests",
+      "order": 3
+    },
+    {
+      "id": "agent",
+      "name": "Multi-Turn Agent",
+      "description": "Multi-turn agent capability tests with sandboxed file system",
+      "required_caps": [
+        "tools"
+      ],
+      "order": 4
+    },
+    {
+      "id": "core",
+      "name": "Core Skills",
+      "description": "Basic reasoning, math, and logic",
+      "order": 0
     }
   ]
 }

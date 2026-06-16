@@ -1,0 +1,114 @@
+[
+  {
+    "id": "t12",
+    "name": "Animated Solar System",
+    "description": "Build a complete animated solar system with HTML/CSS/JS. The model must create files, iterate, and accept human feedback.",
+    "group_id": "agent",
+    "active": true,
+    "order": 0,
+    "prompt": "Create a complete animated solar system using HTML, CSS, and JavaScript.\nRequirements:\n- The sun in the center with a glow effect\n- At least 4 planets orbiting at different speeds (relative to real orbital periods)\n- Pause / resume controls\n- Zoom controls\n- Smooth animations using CSS or Canvas\n\nUse the available tools to create files in the sandbox. Start by creating index.html, style.css, and script.js.",
+    "system_prompt": "You are a web developer agent. You have access to file tools (read_file, write_file, list_dir, exec).\nYour task is to build a web project by creating and editing files in the sandbox.\nWhen you need to make changes, use the tools directly. Do not ask for permission.\nAfter each change, explain what you did.",
+    "evaluation_type": "agent",
+    "evaluation_config": {
+      "human_review": true,
+      "initial_files": [
+        {
+          "content": "\u003c!DOCTYPE html\u003e\n\u003chtml\u003e\n\u003chead\u003e\u003ctitle\u003eSolar System\u003c/title\u003e\u003clink rel=\"stylesheet\" href=\"style.css\"\u003e\u003c/head\u003e\n\u003cbody\u003e\n\u003cdiv id=\"solar-system\"\u003e\u003c/div\u003e\n\u003cscript src=\"script.js\"\u003e\u003c/script\u003e\n\u003c/body\u003e\n\u003c/html\u003e",
+          "path": "index.html"
+        },
+        {
+          "content": "body { margin: 0; background: #000; overflow: hidden; }\n#solar-system { width: 100vw; height: 100vh; position: relative; }",
+          "path": "style.css"
+        },
+        {
+          "content": "// Solar system logic goes here\n",
+          "path": "script.js"
+        }
+      ],
+      "max_turns": 15,
+      "tools": [
+        "read_file",
+        "write_file",
+        "list_dir",
+        "exec"
+      ]
+    },
+    "required_caps": [
+      "tools"
+    ],
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
+  },
+  {
+    "id": "t13",
+    "name": "Shoe Store Website",
+    "description": "Build a single-page shoe store with product grid, cart, and responsive layout.",
+    "group_id": "agent",
+    "active": true,
+    "order": 1,
+    "prompt": "Build a single-page shoe store website.\nRequirements:\n- A product grid showing at least 6 different shoes with images (use placeholder URLs), names, and prices\n- An \"Add to cart\" button on each product\n- A shopping cart sidebar that shows added items, quantities, and total price\n- A responsive layout that works on mobile and desktop\n- Use vanilla HTML, CSS, and JavaScript (no external libraries)\n\nCreate the necessary files using the sandbox tools.",
+    "system_prompt": "You are a web developer agent with access to file tools (read_file, write_file, list_dir, exec).\nBuild the requested web project by creating and editing files. Use the tools directly.\nExplain your changes after each action.",
+    "evaluation_type": "agent",
+    "evaluation_config": {
+      "human_review": true,
+      "initial_files": [
+        {
+          "content": "\u003c!DOCTYPE html\u003e\n\u003chtml lang=\"en\"\u003e\n\u003chead\u003e\u003cmeta charset=\"UTF-8\"\u003e\u003cmeta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"\u003e\u003ctitle\u003eShoe Store\u003c/title\u003e\u003clink rel=\"stylesheet\" href=\"style.css\"\u003e\u003c/head\u003e\n\u003cbody\u003e\n\u003cheader\u003e\u003ch1\u003eShoe Store\u003c/h1\u003e\u003c/header\u003e\n\u003cmain id=\"app\"\u003e\u003c/main\u003e\n\u003cscript src=\"app.js\"\u003e\u003c/script\u003e\n\u003c/body\u003e\n\u003c/html\u003e",
+          "path": "index.html"
+        },
+        {
+          "content": "* { box-sizing: border-box; margin: 0; padding: 0; }\nbody { font-family: sans-serif; background: #f5f5f5; }",
+          "path": "style.css"
+        },
+        {
+          "content": "// Shoe store logic goes here\n",
+          "path": "app.js"
+        }
+      ],
+      "max_turns": 12,
+      "tools": [
+        "read_file",
+        "write_file",
+        "list_dir",
+        "exec"
+      ]
+    },
+    "required_caps": [
+      "tools"
+    ],
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
+  },
+  {
+    "id": "t14",
+    "name": "To-Do App",
+    "description": "Create a functional to-do list in a single HTML file with localStorage persistence.",
+    "group_id": "agent",
+    "active": true,
+    "order": 2,
+    "prompt": "Create a fully functional to-do list application in a single HTML file.\nRequirements:\n- Add new tasks with a text input and a button\n- Mark tasks as complete (strikethrough or checkbox)\n- Delete individual tasks\n- Filter tasks by: All, Active, Completed\n- Persist tasks in localStorage so they survive page reloads\n- Clean, modern UI with CSS\n\nCreate index.html and implement everything inside it (HTML + CSS + JS).",
+    "system_prompt": "You are a web developer agent with access to file tools (read_file, write_file, list_dir, exec).\nBuild the requested application by creating and editing files in the sandbox.\nUse the tools directly. Explain your changes after each action.",
+    "evaluation_type": "agent",
+    "evaluation_config": {
+      "human_review": true,
+      "initial_files": [
+        {
+          "content": "\u003c!DOCTYPE html\u003e\n\u003chtml lang=\"en\"\u003e\n\u003chead\u003e\u003cmeta charset=\"UTF-8\"\u003e\u003cmeta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"\u003e\u003ctitle\u003eTo-Do App\u003c/title\u003e\u003c/head\u003e\n\u003cbody\u003e\n\u003cdiv id=\"app\"\u003e\u003c/div\u003e\n\u003cscript\u003e\u003c/script\u003e\n\u003c/body\u003e\n\u003c/html\u003e",
+          "path": "index.html"
+        }
+      ],
+      "max_turns": 10,
+      "tools": [
+        "read_file",
+        "write_file",
+        "list_dir",
+        "exec"
+      ]
+    },
+    "required_caps": [
+      "tools"
+    ],
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
+  }
+]

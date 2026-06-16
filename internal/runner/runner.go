@@ -27,15 +27,16 @@ type BatteryRun struct {
 
 // TestResult holds the outcome of a single test for a single model.
 type TestResult struct {
-	TestID         string `json:"test_id"`
-	TestName       string `json:"test_name"`
-	Model          string `json:"model"`
-	Passed         *bool  `json:"passed,omitempty"`
-	ResponseTimeMs int64  `json:"response_time_ms"`
-	ReasoningUsed  bool   `json:"reasoning_used"`
-	HumanRating    string `json:"human_rating,omitempty"` // "bad", "regular", "good"
-	ModelResponse  string `json:"model_response,omitempty"`
-	Error          string `json:"error,omitempty"`
+	TestID         string  `json:"test_id"`
+	TestName       string  `json:"test_name"`
+	Model          string  `json:"model"`
+	Passed         *bool   `json:"passed,omitempty"`
+	ResponseTimeMs int64   `json:"response_time_ms"`
+	TokensPerSec   float64 `json:"tokens_per_sec,omitempty"`
+	ReasoningUsed  bool    `json:"reasoning_used"`
+	HumanRating    string  `json:"human_rating,omitempty"` // "bad", "regular", "good"
+	ModelResponse  string  `json:"model_response,omitempty"`
+	Error          string  `json:"error,omitempty"`
 }
 
 // Progress tracks the current state of a battery run.
@@ -220,6 +221,11 @@ func (c *Client) runTest(ctx context.Context, model string, test tests.Test) Tes
 	// Detect reasoning via Thinking field.
 	res.ReasoningUsed = resp != nil && strings.TrimSpace(resp.Message.Thinking) != ""
 
+	// Compute tokens per second from Ollama metadata.
+	if resp != nil && resp.EvalCount > 0 && resp.EvalDuration > 0 {
+		res.TokensPerSec = float64(resp.EvalCount) / (float64(resp.EvalDuration) / 1e9)
+	}
+
 	// Score based on evaluation type.
 	passed := scoreTest(test, res.ModelResponse)
 	if passed != nil {
@@ -244,7 +250,8 @@ func scoreTest(test tests.Test, response string) *bool {
 			Expected string `json:"expected"`
 		}
 		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
-		v := strings.Contains(strings.ToLower(response), strings.ToLower(cfg.Expected))
+		norm := normalizeForContains(response)
+		v := strings.Contains(strings.ToLower(norm), strings.ToLower(cfg.Expected))
 		return &v
 	case "regex":
 		var cfg struct {
@@ -286,6 +293,21 @@ func scoreTest(test tests.Test, response string) *bool {
 		v := false
 		return &v
 	}
+}
+
+// normalizeForContains strips LaTeX/markdown formatting so that
+// e.g. \frac{3}{4} becomes 3/4 for easier substring matching.
+func normalizeForContains(s string) string {
+	// Remove LaTeX command wrappers: \frac{3}{4} -> 3/4
+	s = regexp.MustCompile(`\\[a-zA-Z]+\{([^}]*)\}`).ReplaceAllString(s, "$1")
+	// Remove remaining braces.
+	s = strings.ReplaceAll(s, "{", "")
+	s = strings.ReplaceAll(s, "}", "")
+	// Remove common markdown.
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "*", "")
+	s = strings.ReplaceAll(s, "`", "")
+	return s
 }
 
 func hasAllCaps(have, need []string) bool {

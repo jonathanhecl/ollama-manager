@@ -108,6 +108,7 @@ type TestHistoryItem struct {
 	Model          string    `json:"model"`
 	Passed         *bool     `json:"passed,omitempty"`
 	ResponseTimeMs int64     `json:"response_time_ms"`
+	TokensPerSec   float64   `json:"tokens_per_sec,omitempty"`
 	ReasoningUsed  bool      `json:"reasoning_used"`
 	HumanRating    string    `json:"human_rating,omitempty"`
 	ModelResponse  string    `json:"model_response,omitempty"`
@@ -129,6 +130,7 @@ func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
 					Model:          res.Model,
 					Passed:         res.Passed,
 					ResponseTimeMs: res.ResponseTimeMs,
+					TokensPerSec:   res.TokensPerSec,
 					ReasoningUsed:  res.ReasoningUsed,
 					HumanRating:    res.HumanRating,
 					ModelResponse:  res.ModelResponse,

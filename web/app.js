@@ -70,6 +70,13 @@ function fmtDateTimeFull(s) {
     second: "2-digit",
   });
 }
+function fmtDuration(ms) {
+  if (ms == null || ms === undefined || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = (ms / 1000).toFixed(2);
+  const lang = window.I18n?.getLang?.() || "en";
+  return lang === "es" ? `${s.replace(".", ",")}s` : `${s}s`;
+}
 const fmtCtx = (n) => {
   if (!n) return "—";
   if (n >= 1024) return `${(n / 1024).toFixed(0)}K`;
@@ -5088,14 +5095,22 @@ function renderBatteryResults(run) {
       `;
 
       const reasoningIcon = r.reasoning_used ? "🧠" : "";
+      const tps = r.tokens_per_sec ? `${r.tokens_per_sec.toFixed(1)} tok/s` : "";
+      const resp = r.model_response || "";
+      const respId = `br-${run.id}-${r.test_id}-${escapeHtml(r.model)}`;
+      const respShort = escapeHtml(resp.slice(0, 200));
+      const respRest = escapeHtml(resp.slice(200));
 
       rowsHtml += `
         <tr>
           ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong></td>` : ""}
           <td class="cell-model">${escapeHtml(r.model)}</td>
           <td>${badge}</td>
-          <td class="cell-time">${r.response_time_ms}ms ${reasoningIcon}</td>
-          <td class="cell-response">${escapeHtml((r.model_response || "").slice(0, 200))}${(r.model_response || "").length > 200 ? "…" : ""}</td>
+          <td class="cell-time">${fmtDuration(r.response_time_ms)} ${reasoningIcon}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
+          <td class="cell-response">
+            <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
+            ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
+          </td>
           <td>${r.passed === null ? ratingHtml : "—"}</td>
         </tr>
       `;
@@ -5119,6 +5134,15 @@ function renderBatteryResults(run) {
       </table>
     </div>
   `;
+
+  body.querySelectorAll(".resp-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = document.getElementById(btn.dataset.target);
+      if (!target) return;
+      target.hidden = !target.hidden;
+      btn.textContent = target.hidden ? "…" : "▲";
+    });
+  });
 
   body.querySelectorAll(".battery-rating button").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -5227,18 +5251,32 @@ async function renderTestHistoryModal(testId) {
     for (const h of history) {
       const date = fmtDateTimeFull(h.timestamp);
       let badge = "";
-      if (h.passed === true) badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
-      else if (h.passed === false) badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
-      else badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+      if (h.error) {
+        badge = `<span class="badge badge-fail" title="${escapeHtml(h.error)}">${t("battery.fail")}</span>`;
+      } else if (h.passed === true) {
+        badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
+      } else if (h.passed === false) {
+        badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+      } else {
+        badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+      }
       const rating = h.human_rating ? ` · ${t("battery.human_review")}: ${escapeHtml(h.human_rating)}` : "";
       const reasoning = h.reasoning_used ? "🧠" : "";
+      const tps = h.tokens_per_sec ? `${h.tokens_per_sec.toFixed(1)} tok/s` : "";
+      const resp = h.model_response || "";
+      const respId = `th-${testId}-${escapeHtml(h.model)}-${new Date(h.timestamp).getTime()}`;
+      const respShort = escapeHtml(resp.slice(0, 200));
+      const respRest = escapeHtml(resp.slice(200));
       rows += `
         <tr>
           <td class="cell-time">${escapeHtml(date)}</td>
           <td class="cell-model">${escapeHtml(h.model)}</td>
           <td>${badge}</td>
-          <td class="cell-time">${h.response_time_ms}ms ${reasoning}</td>
-          <td class="cell-response">${escapeHtml((h.model_response || "").slice(0, 200))}${(h.model_response || "").length > 200 ? "…" : ""}</td>
+          <td class="cell-time">${fmtDuration(h.response_time_ms)} ${reasoning}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
+          <td class="cell-response">
+            <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
+            ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
+          </td>
           <td class="cell-time">${escapeHtml(h.group_name)}${rating}</td>
         </tr>
       `;
@@ -5260,6 +5298,14 @@ async function renderTestHistoryModal(testId) {
         </table>
       </div>
     `;
+    body.querySelectorAll(".resp-toggle").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const target = document.getElementById(btn.dataset.target);
+        if (!target) return;
+        target.hidden = !target.hidden;
+        btn.textContent = target.hidden ? "…" : "▲";
+      });
+    });
   } catch (err) {
     body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
   }

@@ -249,6 +249,11 @@ let selectedGroupId = "";
 let currentTestId = null; // null for new, id for edit
 let testEditorAttachments = []; // {id, kind, name, mime, data}
 
+// Battery runner state.
+let batteryModels = []; // installed models fetched for picker
+let batterySelectedModels = new Set();
+let currentBatteryRun = null;
+
 // Agent session state.
 let currentAgentSession = null; // session object from API
 let currentAgentTestId = null;
@@ -1499,6 +1504,8 @@ function hideAllMainViews() {
   $("tests-view").hidden = true;
   $("test-editor-view").hidden = true;
   $("agent-session-view").hidden = true;
+  $("battery-results-view").hidden = true;
+  $("battery-history-view").hidden = true;
   $("detail-panel").hidden = true;
 }
 
@@ -1640,6 +1647,12 @@ function renderTestsList() {
     title.textContent = g ? g.name : t("tests.all_tests");
   } else {
     title.textContent = t("tests.all_tests");
+  }
+
+  const runBtn = $("tests-run-battery-btn");
+  if (runBtn) {
+    const hasActiveNonAgent = filtered.some((t) => t.active && t.evaluation_type !== "agent");
+    runBtn.hidden = selectedGroupId === "" || !hasActiveNonAgent;
   }
 
   if (!filtered.length) {
@@ -1996,6 +2009,11 @@ function handleRouting() {
   } else if (path.startsWith("/tests/agent/")) {
     const id = path.substring(13);
     showAgentSessionView(id);
+  } else if (path.startsWith("/tests/battery/results/")) {
+    const id = path.substring(23);
+    void showBatteryResultsView(id);
+  } else if (path === "/tests/battery/history") {
+    showBatteryHistoryView();
   } else if (path === "/") {
     showModelsView();
   }
@@ -4779,6 +4797,325 @@ async function deleteAgentSession() {
     toast(t("toast.error", { msg: err.message }), "error");
   }
 }
+
+// ---------- battery runner ----------
+
+function openBatteryModal() {
+  if (selectedGroupId === "") return;
+  batterySelectedModels.clear();
+  $("battery-modal").hidden = false;
+  void renderBatteryModalModels();
+}
+
+function closeBatteryModal() {
+  $("battery-modal").hidden = true;
+}
+
+async function renderBatteryModalModels() {
+  const container = $("battery-modal-models");
+  if (!container) return;
+  container.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
+  try {
+    const data = await api("/api/models");
+    batteryModels = data.models || [];
+  } catch (e) {
+    container.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
+    return;
+  }
+
+  // Determine required caps for the selected group.
+  const groupTests = tests.filter((t) => t.group_id === selectedGroupId && t.active && t.evaluation_type !== "agent");
+  const requiredCaps = new Set();
+  for (const t of groupTests) {
+    for (const c of t.required_caps || []) requiredCaps.add(c);
+  }
+
+  const items = batteryModels.map((m) => {
+    const caps = m.capabilities || [];
+    const hasCompletions = caps.includes("completion");
+    const missing = [];
+    for (const c of requiredCaps) {
+      if (!caps.includes(c)) missing.push(c);
+    }
+    if (!hasCompletions) missing.push("completion");
+    const disabled = missing.length > 0;
+    const title = disabled ? t("battery.model_unsupported_caps") + ": " + missing.join(", ") : "";
+    return { m, disabled, title };
+  });
+
+  if (items.length === 0) {
+    container.innerHTML = `<div class="muted">${t("state.empty_models")}</div>`;
+    return;
+  }
+
+  container.innerHTML = items.map(({ m, disabled, title }) => {
+    const capsHtml = (m.capabilities || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
+    return `
+      <label class="battery-model-item" title="${escapeHtml(title)}">
+        <input type="checkbox" value="${escapeHtml(m.name)}" ${disabled ? "disabled" : ""} />
+        <span class="battery-model-name">${escapeHtml(m.name)}</span>
+        <span class="battery-model-caps">${capsHtml}</span>
+      </label>
+    `;
+  }).join("");
+
+  container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      if (cb.checked) batterySelectedModels.add(cb.value);
+      else batterySelectedModels.delete(cb.value);
+    });
+  });
+}
+
+async function confirmBatteryRun() {
+  if (batterySelectedModels.size === 0) {
+    toast(t("battery.select_models"), "warn");
+    return;
+  }
+  closeBatteryModal();
+  const modelIDs = Array.from(batterySelectedModels);
+  try {
+    toast(t("battery.running"), "info");
+    const run = await api("/api/runner/battery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ group_id: selectedGroupId, model_ids: modelIDs }),
+    });
+    currentBatteryRun = run;
+    history.pushState(null, "", "/tests/battery/results/" + run.id);
+    renderBatteryResults(run);
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+function showBatteryResultsView(runId) {
+  hideAllMainViews();
+  currentView = "battery-results";
+  $("battery-results-view").hidden = false;
+  if (currentBatteryRun && currentBatteryRun.id === runId) {
+    renderBatteryResults(currentBatteryRun);
+  } else {
+    void (async () => {
+      try {
+        const run = await api("/api/runner/runs/" + encodeURIComponent(runId));
+        currentBatteryRun = run;
+        renderBatteryResults(run);
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+        showTestsView();
+      }
+    })();
+  }
+}
+
+function showBatteryHistoryView() {
+  hideAllMainViews();
+  currentView = "battery-history";
+  $("battery-history-view").hidden = false;
+  if (window.location.pathname !== "/tests/battery/history") {
+    history.pushState(null, "", "/tests/battery/history");
+  }
+  void renderBatteryHistory();
+}
+
+function renderBatteryResults(run) {
+  if (!run) return;
+  const title = $("battery-results-title");
+  if (title) title.textContent = t("battery.results") + " — " + escapeHtml(run.group_name);
+
+  const body = $("battery-results-body");
+  if (!body) return;
+
+  // Build per-model stats.
+  const modelStats = {};
+  for (const m of run.models) {
+    modelStats[m] = { pass: 0, fail: 0, human: 0, total: 0, timeSum: 0, reasoning: 0 };
+  }
+  for (const r of run.results) {
+    const s = modelStats[r.model];
+    if (!s) continue;
+    s.total++;
+    s.timeSum += r.response_time_ms;
+    if (r.reasoning_used) s.reasoning++;
+    if (r.passed === true) s.pass++;
+    else if (r.passed === false) s.fail++;
+    else s.human++;
+  }
+
+  // Summary cards.
+  let summaryHtml = `<div class="battery-summary">`;
+  for (const m of run.models) {
+    const s = modelStats[m];
+    const avg = s.total > 0 ? Math.round(s.timeSum / s.total) : 0;
+    summaryHtml += `
+      <div class="battery-summary-card">
+        <h4>${escapeHtml(m)}</h4>
+        <div class="big">${s.pass} / ${s.total}</div>
+        <div class="sub">${t("battery.response_time")}: ${avg}ms · ${t("battery.reasoning_used")}: ${s.reasoning}</div>
+      </div>
+    `;
+  }
+  summaryHtml += `</div>`;
+
+  // Table.
+  let rowsHtml = "";
+  // Group results by test_id.
+  const byTest = {};
+  for (const r of run.results) {
+    if (!byTest[r.test_id]) byTest[r.test_id] = [];
+    byTest[r.test_id].push(r);
+  }
+  const testIds = Object.keys(byTest);
+
+  for (const tid of testIds) {
+    const results = byTest[tid];
+    const testName = results[0]?.test_name || tid;
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      let badge = "";
+      if (r.passed === true) badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
+      else if (r.passed === false) badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+      else badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+
+      const rating = r.human_rating || "";
+      const ratingHtml = `
+        <div class="battery-rating" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
+          <button type="button" data-rating="bad" class="${rating === "bad" ? "active" : ""}">${t("battery.human_review_bad")}</button>
+          <button type="button" data-rating="regular" class="${rating === "regular" ? "active" : ""}">${t("battery.human_review_regular")}</button>
+          <button type="button" data-rating="good" class="${rating === "good" ? "active" : ""}">${t("battery.human_review_good")}</button>
+        </div>
+      `;
+
+      const reasoningIcon = r.reasoning_used ? "🧠" : "";
+
+      rowsHtml += `
+        <tr>
+          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong></td>` : ""}
+          <td class="cell-model">${escapeHtml(r.model)}</td>
+          <td>${badge}</td>
+          <td class="cell-time">${r.response_time_ms}ms ${reasoningIcon}</td>
+          <td class="cell-response">${escapeHtml((r.model_response || "").slice(0, 200))}${(r.model_response || "").length > 200 ? "…" : ""}</td>
+          <td>${r.passed === null ? ratingHtml : "—"}</td>
+        </tr>
+      `;
+    }
+  }
+
+  body.innerHTML = summaryHtml + `
+    <div class="battery-table-wrap">
+      <table class="battery-table">
+        <thead>
+          <tr>
+            <th>${t("tests.name")}</th>
+            <th>${t("chat.model")}</th>
+            <th>${t("battery.results")}</th>
+            <th>${t("battery.response_time")}</th>
+            <th>${t("chat.response")}</th>
+            <th>${t("battery.human_review")}</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+
+  body.querySelectorAll(".battery-rating button").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const wrap = btn.closest(".battery-rating");
+      const testId = wrap.dataset.testId;
+      const model = wrap.dataset.model;
+      const rating = btn.dataset.rating;
+      try {
+        await api("/api/runner/runs/" + encodeURIComponent(run.id) + "/rate", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ test_id: testId, model, rating }),
+        });
+        wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
+    });
+  });
+}
+
+async function renderBatteryHistory() {
+  const body = $("battery-history-body");
+  if (!body) return;
+  body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
+  try {
+    const data = await api("/api/runner/runs");
+    const runs = data.runs || [];
+    if (runs.length === 0) {
+      body.innerHTML = `<div class="battery-empty">${t("battery.no_history")}</div>`;
+      return;
+    }
+    body.innerHTML = runs.map((run) => {
+      const date = fmtDateTimeFull(run.timestamp);
+      return `
+        <div class="battery-history-item" data-run-id="${escapeHtml(run.id)}">
+          <span class="battery-history-date">${escapeHtml(date)}</span>
+          <span class="battery-history-group">${escapeHtml(run.group_name)}</span>
+          <span class="battery-history-models">${escapeHtml((run.models || []).join(", "))}</span>
+          <span class="battery-history-counts">${run.pass_count || 0} / ${run.total_count || 0}</span>
+          <button type="button" class="ghost danger-text battery-history-delete" data-run-id="${escapeHtml(run.id)}">×</button>
+        </div>
+      `;
+    }).join("");
+
+    body.querySelectorAll(".battery-history-item").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        if (e.target.closest("button")) return;
+        const id = el.dataset.runId;
+        history.pushState(null, "", "/tests/battery/results/" + id);
+        showBatteryResultsView(id);
+      });
+    });
+
+    body.querySelectorAll(".battery-history-delete").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.runId;
+        const ok = await askConfirm({
+          title: t("action.delete"),
+          text: t("tests.delete_text"),
+          okText: t("action.delete"),
+          okClass: "danger",
+        });
+        if (!ok.ok) return;
+        try {
+          await api("/api/runner/runs/" + encodeURIComponent(id), { method: "DELETE" });
+          await renderBatteryHistory();
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
+        }
+      });
+    });
+  } catch (err) {
+    body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+$("tests-run-battery-btn")?.addEventListener("click", () => {
+  openBatteryModal();
+});
+$("battery-modal-backdrop")?.addEventListener("click", closeBatteryModal);
+$("battery-modal-close")?.addEventListener("click", closeBatteryModal);
+$("battery-modal-cancel")?.addEventListener("click", closeBatteryModal);
+$("battery-modal-confirm")?.addEventListener("click", () => {
+  void confirmBatteryRun();
+});
+$("battery-results-back")?.addEventListener("click", () => {
+  showTestsView();
+});
+$("battery-results-history")?.addEventListener("click", () => {
+  showBatteryHistoryView();
+});
+$("battery-history-back")?.addEventListener("click", () => {
+  showTestsView();
+});
 
 $("agent-session-back")?.addEventListener("click", () => {
   showTestsView();

@@ -17,6 +17,7 @@ import (
 	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/jobs"
 	"github.com/gense/ollama-manager/internal/ollama"
+	"github.com/gense/ollama-manager/internal/runner"
 	"github.com/gense/ollama-manager/internal/tests"
 )
 
@@ -25,15 +26,17 @@ type WebFS = embed.FS
 
 // Server holds shared state for HTTP handlers.
 type Server struct {
-	cfg        *config.Config
-	ollama     *ollama.Client
-	web        fs.FS
-	tmpl       *template.Template
-	jobs       *jobs.Manager
-	uninst     *uninstallHistoryStore
-	archived   *archivedModelsStore
-	testsStore *tests.Store
-	agentStore *agent.SessionStore
+	cfg         *config.Config
+	ollama      *ollama.Client
+	web         fs.FS
+	tmpl        *template.Template
+	jobs        *jobs.Manager
+	uninst      *uninstallHistoryStore
+	archived    *archivedModelsStore
+	testsStore  *tests.Store
+	agentStore  *agent.SessionStore
+	runnerStore *runner.ResultStore
+	runner      *runner.Client
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -84,18 +87,26 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 
 	agentStore := agent.NewSessionStore(filepath.Dir(cfg.Path()))
 
+	runnerPath := filepath.Join(filepath.Dir(cfg.Path()), "test_results.json")
+	runnerStore := runner.NewResultStore(runnerPath)
+	if err := runnerStore.Load(); err != nil {
+		log.Printf("runner: could not load %s: %v", runnerPath, err)
+	}
+
 	return &Server{
-		cfg:        cfg,
-		ollama:     ollamaClient,
-		web:        webRoot,
-		tmpl:       tmpl,
-		jobs:       jobMgr,
-		uninst:     uninst,
-		archived:   archivedStore,
-		testsStore: testsStore,
-		agentStore: agentStore,
-		ctxCache:   make(map[string]int64),
-		capsCache:  make(map[string][]string),
+		cfg:         cfg,
+		ollama:      ollamaClient,
+		web:         webRoot,
+		tmpl:        tmpl,
+		jobs:        jobMgr,
+		uninst:      uninst,
+		archived:    archivedStore,
+		testsStore:  testsStore,
+		agentStore:  agentStore,
+		runnerStore: runnerStore,
+		runner:      runner.NewClient(ollamaClient),
+		ctxCache:    make(map[string]int64),
+		capsCache:   make(map[string][]string),
 	}, nil
 }
 
@@ -164,6 +175,12 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/tests/agent/sessions/{id}/reset", s.requireAuth(s.handleAgentSessionReset))
 	mux.Handle("DELETE /api/tests/agent/sessions/{id}", s.requireAuth(s.handleAgentSessionDestroy))
 	mux.Handle("GET /api/tests/agent/sessions/{id}/files", s.requireAuth(s.handleAgentSessionFiles))
+
+	mux.Handle("POST /api/runner/battery", s.requireAuth(s.handleBatteryRun))
+	mux.Handle("GET /api/runner/runs", s.requireAuth(s.handleListRuns))
+	mux.Handle("GET /api/runner/runs/{id}", s.requireAuth(s.handleGetRun))
+	mux.Handle("PUT /api/runner/runs/{id}/rate", s.requireAuth(s.handleRateRun))
+	mux.Handle("DELETE /api/runner/runs/{id}", s.requireAuth(s.handleDeleteRun))
 
 	return logging(mux)
 }

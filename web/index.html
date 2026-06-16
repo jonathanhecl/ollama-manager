@@ -248,6 +248,7 @@
         <header class="tests-main-head">
           <h2 id="tests-group-title" data-i18n="tests.all_tests">All Tests</h2>
           <div class="tests-main-actions">
+            <button id="tests-run-battery-btn" class="primary" data-i18n="battery.run" hidden>Run Tests</button>
             <button id="tests-new-test-btn" class="primary" data-i18n="tests.new_test">New Test</button>
           </div>
         </header>
@@ -630,6 +631,50 @@
       <p id="image-preview-caption" class="image-preview-caption muted mono"></p>
     </div>
   </div>
+
+  <!-- Battery runner model picker modal -->
+  <div id="battery-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="battery-modal-backdrop"></div>
+    <div class="modal-dialog battery-modal-dialog">
+      <header class="modal-head">
+        <h3 data-i18n="battery.select_models">Select models</h3>
+        <button type="button" id="battery-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </header>
+      <div class="modal-body">
+        <p class="muted" data-i18n="battery.select_models_hint">Choose one or more models to run the battery. Models without required capabilities are disabled.</p>
+        <div id="battery-modal-models" class="battery-modal-models"></div>
+      </div>
+      <footer class="modal-foot">
+        <button type="button" id="battery-modal-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
+        <button type="button" id="battery-modal-confirm" class="primary" data-i18n="battery.confirm">Run</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Battery results view -->
+  <main id="battery-results-view" hidden>
+    <div class="battery-wrap">
+      <header class="battery-head">
+        <button id="battery-results-back" class="ghost" data-i18n="tests.back_to_list">← Back to list</button>
+        <h2 id="battery-results-title" data-i18n="battery.results">Results</h2>
+        <div class="battery-head-actions">
+          <button id="battery-results-history" class="ghost" data-i18n="battery.history">History</button>
+        </div>
+      </header>
+      <div id="battery-results-body" class="battery-results-body"></div>
+    </div>
+  </main>
+
+  <!-- Battery history view -->
+  <main id="battery-history-view" hidden>
+    <div class="battery-wrap">
+      <header class="battery-head">
+        <button id="battery-history-back" class="ghost" data-i18n="tests.back_to_list">← Back to list</button>
+        <h2 data-i18n="battery.history">History</h2>
+      </header>
+      <div id="battery-history-body" class="battery-history-body"></div>
+    </div>
+  </main>
 
   <div id="toast"></div>
 

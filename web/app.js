@@ -677,6 +677,17 @@ function parseParamSize(s) {
 
 function applySort(arr) {
   const { col, dir } = sort;
+  // Special ordering for modified_at: queued first (newest), running second, installed last (newest)
+  if (col === "modified_at") {
+    return [...arr].sort((a, b) => {
+      const typeA = a.job?.status === "queued" ? 0 : a.job?.status === "running" ? 1 : 2;
+      const typeB = b.job?.status === "queued" ? 0 : b.job?.status === "running" ? 1 : 2;
+      if (typeA !== typeB) return dir === "asc" ? (typeB - typeA) : (typeA - typeB);
+      const timeA = a.job?.created_at ? new Date(a.job.created_at).getTime() : new Date(a.modified_at).getTime();
+      const timeB = b.job?.created_at ? new Date(b.job.created_at).getTime() : new Date(b.modified_at).getTime();
+      return dir === "asc" ? (timeA - timeB) : (timeB - timeA);
+    });
+  }
   const mul = dir === "asc" ? 1 : -1;
   return [...arr].sort((a, b) => {
     const ka = sortKey(a, col);
@@ -703,35 +714,36 @@ function renderTable() {
     tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
     return;
   }
-  const sorted = applySort(filteredModels);
-
-  // Combine with pending downloads (jobs that are running or queued and NOT in the models list yet)
+  // Attach active jobs to installed models so they participate in sorting and display
   const installedNames = new Set(models.map(m => m.name));
   const pendingModels = [];
   const runningJobByName = new Map();
   if (!showArchivedOnly) {
     for (const j of jobs.values()) {
       if (j.status === "running") runningJobByName.set(j.name, j);
-      if ((j.status === "running" || j.status === "queued") && !installedNames.has(j.name)) {
-        pendingModels.push({
-          name: j.name,
-          isPending: true,
-          job: j,
-          family: "—",
-          parameter_size: "—",
-          quantization: "—",
-          context_length: 0,
-          size: 0,
-          modified_at: j.created_at,
-          capabilities: []
-        });
+      if (j.status === "running" || j.status === "queued") {
+        const model = filteredModels.find(m => m.name === j.name);
+        if (model) {
+          model.job = j;
+        } else {
+          pendingModels.push({
+            name: j.name,
+            isPending: true,
+            job: j,
+            family: "—",
+            parameter_size: "—",
+            quantization: "—",
+            context_length: 0,
+            size: 0,
+            modified_at: j.created_at,
+            capabilities: []
+          });
+        }
       }
     }
   }
 
-  // Combine and re-sort if necessary, or just append pending at the end.
-  // User usually wants to see what's happening, so we'll add them and sort again.
-  const allToRender = applySort([...sorted, ...pendingModels]);
+  const allToRender = applySort([...filteredModels, ...pendingModels]);
 
   const dotLoadedTxt = t("detail.dot_loaded");
   const dotNotLoadedTxt = t("detail.dot_not_loaded");

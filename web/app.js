@@ -98,6 +98,14 @@ function fmtETA(totalSeconds) {
   const m = mins % 60;
   return `${hrs}h ${m}m`;
 }
+function fmtSpeed(bps) {
+  if (!bps || bps <= 0) return "";
+  const u = ["B/s", "KB/s", "MB/s", "GB/s"];
+  let i = 0;
+  let n = bps;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 2 : 1)} ${u[i]}`;
+}
 const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -3590,6 +3598,10 @@ function jobCardHTML(j) {
   const pctText = j.status === "running" || j.status === "done" || j.status === "paused"
     ? `<span class="dl-pct mono">${pct.toFixed(1)}%</span>`
     : "";
+  let speedHTML = "";
+  if (j.status === "running" && j.speed > 0) {
+    speedHTML = `<span class="dl-speed muted">${fmtSpeed(j.speed)}</span>`;
+  }
   let etaHTML = "";
   if (j.status === "running" && j.total > 0 && j.speed > 0) {
     const remaining = (j.total - (j.completed || 0)) / j.speed;
@@ -3632,6 +3644,7 @@ function jobCardHTML(j) {
       ${progress}
       <div class="dl-row2">
         ${pctText}
+        ${speedHTML}
         ${etaHTML}
         <span class="dl-bytes muted">${escapeHtml(sizeLine)}</span>
         ${finishedHTML}

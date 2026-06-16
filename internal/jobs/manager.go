@@ -71,6 +71,11 @@ type Job struct {
 	// transition to StatusPaused instead of StatusCancelled on context
 	// cancellation.
 	pauseIntent bool `json:"-"`
+
+	// Internal tracking for smoothed instantaneous speed.
+	lastCompleted int64     `json:"-"`
+	lastSpeedAt   time.Time `json:"-"`
+	lastDigest    string    `json:"-"`
 }
 
 // clone returns a value copy safe to hand out to callers / SSE subscribers.
@@ -612,9 +617,26 @@ func (m *Manager) run(ctx context.Context, id string) {
 				pct = 100
 			}
 			j.Percent = pct
-			elapsed := time.Since(j.StartedAt).Seconds()
-			if elapsed > 0 {
-				j.Speed = float64(ev.Completed) / elapsed
+
+			now := time.Now()
+			if ev.Digest != j.lastDigest || ev.Completed < j.lastCompleted {
+				// New layer or progress reset — restart speed tracking.
+				j.lastDigest = ev.Digest
+				j.lastCompleted = ev.Completed
+				j.lastSpeedAt = now
+			} else if ev.Completed > j.lastCompleted && !j.lastSpeedAt.IsZero() {
+				deltaBytes := ev.Completed - j.lastCompleted
+				deltaSec := now.Sub(j.lastSpeedAt).Seconds()
+				if deltaSec > 0.1 {
+					instant := float64(deltaBytes) / deltaSec
+					if j.Speed > 0 {
+						j.Speed = j.Speed*0.7 + instant*0.3
+					} else {
+						j.Speed = instant
+					}
+					j.lastCompleted = ev.Completed
+					j.lastSpeedAt = now
+				}
 			}
 		}
 		// Throttle broadcasts to avoid overwhelming SSE subscribers.

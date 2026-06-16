@@ -1214,6 +1214,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   font-size: 11px;
 }
 .dl-pct { color: var(--text-dim); }
+.dl-speed { color: var(--text-dim); margin-left: 6px; }
 .dl-eta { color: var(--muted); margin-left: 6px; }
 .dl-bytes { color: var(--muted); }
 

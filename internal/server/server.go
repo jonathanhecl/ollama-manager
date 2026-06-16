@@ -76,6 +76,9 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	if err := testsStore.Load(); err != nil {
 		log.Printf("tests: could not load %s: %v", testsPath, err)
 	}
+	if err := testsStore.SeedIfEmpty(); err != nil {
+		log.Printf("tests: seed failed: %v", err)
+	}
 
 	return &Server{
 		cfg:        cfg,

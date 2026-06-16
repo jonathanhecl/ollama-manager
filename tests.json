@@ -1,9 +1,31 @@
 {
   "groups": [
     {
-      "id": "c686487733f262592921",
-      "name": "Logica",
+      "id": "structured",
+      "name": "Structured Output",
+      "description": "JSON schema and structured format tests",
+      "order": 3
+    },
+    {
+      "id": "core",
+      "name": "Core Skills",
+      "description": "Basic reasoning, math, and logic",
       "order": 0
+    },
+    {
+      "id": "tools",
+      "name": "One-Shot Tool Use",
+      "description": "Single-turn tool-calling capability tests",
+      "required_caps": [
+        "tools"
+      ],
+      "order": 1
+    },
+    {
+      "id": "multimodal",
+      "name": "Multimodal",
+      "description": "Vision, audio, and file input tests",
+      "order": 2
     }
   ]
 }

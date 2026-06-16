@@ -1,0 +1,32 @@
+[
+  {
+    "id": "t8",
+    "name": "Vision: Color Identification",
+    "description": "Attach an image and verify the model describes its dominant color.",
+    "group_id": "multimodal",
+    "active": true,
+    "order": 0,
+    "prompt": "What is the dominant color in the attached image? Answer with a single color name.",
+    "evaluation_type": "human_review",
+    "required_caps": [
+      "vision"
+    ],
+    "created_at": "2026-06-16T06:28:32.9946641Z",
+    "updated_at": "2026-06-16T06:28:32.9946641Z"
+  },
+  {
+    "id": "t9",
+    "name": "Audio: Spoken Number",
+    "description": "Attach an audio file with a spoken number and verify transcription.",
+    "group_id": "multimodal",
+    "active": true,
+    "order": 1,
+    "prompt": "Listen to the attached audio. What number is being said? Return only digits.",
+    "evaluation_type": "human_review",
+    "required_caps": [
+      "audio"
+    ],
+    "created_at": "2026-06-16T06:28:32.9946641Z",
+    "updated_at": "2026-06-16T06:28:32.9946641Z"
+  }
+]

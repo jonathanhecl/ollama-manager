@@ -3648,9 +3648,6 @@ function jobCardHTML(j) {
   const cardClass = j.status === "done"
     ? `dl-item dl-${j.status} dl-clickable`
     : `dl-item dl-${j.status}`;
-  const pausedNote = j.status === "paused" && queuePaused
-    ? `<div class="dl-note muted">${escapeHtml(t("downloads.queue_paused_note"))}</div>`
-    : "";
   return `
     <div class="${cardClass}" data-id="${escapeHtml(j.id)}">
       <div class="dl-row1">
@@ -3670,7 +3667,6 @@ function jobCardHTML(j) {
           ${finishedHTML}
         </div>
       </div>
-      ${pausedNote}
       ${errBlock}
     </div>
   `;

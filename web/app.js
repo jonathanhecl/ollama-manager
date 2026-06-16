@@ -1504,6 +1504,7 @@ function hideAllMainViews() {
   $("tests-view").hidden = true;
   $("test-editor-view").hidden = true;
   $("agent-session-view").hidden = true;
+  $("battery-progress-view").hidden = true;
   $("battery-results-view").hidden = true;
   $("battery-history-view").hidden = true;
   $("detail-panel").hidden = true;
@@ -4867,6 +4868,23 @@ async function renderBatteryModalModels() {
   });
 }
 
+function showBatteryProgressView(modelIDs) {
+  hideAllMainViews();
+  currentView = "battery-progress";
+  $("battery-progress-view").hidden = false;
+  const sub = $("battery-progress-sub");
+  if (sub) sub.textContent = t("battery.progress_sub", { count: String(modelIDs.length) });
+  const container = $("battery-progress-models");
+  if (!container) return;
+  container.innerHTML = modelIDs.map((m, i) => `
+    <div class="battery-progress-model ${i === 0 ? "running" : ""}" data-model="${escapeHtml(m)}">
+      <span class="battery-progress-dot"></span>
+      <span class="battery-progress-name">${escapeHtml(m)}</span>
+      <span class="battery-progress-status">${i === 0 ? t("battery.status_running") : t("battery.status_pending")}</span>
+    </div>
+  `).join("");
+}
+
 async function confirmBatteryRun() {
   if (batterySelectedModels.size === 0) {
     toast(t("battery.select_models"), "warn");
@@ -4874,8 +4892,8 @@ async function confirmBatteryRun() {
   }
   closeBatteryModal();
   const modelIDs = Array.from(batterySelectedModels);
+  showBatteryProgressView(modelIDs);
   try {
-    toast(t("battery.running"), "info");
     const run = await api("/api/runner/battery", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -4886,6 +4904,7 @@ async function confirmBatteryRun() {
     renderBatteryResults(run);
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
+    showTestsView();
   }
 }
 

@@ -43,7 +43,7 @@ button.danger { background: #5a2a2a; border-color: #8a3535; color: #fff; }
 button.danger:hover { background: #7a3535; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 
-input[type=text], input[type=password], input[type=number] {
+input[type=text], input[type=password], input[type=number], textarea, select {
   font: inherit;
   background: #0e0e12;
   border: 1px solid var(--border-strong);
@@ -54,7 +54,9 @@ input[type=text], input[type=password], input[type=number] {
   transition: border-color .12s;
 }
 input[type=number] { font-family: var(--mono); }
-input:focus { border-color: var(--accent); }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+textarea { resize: vertical; }
+select { cursor: pointer; }
 
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); }

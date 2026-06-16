@@ -242,6 +242,12 @@ let lastSystemStatus = null;
 let runningModels = [];
 let runningRefreshTimer = null;
 
+// Tests panel state.
+let testsGroups = [];
+let tests = [];
+let selectedGroupId = "";
+let currentTestId = null; // null for new, id for edit
+
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
 let sort = { col: "modified_at", dir: "desc" };
@@ -1478,6 +1484,292 @@ function showChatView() {
   setTimeout(() => $("chat-input").focus(), 20);
 }
 
+// ---------- tests views ----------
+
+function hideAllMainViews() {
+  $("models-view").hidden = true;
+  $("chat-view").hidden = true;
+  $("tests-view").hidden = true;
+  $("test-editor-view").hidden = true;
+  $("detail-panel").hidden = true;
+}
+
+function showTestsView() {
+  hideAllMainViews();
+  stopSpeechPlayback();
+  currentView = "tests";
+  $("tests-view").hidden = false;
+  if (window.location.pathname !== "/tests") {
+    history.pushState(null, "", "/tests");
+  }
+  void refreshTests();
+}
+
+function showTestEditorView(id) {
+  hideAllMainViews();
+  currentView = "test-editor";
+  $("test-editor-view").hidden = false;
+  currentTestId = id;
+  populateTestEditorGroupSelect();
+  if (id) {
+    const test = tests.find((x) => x.id === id);
+    if (test) {
+      $("test-editor-title").textContent = t("tests.edit_test");
+      $("te-name").value = test.name || "";
+      $("te-description").value = test.description || "";
+      $("te-group").value = test.group_id || "";
+      $("te-active").checked = !!test.active;
+      $("te-prompt").value = test.prompt || "";
+      $("te-system").value = test.system_prompt || "";
+      $("te-eval-type").value = test.evaluation_type || "exact_match";
+      $("te-eval-config").value = test.evaluation_config ? JSON.stringify(test.evaluation_config, null, 2) : "";
+      $("te-required-caps").value = (test.required_caps || []).join(", ");
+      $("te-order").value = String(test.order || 0);
+      $("test-editor-delete").hidden = false;
+      if (window.location.pathname !== "/tests/edit/" + id) {
+        history.pushState(null, "", "/tests/edit/" + id);
+      }
+      return;
+    }
+  }
+  $("test-editor-title").textContent = t("tests.new_test");
+  $("te-name").value = "";
+  $("te-description").value = "";
+  $("te-group").value = selectedGroupId || "";
+  $("te-active").checked = true;
+  $("te-prompt").value = "";
+  $("te-system").value = "";
+  $("te-eval-type").value = "exact_match";
+  $("te-eval-config").value = "";
+  $("te-required-caps").value = "";
+  $("te-order").value = "0";
+  $("test-editor-delete").hidden = true;
+  if (window.location.pathname !== "/tests/new") {
+    history.pushState(null, "", "/tests/new");
+  }
+}
+
+async function refreshTests() {
+  try {
+    const data = await api("/api/tests");
+    testsGroups = data.groups || [];
+    tests = data.tests || [];
+    renderTestsSidebar();
+    renderTestsList();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+function renderTestsSidebar() {
+  const container = $("tests-groups-list");
+  if (!container) return;
+  const allBtnClass = selectedGroupId === "" ? "tests-group-item active" : "tests-group-item";
+  let html = `<div class="${allBtnClass}" data-group-id="">
+    <span class="tests-group-name">${escapeHtml(t("tests.all_tests"))}</span>
+    <span class="tests-group-count">${tests.length}</span>
+  </div>`;
+  for (const g of testsGroups) {
+    const cls = selectedGroupId === g.id ? "tests-group-item active" : "tests-group-item";
+    const count = tests.filter((t) => t.group_id === g.id).length;
+    html += `<div class="${cls}" data-group-id="${escapeHtml(g.id)}">
+      <span class="tests-group-name">${escapeHtml(g.name)}</span>
+      <span class="tests-group-count">${count}</span>
+    </div>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll(".tests-group-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      selectedGroupId = el.dataset.groupId;
+      renderTestsSidebar();
+      renderTestsList();
+    });
+  });
+}
+
+function renderTestsList() {
+  const list = $("tests-list");
+  const empty = $("tests-empty");
+  const title = $("tests-group-title");
+  if (!list || !empty || !title) return;
+
+  let filtered = tests;
+  if (selectedGroupId !== "") {
+    filtered = tests.filter((t) => t.group_id === selectedGroupId);
+    const g = testsGroups.find((x) => x.id === selectedGroupId);
+    title.textContent = g ? g.name : t("tests.all_tests");
+  } else {
+    title.textContent = t("tests.all_tests");
+  }
+
+  if (!filtered.length) {
+    list.innerHTML = "";
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+
+  list.innerHTML = filtered.map((test) => {
+    const activeClass = test.active ? "tests-item-active" : "tests-item-suspended";
+    const activeLabel = test.active ? t("tests.status_active") : t("tests.status_suspended");
+    const evalLabel = t("tests.eval_" + test.evaluation_type) || test.evaluation_type;
+    const caps = (test.required_caps || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
+    return `
+      <div class="tests-item" data-id="${escapeHtml(test.id)}">
+        <div class="tests-item-main">
+          <div class="tests-item-name">${escapeHtml(test.name)}</div>
+          <div class="tests-item-meta">
+            <span class="pill ${activeClass}">${escapeHtml(activeLabel)}</span>
+            <span class="pill">${escapeHtml(evalLabel)}</span>
+            ${caps}
+          </div>
+          ${test.description ? `<div class="tests-item-desc muted">${escapeHtml(test.description)}</div>` : ""}
+        </div>
+        <div class="tests-item-actions">
+          <button class="ghost tests-item-edit" data-i18n="action.edit">Edit</button>
+          <button class="ghost tests-item-toggle" data-id="${escapeHtml(test.id)}">${test.active ? t("tests.suspend") : t("tests.activate")}</button>
+          <button class="ghost danger-text tests-item-delete" data-id="${escapeHtml(test.id)}">×</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll(".tests-item").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      showTestEditorView(el.dataset.id);
+    });
+  });
+  list.querySelectorAll(".tests-item-edit").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.closest(".tests-item")?.dataset?.id;
+      if (id) showTestEditorView(id);
+    });
+  });
+  list.querySelectorAll(".tests-item-toggle").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const test = tests.find((t) => t.id === id);
+      if (!test) return;
+      try {
+        await api("/api/tests/" + encodeURIComponent(id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: !test.active }),
+        });
+        await refreshTests();
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
+    });
+  });
+  list.querySelectorAll(".tests-item-delete").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const ok = await askConfirm({
+        title: t("tests.delete_title"),
+        text: t("tests.delete_text"),
+        okText: t("action.delete"),
+        okClass: "danger",
+      });
+      if (!ok.ok) return;
+      try {
+        await api("/api/tests/" + encodeURIComponent(id), { method: "DELETE" });
+        await refreshTests();
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
+    });
+  });
+}
+
+function populateTestEditorGroupSelect() {
+  const sel = $("te-group");
+  if (!sel) return;
+  sel.innerHTML = `<option value="">${escapeHtml(t("tests.no_group"))}</option>` +
+    testsGroups.map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`).join("");
+}
+
+async function saveTestEditor() {
+  const evalConfigRaw = $("te-eval-config").value.trim();
+  let evalConfig = null;
+  if (evalConfigRaw) {
+    try {
+      evalConfig = JSON.parse(evalConfigRaw);
+    } catch {
+      toast(t("tests.invalid_json"), "error");
+      return;
+    }
+  }
+  const payload = {
+    name: $("te-name").value.trim(),
+    description: $("te-description").value.trim(),
+    group_id: $("te-group").value,
+    active: $("te-active").checked,
+    prompt: $("te-prompt").value,
+    system_prompt: $("te-system").value,
+    evaluation_type: $("te-eval-type").value,
+    evaluation_config: evalConfig,
+    required_caps: $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean),
+    order: Number($("te-order").value) || 0,
+  };
+  try {
+    if (currentTestId) {
+      await api("/api/tests/" + encodeURIComponent(currentTestId), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    await refreshTests();
+    showTestsView();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function deleteTestEditor() {
+  if (!currentTestId) return;
+  const confirmed = await askConfirm({
+    title: t("tests.delete_title"),
+    text: t("tests.delete_text"),
+    okText: t("action.delete"),
+    okClass: "danger",
+  });
+  if (!confirmed.ok) return;
+  try {
+    await api("/api/tests/" + encodeURIComponent(currentTestId), { method: "DELETE" });
+    await refreshTests();
+    showTestsView();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function createNewGroup() {
+  const name = prompt(t("tests.group_name_prompt"));
+  if (!name || !name.trim()) return;
+  try {
+    await api("/api/test-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), order: testsGroups.length }),
+    });
+    await refreshTests();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
 function showChatViewWithModel(name) {
   showChatView();
   if (!$("chat-view") || $("chat-view").hidden) return;
@@ -1511,6 +1803,13 @@ function handleRouting() {
     } else {
       showModelsView();
     }
+  } else if (path === "/tests" || path === "/tests/") {
+    showTestsView();
+  } else if (path === "/tests/new") {
+    showTestEditorView(null);
+  } else if (path.startsWith("/tests/edit/")) {
+    const id = path.substring(12);
+    showTestEditorView(id);
   } else if (path === "/") {
     showModelsView();
   }
@@ -3859,6 +4158,28 @@ async function logoutAndRedirect() {
 $("refresh-btn").addEventListener("click", () => { refreshStatus(); refreshModels(); });
 $("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 
+$("tests-btn")?.addEventListener("click", () => {
+  showTestsView();
+});
+$("tests-new-test-btn")?.addEventListener("click", () => {
+  showTestEditorView(null);
+});
+$("tests-new-group-btn")?.addEventListener("click", () => {
+  createNewGroup();
+});
+$("test-editor-back")?.addEventListener("click", () => {
+  showTestsView();
+});
+$("test-editor-cancel")?.addEventListener("click", () => {
+  showTestsView();
+});
+$("test-editor-save")?.addEventListener("click", () => {
+  void saveTestEditor();
+});
+$("test-editor-delete")?.addEventListener("click", () => {
+  void deleteTestEditor();
+});
+
 // ---------- settings ----------
 let currentConfig = null;
 
@@ -4024,6 +4345,14 @@ $("btn-back-active")?.addEventListener("click", () => {
 });
 
 // ---------- init ----------
+// Show Tests button only on desktop.
+if (window.innerWidth > 900) {
+  $("tests-btn").hidden = false;
+}
+window.addEventListener("resize", () => {
+  const btn = $("tests-btn");
+  if (btn) btn.hidden = window.innerWidth <= 900;
+});
 window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
 refreshStatus();
 refreshModels();

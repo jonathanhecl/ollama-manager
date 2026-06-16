@@ -39,6 +39,7 @@
           <span id="disk-widget-text" class="metric-widget-text mono">—</span>
         </div>
       </div>
+      <button id="tests-btn" class="ghost" data-i18n-attr="title" data-i18n="tests.button" title="Tests" hidden>🧪</button>
       <button id="downloads-btn" class="ghost with-badge" data-i18n-attr="title" data-i18n="downloads.title" title="Downloads">
         <span class="dl-icon" aria-hidden="true">📥</span>
         <span data-i18n="downloads.button">Downloads</span>
@@ -231,6 +232,98 @@
         </div>
       </section>
     </aside>
+  </main>
+
+  <main id="tests-view" hidden>
+    <div class="tests-layout">
+      <aside class="tests-sidebar">
+        <header class="tests-sidebar-head">
+          <h2 data-i18n="tests.groups_title">Groups</h2>
+          <button id="tests-new-group-btn" class="ghost" data-i18n="tests.new_group" title="New group">+</button>
+        </header>
+        <div id="tests-groups-list" class="tests-groups-list"></div>
+      </aside>
+      <section class="tests-main">
+        <header class="tests-main-head">
+          <h2 id="tests-group-title" data-i18n="tests.all_tests">All Tests</h2>
+          <div class="tests-main-actions">
+            <button id="tests-new-test-btn" class="primary" data-i18n="tests.new_test">New Test</button>
+          </div>
+        </header>
+        <div id="tests-list" class="tests-list"></div>
+        <div id="tests-empty" class="tests-empty muted" data-i18n="tests.empty" hidden>No tests yet.</div>
+      </section>
+    </div>
+  </main>
+
+  <main id="test-editor-view" hidden>
+    <div class="test-editor-wrap">
+      <header class="test-editor-head">
+        <button id="test-editor-back" class="ghost" data-i18n="tests.back_to_list">← Back to list</button>
+        <h2 id="test-editor-title" data-i18n="tests.new_test">New Test</h2>
+      </header>
+      <div class="test-editor-body">
+        <div class="field">
+          <label for="te-name" data-i18n="tests.name">Name</label>
+          <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition">
+        </div>
+        <div class="field">
+          <label for="te-description" data-i18n="tests.description">Description</label>
+          <input id="te-description" type="text" data-i18n-attr="placeholder" data-i18n="tests.description_placeholder" placeholder="Optional description">
+        </div>
+        <div class="field">
+          <label for="te-group" data-i18n="tests.group">Group</label>
+          <select id="te-group"></select>
+        </div>
+        <div class="field switch-field">
+          <div class="switch-label">
+            <span data-i18n="tests.active">Active</span>
+            <small class="muted" data-i18n="tests.active_hint">Inactive tests are skipped in battery runs.</small>
+          </div>
+          <label class="switch">
+            <input id="te-active" type="checkbox" checked>
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="field">
+          <label for="te-prompt" data-i18n="tests.prompt">Prompt</label>
+          <textarea id="te-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="tests.prompt_placeholder" placeholder="The prompt sent to the model..."></textarea>
+        </div>
+        <div class="field">
+          <label for="te-system" data-i18n="tests.system_prompt">System prompt</label>
+          <textarea id="te-system" rows="3" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..."></textarea>
+        </div>
+        <div class="field">
+          <label for="te-eval-type" data-i18n="tests.eval_type">Evaluation type</label>
+          <select id="te-eval-type">
+            <option value="exact_match" data-i18n="tests.eval_exact_match">Exact match</option>
+            <option value="contains" data-i18n="tests.eval_contains">Contains</option>
+            <option value="regex" data-i18n="tests.eval_regex">Regex</option>
+            <option value="json_schema" data-i18n="tests.eval_json_schema">JSON schema</option>
+            <option value="human_review" data-i18n="tests.eval_human_review">Human review</option>
+          </select>
+        </div>
+        <div id="te-eval-config-wrap" class="field">
+          <label for="te-eval-config" data-i18n="tests.eval_config">Evaluation config (JSON)</label>
+          <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"expected": "42"}'></textarea>
+        </div>
+        <div class="field">
+          <label for="te-required-caps" data-i18n="tests.required_caps">Required capabilities</label>
+          <input id="te-required-caps" type="text" data-i18n-attr="placeholder" data-i18n="tests.required_caps_placeholder" placeholder="tools, vision (comma-separated)">
+        </div>
+        <div class="field">
+          <label for="te-order" data-i18n="tests.order">Order</label>
+          <input id="te-order" type="number" value="0">
+        </div>
+      </div>
+      <footer class="test-editor-foot">
+        <button id="test-editor-delete" class="ghost danger-text" data-i18n="action.delete" hidden>Delete</button>
+        <div class="test-editor-foot-right">
+          <button id="test-editor-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
+          <button id="test-editor-save" class="primary" data-i18n="action.save">Save</button>
+        </div>
+      </footer>
+    </div>
   </main>
 
   <aside id="detail-panel" class="detail-panel" hidden>

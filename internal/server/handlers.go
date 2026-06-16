@@ -28,7 +28,12 @@ func configIsValidLang(lang string) bool { return config.IsValidLanguage(lang) }
 // ---------- index / login ----------
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/chat/") {
+	isSPAPath := r.URL.Path == "/" ||
+		strings.HasPrefix(r.URL.Path, "/chat/") ||
+		r.URL.Path == "/tests" ||
+		r.URL.Path == "/tests/new" ||
+		strings.HasPrefix(r.URL.Path, "/tests/edit/")
+	if !isSPAPath {
 		http.NotFound(w, r)
 		return
 	}

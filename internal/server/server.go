@@ -16,6 +16,7 @@ import (
 	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/jobs"
 	"github.com/gense/ollama-manager/internal/ollama"
+	"github.com/gense/ollama-manager/internal/tests"
 )
 
 // WebFS is the embedded static frontend (set from main via //go:embed).
@@ -23,13 +24,14 @@ type WebFS = embed.FS
 
 // Server holds shared state for HTTP handlers.
 type Server struct {
-	cfg      *config.Config
-	ollama   *ollama.Client
-	web      fs.FS
-	tmpl     *template.Template
-	jobs     *jobs.Manager
-	uninst   *uninstallHistoryStore
-	archived *archivedModelsStore
+	cfg        *config.Config
+	ollama     *ollama.Client
+	web        fs.FS
+	tmpl       *template.Template
+	jobs       *jobs.Manager
+	uninst     *uninstallHistoryStore
+	archived   *archivedModelsStore
+	testsStore *tests.Store
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -69,16 +71,23 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		log.Printf("archived-models: could not load %s: %v", archivedPath, err)
 	}
 
+	testsPath := filepath.Join(filepath.Dir(cfg.Path()), "tests.json")
+	testsStore := tests.New(testsPath)
+	if err := testsStore.Load(); err != nil {
+		log.Printf("tests: could not load %s: %v", testsPath, err)
+	}
+
 	return &Server{
-		cfg:       cfg,
-		ollama:    ollamaClient,
-		web:       webRoot,
-		tmpl:      tmpl,
-		jobs:      jobMgr,
-		uninst:    uninst,
-		archived:  archivedStore,
-		ctxCache:  make(map[string]int64),
-		capsCache: make(map[string][]string),
+		cfg:        cfg,
+		ollama:     ollamaClient,
+		web:        webRoot,
+		tmpl:       tmpl,
+		jobs:       jobMgr,
+		uninst:     uninst,
+		archived:   archivedStore,
+		testsStore: testsStore,
+		ctxCache:   make(map[string]int64),
+		capsCache:  make(map[string][]string),
 	}, nil
 }
 
@@ -129,6 +138,15 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))
 	mux.Handle("POST /api/config/password", s.requireAuth(s.handleSetPassword))
+
+	mux.Handle("GET /api/tests", s.requireAuth(s.handleTestsList))
+	mux.Handle("POST /api/tests", s.requireAuth(s.handleTestsCreate))
+	mux.Handle("PUT /api/tests/{id}", s.requireAuth(s.handleTestsUpdate))
+	mux.Handle("DELETE /api/tests/{id}", s.requireAuth(s.handleTestsDelete))
+	mux.Handle("POST /api/tests/reorder", s.requireAuth(s.handleTestsReorder))
+	mux.Handle("POST /api/test-groups", s.requireAuth(s.handleTestGroupsCreate))
+	mux.Handle("PUT /api/test-groups/{id}", s.requireAuth(s.handleTestGroupsUpdate))
+	mux.Handle("DELETE /api/test-groups/{id}", s.requireAuth(s.handleTestGroupsDelete))
 
 	return logging(mux)
 }

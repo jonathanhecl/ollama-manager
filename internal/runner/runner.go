@@ -47,6 +47,7 @@ type Progress struct {
 	TestName   string `json:"test_name"`
 	TestIndex  int    `json:"test_index"`
 	TotalTests int    `json:"total_tests"`
+	IsThinking bool   `json:"is_thinking"`
 	Done       bool   `json:"done"`
 	Error      string `json:"error,omitempty"`
 }
@@ -146,7 +147,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 					TestIndex:  idx,
 					TotalTests: total,
 				})
-				res := c.runTest(ctx, model, test)
+				res := c.runTest(ctx, run.ID, model, test)
 				run.Results = append(run.Results, res)
 			}
 		}
@@ -163,7 +164,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 	return run.ID
 }
 
-func (c *Client) runTest(ctx context.Context, model string, test tests.Test) TestResult {
+func (c *Client) runTest(ctx context.Context, runID string, model string, test tests.Test) TestResult {
 	res := TestResult{
 		TestID:   test.ID,
 		TestName: test.Name,
@@ -199,11 +200,40 @@ func (c *Client) runTest(ctx context.Context, model string, test tests.Test) Tes
 	req := ollama.ChatRequest{
 		Model:    model,
 		Messages: messages,
-		Stream:   false,
+		Stream:   true,
 	}
 
+	var fullContent strings.Builder
+	var fullThinking strings.Builder
+	var chunkMeta *ollama.ChatChunk
+	isThinking := false
 	start := time.Now()
-	resp, err := c.ollama.ChatOnce(ctx, req)
+
+	err := c.ollama.Chat(ctx, req, func(chunk ollama.ChatChunk) error {
+		if chunk.Message.Content != "" {
+			fullContent.WriteString(chunk.Message.Content)
+			// Detect thinking tags in real-time.
+			content := fullContent.String()
+			if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
+				if !isThinking {
+					isThinking = true
+					c.updateProgressThinking(runID, true)
+				}
+			}
+			if isThinking && (strings.Contains(content, "</thinking>") || strings.Contains(content, "</stitching>") || strings.Contains(content, "</throat>")) {
+				isThinking = false
+				c.updateProgressThinking(runID, false)
+			}
+		}
+		if chunk.Message.Thinking != "" {
+			fullThinking.WriteString(chunk.Message.Thinking)
+		}
+		if chunk.Done {
+			chunkMeta = &chunk
+		}
+		return nil
+	})
+
 	elapsed := time.Since(start).Milliseconds()
 	res.ResponseTimeMs = elapsed
 
@@ -212,18 +242,12 @@ func (c *Client) runTest(ctx context.Context, model string, test tests.Test) Tes
 		return res
 	}
 
-	if resp == nil || resp.Message.Content == "" {
-		res.ModelResponse = ""
-	} else {
-		res.ModelResponse = resp.Message.Content
-	}
-
-	// Detect reasoning via Thinking field.
-	res.ReasoningUsed = resp != nil && strings.TrimSpace(resp.Message.Thinking) != ""
+	res.ModelResponse = fullContent.String()
+	res.ReasoningUsed = strings.TrimSpace(fullThinking.String()) != ""
 
 	// Compute tokens per second from Ollama metadata.
-	if resp != nil && resp.EvalCount > 0 && resp.EvalDuration > 0 {
-		res.TokensPerSec = float64(resp.EvalCount) / (float64(resp.EvalDuration) / 1e9)
+	if chunkMeta != nil && chunkMeta.EvalCount > 0 && chunkMeta.EvalDuration > 0 {
+		res.TokensPerSec = float64(chunkMeta.EvalCount) / (float64(chunkMeta.EvalDuration) / 1e9)
 	}
 
 	// Score based on evaluation type.
@@ -234,6 +258,14 @@ func (c *Client) runTest(ctx context.Context, model string, test tests.Test) Tes
 	// For human_review, passed stays nil and human_rating stays empty.
 
 	return res
+}
+
+func (c *Client) updateProgressThinking(runID string, thinking bool) {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	if p, ok := c.progress[runID]; ok && p != nil {
+		p.IsThinking = thinking
+	}
 }
 
 func scoreTest(test tests.Test, response string) *bool {

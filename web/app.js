@@ -4931,7 +4931,7 @@ async function pollBatteryProgress(runID, modelIDs) {
         if (modelName === p.model) {
           el.classList.add("running");
           el.classList.remove("done");
-          if (statusEl) statusEl.textContent = t("battery.status_running");
+          if (statusEl) statusEl.textContent = t(p.is_thinking ? "battery.status_thinking" : "battery.status_running");
         } else {
           el.classList.remove("running");
           const thisModelIndex = modelIDs.indexOf(modelName);

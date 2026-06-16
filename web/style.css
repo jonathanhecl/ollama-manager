@@ -1110,7 +1110,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
-#dl-pause-btn {
+#dl-pause-btn,
+#dl-resume-btn {
   width: 22px;
   height: 22px;
   padding: 0;

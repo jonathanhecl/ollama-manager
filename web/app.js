@@ -3519,23 +3519,24 @@ function renderDownloads() {
   }
   $("dl-clear-btn").disabled = buckets.finished.length === 0;
 
-  // Section-level pause/resume button: pause-all when queued exist, resume-all when only paused exist.
-  const hasQueued = buckets.queued.length > 0;
-  const hasPaused = buckets.paused.length > 0;
+  // Section-level pause button (queued -> paused)
   const pauseBtn = $("dl-pause-btn");
-  if (hasQueued || hasPaused) {
+  if (buckets.queued.length > 0) {
     pauseBtn.hidden = false;
-    if (hasQueued) {
-      pauseBtn.title = t("downloads.pause_queue");
-      pauseBtn.textContent = "⏸";
-      pauseBtn.dataset.action = "pause";
-    } else {
-      pauseBtn.title = t("downloads.resume_queue");
-      pauseBtn.textContent = "▶";
-      pauseBtn.dataset.action = "resume";
-    }
+    pauseBtn.title = t("downloads.pause_queue");
+    pauseBtn.textContent = "⏸";
   } else {
     pauseBtn.hidden = true;
+  }
+
+  // Section-level resume button (paused -> queued)
+  const resumeBtn = $("dl-resume-btn");
+  if (buckets.paused.length > 0) {
+    resumeBtn.hidden = false;
+    resumeBtn.title = t("downloads.resume_queue");
+    resumeBtn.textContent = "▶";
+  } else {
+    resumeBtn.hidden = true;
   }
 
   // Wire per-card buttons.
@@ -3720,13 +3721,16 @@ $("downloads-modal").addEventListener("click", (e) => {
 });
 
 $("dl-pause-btn").addEventListener("click", async () => {
-  const btn = $("dl-pause-btn");
   try {
-    if (btn.dataset.action === "pause") {
-      await api("/api/jobs/pause", { method: "POST" });
-    } else {
-      await api("/api/jobs/resume", { method: "POST" });
-    }
+    await api("/api/jobs/pause", { method: "POST" });
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+});
+
+$("dl-resume-btn").addEventListener("click", async () => {
+  try {
+    await api("/api/jobs/resume", { method: "POST" });
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }

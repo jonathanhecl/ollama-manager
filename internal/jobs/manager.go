@@ -47,6 +47,12 @@ func (s Status) IsTerminal() bool {
 	return s == StatusDone || s == StatusError || s == StatusCancelled
 }
 
+// speedSample records an instantaneous speed measurement for rolling-window averaging.
+type speedSample struct {
+	when  time.Time `json:"-"`
+	value float64   `json:"-"`
+}
+
 // Job is a single model download tracked by the manager.
 type Job struct {
 	ID         string    `json:"id"`
@@ -73,15 +79,17 @@ type Job struct {
 	pauseIntent bool `json:"-"`
 
 	// Internal tracking for smoothed instantaneous speed.
-	lastCompleted int64     `json:"-"`
-	lastSpeedAt   time.Time `json:"-"`
-	lastDigest    string    `json:"-"`
+	lastCompleted int64         `json:"-"`
+	lastSpeedAt   time.Time     `json:"-"`
+	lastDigest    string        `json:"-"`
+	speedSamples  []speedSample `json:"-"`
 }
 
 // clone returns a value copy safe to hand out to callers / SSE subscribers.
 func (j *Job) clone() Job {
 	cp := *j
 	cp.cancel = nil
+	cp.speedSamples = nil
 	return cp
 }
 
@@ -655,15 +663,30 @@ func (m *Manager) run(ctx context.Context, id string) {
 				j.lastDigest = ev.Digest
 				j.lastCompleted = ev.Completed
 				j.lastSpeedAt = now
+				j.speedSamples = nil
+				j.Speed = 0
 			} else if ev.Completed > j.lastCompleted && !j.lastSpeedAt.IsZero() {
 				deltaBytes := ev.Completed - j.lastCompleted
 				deltaSec := now.Sub(j.lastSpeedAt).Seconds()
 				if deltaSec > 0.1 {
 					instant := float64(deltaBytes) / deltaSec
-					if j.Speed > 0 {
-						j.Speed = j.Speed*0.7 + instant*0.3
-					} else {
-						j.Speed = instant
+					j.speedSamples = append(j.speedSamples, speedSample{when: now, value: instant})
+					// Drop samples older than 60 seconds.
+					cutoff := now.Add(-60 * time.Second)
+					start := 0
+					for start < len(j.speedSamples) && j.speedSamples[start].when.Before(cutoff) {
+						start++
+					}
+					if start > 0 {
+						j.speedSamples = j.speedSamples[start:]
+					}
+					// Compute average over retained window.
+					if len(j.speedSamples) > 0 {
+						var sum float64
+						for _, s := range j.speedSamples {
+							sum += s.value
+						}
+						j.Speed = sum / float64(len(j.speedSamples))
 					}
 					j.lastCompleted = ev.Completed
 					j.lastSpeedAt = now
@@ -693,6 +716,7 @@ func (m *Manager) run(ctx context.Context, id string) {
 			j.Status = StatusDone
 			j.Percent = 100
 			j.Speed = 0
+			j.speedSamples = nil
 			j.StatusText = "success"
 			j.Error = ""
 		case errors.Is(err, context.Canceled) || ctx.Err() != nil:
@@ -703,9 +727,12 @@ func (m *Manager) run(ctx context.Context, id string) {
 			}
 			j.pauseIntent = false
 			j.Speed = 0
+			j.speedSamples = nil
 			j.Error = ""
 		default:
 			j.Status = StatusError
+			j.Speed = 0
+			j.speedSamples = nil
 			j.Error = err.Error()
 		}
 		m.recordHistoryLocked(j.Name, j.Status, j.Error, j.FinishedAt)

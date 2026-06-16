@@ -3062,3 +3062,12 @@ button.chat-send:disabled:hover {
   .tests-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
   .test-editor-body .field { grid-template-columns: 1fr; }
 }
+
+/* ---------- Math rendering ---------- */
+.math-inline { display: inline; }
+.math-display {
+  display: block;
+  margin: 0.6em 0;
+  text-align: center;
+}
+.math-display .katex { display: inline-block; }

@@ -1930,6 +1930,18 @@ function renderMarkdownSafe(input) {
   const tableBlocks = [];
   work = extractGFMTables(work, tableBlocks);
 
+  const mathBlocks = [];
+  work = work.replace(/\$\$([\s\S]*?)\$\$/g, (_m, math) => {
+    const key = `@@MATHDISP_${mathBlocks.length}@@`;
+    mathBlocks.push({ type: "display", math: math.trim() });
+    return key;
+  });
+  work = work.replace(/\$([^$\n]+?)\$/g, (_m, math) => {
+    const key = `@@MATHINLINE_${mathBlocks.length}@@`;
+    mathBlocks.push({ type: "inline", math: math.trim() });
+    return key;
+  });
+
   let html = escapeHtml(work);
   html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -1980,7 +1992,28 @@ function renderMarkdownSafe(input) {
   codeBlocks.forEach((block, i) => {
     html = html.replace(`@@CODEBLOCK_${i}@@`, block);
   });
+  mathBlocks.forEach((block, i) => {
+    if (block.type === "display") {
+      html = html.replace(`@@MATHDISP_${i}@@`, `<span class="math-display">${escapeHtml(block.math)}</span>`);
+    } else {
+      html = html.replace(`@@MATHINLINE_${i}@@`, `<span class="math-inline">${escapeHtml(block.math)}</span>`);
+    }
+  });
   return html;
+}
+
+function renderChatMath(container) {
+  if (typeof katex === "undefined") return;
+  container.querySelectorAll(".math-inline").forEach((el) => {
+    try {
+      katex.render(el.textContent, el, { throwOnError: false, displayMode: false });
+    } catch (e) { /* ignore */ }
+  });
+  container.querySelectorAll(".math-display").forEach((el) => {
+    try {
+      katex.render(el.textContent, el, { throwOnError: false, displayMode: true });
+    } catch (e) { /* ignore */ }
+  });
 }
 
 function splitThink(raw) {
@@ -2349,6 +2382,7 @@ function renderChatMessages() {
       }
     });
   });
+  renderChatMath(host);
   scrollChatToBottom();
 }
 

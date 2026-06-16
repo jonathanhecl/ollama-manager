@@ -2879,9 +2879,18 @@ button.chat-send:disabled:hover {
   #models-table th:nth-child(7), #models-table td:nth-child(7) {
     width: 90px;
   }
-  #models-table th:nth-child(8), #models-table td:nth-child(8) {
-    display: none;
+  #models-table td:nth-child(8) { display: none; }
+  #models-table th:nth-child(8) {
+    width: 30px;
+    padding: 10px 0;
+    font-size: 0;
+    text-align: center;
+    overflow: hidden;
+    white-space: nowrap;
   }
+  #models-table th:nth-child(8)::after { margin-left: 0; }
+  #models-table th:nth-child(8).sort-asc::after,
+  #models-table th:nth-child(8).sort-desc::after { opacity: 1; }
   #models-table th:nth-child(9), #models-table td:nth-child(9) {
     display: none;
   }

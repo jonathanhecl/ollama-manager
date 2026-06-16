@@ -3582,7 +3582,7 @@ function emptyRow() {
 function jobCardHTML(j) {
   const pct = Math.max(0, Math.min(100, j.percent || 0));
   const sizeLine = j.total > 0
-    ? `${fmtBytes(j.completed || 0)} / ${fmtBytes(j.total)}`
+    ? (j.status === "done" ? fmtBytes(j.total) : `${fmtBytes(j.completed || 0)} / ${fmtBytes(j.total)}`)
     : "";
   const showFinishedAt = (j.status === "done" || j.status === "error") && !!j.finished_at;
   const finishedLine = showFinishedAt ? fmtRelativeTime(j.finished_at) : "";
@@ -3595,7 +3595,7 @@ function jobCardHTML(j) {
   const progress = showBar
     ? `<div class="dl-progress"><div class="dl-progress-bar dl-progress-${j.status}" style="width:${pct.toFixed(1)}%"></div></div>`
     : "";
-  const pctText = j.status === "running" || j.status === "done" || j.status === "paused"
+  const pctText = j.status === "running" || j.status === "paused"
     ? `<span class="dl-pct mono">${pct.toFixed(1)}%</span>`
     : "";
   let speedHTML = "";

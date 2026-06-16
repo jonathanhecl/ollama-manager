@@ -1184,6 +1184,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   flex-shrink: 0;
 }
 .dl-actions .btn-icon { width: 26px; height: 26px; font-size: 14px; }
+.dl-actions .dl-pause,
+.dl-actions .dl-resume,
 .dl-actions .dl-retry {
   width: 26px; height: 26px; padding: 0;
   font-size: 13px;

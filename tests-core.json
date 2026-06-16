@@ -1,33 +1,18 @@
 [
   {
-    "id": "t3",
-    "name": "Logic Deduction",
-    "description": "Simple syllogism to verify reasoning chain.",
-    "group_id": "core",
-    "active": true,
-    "order": 2,
-    "prompt": "All birds have wings. A penguin is a bird. What conclusion can you draw about penguins?",
-    "evaluation_type": "contains",
-    "evaluation_config": {
-      "expected": "wings"
-    },
-    "created_at": "2026-06-16T07:43:07.397666Z",
-    "updated_at": "2026-06-16T07:43:07.397666Z"
-  },
-  {
     "id": "t2",
     "name": "Fraction Simplification",
     "description": "Checks understanding of fraction reduction.",
     "group_id": "core",
     "active": true,
     "order": 1,
-    "prompt": "Simplify the fraction 18/24 to its lowest terms.",
+    "prompt": "Simplify the fraction 18/24 to its lowest terms. Answer with plain text only (no LaTeX, no markdown).",
     "evaluation_type": "contains",
     "evaluation_config": {
       "expected": "3/4"
     },
     "created_at": "2026-06-16T07:43:07.397666Z",
-    "updated_at": "2026-06-16T07:43:07.397666Z"
+    "updated_at": "2026-06-16T09:40:27.6854367Z"
   },
   {
     "id": "t1",
@@ -40,6 +25,21 @@
     "evaluation_type": "contains",
     "evaluation_config": {
       "expected": "14"
+    },
+    "created_at": "2026-06-16T07:43:07.397666Z",
+    "updated_at": "2026-06-16T07:43:07.397666Z"
+  },
+  {
+    "id": "t3",
+    "name": "Logic Deduction",
+    "description": "Simple syllogism to verify reasoning chain.",
+    "group_id": "core",
+    "active": true,
+    "order": 2,
+    "prompt": "All birds have wings. A penguin is a bird. What conclusion can you draw about penguins?",
+    "evaluation_type": "contains",
+    "evaluation_config": {
+      "expected": "wings"
     },
     "created_at": "2026-06-16T07:43:07.397666Z",
     "updated_at": "2026-06-16T07:43:07.397666Z"

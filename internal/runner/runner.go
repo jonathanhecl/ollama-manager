@@ -333,8 +333,8 @@ func scoreTest(test tests.Test, response string) *bool {
 // normalizeForContains strips LaTeX/markdown formatting so that
 // e.g. \frac{3}{4} becomes 3/4 for easier substring matching.
 func normalizeForContains(s string) string {
-	// Remove LaTeX command wrappers: \frac{3}{4} -> 3/4
-	s = regexp.MustCompile(`\\[a-zA-Z]+\{([^}]*)\}`).ReplaceAllString(s, "$1")
+	// Handle \frac{a}{b} -> a/b
+	s = regexp.MustCompile(`\\frac\{([^}]*)\}\{([^}]*)\}`).ReplaceAllString(s, "$1/$2")
 	// Remove remaining braces.
 	s = strings.ReplaceAll(s, "{", "")
 	s = strings.ReplaceAll(s, "}", "")

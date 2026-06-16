@@ -86,7 +86,7 @@ func (s *Store) SeedIfEmpty() error {
 			GroupID:        gCore.ID,
 			Active:         true,
 			Order:          1,
-			Prompt:         "Simplify the fraction 18/24 to its lowest terms.",
+			Prompt:         "Simplify the fraction 18/24 to its lowest terms. Answer with plain text only (no LaTeX, no markdown).",
 			EvaluationType: "contains",
 			EvaluationConfig: mustJSON(map[string]any{
 				"expected": "3/4",

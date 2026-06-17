@@ -2169,6 +2169,8 @@ function scheduleRenderChatMessages() {
     renderChatMessages();
     scrollChatToBottom();
     scrollActiveBlocks();
+    setTimeout(() => scrollActiveBlocks(), 50);
+    setTimeout(() => scrollActiveBlocks(), 150);
   });
 }
 
@@ -2180,6 +2182,8 @@ function flushChatRender() {
   renderChatMessages();
   scrollChatToBottom();
   scrollActiveBlocks();
+  setTimeout(() => scrollActiveBlocks(), 50);
+  setTimeout(() => scrollActiveBlocks(), 150);
 }
 
 function renderMarkdownSafe(input) {
@@ -3369,18 +3373,37 @@ function scrollChatToBottom() {
   });
 }
 
-/** Smoothly scroll thinking and response blocks of the currently streaming message. */
+/** Scroll thinking and response blocks of the currently streaming message to bottom. */
 function scrollActiveBlocks() {
   const streamingMsg = document.querySelector("article.chat-msg.chat-streaming");
   if (!streamingMsg) return;
-  const thinkPres = streamingMsg.querySelectorAll("details.chat-think[open] pre");
-  thinkPres.forEach((el) => {
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  });
-  const content = streamingMsg.querySelector(".chat-md");
-  if (content) {
-    content.scrollTo({ top: content.scrollHeight, behavior: "smooth" });
-  }
+
+  const scrollThinks = () => {
+    streamingMsg.querySelectorAll("details.chat-think").forEach((details) => {
+      if (!details.open) details.open = true;
+      const pre = details.querySelector("pre");
+      if (pre) {
+        const old = pre.style.scrollBehavior;
+        pre.style.scrollBehavior = "auto";
+        pre.scrollTop = pre.scrollHeight;
+        pre.style.scrollBehavior = old;
+      }
+    });
+  };
+  scrollThinks();
+  requestAnimationFrame(() => requestAnimationFrame(scrollThinks));
+
+  const scrollContent = () => {
+    const content = streamingMsg.querySelector(".chat-md");
+    if (content) {
+      const old = content.style.scrollBehavior;
+      content.style.scrollBehavior = "auto";
+      content.scrollTop = content.scrollHeight;
+      content.style.scrollBehavior = old;
+    }
+  };
+  scrollContent();
+  requestAnimationFrame(() => requestAnimationFrame(scrollContent));
 }
 
 async function runChatRequest(assistantMsg) {

@@ -1915,7 +1915,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   padding: 10px;
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 300px;
+  max-height: 220px;
   scroll-behavior: smooth;
   white-space: pre-wrap;
   word-break: break-word;

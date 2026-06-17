@@ -1885,6 +1885,8 @@ async function saveTestEditor() {
     };
   }
 
+  const autoCaps = getAutoCapsFromAttachments();
+  const userCaps = $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean);
   const payload = {
     name: $("te-name").value.trim(),
     description: $("te-description").value.trim(),
@@ -1894,7 +1896,7 @@ async function saveTestEditor() {
     system_prompt: $("te-system").value,
     evaluation_type: $("te-eval-type").value,
     evaluation_config: agentConfig,
-    required_caps: $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean),
+    required_caps: Array.from(new Set([...userCaps, ...autoCaps])),
     attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
     order: Number($("te-order").value) || 0,
   };

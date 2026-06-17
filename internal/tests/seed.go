@@ -1,18 +1,17 @@
 package tests
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 )
 
-//go:embed seeddata/audio.b64
-var seedAudioB64 string
+// Tiny 1x1 JPEG (base64) for seed vision test.
+const seedImageB64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABQf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwC3/9k="
 
-//go:embed seeddata/image.b64
-var seedImageB64 string
+// Tiny silent WAV (header-only, base64) for seed audio test.
+const seedAudioB64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
 
 // SeedIfEmpty creates default groups and tests when the store has no data.
 // It is safe to call multiple times — it only seeds when truly empty.

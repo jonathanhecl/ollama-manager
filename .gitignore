@@ -33,6 +33,7 @@ config.json
 
 # Runtime state: persisted download queue
 jobs.json
+tests*.json
 
 # Built binary
 ollama-manager

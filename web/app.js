@@ -4925,8 +4925,14 @@ async function renderBatteryModalModels() {
 }
 
 let batteryPollTimer = null;
+let batteryCompletedTests = [];
+let batteryLastTestSnapshot = null;
 
 function showBatteryProgressView(modelIDs, runID) {
+  batteryCompletedTests = [];
+  batteryLastTestSnapshot = null;
+  const completedEl = $("battery-completed-tests");
+  if (completedEl) { completedEl.innerHTML = ""; completedEl.hidden = true; }
   hideAllMainViews();
   currentView = "battery-progress";
   $("battery-progress-view").hidden = false;
@@ -4945,6 +4951,33 @@ function showBatteryProgressView(modelIDs, runID) {
   void pollBatteryProgress(runID, modelIDs);
 }
 
+function renderBatteryCompletedTests() {
+  const container = $("battery-completed-tests");
+  if (!container) return;
+  if (!batteryCompletedTests.length) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = batteryCompletedTests.map((item, idx) => {
+    const thinkBlock = item.thinking
+      ? `<div class="battery-completed-label">Thinking</div><div class="battery-completed-block">${escapeHtml(item.thinking)}</div>`
+      : "";
+    const respBlock = item.response
+      ? `<div class="battery-completed-label">Response</div><div class="battery-completed-block">${escapeHtml(item.response)}</div>`
+      : "";
+    return `<details class="battery-completed-item" ${idx === batteryCompletedTests.length - 1 ? "open" : ""}>
+      <summary><span>${escapeHtml(item.name)}</span><span class="battery-completed-meta">${escapeHtml(item.model)}</span></summary>
+      <div class="battery-completed-body">
+        <div class="battery-completed-label">Prompt</div>
+        <div class="battery-completed-block">${escapeHtml(item.prompt || "")}</div>
+        ${thinkBlock}
+        ${respBlock}
+      </div>
+    </details>`;
+  }).join("");
+}
+
 async function pollBatteryProgress(runID, modelIDs) {
   if (batteryPollTimer) {
     clearTimeout(batteryPollTimer);
@@ -4952,6 +4985,11 @@ async function pollBatteryProgress(runID, modelIDs) {
   }
   try {
     const p = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/progress");
+    // Detect test change: archive previous snapshot.
+    if (batteryLastTestSnapshot && batteryLastTestSnapshot.testId && p.test_id && batteryLastTestSnapshot.testId !== p.test_id) {
+      batteryCompletedTests.push(batteryLastTestSnapshot);
+      renderBatteryCompletedTests();
+    }
     // Update current test info.
     const currentDiv = $("battery-progress-current");
     if (currentDiv && p.test_name) {
@@ -4964,6 +5002,7 @@ async function pollBatteryProgress(runID, modelIDs) {
     }
     // Update streaming panel.
     const streamPanel = $("battery-stream-panel");
+    const currentTest = tests.find((t) => t.id === p.test_id);
     if (streamPanel && p.test_name && !p.done) {
       streamPanel.hidden = false;
       const promptName = $("battery-stream-prompt-name");
@@ -4971,8 +5010,6 @@ async function pollBatteryProgress(runID, modelIDs) {
       const thinkingBlock = $("battery-stream-thinking");
       const responseBlock = $("battery-stream-response");
       if (promptName) promptName.textContent = escapeHtml(p.test_name);
-      // Find prompt text from tests array.
-      const currentTest = tests.find((t) => t.id === p.test_id);
       if (promptBlock && currentTest) promptBlock.textContent = currentTest.prompt || "";
       if (thinkingBlock) {
         thinkingBlock.textContent = p.partial_thinking || "";
@@ -4983,6 +5020,15 @@ async function pollBatteryProgress(runID, modelIDs) {
     } else if (streamPanel) {
       streamPanel.hidden = true;
     }
+    // Save snapshot for the current test.
+    batteryLastTestSnapshot = {
+      testId: p.test_id,
+      name: p.test_name || "",
+      model: p.model || "",
+      prompt: currentTest ? (currentTest.prompt || "") : "",
+      thinking: p.partial_thinking || "",
+      response: p.partial_response || "",
+    };
 
     // Update model cards.
     const container = $("battery-progress-models");
@@ -5006,6 +5052,13 @@ async function pollBatteryProgress(runID, modelIDs) {
       });
     }
     if (p.done) {
+      // Archive final snapshot before finishing.
+      if (batteryLastTestSnapshot) {
+        batteryCompletedTests.push(batteryLastTestSnapshot);
+        renderBatteryCompletedTests();
+      }
+      // Let the user read the last response for a moment.
+      await new Promise((r) => setTimeout(r, 1500));
       // Fetch full run and show results.
       try {
         const run = await api("/api/runner/runs/" + encodeURIComponent(runID));
@@ -5152,9 +5205,13 @@ function renderBatteryResults(run) {
       }
 
       const rating = r.human_rating || "";
-      const reviewBtn = r.passed === null
-        ? `<button type="button" class="battery-review-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">${rating ? t("battery.reviewed") : t("battery.review")}</button>`
-        : "—";
+      const reviewCell = r.passed === null
+        ? `<div class="battery-inline-rating" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
+             <button type="button" data-rating="bad" class="${rating === "bad" ? "active" : ""}" title="${escapeHtml(t("battery.human_review_bad"))}">${t("battery.human_review_bad")}</button>
+             <button type="button" data-rating="regular" class="${rating === "regular" ? "active" : ""}" title="${escapeHtml(t("battery.human_review_regular"))}">${t("battery.human_review_regular")}</button>
+             <button type="button" data-rating="good" class="${rating === "good" ? "active" : ""}" title="${escapeHtml(t("battery.human_review_good"))}">${t("battery.human_review_good")}</button>
+           </div>`
+        : (rating ? `<span class="badge badge-${rating === "good" ? "pass" : rating === "regular" ? "human" : "fail"}">${escapeHtml(rating)}</span>` : "—");
 
       const reasoningIcon = r.reasoning_used ? "🧠" : "";
       const tps = r.tokens_per_sec ? `${r.tokens_per_sec.toFixed(1)} tok/s` : "";
@@ -5165,7 +5222,7 @@ function renderBatteryResults(run) {
 
       rowsHtml += `
         <tr>
-          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong></td>` : ""}
+          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong><div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">prompt</button></div></td>` : ""}
           <td class="cell-model">${escapeHtml(r.model)}</td>
           <td>${badge}</td>
           <td class="cell-time">${fmtDuration(r.response_time_ms)} ${reasoningIcon}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
@@ -5173,7 +5230,7 @@ function renderBatteryResults(run) {
             <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
             ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
           </td>
-          <td>${reviewBtn}</td>
+          <td>${reviewCell}</td>
         </tr>
       `;
     }
@@ -5206,13 +5263,44 @@ function renderBatteryResults(run) {
     });
   });
 
-  body.querySelectorAll(".battery-review-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const testId = btn.dataset.testId;
-      const model = btn.dataset.model;
-      openHumanReviewModal(run, testId, model);
+  body.querySelectorAll(".battery-inline-rating button").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const wrap = btn.closest(".battery-inline-rating");
+      const testId = wrap.dataset.testId;
+      const model = wrap.dataset.model;
+      const rating = btn.dataset.rating;
+      try {
+        await submitHumanRating(run, testId, model, rating);
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
     });
   });
+
+  body.querySelectorAll(".battery-prompt-link").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const testId = btn.dataset.testId;
+      const firstResult = run.results.find((r) => r.test_id === testId);
+      if (firstResult) {
+        openHumanReviewModal(run, testId, firstResult.model);
+      }
+    });
+  });
+}
+
+async function submitHumanRating(run, testId, model, rating) {
+  await api("/api/runner/runs/" + encodeURIComponent(run.id) + "/rate", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ test_id: testId, model, rating }),
+  });
+  const result = run.results.find((r) => r.test_id === testId && r.model === model);
+  if (result) {
+    result.human_rating = rating;
+    result.passed = rating === "good";
+  }
+  renderBatteryResults(run);
+  toast(t("battery.review_saved"), "success");
 }
 
 function openHumanReviewModal(run, testId, model) {
@@ -5269,18 +5357,9 @@ function openHumanReviewModal(run, testId, model) {
       btn.addEventListener("click", async () => {
         const rating = btn.dataset.rating;
         try {
-          await api("/api/runner/runs/" + encodeURIComponent(run.id) + "/rate", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ test_id: testId, model, rating }),
-          });
+          await submitHumanRating(run, testId, model, rating);
           ratingWrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
           btn.classList.add("active");
-          // Refresh the results view
-          result.human_rating = rating;
-          result.passed = rating === "good";
-          renderBatteryResults(run);
-          toast(t("battery.review_saved"), "success");
         } catch (err) {
           toast(t("toast.error", { msg: err.message }), "error");
         }

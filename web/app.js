@@ -5116,20 +5116,29 @@ function showBatteryResultsView(runId) {
   hideAllMainViews();
   currentView = "battery-results";
   $("battery-results-view").hidden = false;
-  if (currentBatteryRun && currentBatteryRun.id === runId) {
-    renderBatteryResults(currentBatteryRun);
-  } else {
-    void (async () => {
-      try {
+  void (async () => {
+    try {
+      if (tests.length === 0) {
+        try {
+          const data = await api("/api/tests");
+          testsGroups = data.groups || [];
+          tests = data.tests || [];
+        } catch {
+          // ignore; renderBatteryResults will treat all tests as non-human-review
+        }
+      }
+      if (currentBatteryRun && currentBatteryRun.id === runId) {
+        renderBatteryResults(currentBatteryRun);
+      } else {
         const run = await api("/api/runner/runs/" + encodeURIComponent(runId));
         currentBatteryRun = run;
         renderBatteryResults(run);
-      } catch (err) {
-        toast(t("toast.error", { msg: err.message }), "error");
-        showTestsView();
       }
-    })();
-  }
+    } catch (err) {
+      toast(t("toast.error", { msg: err.message }), "error");
+      showTestsView();
+    }
+  })();
 }
 
 function showBatteryHistoryView() {
@@ -5193,31 +5202,40 @@ function renderBatteryResults(run) {
 
   for (const tid of testIds) {
     const results = byTest[tid];
+    const test = tests.find((t) => t.id === tid);
+    const isHumanReview = test?.evaluation_type === "human_review";
     const testName = results[0]?.test_name || tid;
+    const promptBtn = isHumanReview
+      ? `<div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">prompt</button></div>`
+      : "";
+    const humanReviewLabel = isHumanReview
+      ? `<div class="battery-human-review-label">${t("battery.human_review")}</div>`
+      : "";
+
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      let badge = "";
-      const hasRealResponse = (r.tokens_per_sec || 0) > 0 && (r.model_response || "").trim().length > 0;
-      if (r.error) {
-        badge = `<span class="badge badge-na" title="${escapeHtml(r.error)}">${t("battery.error")}</span>`;
-      } else if (!hasRealResponse && r.passed === false) {
-        badge = `<span class="badge badge-na" title="${escapeHtml(r.model_response || t("battery.no_response"))}">${t("battery.error")}</span>`;
-      } else if (r.passed === true) {
-        badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
-      } else if (r.passed === false) {
-        badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+      let resultCell = "";
+      if (isHumanReview) {
+        resultCell = `
+          <div class="battery-pass-fail" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
+            <button type="button" data-passed="true" class="${r.passed === true ? "active" : ""}">${t("battery.pass")}</button>
+            <button type="button" data-passed="false" class="${r.passed === false ? "active" : ""}">${t("battery.fail")}</button>
+          </div>
+        `;
       } else {
-        badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+        const hasRealResponse = (r.tokens_per_sec || 0) > 0 && (r.model_response || "").trim().length > 0;
+        if (r.error) {
+          resultCell = `<span class="badge badge-na" title="${escapeHtml(r.error)}">${t("battery.error")}</span>`;
+        } else if (!hasRealResponse && r.passed === false) {
+          resultCell = `<span class="badge badge-na" title="${escapeHtml(r.model_response || t("battery.no_response"))}">${t("battery.error")}</span>`;
+        } else if (r.passed === true) {
+          resultCell = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
+        } else if (r.passed === false) {
+          resultCell = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+        } else {
+          resultCell = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+        }
       }
-
-      const rating = r.human_rating || "";
-      const reviewCell = r.passed === null
-        ? `<div class="battery-inline-rating" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
-             <button type="button" data-rating="bad" class="${rating === "bad" ? "active" : ""}" title="${escapeHtml(t("battery.human_review_bad"))}">${t("battery.human_review_bad")}</button>
-             <button type="button" data-rating="regular" class="${rating === "regular" ? "active" : ""}" title="${escapeHtml(t("battery.human_review_regular"))}">${t("battery.human_review_regular")}</button>
-             <button type="button" data-rating="good" class="${rating === "good" ? "active" : ""}" title="${escapeHtml(t("battery.human_review_good"))}">${t("battery.human_review_good")}</button>
-           </div>`
-        : (rating ? `<span class="badge badge-${rating === "good" ? "pass" : rating === "regular" ? "human" : "fail"}">${escapeHtml(rating)}</span>` : "—");
 
       const reasoningIcon = r.reasoning_used ? "🧠" : "";
       const tps = r.tokens_per_sec ? `${r.tokens_per_sec.toFixed(1)} tok/s` : "";
@@ -5228,15 +5246,14 @@ function renderBatteryResults(run) {
 
       rowsHtml += `
         <tr>
-          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong><div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">prompt</button></div></td>` : ""}
+          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${humanReviewLabel}${promptBtn}</td>` : ""}
           <td class="cell-model">${escapeHtml(r.model)}</td>
-          <td>${badge}</td>
+          <td>${resultCell}</td>
           <td class="cell-time">${fmtDuration(r.response_time_ms)} ${reasoningIcon}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
           <td class="cell-response">
             <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
             ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
           </td>
-          <td>${reviewCell}</td>
         </tr>
       `;
     }
@@ -5252,7 +5269,6 @@ function renderBatteryResults(run) {
             <th>${t("battery.results")}</th>
             <th>${t("battery.response_time")}</th>
             <th>${t("chat.response")}</th>
-            <th>${t("battery.human_review")}</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
@@ -5269,14 +5285,14 @@ function renderBatteryResults(run) {
     });
   });
 
-  body.querySelectorAll(".battery-inline-rating button").forEach((btn) => {
+  body.querySelectorAll(".battery-pass-fail button").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const wrap = btn.closest(".battery-inline-rating");
+      const wrap = btn.closest(".battery-pass-fail");
       const testId = wrap.dataset.testId;
       const model = wrap.dataset.model;
-      const rating = btn.dataset.rating;
+      const passed = btn.dataset.passed === "true";
       try {
-        await submitHumanRating(run, testId, model, rating);
+        await submitTestResult(run, testId, model, passed);
       } catch (err) {
         toast(t("toast.error", { msg: err.message }), "error");
       }
@@ -5294,16 +5310,15 @@ function renderBatteryResults(run) {
   });
 }
 
-async function submitHumanRating(run, testId, model, rating) {
+async function submitTestResult(run, testId, model, passed) {
   await api("/api/runner/runs/" + encodeURIComponent(run.id) + "/rate", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ test_id: testId, model, rating }),
+    body: JSON.stringify({ test_id: testId, model, passed }),
   });
   const result = run.results.find((r) => r.test_id === testId && r.model === model);
   if (result) {
-    result.human_rating = rating;
-    result.passed = rating === "good";
+    result.passed = passed;
   }
   renderBatteryResults(run);
   toast(t("battery.review_saved"), "success");
@@ -5311,11 +5326,10 @@ async function submitHumanRating(run, testId, model, rating) {
 
 function openHumanReviewModal(run, testId, model) {
   const test = tests.find((t) => t.id === testId);
-  const result = run.results.find((r) => r.test_id === testId && r.model === model);
-  if (!test || !result) return;
+  if (!test) return;
 
   const titleEl = $("human-review-modal-title");
-  if (titleEl) titleEl.textContent = t("battery.review_title") + " — " + escapeHtml(test.name) + " / " + escapeHtml(model);
+  if (titleEl) titleEl.textContent = t("battery.prompt") + " — " + escapeHtml(test.name);
 
   // Prompt
   const promptEl = $("human-review-prompt");
@@ -5344,33 +5358,6 @@ function openHumanReviewModal(run, testId, model) {
       return "";
     }).join("");
     attachEl.innerHTML = attHtml || `<div class="muted">${t("battery.no_attachments")}</div>`;
-  }
-
-  // Model response
-  const respEl = $("human-review-response");
-  if (respEl) respEl.textContent = result.model_response || t("battery.no_response");
-
-  // Rating buttons
-  const ratingWrap = $("human-review-rating");
-  if (ratingWrap) {
-    const currentRating = result.human_rating || "";
-    ratingWrap.innerHTML = `
-      <button type="button" data-rating="bad" class="${currentRating === "bad" ? "active" : ""}">${t("battery.human_review_bad")}</button>
-      <button type="button" data-rating="regular" class="${currentRating === "regular" ? "active" : ""}">${t("battery.human_review_regular")}</button>
-      <button type="button" data-rating="good" class="${currentRating === "good" ? "active" : ""}">${t("battery.human_review_good")}</button>
-    `;
-    ratingWrap.querySelectorAll("button").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const rating = btn.dataset.rating;
-        try {
-          await submitHumanRating(run, testId, model, rating);
-          ratingWrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
-          btn.classList.add("active");
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      });
-    });
   }
 
   $("human-review-modal").hidden = false;

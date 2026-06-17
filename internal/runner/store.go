@@ -103,6 +103,25 @@ func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) err
 	return errors.New("result not found")
 }
 
+// UpdateResultPassed updates only the Passed flag for a specific test result.
+func (s *ResultStore) UpdateResultPassed(runID, testID, model string, passed bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.runs {
+		if s.runs[i].ID != runID {
+			continue
+		}
+		for j := range s.runs[i].Results {
+			res := &s.runs[i].Results[j]
+			if res.TestID == testID && res.Model == model {
+				res.Passed = &passed
+				return s.saveLocked()
+			}
+		}
+	}
+	return errors.New("result not found")
+}
+
 // TestHistoryItem is a single result for a test across all runs.
 type TestHistoryItem struct {
 	RunID          string    `json:"run_id"`

@@ -3385,6 +3385,14 @@ button.chat-send:disabled:hover {
 .battery-rating button[data-rating="regular"].active { background: var(--warn); border-color: var(--warn); color: #111; }
 .battery-rating button[data-rating="good"].active { background: var(--good); border-color: var(--good); color: #111; }
 
+.battery-pass-fail { display: inline-flex; gap: 4px; }
+.battery-pass-fail button { font-size: 11px; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; }
+.battery-pass-fail button:hover { border-color: var(--border-strong); }
+.battery-pass-fail button[data-passed="true"].active { background: var(--good); color: #111; border-color: var(--good); }
+.battery-pass-fail button[data-passed="false"].active { background: var(--bad); color: #fff; border-color: var(--bad); }
+
+.battery-human-review-label { font-size: 11px; color: var(--warn); margin-top: 4px; }
+
 .battery-history-body { display: flex; flex-direction: column; gap: 10px; }
 .battery-history-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); cursor: pointer; transition: background .15s; }
 .battery-history-item:hover { background: var(--panel-2); }
@@ -3508,43 +3516,7 @@ button.chat-send:disabled:hover {
   background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
-.battery-inline-rating {
-  display: inline-flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.battery-inline-rating button {
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--muted);
-  cursor: pointer;
-  line-height: 1.2;
-}
-.battery-inline-rating button.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
-.battery-inline-rating button[data-rating="bad"].active {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: #fff;
-}
-.battery-inline-rating button[data-rating="regular"].active {
-  background: var(--warn);
-  border-color: var(--warn);
-  color: #111;
-}
-.battery-inline-rating button[data-rating="good"].active {
-  background: var(--good);
-  border-color: var(--good);
-  color: #111;
-}
-
-/* Human review modal */
+/* Prompt modal */
 .human-review-modal-card {
   width: min(720px, 100%);
   max-height: calc(100dvh - 40px);

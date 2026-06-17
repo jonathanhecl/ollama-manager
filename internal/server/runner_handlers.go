@@ -129,17 +129,28 @@ func (s *Server) handleRateRun(w http.ResponseWriter, r *http.Request) {
 		TestID string `json:"test_id"`
 		Model  string `json:"model"`
 		Rating string `json:"rating"` // "bad", "regular", "good"
+		Passed *bool  `json:"passed,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
 		return
 	}
-	if body.TestID == "" || body.Model == "" || body.Rating == "" {
-		writeError(w, http.StatusBadRequest, errors.New("test_id, model and rating are required"))
+	if body.TestID == "" || body.Model == "" {
+		writeError(w, http.StatusBadRequest, errors.New("test_id and model are required"))
 		return
 	}
-	if err := s.runnerStore.UpdateHumanRating(id, body.TestID, body.Model, body.Rating); err != nil {
-		writeError(w, http.StatusNotFound, err)
+	if body.Passed != nil {
+		if err := s.runnerStore.UpdateResultPassed(id, body.TestID, body.Model, *body.Passed); err != nil {
+			writeError(w, http.StatusNotFound, err)
+			return
+		}
+	} else if body.Rating != "" {
+		if err := s.runnerStore.UpdateHumanRating(id, body.TestID, body.Model, body.Rating); err != nil {
+			writeError(w, http.StatusNotFound, err)
+			return
+		}
+	} else {
+		writeError(w, http.StatusBadRequest, errors.New("rating or passed is required"))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

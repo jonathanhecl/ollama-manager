@@ -4873,14 +4873,16 @@ async function renderBatteryModalModels() {
     .filter((m) => (m.capabilities || []).includes("completion"))
     .map((m) => {
       const caps = m.capabilities || [];
+      const hasAnyRequired = [...requiredCaps].some((c) => caps.includes(c));
       const missing = [];
       for (const c of requiredCaps) {
         if (!caps.includes(c)) missing.push(c);
       }
-      const disabled = missing.length > 0;
+      const disabled = !hasAnyRequired;
       const title = disabled ? t("battery.model_unsupported_caps") + ": " + missing.join(", ") : "";
       return { m, disabled, title };
-    });
+    })
+    .filter(({ disabled }) => !disabled);
 
   if (items.length === 0) {
     container.innerHTML = `<div class="muted">${t("state.empty_models")}</div>`;

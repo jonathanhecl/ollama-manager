@@ -1731,7 +1731,7 @@ function renderTestsList() {
         await api("/api/tests/" + encodeURIComponent(id), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ active: !test.active }),
+          body: JSON.stringify({ ...test, active: !test.active }),
         });
         await refreshTests();
       } catch (err) {

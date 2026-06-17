@@ -183,6 +183,16 @@ func (s *Server) handleGetTestHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"history": history})
 }
 
+func (s *Server) handleGetGroupHistory(w http.ResponseWriter, r *http.Request) {
+	groupID := r.PathValue("id")
+	if groupID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing group id"))
+		return
+	}
+	summary := s.runnerStore.GetGroupHistory(groupID)
+	writeJSON(w, http.StatusOK, map[string]any{"summary": summary})
+}
+
 func (s *Server) handleSysInfo(w http.ResponseWriter, r *http.Request) {
 	info := runner.DetectSysInfo()
 	writeJSON(w, http.StatusOK, info)

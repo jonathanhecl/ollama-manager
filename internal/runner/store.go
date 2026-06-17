@@ -147,6 +147,94 @@ func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
 	return out
 }
 
+// GroupModelSummary aggregates all results for a single model within a group.
+type GroupModelSummary struct {
+	Model           string    `json:"model"`
+	TotalTests      int       `json:"total_tests"`
+	Passed          int       `json:"passed"`
+	Failed          int       `json:"failed"`
+	HumanReview     int       `json:"human_review"`
+	Errors          int       `json:"errors"`
+	AvgResponseMs   int64     `json:"avg_response_ms"`
+	AvgTokensPerSec float64   `json:"avg_tokens_per_sec,omitempty"`
+	LastRunAt       time.Time `json:"last_run_at"`
+	SysInfo         SysInfo   `json:"sys_info,omitempty"`
+}
+
+// GetGroupHistory returns per-model summaries for all runs of a given group.
+func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	type acc struct {
+		count    int
+		passed   int
+		failed   int
+		human    int
+		errors   int
+		respSum  int64
+		tokCount int
+		tokSum   float64
+		lastRun  time.Time
+		sysInfo  SysInfo
+	}
+	m := make(map[string]*acc)
+	for _, run := range s.runs {
+		if run.GroupID != groupID {
+			continue
+		}
+		for _, res := range run.Results {
+			a, ok := m[res.Model]
+			if !ok {
+				a = &acc{}
+				m[res.Model] = a
+			}
+			a.count++
+			a.respSum += res.ResponseTimeMs
+			if res.TokensPerSec > 0 {
+				a.tokCount++
+				a.tokSum += res.TokensPerSec
+			}
+			if res.Error != "" {
+				a.errors++
+			} else if res.Passed == nil {
+				a.human++
+			} else if *res.Passed {
+				a.passed++
+			} else {
+				a.failed++
+			}
+			if run.Timestamp.After(a.lastRun) {
+				a.lastRun = run.Timestamp
+				a.sysInfo = run.SysInfo
+			}
+		}
+	}
+	out := make([]GroupModelSummary, 0, len(m))
+	for model, a := range m {
+		summary := GroupModelSummary{
+			Model:       model,
+			TotalTests:  a.count,
+			Passed:      a.passed,
+			Failed:      a.failed,
+			HumanReview: a.human,
+			Errors:      a.errors,
+			LastRunAt:   a.lastRun,
+			SysInfo:     a.sysInfo,
+		}
+		if a.count > 0 {
+			summary.AvgResponseMs = a.respSum / int64(a.count)
+		}
+		if a.tokCount > 0 {
+			summary.AvgTokensPerSec = a.tokSum / float64(a.tokCount)
+		}
+		out = append(out, summary)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Model < out[j].Model
+	})
+	return out
+}
+
 // DeleteRun removes a run by ID.
 func (s *ResultStore) DeleteRun(id string) error {
 	s.mu.Lock()

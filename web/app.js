@@ -1662,6 +1662,10 @@ function renderTestsList() {
     const hasActiveNonAgent = filtered.some((t) => t.active && t.evaluation_type !== "agent");
     runBtn.hidden = selectedGroupId === "" || !hasActiveNonAgent;
   }
+  const groupHistBtn = $("tests-group-history-btn");
+  if (groupHistBtn) {
+    groupHistBtn.hidden = selectedGroupId === "";
+  }
 
   if (!filtered.length) {
     list.innerHTML = "";
@@ -5363,12 +5367,99 @@ async function renderTestHistoryModal(testId) {
   }
 }
 
+// ---------- group history modal ----------
+
+function openGroupHistoryModal(groupId) {
+  const g = testsGroups.find((x) => x.id === groupId);
+  const titleEl = $("group-history-modal-title");
+  if (titleEl && g) titleEl.textContent = t("battery.group_history") + " — " + escapeHtml(g.name);
+  $("group-history-modal").hidden = false;
+  void renderGroupHistoryModal(groupId);
+}
+
+function closeGroupHistoryModal() {
+  $("group-history-modal").hidden = true;
+}
+
+async function renderGroupHistoryModal(groupId) {
+  const body = $("group-history-modal-body");
+  if (!body) return;
+  body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
+  try {
+    const data = await api("/api/runner/group-history/" + encodeURIComponent(groupId));
+    const summary = data.summary || [];
+    if (summary.length === 0) {
+      body.innerHTML = `<div class="battery-empty">${t("battery.no_history")}</div>`;
+      return;
+    }
+    let rows = "";
+    for (const s of summary) {
+      const passRate = s.total_tests > 0 ? Math.round((s.passed / s.total_tests) * 100) : 0;
+      const failRate = s.total_tests > 0 ? Math.round((s.failed / s.total_tests) * 100) : 0;
+      const tps = s.avg_tokens_per_sec ? `${s.avg_tokens_per_sec.toFixed(1)} tok/s` : "";
+      const date = s.last_run_at ? fmtDateTimeFull(s.last_run_at) : "—";
+      const sys = s.sys_info || {};
+      const sysParts = [];
+      if (sys.os) sysParts.push(`${t("battery.sys_os")}: ${escapeHtml(sys.os)}`);
+      if (sys.cpu_model) sysParts.push(`${t("battery.sys_cpu")}: ${escapeHtml(sys.cpu_model)}`);
+      if (sys.gpu_model) sysParts.push(`${t("battery.sys_gpu")}: ${escapeHtml(sys.gpu_model)}`);
+      if (sys.ram_gb) sysParts.push(`${t("battery.sys_ram")}: ${escapeHtml(sys.ram_gb)} GB`);
+      if (sys.vram_gb) sysParts.push(`${t("battery.sys_vram")}: ${escapeHtml(sys.vram_gb)} GB`);
+      const sysTooltip = sysParts.join(" | ");
+      rows += `
+        <tr>
+          <td class="cell-model">${escapeHtml(s.model)}</td>
+          <td class="cell-time">${s.total_tests}</td>
+          <td>
+            <span class="badge badge-pass">${s.passed}</span>
+            <span class="badge badge-fail">${s.failed}</span>
+            ${s.human_review > 0 ? `<span class="badge badge-human">${s.human_review}</span>` : ""}
+            ${s.errors > 0 ? `<span class="badge badge-na" title="${t("battery.error_count")}">${s.errors}</span>` : ""}
+            <span class="muted" style="font-size:11px; margin-left:4px">${passRate}%</span>
+          </td>
+          <td class="cell-time">${fmtDuration(s.avg_response_ms)}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
+          <td class="cell-time">${escapeHtml(date)}</td>
+          <td class="cell-sys" title="${escapeHtml(sysTooltip)}">${sys.os ? escapeHtml(sys.os + (sys.ram_gb ? ` · ${sys.ram_gb}GB` : "")) : "—"}</td>
+        </tr>
+      `;
+    }
+    body.innerHTML = `
+      <div class="battery-table-wrap">
+        <table class="battery-table">
+          <thead>
+            <tr>
+              <th>${t("chat.model")}</th>
+              <th>${t("battery.total_tests")}</th>
+              <th>${t("battery.results")}</th>
+              <th>${t("battery.avg_response")}</th>
+              <th>${t("battery.last_run")}</th>
+              <th>${t("battery.sys_info")}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
+  }
+}
+
 $("test-history-modal")?.addEventListener("click", (e) => {
   if (e.target === $("test-history-modal")) closeTestHistoryModal();
 });
 $("test-history-modal-close")?.addEventListener("click", closeTestHistoryModal);
 $("test-history-modal-done")?.addEventListener("click", closeTestHistoryModal);
 
+$("group-history-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("group-history-modal")) closeGroupHistoryModal();
+});
+$("group-history-modal-close")?.addEventListener("click", closeGroupHistoryModal);
+$("group-history-modal-done")?.addEventListener("click", closeGroupHistoryModal);
+
+$("tests-group-history-btn")?.addEventListener("click", () => {
+  if (selectedGroupId) openGroupHistoryModal(selectedGroupId);
+});
 $("tests-run-battery-btn")?.addEventListener("click", () => {
   openBatteryModal();
 });

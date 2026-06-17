@@ -3399,6 +3399,12 @@ button.chat-send:disabled:hover {
 .test-history-modal-header h3 { margin: 0; font-size: 15px; }
 .test-history-modal-body { overflow-y: auto; flex: 1; min-height: 0; }
 
+/* group history modal */
+.group-history-modal-card { width: min(900px, 100%); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
+.group-history-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.group-history-modal-header h3 { margin: 0; font-size: 15px; }
+.group-history-modal-body { overflow-y: auto; flex: 1; min-height: 0; }
+
 /* battery progress */
 .battery-progress-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 60px; }
 .battery-progress-current {

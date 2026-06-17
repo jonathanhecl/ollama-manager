@@ -1,10 +1,18 @@
 package tests
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
+
+//go:embed seeddata/audio.b64
+var seedAudioB64 string
+
+//go:embed seeddata/image.b64
+var seedImageB64 string
 
 // SeedIfEmpty creates default groups and tests when the store has no data.
 // It is safe to call multiple times — it only seeds when truly empty.
@@ -197,7 +205,7 @@ Respond ONLY with the correct tool call. No extra text.`,
 			UpdatedAt: now,
 		},
 
-		// === Multimodal (requires user-supplied attachments) ===
+		// === Multimodal ===
 		{
 			ID:             "t8",
 			Name:           "Vision: Color Identification",
@@ -208,8 +216,11 @@ Respond ONLY with the correct tool call. No extra text.`,
 			Prompt:         "What is the dominant color in the attached image? Answer with a single color name.",
 			RequiredCaps:   []string{"vision"},
 			EvaluationType: "human_review",
-			CreatedAt:      now,
-			UpdatedAt:      now,
+			Attachments: []Attachment{
+				{ID: "att-img-1", Kind: "image", Name: "bandera-argentina.jpg", Mime: "image/jpeg", Data: strings.TrimSpace(seedImageB64)},
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		{
 			ID:             "t9",
@@ -220,9 +231,15 @@ Respond ONLY with the correct tool call. No extra text.`,
 			Order:          1,
 			Prompt:         "Listen to the attached audio. What number is being said? Return only digits.",
 			RequiredCaps:   []string{"audio"},
-			EvaluationType: "human_review",
-			CreatedAt:      now,
-			UpdatedAt:      now,
+			EvaluationType: "exact_match",
+			EvaluationConfig: mustJSON(map[string]any{
+				"expected": "691",
+			}),
+			Attachments: []Attachment{
+				{ID: "att-aud-1", Kind: "audio", Name: "test.wav", Mime: "audio/wav", Data: strings.TrimSpace(seedAudioB64)},
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 
 		// === Structured Output ===

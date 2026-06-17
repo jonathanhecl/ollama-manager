@@ -108,7 +108,6 @@ type ChatMessage struct {
 	Role      string     `json:"role"`
 	Content   string     `json:"content,omitempty"`
 	Images    []string   `json:"images,omitempty"`
-	Audios    []string   `json:"audios,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	ToolName  string     `json:"tool_name,omitempty"`
 	Thinking  string     `json:"thinking,omitempty"`

@@ -184,18 +184,20 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		messages = messages[1:]
 	}
 
-	// Attach images if present.
-	var images []string
+	// Attach images and audio if present.
+	// Ollama puts both in the same `images` array; it does not distinguish
+	// image vs audio at the field level.
+	var media []string
 	for _, att := range test.Attachments {
-		if att.Kind == "image" {
-			images = append(images, att.Data)
+		if att.Kind == "image" || att.Kind == "audio" {
+			media = append(media, att.Data)
 		}
 	}
-	if len(images) > 0 {
+	if len(media) > 0 {
 		// Attach to the last user message.
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i].Role == "user" {
-				messages[i].Images = images
+				messages[i].Images = append(messages[i].Images, media...)
 				break
 			}
 		}

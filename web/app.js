@@ -5381,6 +5381,12 @@ function closeGroupHistoryModal() {
   $("group-history-modal").hidden = true;
 }
 
+function fmtTestTooltip(label, tests) {
+  if (!tests || tests.length === 0) return "";
+  const list = tests.map((n) => "• " + escapeHtml(n)).join("\n");
+  return escapeHtml(label) + ":\n" + list;
+}
+
 async function renderGroupHistoryModal(groupId) {
   const body = $("group-history-modal-body");
   if (!body) return;
@@ -5406,15 +5412,19 @@ async function renderGroupHistoryModal(groupId) {
       if (sys.ram_gb) sysParts.push(`${t("battery.sys_ram")}: ${escapeHtml(sys.ram_gb)} GB`);
       if (sys.vram_gb) sysParts.push(`${t("battery.sys_vram")}: ${escapeHtml(sys.vram_gb)} GB`);
       const sysTooltip = sysParts.join(" | ");
+      const passTooltip = fmtTestTooltip(t("battery.legend_pass"), s.passed_tests);
+      const failTooltip = fmtTestTooltip(t("battery.legend_fail"), s.failed_tests);
+      const humanTooltip = fmtTestTooltip(t("battery.legend_human"), s.human_review_tests);
+      const errorTooltip = fmtTestTooltip(t("battery.legend_error"), s.error_tests);
       rows += `
         <tr>
           <td class="cell-model">${escapeHtml(s.model)}</td>
           <td class="cell-time">${s.total_tests}</td>
           <td>
-            <span class="badge badge-pass">${s.passed}</span>
-            <span class="badge badge-fail">${s.failed}</span>
-            ${s.human_review > 0 ? `<span class="badge badge-human">${s.human_review}</span>` : ""}
-            ${s.errors > 0 ? `<span class="badge badge-na" title="${t("battery.error_count")}">${s.errors}</span>` : ""}
+            <span class="badge badge-pass" title="${passTooltip}">${s.passed}</span>
+            <span class="badge badge-fail" title="${failTooltip}">${s.failed}</span>
+            ${s.human_review > 0 ? `<span class="badge badge-human" title="${humanTooltip}">${s.human_review}</span>` : ""}
+            ${s.errors > 0 ? `<span class="badge badge-na" title="${errorTooltip || t("battery.error_count")}">${s.errors}</span>` : ""}
             <span class="muted" style="font-size:11px; margin-left:4px">${passRate}%</span>
           </td>
           <td class="cell-time">${fmtDuration(s.avg_response_ms)}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
@@ -5423,7 +5433,16 @@ async function renderGroupHistoryModal(groupId) {
         </tr>
       `;
     }
-    body.innerHTML = `
+    const legend = `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;align-items:center;">
+        <span style="color:var(--muted);font-weight:600;">${t("battery.legend_title")}:</span>
+        <span class="badge badge-pass">${t("battery.legend_pass")}</span>
+        <span class="badge badge-fail">${t("battery.legend_fail")}</span>
+        <span class="badge badge-human">${t("battery.legend_human")}</span>
+        <span class="badge badge-na">${t("battery.legend_error")}</span>
+      </div>
+    `;
+    body.innerHTML = legend + `
       <div class="battery-table-wrap">
         <table class="battery-table">
           <thead>

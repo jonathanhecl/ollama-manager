@@ -12,11 +12,11 @@ import (
 
 // SysInfo captures the hardware / OS environment where a battery run was executed.
 type SysInfo struct {
-	OS        string `json:"os,omitempty"`
-	CPUModel  string `json:"cpu_model,omitempty"`
-	GPUModel  string `json:"gpu_model,omitempty"`
-	VRAMGB    string `json:"vram_gb,omitempty"`
-	RAMGB     string `json:"ram_gb,omitempty"`
+	OS       string `json:"os,omitempty"`
+	CPUModel string `json:"cpu_model,omitempty"`
+	GPUModel string `json:"gpu_model,omitempty"`
+	VRAMGB   string `json:"vram_gb,omitempty"`
+	RAMGB    string `json:"ram_gb,omitempty"`
 }
 
 // DetectSysInfo attempts to gather OS and hardware details.
@@ -25,15 +25,11 @@ func DetectSysInfo() SysInfo {
 	s := SysInfo{OS: runtime.GOOS}
 	switch runtime.GOOS {
 	case "windows":
-		s.CPUModel = cleanWmic(execOutput("wmic", "cpu", "get", "Name", "/value"))
-		s.GPUModel = cleanWmic(execOutput("wmic", "path", "win32_VideoController", "get", "Name", "/value"))
-		ramBytes := parseWmicInt(execOutput("wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value"))
+		s.CPUModel = windowsCPU()
+		s.GPUModel, s.VRAMGB = windowsGPU()
+		ramBytes := wmicIntValue(execOutput("wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value"), "TotalPhysicalMemory")
 		if ramBytes > 0 {
 			s.RAMGB = fmt.Sprintf("%.1f", float64(ramBytes)/(1024*1024*1024))
-		}
-		vramBytes := parseWmicInt(execOutput("wmic", "path", "win32_VideoController", "get", "AdapterRAM", "/value"))
-		if vramBytes > 0 && vramBytes < 1<<40 { // sanity cap
-			s.VRAMGB = fmt.Sprintf("%.1f", float64(vramBytes)/(1024*1024*1024))
 		}
 	case "linux":
 		s.CPUModel = linuxCPU()
@@ -65,28 +61,106 @@ func execOutput(name string, args ...string) string {
 	return out.String()
 }
 
-func cleanWmic(s string) string {
-	lines := strings.Split(s, "\n")
-	for _, line := range lines {
+// wmicValue extracts the value after key= from wmic /value output.
+func wmicValue(s, key string) string {
+	prefix := key + "="
+	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "Name=") {
-			continue
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
 		}
-		return line
 	}
 	return ""
 }
 
-func parseWmicInt(s string) int64 {
-	for _, line := range strings.Split(s, "\n") {
+// wmicIntValue extracts and parses the int value after key=.
+func wmicIntValue(s, key string) int64 {
+	v := wmicValue(s, key)
+	if v == "" {
+		return 0
+	}
+	n, _ := strconv.ParseInt(v, 10, 64)
+	return n
+}
+
+func windowsCPU() string {
+	return wmicValue(execOutput("wmic", "cpu", "get", "Name", "/value"), "Name")
+}
+
+// windowsGPU returns the best GPU name and VRAM in GB.
+// It filters out virtual and basic display adapters and prefers
+// discrete GPUs (NVIDIA/AMD) over integrated Intel.
+func windowsGPU() (string, string) {
+	out := execOutput("wmic", "path", "win32_VideoController", "get", "Name,AdapterRAM", "/value")
+	type gpu struct {
+		name string
+		ram  int64
+	}
+	var gpus []gpu
+	var cur gpu
+	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "TotalPhysicalMemory=") || strings.HasPrefix(line, "AdapterRAM=") {
+		if line == "" {
+			if cur.name != "" {
+				gpus = append(gpus, cur)
+				cur = gpu{}
+			}
 			continue
 		}
-		v, _ := strconv.ParseInt(line, 10, 64)
-		return v
+		if strings.HasPrefix(line, "Name=") {
+			cur.name = strings.TrimSpace(strings.TrimPrefix(line, "Name="))
+		}
+		if strings.HasPrefix(line, "AdapterRAM=") {
+			v := strings.TrimSpace(strings.TrimPrefix(line, "AdapterRAM="))
+			if v != "" {
+				cur.ram, _ = strconv.ParseInt(v, 10, 64)
+			}
+		}
 	}
-	return 0
+	if cur.name != "" {
+		gpus = append(gpus, cur)
+	}
+
+	// Filter virtual / basic adapters.
+	var filtered []gpu
+	for _, g := range gpus {
+		lower := strings.ToLower(g.name)
+		if strings.Contains(lower, "virtual") || strings.Contains(lower, "basic display") || strings.Contains(lower, "basic render") || strings.Contains(lower, "microsoft") {
+			continue
+		}
+		if g.name == "" {
+			continue
+		}
+		filtered = append(filtered, g)
+	}
+	if len(filtered) == 0 {
+		return "", ""
+	}
+
+	// Prefer discrete GPU: NVIDIA or AMD over Intel integrated.
+	for _, g := range filtered {
+		lower := strings.ToLower(g.name)
+		if strings.Contains(lower, "nvidia") || strings.Contains(lower, "amd") || strings.Contains(lower, "radeon") || strings.Contains(lower, "geforce") {
+			return g.name, vramGB(g.ram)
+		}
+	}
+	// Fallback to first available.
+	return filtered[0].name, vramGB(filtered[0].ram)
+}
+
+func vramGB(bytes int64) string {
+	if bytes <= 0 {
+		return ""
+	}
+	gb := float64(bytes) / (1024 * 1024 * 1024)
+	// Sanity: if reported value looks like MB (common wmic bug), convert.
+	if gb < 0.5 && bytes > 0 {
+		gb = float64(bytes) / (1024 * 1024)
+	}
+	if gb > 128 {
+		return "" // sanity cap
+	}
+	return fmt.Sprintf("%.1f", gb)
 }
 
 func parseIntSuffix(s, suffix string) int64 {

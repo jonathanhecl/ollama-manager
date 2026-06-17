@@ -149,16 +149,20 @@ func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
 
 // GroupModelSummary aggregates all results for a single model within a group.
 type GroupModelSummary struct {
-	Model           string    `json:"model"`
-	TotalTests      int       `json:"total_tests"`
-	Passed          int       `json:"passed"`
-	Failed          int       `json:"failed"`
-	HumanReview     int       `json:"human_review"`
-	Errors          int       `json:"errors"`
-	AvgResponseMs   int64     `json:"avg_response_ms"`
-	AvgTokensPerSec float64   `json:"avg_tokens_per_sec,omitempty"`
-	LastRunAt       time.Time `json:"last_run_at"`
-	SysInfo         SysInfo   `json:"sys_info,omitempty"`
+	Model            string    `json:"model"`
+	TotalTests       int       `json:"total_tests"`
+	Passed           int       `json:"passed"`
+	Failed           int       `json:"failed"`
+	HumanReview      int       `json:"human_review"`
+	Errors           int       `json:"errors"`
+	PassedTests      []string  `json:"passed_tests,omitempty"`
+	FailedTests      []string  `json:"failed_tests,omitempty"`
+	HumanReviewTests []string  `json:"human_review_tests,omitempty"`
+	ErrorTests       []string  `json:"error_tests,omitempty"`
+	AvgResponseMs    int64     `json:"avg_response_ms"`
+	AvgTokensPerSec  float64   `json:"avg_tokens_per_sec,omitempty"`
+	LastRunAt        time.Time `json:"last_run_at"`
+	SysInfo          SysInfo   `json:"sys_info,omitempty"`
 }
 
 // GetGroupHistory returns per-model summaries for all runs of a given group.
@@ -166,16 +170,20 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	type acc struct {
-		count    int
-		passed   int
-		failed   int
-		human    int
-		errors   int
-		respSum  int64
-		tokCount int
-		tokSum   float64
-		lastRun  time.Time
-		sysInfo  SysInfo
+		count            int
+		passed           int
+		failed           int
+		human            int
+		errors           int
+		passedTests      []string
+		failedTests      []string
+		humanReviewTests []string
+		errorTests       []string
+		respSum          int64
+		tokCount         int
+		tokSum           float64
+		lastRun          time.Time
+		sysInfo          SysInfo
 	}
 	m := make(map[string]*acc)
 	for _, run := range s.runs {
@@ -196,12 +204,16 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 			}
 			if res.Error != "" {
 				a.errors++
+				a.errorTests = append(a.errorTests, res.TestName)
 			} else if res.Passed == nil {
 				a.human++
+				a.humanReviewTests = append(a.humanReviewTests, res.TestName)
 			} else if *res.Passed {
 				a.passed++
+				a.passedTests = append(a.passedTests, res.TestName)
 			} else {
 				a.failed++
+				a.failedTests = append(a.failedTests, res.TestName)
 			}
 			if run.Timestamp.After(a.lastRun) {
 				a.lastRun = run.Timestamp
@@ -212,14 +224,18 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 	out := make([]GroupModelSummary, 0, len(m))
 	for model, a := range m {
 		summary := GroupModelSummary{
-			Model:       model,
-			TotalTests:  a.count,
-			Passed:      a.passed,
-			Failed:      a.failed,
-			HumanReview: a.human,
-			Errors:      a.errors,
-			LastRunAt:   a.lastRun,
-			SysInfo:     a.sysInfo,
+			Model:            model,
+			TotalTests:       a.count,
+			Passed:           a.passed,
+			Failed:           a.failed,
+			HumanReview:      a.human,
+			Errors:           a.errors,
+			PassedTests:      a.passedTests,
+			FailedTests:      a.failedTests,
+			HumanReviewTests: a.humanReviewTests,
+			ErrorTests:       a.errorTests,
+			LastRunAt:        a.lastRun,
+			SysInfo:          a.sysInfo,
 		}
 		if a.count > 0 {
 			summary.AvgResponseMs = a.respSum / int64(a.count)

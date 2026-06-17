@@ -326,9 +326,17 @@
             <option value="agent" data-i18n="tests.eval_agent">Agent (multi-turn)</option>
           </select>
         </div>
-        <div id="te-eval-config-wrap" class="field">
+        <div id="te-eval-expected-wrap" class="field">
+          <label for="te-eval-expected" data-i18n="tests.eval_expected">Expected answer</label>
+          <textarea id="te-eval-expected" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_expected_placeholder" placeholder="42" autocomplete="off"></textarea>
+        </div>
+        <div id="te-eval-pattern-wrap" class="field" hidden>
+          <label for="te-eval-pattern" data-i18n="tests.eval_pattern">Regex pattern</label>
+          <input id="te-eval-pattern" type="text" placeholder="^[A-Z]+$" autocomplete="off">
+        </div>
+        <div id="te-eval-config-wrap" class="field" hidden>
           <label for="te-eval-config" data-i18n="tests.eval_config">Evaluation config (JSON)</label>
-          <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"expected": "42"}' autocomplete="off"></textarea>
+          <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"required": ["color"]}' autocomplete="off"></textarea>
         </div>
         <div id="te-agent-settings" class="field te-agent-settings" hidden>
           <label data-i18n="tests.agent_settings">Agent settings</label>

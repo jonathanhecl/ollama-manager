@@ -1522,7 +1522,7 @@ function showTestsView() {
   stopSpeechPlayback();
   currentView = "tests";
   $("tests-view").hidden = false;
-  if (window.location.pathname !== "/tests") {
+  if (!window.location.pathname.startsWith("/tests")) {
     history.pushState(null, "", "/tests");
   }
   void refreshTests();
@@ -1546,6 +1546,10 @@ function showTestEditorView(id) {
       $("te-system").value = test.system_prompt || "";
       $("te-eval-type").value = test.evaluation_type || "exact_match";
       updateAgentSettingsVisibility();
+      updateEvalConfigVisibility();
+      const cfg = test.evaluation_config || {};
+      $("te-eval-expected").value = cfg.expected || "";
+      $("te-eval-pattern").value = cfg.pattern || "";
       $("te-eval-config").value = test.evaluation_config ? JSON.stringify(test.evaluation_config, null, 2) : "";
       if (test.evaluation_type === "agent" && test.evaluation_config) {
         const cfg = test.evaluation_config;
@@ -1576,6 +1580,8 @@ function showTestEditorView(id) {
   $("te-prompt").value = "";
   $("te-system").value = "";
   $("te-eval-type").value = "exact_match";
+  $("te-eval-expected").value = "";
+  $("te-eval-pattern").value = "";
   $("te-eval-config").value = "";
   $("te-required-caps").value = "";
   $("te-order").value = "0";
@@ -1624,6 +1630,10 @@ function renderTestsSidebar() {
     el.addEventListener("click", (e) => {
       if (e.target.closest(".te-group-rename") || e.target.closest(".te-group-delete")) return;
       selectedGroupId = el.dataset.groupId;
+      const newPath = selectedGroupId ? "/tests/group/" + encodeURIComponent(selectedGroupId) : "/tests";
+      if (window.location.pathname !== newPath) {
+        history.pushState(null, "", newPath);
+      }
       renderTestsSidebar();
       renderTestsList();
     });
@@ -1854,14 +1864,21 @@ function populateTestEditorGroupSelect() {
 }
 
 async function saveTestEditor() {
-  const evalConfigRaw = $("te-eval-config").value.trim();
+  const evalType = $("te-eval-type").value;
   let evalConfig = null;
-  if (evalConfigRaw) {
-    try {
-      evalConfig = JSON.parse(evalConfigRaw);
-    } catch {
-      toast(t("tests.invalid_json"), "error");
-      return;
+  if (evalType === "exact_match" || evalType === "contains") {
+    const expected = $("te-eval-expected").value.trim();
+    if (expected) evalConfig = { expected };
+  } else if (evalType === "regex") {
+    const pattern = $("te-eval-pattern").value.trim();
+    if (pattern) evalConfig = { pattern };
+  } else if (evalType === "json_schema") {
+    const raw = $("te-eval-config").value.trim();
+    if (raw) {
+      try { evalConfig = JSON.parse(raw); } catch {
+        toast(t("tests.invalid_json"), "error");
+        return;
+      }
     }
   }
   let agentConfig = evalConfig;
@@ -1894,7 +1911,7 @@ async function saveTestEditor() {
     active: $("te-active").checked,
     prompt: $("te-prompt").value,
     system_prompt: $("te-system").value,
-    evaluation_type: $("te-eval-type").value,
+    evaluation_type: evalType,
     evaluation_config: agentConfig,
     required_caps: Array.from(new Set([...userCaps, ...autoCaps])),
     attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
@@ -1981,7 +1998,12 @@ async function deleteGroup(id) {
   if (!ok) return;
   try {
     await api("/api/test-groups/" + encodeURIComponent(id), { method: "DELETE" });
-    if (selectedGroupId === id) selectedGroupId = "";
+    if (selectedGroupId === id) {
+      selectedGroupId = "";
+      if (window.location.pathname !== "/tests") {
+        history.pushState(null, "", "/tests");
+      }
+    }
     await refreshTests();
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
@@ -2022,6 +2044,9 @@ function handleRouting() {
       showModelsView();
     }
   } else if (path === "/tests" || path === "/tests/") {
+    showTestsView();
+  } else if (path.startsWith("/tests/group/")) {
+    selectedGroupId = path.substring(13);
     showTestsView();
   } else if (path === "/tests/new") {
     showTestEditorView(null);
@@ -4461,12 +4486,24 @@ $("test-editor-delete")?.addEventListener("click", () => {
 });
 $("te-eval-type")?.addEventListener("change", () => {
   updateAgentSettingsVisibility();
+  updateEvalConfigVisibility();
 });
 
 function updateAgentSettingsVisibility() {
   const isAgent = $("te-eval-type")?.value === "agent";
   const panel = $("te-agent-settings");
   if (panel) panel.hidden = !isAgent;
+}
+
+function updateEvalConfigVisibility() {
+  const type = $("te-eval-type")?.value;
+  const expectedWrap = $("te-eval-expected-wrap");
+  const patternWrap = $("te-eval-pattern-wrap");
+  const configWrap = $("te-eval-config-wrap");
+  if (!expectedWrap || !patternWrap || !configWrap) return;
+  expectedWrap.hidden = type !== "exact_match" && type !== "contains";
+  patternWrap.hidden = type !== "regex";
+  configWrap.hidden = type !== "json_schema" && type !== "agent";
 }
 
 // Test editor attachments

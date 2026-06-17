@@ -5122,8 +5122,11 @@ function renderBatteryResults(run) {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       let badge = "";
+      const hasRealResponse = (r.tokens_per_sec || 0) > 0 && (r.model_response || "").trim().length > 0;
       if (r.error) {
-        badge = `<span class="badge badge-fail" title="${escapeHtml(r.error)}">${t("battery.fail")}</span>`;
+        badge = `<span class="badge badge-na" title="${escapeHtml(r.error)}">${t("battery.error")}</span>`;
+      } else if (!hasRealResponse && r.passed === false) {
+        badge = `<span class="badge badge-na" title="${escapeHtml(r.model_response || t("battery.no_response"))}">${t("battery.error")}</span>`;
       } else if (r.passed === true) {
         badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
       } else if (r.passed === false) {
@@ -5133,13 +5136,9 @@ function renderBatteryResults(run) {
       }
 
       const rating = r.human_rating || "";
-      const ratingHtml = `
-        <div class="battery-rating" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
-          <button type="button" data-rating="bad" class="${rating === "bad" ? "active" : ""}">${t("battery.human_review_bad")}</button>
-          <button type="button" data-rating="regular" class="${rating === "regular" ? "active" : ""}">${t("battery.human_review_regular")}</button>
-          <button type="button" data-rating="good" class="${rating === "good" ? "active" : ""}">${t("battery.human_review_good")}</button>
-        </div>
-      `;
+      const reviewBtn = r.passed === null
+        ? `<button type="button" class="battery-review-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">${rating ? t("battery.reviewed") : t("battery.review")}</button>`
+        : "—";
 
       const reasoningIcon = r.reasoning_used ? "🧠" : "";
       const tps = r.tokens_per_sec ? `${r.tokens_per_sec.toFixed(1)} tok/s` : "";
@@ -5158,7 +5157,7 @@ function renderBatteryResults(run) {
             <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
             ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
           </td>
-          <td>${r.passed === null ? ratingHtml : "—"}</td>
+          <td>${reviewBtn}</td>
         </tr>
       `;
     }
@@ -5191,25 +5190,93 @@ function renderBatteryResults(run) {
     });
   });
 
-  body.querySelectorAll(".battery-rating button").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const wrap = btn.closest(".battery-rating");
-      const testId = wrap.dataset.testId;
-      const model = wrap.dataset.model;
-      const rating = btn.dataset.rating;
-      try {
-        await api("/api/runner/runs/" + encodeURIComponent(run.id) + "/rate", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ test_id: testId, model, rating }),
-        });
-        wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-      } catch (err) {
-        toast(t("toast.error", { msg: err.message }), "error");
-      }
+  body.querySelectorAll(".battery-review-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const testId = btn.dataset.testId;
+      const model = btn.dataset.model;
+      openHumanReviewModal(run, testId, model);
     });
   });
+}
+
+function openHumanReviewModal(run, testId, model) {
+  const test = tests.find((t) => t.id === testId);
+  const result = run.results.find((r) => r.test_id === testId && r.model === model);
+  if (!test || !result) return;
+
+  const titleEl = $("human-review-modal-title");
+  if (titleEl) titleEl.textContent = t("battery.review_title") + " — " + escapeHtml(test.name) + " / " + escapeHtml(model);
+
+  // Prompt
+  const promptEl = $("human-review-prompt");
+  if (promptEl) promptEl.textContent = test.prompt || "";
+
+  // System prompt
+  const sysEl = $("human-review-system");
+  if (sysEl) {
+    sysEl.textContent = test.system_prompt || "";
+    sysEl.parentElement.hidden = !test.system_prompt;
+    if (sysEl.previousElementSibling) sysEl.previousElementSibling.hidden = !test.system_prompt;
+  }
+
+  // Attachments
+  const attachEl = $("human-review-attachments");
+  if (attachEl) {
+    const attHtml = (test.attachments || []).map((att) => {
+      if (att.kind === "image") {
+        const src = `data:${att.mime || "image/jpeg"};base64,${att.data}`;
+        return `<div class="hr-attach-item"><img src="${src}" alt="${escapeHtml(att.name || "")}" class="hr-attach-img" /></div>`;
+      }
+      if (att.kind === "audio") {
+        const src = `data:${att.mime || "audio/webm"};base64,${att.data}`;
+        return `<div class="hr-attach-item"><audio controls src="${src}" class="hr-attach-audio"></audio><span class="hr-attach-name">${escapeHtml(att.name || "")}</span></div>`;
+      }
+      return "";
+    }).join("");
+    attachEl.innerHTML = attHtml || `<div class="muted">${t("battery.no_attachments")}</div>`;
+  }
+
+  // Model response
+  const respEl = $("human-review-response");
+  if (respEl) respEl.textContent = result.model_response || t("battery.no_response");
+
+  // Rating buttons
+  const ratingWrap = $("human-review-rating");
+  if (ratingWrap) {
+    const currentRating = result.human_rating || "";
+    ratingWrap.innerHTML = `
+      <button type="button" data-rating="bad" class="${currentRating === "bad" ? "active" : ""}">${t("battery.human_review_bad")}</button>
+      <button type="button" data-rating="regular" class="${currentRating === "regular" ? "active" : ""}">${t("battery.human_review_regular")}</button>
+      <button type="button" data-rating="good" class="${currentRating === "good" ? "active" : ""}">${t("battery.human_review_good")}</button>
+    `;
+    ratingWrap.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const rating = btn.dataset.rating;
+        try {
+          await api("/api/runner/runs/" + encodeURIComponent(run.id) + "/rate", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ test_id: testId, model, rating }),
+          });
+          ratingWrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          // Refresh the results view
+          result.human_rating = rating;
+          result.passed = rating === "good";
+          renderBatteryResults(run);
+          toast(t("battery.review_saved"), "success");
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
+        }
+      });
+    });
+  }
+
+  $("human-review-modal").hidden = false;
+}
+
+function closeHumanReviewModal() {
+  $("human-review-modal").hidden = true;
 }
 
 async function renderBatteryHistory() {
@@ -5298,8 +5365,11 @@ async function renderTestHistoryModal(testId) {
     for (const h of history) {
       const date = fmtDateTimeFull(h.timestamp);
       let badge = "";
+      const hasRealResponse = (h.tokens_per_sec || 0) > 0 && (h.model_response || "").trim().length > 0;
       if (h.error) {
-        badge = `<span class="badge badge-fail" title="${escapeHtml(h.error)}">${t("battery.fail")}</span>`;
+        badge = `<span class="badge badge-na" title="${escapeHtml(h.error)}">${t("battery.error")}</span>`;
+      } else if (!hasRealResponse && h.passed === false) {
+        badge = `<span class="badge badge-na" title="${escapeHtml(h.model_response || t("battery.no_response"))}">${t("battery.error")}</span>`;
       } else if (h.passed === true) {
         badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
       } else if (h.passed === false) {
@@ -5477,6 +5547,11 @@ $("group-history-modal")?.addEventListener("click", (e) => {
 });
 $("group-history-modal-close")?.addEventListener("click", closeGroupHistoryModal);
 $("group-history-modal-done")?.addEventListener("click", closeGroupHistoryModal);
+
+$("human-review-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("human-review-modal")) closeHumanReviewModal();
+});
+$("human-review-modal-close")?.addEventListener("click", closeHumanReviewModal);
 
 $("tests-group-history-btn")?.addEventListener("click", () => {
   if (selectedGroupId) openGroupHistoryModal(selectedGroupId);

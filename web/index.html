@@ -661,6 +661,38 @@
     </div>
   </div>
 
+  <!-- Human review modal -->
+  <div id="human-review-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card human-review-modal-card">
+      <div class="human-review-modal-header">
+        <h3 id="human-review-modal-title" data-i18n="battery.review_title">Review</h3>
+        <button type="button" id="human-review-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div class="human-review-body">
+        <div class="hr-section">
+          <div class="hr-label" data-i18n="battery.prompt">Prompt</div>
+          <div id="human-review-prompt" class="hr-block"></div>
+        </div>
+        <div class="hr-section" hidden>
+          <div class="hr-label" data-i18n="battery.system_prompt">System prompt</div>
+          <div id="human-review-system" class="hr-block hr-system"></div>
+        </div>
+        <div class="hr-section">
+          <div class="hr-label" data-i18n="battery.attachments">Attachments</div>
+          <div id="human-review-attachments" class="hr-attachments"></div>
+        </div>
+        <div class="hr-section">
+          <div class="hr-label" data-i18n="battery.model_response">Model response</div>
+          <div id="human-review-response" class="hr-block hr-response"></div>
+        </div>
+        <div class="hr-section">
+          <div class="hr-label" data-i18n="battery.your_rating">Your rating</div>
+          <div id="human-review-rating" class="battery-rating"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Battery runner model picker modal -->
   <div id="battery-modal" class="modal" hidden role="dialog" aria-modal="true">
     <div class="modal-card battery-modal-card">

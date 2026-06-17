@@ -82,6 +82,7 @@ func (s *ResultStore) GetRun(id string) (BatteryRun, bool) {
 }
 
 // UpdateHumanRating updates the human rating for a specific test result within a run.
+// It also sets Passed based on the rating: good = true, bad/regular = false.
 func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,6 +94,8 @@ func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) err
 			res := &s.runs[i].Results[j]
 			if res.TestID == testID && res.Model == model {
 				res.HumanRating = rating
+				passed := rating == "good"
+				res.Passed = &passed
 				return s.saveLocked()
 			}
 		}

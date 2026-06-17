@@ -316,22 +316,62 @@ func scoreTest(test tests.Test, response string) *bool {
 		return &v
 	case "json_schema":
 		var cfg struct {
-			Required []string `json:"required"`
+			Schema struct {
+				Type     string   `json:"type"`
+				Required []string `json:"required"`
+				MinItems int      `json:"minItems"`
+				MaxItems int      `json:"maxItems"`
+				Items    struct {
+					Type string `json:"type"`
+				} `json:"items"`
+			} `json:"schema"`
 		}
 		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(response), &obj); err != nil {
+		var raw any
+		if err := json.Unmarshal([]byte(response), &raw); err != nil {
 			v := false
 			return &v
 		}
-		for _, key := range cfg.Required {
-			if _, ok := obj[key]; !ok {
+		switch cfg.Schema.Type {
+		case "array":
+			arr, ok := raw.([]any)
+			if !ok {
 				v := false
 				return &v
 			}
+			if cfg.Schema.MinItems > 0 && len(arr) < cfg.Schema.MinItems {
+				v := false
+				return &v
+			}
+			if cfg.Schema.MaxItems > 0 && len(arr) > cfg.Schema.MaxItems {
+				v := false
+				return &v
+			}
+			if cfg.Schema.Items.Type == "string" {
+				for _, item := range arr {
+					if _, ok := item.(string); !ok {
+						v := false
+						return &v
+					}
+				}
+			}
+			v := true
+			return &v
+		default:
+			obj, ok := raw.(map[string]any)
+			if !ok {
+				v := false
+				return &v
+			}
+			for _, key := range cfg.Schema.Required {
+				if _, ok := obj[key]; !ok {
+					v := false
+					return &v
+				}
+			}
+			v := true
+			return &v
 		}
-		v := true
-		return &v
 	case "human_review":
 		return nil // no auto-score
 	default:

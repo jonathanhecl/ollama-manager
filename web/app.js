@@ -4939,7 +4939,7 @@ async function renderBatteryModalModels() {
     .filter((m) => (m.capabilities || []).includes("completion"))
     .map((m) => {
       const caps = m.capabilities || [];
-      const hasAnyRequired = [...requiredCaps].some((c) => caps.includes(c));
+      const hasAnyRequired = requiredCaps.size === 0 || [...requiredCaps].some((c) => caps.includes(c));
       const missing = [];
       for (const c of requiredCaps) {
         if (!caps.includes(c)) missing.push(c);

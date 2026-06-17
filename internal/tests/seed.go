@@ -1,6 +1,7 @@
 package tests
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,6 +13,18 @@ const seedImageB64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQ
 
 // Tiny silent WAV (header-only, base64) for seed audio test.
 const seedAudioB64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
+
+//go:embed seeddata/flag-argentina.b64
+var seedFlagArgentinaB64 string
+
+//go:embed seeddata/spoken-number-691.b64
+var seedSpokenNumberB64 string
+
+//go:embed seeddata/test-spanish-audio.b64
+var seedSpanishAudioB64 string
+
+//go:embed seeddata/code-png.b64
+var seedCodePngB64 string
 
 // SeedIfEmpty creates default groups and tests when the store has no data.
 // It is safe to call multiple times — it only seeds when truly empty.
@@ -216,7 +229,7 @@ Respond ONLY with the correct tool call. No extra text.`,
 			RequiredCaps:   []string{"vision"},
 			EvaluationType: "human_review",
 			Attachments: []Attachment{
-				{ID: "att-img-1", Kind: "image", Name: "bandera-argentina.jpg", Mime: "image/jpeg", Data: strings.TrimSpace(seedImageB64)},
+				{ID: "att-img-1", Kind: "image", Name: "bandera-argentina.png", Mime: "image/png", Data: strings.TrimSpace(seedFlagArgentinaB64)},
 			},
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -235,7 +248,45 @@ Respond ONLY with the correct tool call. No extra text.`,
 				"expected": "691",
 			}),
 			Attachments: []Attachment{
-				{ID: "att-aud-1", Kind: "audio", Name: "test.wav", Mime: "audio/wav", Data: strings.TrimSpace(seedAudioB64)},
+				{ID: "att-aud-1", Kind: "audio", Name: "test.wav", Mime: "audio/wav", Data: strings.TrimSpace(seedSpokenNumberB64)},
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:             "t15",
+			Name:           "Audio: Transcription Spanish",
+			Description:    "Verify the model can transcribe Spanish speech from audio.",
+			GroupID:        gMulti.ID,
+			Active:         true,
+			Order:          2,
+			Prompt:         "Transcribe this audio",
+			RequiredCaps:   []string{"audio"},
+			EvaluationType: "exact_match",
+			EvaluationConfig: mustJSON(map[string]any{
+				"expected": "Esta es una prueba de audio.",
+			}),
+			Attachments: []Attachment{
+				{ID: "att-aud-sp", Kind: "audio", Name: "test.wav", Mime: "audio/wav", Data: strings.TrimSpace(seedSpanishAudioB64)},
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:             "t16",
+			Name:           "Vision: Copy Code",
+			Description:    "Verify the model can transcribe source code from an image.",
+			GroupID:        gMulti.ID,
+			Active:         true,
+			Order:          3,
+			Prompt:         "Transcribe this code. Do not add anything else.",
+			RequiredCaps:   []string{"vision"},
+			EvaluationType: "contains",
+			EvaluationConfig: mustJSON(map[string]any{
+				"expected": "func hasAllCaps(have, need []string) bool {\n\tif len(need) == 0 {\n\t\treturn true\n\t}\n\tset := make(map[string]bool, len(have))\n\tfor _, c := range have {\n\t\tset[c] = true\n\t}\n\tfor _, c := range need {\n\t\tif !set[c] {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}\n\nfunc newRunID() string {\n\tb := make([]byte, 6)\n\t_, _ = rand.Read(b)\n\treturn \"run-\" + hex.EncodeToString(b)\n}",
+			}),
+			Attachments: []Attachment{
+				{ID: "att-img-code", Kind: "image", Name: "code.png", Mime: "image/png", Data: strings.TrimSpace(seedCodePngB64)},
 			},
 			CreatedAt: now,
 			UpdatedAt: now,

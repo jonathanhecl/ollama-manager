@@ -3467,7 +3467,8 @@ button.chat-send:disabled:hover {
 .battery-progress-status { margin-left: auto; font-size: 12px; color: var(--muted); }
 .battery-progress-model.running .battery-progress-status { color: var(--accent); }
 
-.battery-completed-tests { width: min(800px, 100%); margin-top: 20px; text-align: left; }
+.battery-completed-tests-heading { width: min(800px, 100%); margin: 24px 0 8px; font-size: 14px; font-weight: 600; color: var(--text); text-align: left; }
+.battery-completed-tests { width: min(800px, 100%); margin-top: 0; text-align: left; }
 .battery-completed-item { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
 .battery-completed-item summary { padding: 10px 12px; cursor: pointer; font-size: 13px; font-weight: 600; list-style: none; display: flex; gap: 8px; align-items: center; }
 .battery-completed-item summary::-webkit-details-marker { display: none; }

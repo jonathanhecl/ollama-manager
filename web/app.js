@@ -4953,23 +4953,25 @@ function showBatteryProgressView(modelIDs, runID) {
 
 function renderBatteryCompletedTests() {
   const container = $("battery-completed-tests");
+  const heading = $("battery-completed-tests-heading");
   if (!container) return;
   if (!batteryCompletedTests.length) {
     container.hidden = true;
+    if (heading) heading.hidden = true;
     return;
   }
   container.hidden = false;
+  if (heading) heading.hidden = false;
   container.innerHTML = batteryCompletedTests.map((item, idx) => {
     const thinkBlock = item.thinking
-      ? `<div class="battery-completed-label">Thinking</div><div class="battery-completed-block">${escapeHtml(item.thinking)}</div>`
+      ? `<div class="battery-completed-label">${escapeHtml(t("battery.stream_thinking"))}</div><div class="battery-completed-block">${escapeHtml(item.thinking)}</div>`
       : "";
-    const respBlock = item.response
-      ? `<div class="battery-completed-label">Response</div><div class="battery-completed-block">${escapeHtml(item.response)}</div>`
-      : "";
+    const responseText = item.response ? escapeHtml(item.response) : `<em class="muted">${escapeHtml(t("battery.no_response"))}</em>`;
+    const respBlock = `<div class="battery-completed-label">${escapeHtml(t("battery.stream_response"))}</div><div class="battery-completed-block">${responseText}</div>`;
     return `<details class="battery-completed-item" ${idx === batteryCompletedTests.length - 1 ? "open" : ""}>
       <summary><span>${escapeHtml(item.name)}</span><span class="battery-completed-meta">${escapeHtml(item.model)}</span></summary>
       <div class="battery-completed-body">
-        <div class="battery-completed-label">Prompt</div>
+        <div class="battery-completed-label">${escapeHtml(t("battery.prompt"))}</div>
         <div class="battery-completed-block">${escapeHtml(item.prompt || "")}</div>
         ${thinkBlock}
         ${respBlock}

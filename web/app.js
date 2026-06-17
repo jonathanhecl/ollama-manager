@@ -5015,8 +5015,12 @@ async function pollBatteryProgress(runID, modelIDs) {
         thinkingBlock.textContent = p.partial_thinking || "";
         thinkingBlock.parentElement.hidden = !p.partial_thinking;
         if (thinkingBlock.previousElementSibling) thinkingBlock.previousElementSibling.hidden = !p.partial_thinking;
+        thinkingBlock.scrollTo({ top: thinkingBlock.scrollHeight, behavior: "smooth" });
       }
-      if (responseBlock) responseBlock.textContent = p.partial_response || "";
+      if (responseBlock) {
+        responseBlock.textContent = p.partial_response || "";
+        responseBlock.scrollTo({ top: responseBlock.scrollHeight, behavior: "smooth" });
+      }
     } else if (streamPanel) {
       streamPanel.hidden = true;
     }

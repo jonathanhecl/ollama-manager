@@ -1937,6 +1937,12 @@ async function saveTestEditor() {
       });
     }
     await refreshTests();
+    const groupId = payload.group_id;
+    selectedGroupId = groupId || "";
+    const newPath = selectedGroupId ? "/tests/group/" + encodeURIComponent(selectedGroupId) : "/tests";
+    if (window.location.pathname !== newPath) {
+      history.pushState(null, "", newPath);
+    }
     showTestsView();
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");

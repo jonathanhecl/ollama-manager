@@ -290,7 +290,13 @@ func scoreTest(test tests.Test, response string) *bool {
 		}
 		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
 		norm := normalizeForContains(response)
-		v := strings.Contains(strings.ToLower(norm), strings.ToLower(cfg.Expected))
+		expected := cfg.Expected
+		// For code-like expected values, strip all whitespace for robust matching.
+		if strings.Contains(expected, "\n") || strings.Contains(expected, "\t") {
+			norm = stripWhitespace(norm)
+			expected = stripWhitespace(expected)
+		}
+		v := strings.Contains(strings.ToLower(norm), strings.ToLower(expected))
 		return &v
 	case "regex":
 		var cfg struct {
@@ -347,6 +353,17 @@ func normalizeForContains(s string) string {
 	s = strings.ReplaceAll(s, "*", "")
 	s = strings.ReplaceAll(s, "`", "")
 	return s
+}
+
+func stripWhitespace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func hasAllCaps(have, need []string) bool {

@@ -514,7 +514,7 @@ async function refreshModels() {
     syncChatModelOptions();
     updateChatCapabilityUI();
     updateChatContextMeter();
-    handleRouting();
+    await handleRouting();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
     $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
@@ -1528,14 +1528,18 @@ function showTestsView() {
   void refreshTests();
 }
 
-function showTestEditorView(id) {
+async function showTestEditorView(id) {
   hideAllMainViews();
   currentView = "test-editor";
   $("test-editor-view").hidden = false;
   currentTestId = id;
-  populateTestEditorGroupSelect();
   if (id) {
-    const test = tests.find((x) => x.id === id);
+    let test = tests.find((x) => x.id === id);
+    if (!test && tests.length === 0) {
+      await refreshTests();
+      test = tests.find((x) => x.id === id);
+    }
+    populateTestEditorGroupSelect();
     if (test) {
       $("test-editor-title").textContent = t("tests.edit_test");
       $("te-name").value = test.name || "";
@@ -1572,6 +1576,7 @@ function showTestEditorView(id) {
       return;
     }
   }
+  populateTestEditorGroupSelect();
   $("test-editor-title").textContent = t("tests.new_test");
   $("te-name").value = "";
   $("te-description").value = "";
@@ -1714,14 +1719,14 @@ function renderTestsList() {
   list.querySelectorAll(".tests-item").forEach((el) => {
     el.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;
-      showTestEditorView(el.dataset.id);
+      void showTestEditorView(el.dataset.id);
     });
   });
   list.querySelectorAll(".tests-item-edit").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = btn.closest(".tests-item")?.dataset?.id;
-      if (id) showTestEditorView(id);
+      if (id) void showTestEditorView(id);
     });
   });
   list.querySelectorAll(".tests-item-history").forEach((btn) => {
@@ -2033,7 +2038,7 @@ function showChatViewWithModel(name) {
   }
 }
 
-function handleRouting() {
+async function handleRouting() {
   const path = window.location.pathname;
   if (path.startsWith("/chat/")) {
     const urlDigest = path.substring(6);
@@ -2049,10 +2054,10 @@ function handleRouting() {
     selectedGroupId = path.substring(13);
     showTestsView();
   } else if (path === "/tests/new") {
-    showTestEditorView(null);
+    await showTestEditorView(null);
   } else if (path.startsWith("/tests/edit/")) {
     const id = path.substring(12);
-    showTestEditorView(id);
+    await showTestEditorView(id);
   } else if (path.startsWith("/tests/agent/")) {
     const id = path.substring(13);
     showAgentSessionView(id);
@@ -3681,9 +3686,9 @@ function bindChatEvents() {
   if (!chatView) return;
   window.addEventListener("pagehide", stopSpeechPlayback);
   window.addEventListener("beforeunload", stopSpeechPlayback);
-  window.addEventListener("popstate", () => {
+  window.addEventListener("popstate", async () => {
     stopSpeechPlayback();
-    handleRouting();
+    await handleRouting();
   });
   window.addEventListener("resize", () => {
     if (window.innerWidth > 900) $("chat-view")?.classList.remove("chat-options-open");
@@ -4467,7 +4472,7 @@ $("tests-btn")?.addEventListener("click", () => {
   showTestsView();
 });
 $("tests-new-test-btn")?.addEventListener("click", () => {
-  showTestEditorView(null);
+  void showTestEditorView(null);
 });
 $("tests-new-group-btn")?.addEventListener("click", () => {
   createNewGroup();

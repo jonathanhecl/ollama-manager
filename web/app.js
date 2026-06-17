@@ -4982,7 +4982,9 @@ function showBatteryProgressView(modelIDs, runID) {
   batteryCompletedTests = [];
   batteryLastTestSnapshot = null;
   const completedEl = $("battery-completed-tests");
+  const headingEl = $("battery-completed-tests-heading");
   if (completedEl) { completedEl.innerHTML = ""; completedEl.hidden = true; }
+  if (headingEl) headingEl.hidden = true;
   hideAllMainViews();
   currentView = "battery-progress";
   $("battery-progress-view").hidden = false;
@@ -5071,7 +5073,11 @@ async function pollBatteryProgress(runID, modelIDs) {
       }
       if (responseBlock) {
         responseBlock.textContent = p.partial_response || "";
-        responseBlock.scrollTo({ top: responseBlock.scrollHeight, behavior: "smooth" });
+        responseBlock.hidden = !p.partial_response;
+        if (responseBlock.previousElementSibling) responseBlock.previousElementSibling.hidden = !p.partial_response;
+        if (p.partial_response) {
+          responseBlock.scrollTo({ top: responseBlock.scrollHeight, behavior: "smooth" });
+        }
       }
     } else if (streamPanel) {
       streamPanel.hidden = true;

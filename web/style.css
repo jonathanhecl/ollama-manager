@@ -1914,6 +1914,9 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   margin: 0;
   padding: 10px;
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 300px;
+  scroll-behavior: smooth;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--mono);
@@ -1923,6 +1926,11 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 
 .chat-md p { margin: 0 0 8px; line-height: 1.45; }
 .chat-md p:last-child { margin-bottom: 0; }
+.chat-msg.chat-streaming .chat-md {
+  max-height: 500px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
 .chat-debug {
   margin-top: 10px;
   padding-top: 8px;

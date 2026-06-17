@@ -2131,6 +2131,7 @@ function scheduleRenderChatMessages() {
     chatRenderRaf = null;
     renderChatMessages();
     scrollChatToBottom();
+    scrollActiveBlocks();
   });
 }
 
@@ -2141,6 +2142,7 @@ function flushChatRender() {
   }
   renderChatMessages();
   scrollChatToBottom();
+  scrollActiveBlocks();
 }
 
 function renderMarkdownSafe(input) {
@@ -3328,6 +3330,20 @@ function scrollChatToBottom() {
     go();
     requestAnimationFrame(go);
   });
+}
+
+/** Smoothly scroll thinking and response blocks of the currently streaming message. */
+function scrollActiveBlocks() {
+  const streamingMsg = document.querySelector("article.chat-msg.chat-streaming");
+  if (!streamingMsg) return;
+  const thinkPres = streamingMsg.querySelectorAll("details.chat-think[open] pre");
+  thinkPres.forEach((el) => {
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  });
+  const content = streamingMsg.querySelector(".chat-md");
+  if (content) {
+    content.scrollTo({ top: content.scrollHeight, behavior: "smooth" });
+  }
 }
 
 async function runChatRequest(assistantMsg) {

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// persistFile is the on-disk format for test_results.json.
+// persistFile is the on-disk format for tests-history.json.
 type persistFile struct {
 	Runs []BatteryRun `json:"runs"`
 }
@@ -113,6 +113,7 @@ type TestHistoryItem struct {
 	HumanRating    string    `json:"human_rating,omitempty"`
 	ModelResponse  string    `json:"model_response,omitempty"`
 	Error          string    `json:"error,omitempty"`
+	SysInfo        SysInfo   `json:"sys_info,omitempty"`
 }
 
 // GetTestHistory returns all historical results for a specific test, newest first.
@@ -135,6 +136,7 @@ func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
 					HumanRating:    res.HumanRating,
 					ModelResponse:  res.ModelResponse,
 					Error:          res.Error,
+					SysInfo:        run.SysInfo,
 				})
 			}
 		}

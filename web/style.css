@@ -3335,6 +3335,7 @@ button.chat-send:disabled:hover {
 .battery-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .battery-modal-header h3 { margin: 0; font-size: 15px; }
 .battery-modal-models { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; max-height: 400px; overflow-y: auto; }
+.battery-modal-sysinfo { font-size: 11px; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 8px; }
 .battery-model-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: background .15s; }
 .battery-model-item:hover { background: var(--panel-2); }
 .battery-model-item input { cursor: pointer; }
@@ -3360,6 +3361,7 @@ button.chat-send:disabled:hover {
 .resp-toggle { display: inline; background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0 2px; margin-left: 2px; }
 .resp-toggle:hover { text-decoration: underline; }
 .resp-rest { display: block; margin-top: 4px; }
+.battery-table .cell-sys { min-width: 80px; max-width: 140px; font-size: 11px; color: var(--muted); cursor: help; }
 .battery-table .cell-time { min-width: 80px; }
 
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }

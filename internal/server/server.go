@@ -87,7 +87,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 
 	agentStore := agent.NewSessionStore(filepath.Dir(cfg.Path()))
 
-	runnerPath := filepath.Join(filepath.Dir(cfg.Path()), "test_results.json")
+	runnerPath := filepath.Join(filepath.Dir(cfg.Path()), "tests-history.json")
 	runnerStore := runner.NewResultStore(runnerPath)
 	if err := runnerStore.Load(); err != nil {
 		log.Printf("runner: could not load %s: %v", runnerPath, err)
@@ -176,6 +176,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/tests/agent/sessions/{id}", s.requireAuth(s.handleAgentSessionDestroy))
 	mux.Handle("GET /api/tests/agent/sessions/{id}/files", s.requireAuth(s.handleAgentSessionFiles))
 
+	mux.Handle("GET /api/runner/sys-info", s.requireAuth(s.handleSysInfo))
 	mux.Handle("POST /api/runner/battery", s.requireAuth(s.handleBatteryRun))
 	mux.Handle("GET /api/runner/runs", s.requireAuth(s.handleListRuns))
 	mux.Handle("GET /api/runner/runs/{id}", s.requireAuth(s.handleGetRun))

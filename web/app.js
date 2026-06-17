@@ -4816,11 +4816,30 @@ async function deleteAgentSession() {
 
 // ---------- battery runner ----------
 
-function openBatteryModal() {
+async function openBatteryModal() {
   if (selectedGroupId === "") return;
   batterySelectedModels.clear();
   $("battery-modal").hidden = false;
   void renderBatteryModalModels();
+  // Load system info preview.
+  const sysEl = $("battery-modal-sysinfo");
+  if (sysEl) {
+    sysEl.textContent = t("status.loading");
+    try {
+      const info = await api("/api/runner/sys-info");
+      const parts = [];
+      if (info.os) parts.push(`${t("battery.sys_os")}: ${info.os}`);
+      if (info.cpu_model) parts.push(`${t("battery.sys_cpu")}: ${info.cpu_model}`);
+      if (info.gpu_model) parts.push(`${t("battery.sys_gpu")}: ${info.gpu_model}`);
+      if (info.ram_gb) parts.push(`${t("battery.sys_ram")}: ${info.ram_gb} GB`);
+      if (info.vram_gb) parts.push(`${t("battery.sys_vram")}: ${info.vram_gb} GB`);
+      sysEl.textContent = parts.length ? parts.join(" | ") : "";
+      sysEl.hidden = !parts.length;
+    } catch (e) {
+      sysEl.textContent = "";
+      sysEl.hidden = true;
+    }
+  }
 }
 
 function closeBatteryModal() {
@@ -5289,6 +5308,15 @@ async function renderTestHistoryModal(testId) {
       const respId = `th-${testId}-${escapeHtml(h.model)}-${new Date(h.timestamp).getTime()}`;
       const respShort = escapeHtml(resp.slice(0, 200));
       const respRest = escapeHtml(resp.slice(200));
+      const sys = h.sys_info || {};
+      const sysParts = [];
+      if (sys.os) sysParts.push(`${t("battery.sys_os")}: ${escapeHtml(sys.os)}`);
+      if (sys.cpu_model) sysParts.push(`${t("battery.sys_cpu")}: ${escapeHtml(sys.cpu_model)}`);
+      if (sys.gpu_model) sysParts.push(`${t("battery.sys_gpu")}: ${escapeHtml(sys.gpu_model)}`);
+      if (sys.ram_gb) sysParts.push(`${t("battery.sys_ram")}: ${escapeHtml(sys.ram_gb)} GB`);
+      if (sys.vram_gb) sysParts.push(`${t("battery.sys_vram")}: ${escapeHtml(sys.vram_gb)} GB`);
+      const sysTooltip = sysParts.join(" | ");
+      const sysLabel = sys.os ? escapeHtml(sys.os + (sys.ram_gb ? ` · ${sys.ram_gb}GB` : "")) : "—";
       rows += `
         <tr>
           <td class="cell-time">${escapeHtml(date)}</td>
@@ -5299,6 +5327,7 @@ async function renderTestHistoryModal(testId) {
             <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
             ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
           </td>
+          <td class="cell-sys" title="${escapeHtml(sysTooltip)}">${sysLabel}</td>
           <td class="cell-time">${escapeHtml(h.group_name)}${rating}</td>
         </tr>
       `;
@@ -5313,6 +5342,7 @@ async function renderTestHistoryModal(testId) {
               <th>${t("battery.results")}</th>
               <th>${t("battery.response_time")}</th>
               <th>${t("chat.response")}</th>
+              <th>${t("battery.sys_info")}</th>
               <th>${t("tests.group")}</th>
             </tr>
           </thead>

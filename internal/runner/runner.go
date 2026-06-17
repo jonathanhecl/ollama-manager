@@ -23,6 +23,7 @@ type BatteryRun struct {
 	GroupName string       `json:"group_name"`
 	Models    []string     `json:"models"`
 	Results   []TestResult `json:"results"`
+	SysInfo   SysInfo      `json:"sys_info,omitempty"`
 }
 
 // TestResult holds the outcome of a single test for a single model.
@@ -95,13 +96,14 @@ func (c *Client) ClearProgress(runID string) {
 
 // ExecuteBatteryAsync starts the battery run in a goroutine and returns the run ID immediately.
 // The caller should poll GetProgress and then retrieve the run from the store when Done is true.
-func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, testsList []tests.Test, modelIDs []string, modelCaps map[string][]string, onComplete func(*BatteryRun)) string {
+func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, testsList []tests.Test, modelIDs []string, modelCaps map[string][]string, sysInfo SysInfo, onComplete func(*BatteryRun)) string {
 	run := &BatteryRun{
 		ID:        newRunID(),
 		Timestamp: time.Now().UTC(),
 		GroupID:   group.ID,
 		GroupName: group.Name,
 		Models:    append([]string(nil), modelIDs...),
+		SysInfo:   sysInfo,
 	}
 
 	// Filter active non-agent tests that belong to this group.

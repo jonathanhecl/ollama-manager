@@ -55,9 +55,12 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Detect system info for this run.
+	sysInfo := runner.DetectSysInfo()
+
 	// Use background context so async execution survives HTTP request completion.
 	bgCtx := context.Background()
-	runID := s.runner.ExecuteBatteryAsync(bgCtx, group, testsList, body.ModelIDs, modelCaps, func(run *runner.BatteryRun) {
+	runID := s.runner.ExecuteBatteryAsync(bgCtx, group, testsList, body.ModelIDs, modelCaps, sysInfo, func(run *runner.BatteryRun) {
 		_ = s.runnerStore.SaveRun(run)
 		s.runner.ClearProgress(run.ID)
 	})
@@ -178,6 +181,11 @@ func (s *Server) handleGetTestHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	history := s.runnerStore.GetTestHistory(testID)
 	writeJSON(w, http.StatusOK, map[string]any{"history": history})
+}
+
+func (s *Server) handleSysInfo(w http.ResponseWriter, r *http.Request) {
+	info := runner.DetectSysInfo()
+	writeJSON(w, http.StatusOK, info)
 }
 
 // Ensure runner types are used.

@@ -248,7 +248,7 @@ When a battery runs (future feature), the runner will skip tests whose `required
    - Takes a model name and a list of test IDs.
    - Sends each `prompt` (+ `system_prompt`) to Ollama.
    - Applies the `evaluation_type` / `evaluation_config` scorer.
-   - Stores results in a new JSON file (e.g. `test_results.json`).
+   - Stores results in a new JSON file (e.g. `tests-history.json`).
 3. Add a results/history view for human-review tests.
 
 ---

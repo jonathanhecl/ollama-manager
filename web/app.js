@@ -1776,8 +1776,7 @@ function renderTestsList() {
   list.querySelectorAll(".tests-item-run").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const id = btn.dataset.id;
-      if (id) showAgentSessionView(id);
+      $("coming-soon-modal").hidden = false;
     });
   });
 }
@@ -5710,6 +5709,12 @@ $("battery-modal-close")?.addEventListener("click", closeBatteryModal);
 $("battery-modal-cancel")?.addEventListener("click", closeBatteryModal);
 $("battery-modal-confirm")?.addEventListener("click", () => {
   void confirmBatteryRun();
+});
+$("coming-soon-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("coming-soon-modal")) $("coming-soon-modal").hidden = true;
+});
+$("coming-soon-modal-close")?.addEventListener("click", () => {
+  $("coming-soon-modal").hidden = true;
 });
 $("battery-results-back")?.addEventListener("click", () => {
   showTestsView();

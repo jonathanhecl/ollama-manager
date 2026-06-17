@@ -74,6 +74,7 @@ const I18N = {
     "action.logout": "Sign out",
     "action.close": "Close",
     "action.cancel": "Cancel",
+    "action.ok": "OK",
     "action.delete": "Delete",
 
     "col.name": "Name",
@@ -493,6 +494,7 @@ const I18N = {
     "action.logout": "Salir",
     "action.close": "Cerrar",
     "action.cancel": "Cancelar",
+    "action.ok": "OK",
     "action.delete": "Eliminar",
 
     "col.name": "Nombre",

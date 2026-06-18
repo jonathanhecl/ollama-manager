@@ -5020,7 +5020,38 @@ let batteryTimelineTotal = 0;
 let batteryTimelineCompleted = []; // {index, name, model}
 let batteryTimelineCurrent = null; // {index, name, model, isThinking}
 let batteryTimelineQueue = []; // {index, testId, testName, model}
+let batteryProgressModelIDs = [];
 const testHistoryResponses = new Map(); // respKey -> full response string
+
+function renderBatteryProgressModels(modelIDs, currentModel, isThinking) {
+  const container = $("battery-progress-models");
+  if (!container) return;
+  const currentIdx = currentModel ? modelIDs.indexOf(currentModel) : -1;
+  const startIdx = Math.max(0, currentIdx);
+  const visibleModels = [];
+  for (let i = startIdx; i < Math.min(startIdx + 3, modelIDs.length); i++) {
+    visibleModels.push(modelIDs[i]);
+  }
+  container.innerHTML = visibleModels.map((m) => {
+    const modelIndex = modelIDs.indexOf(m);
+    const isRunning = m === currentModel;
+    const isDone = currentIdx !== -1 && modelIndex < currentIdx;
+    let status = t("battery.status_pending");
+    if (isRunning) {
+      status = t(isThinking ? "battery.status_thinking" : "battery.status_running");
+    } else if (isDone) {
+      status = t("battery.status_done");
+    }
+    const cls = isRunning ? "battery-progress-model running" : (isDone ? "battery-progress-model done" : "battery-progress-model");
+    return `
+      <div class="${cls}" data-model="${escapeHtml(m)}">
+        <span class="battery-progress-dot"></span>
+        <span class="battery-progress-name">${escapeHtml(m)}</span>
+        <span class="battery-progress-status">${escapeHtml(status)}</span>
+      </div>
+    `;
+  }).join("");
+}
 
 function buildBatteryTimelineQueue(groupId, modelIDs) {
   const activeTests = tests
@@ -5069,16 +5100,8 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   currentView = "battery-progress";
   $("battery-progress-view").hidden = false;
 
-  const container = $("battery-progress-models");
-  if (container) {
-    container.innerHTML = modelIDs.map((m) => `
-      <div class="battery-progress-model" data-model="${escapeHtml(m)}">
-        <span class="battery-progress-dot"></span>
-        <span class="battery-progress-name">${escapeHtml(m)}</span>
-        <span class="battery-progress-status">${t("battery.status_pending")}</span>
-      </div>
-    `).join("");
-  }
+  batteryProgressModelIDs = modelIDs;
+  renderBatteryProgressModels(modelIDs, "", false);
   localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs, groupId }));
   const progressPath = "/tests/battery/progress/" + runID;
   if (window.location.pathname !== progressPath) {
@@ -5289,27 +5312,8 @@ async function pollBatteryProgress(runID, modelIDs) {
       response: p.partial_response || "",
     };
 
-    // Update model cards.
-    const container = $("battery-progress-models");
-    if (container && p.model) {
-      const currentModelIndex = modelIDs.indexOf(p.model);
-      container.querySelectorAll(".battery-progress-model").forEach((el) => {
-        const modelName = el.dataset.model;
-        const statusEl = el.querySelector(".battery-progress-status");
-        if (modelName === p.model) {
-          el.classList.add("running");
-          el.classList.remove("done");
-          if (statusEl) statusEl.textContent = t(p.is_thinking ? "battery.status_thinking" : "battery.status_running");
-        } else {
-          el.classList.remove("running");
-          const thisModelIndex = modelIDs.indexOf(modelName);
-          if (thisModelIndex !== -1 && currentModelIndex !== -1 && thisModelIndex < currentModelIndex) {
-            el.classList.add("done");
-            if (statusEl) statusEl.textContent = t("battery.status_done");
-          }
-        }
-      });
-    }
+    // Update model cards (show current + next 2).
+    renderBatteryProgressModels(modelIDs, p.model || "", p.is_thinking || false);
     if (p.done) {
       // Archive final snapshot before finishing.
       if (batteryLastTestSnapshot) {

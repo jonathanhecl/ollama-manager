@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-//go:embed seeddata/flag-argentina.b64
-var seedFlagArgentinaB64 string
+//go:embed seeddata/cube-blue.b64
+var seedCubeBlueB64 string
 
 //go:embed seeddata/spoken-number-691.b64
 var seedSpokenNumberB64 string
@@ -19,6 +19,9 @@ var seedSpanishAudioB64 string
 
 //go:embed seeddata/code-png.b64
 var seedCodePngB64 string
+
+//go:embed seeddata/flag-argentina.b64
+var seedFlagArgentinaB64 string
 
 // SeedIfEmpty creates default groups and tests when the store has no data.
 // It is safe to call multiple times — it only seeds when truly empty.
@@ -227,7 +230,7 @@ No extra text, no JSON, no markdown.`,
 			RequiredCaps:   []string{"vision"},
 			EvaluationType: "human_review",
 			Attachments: []Attachment{
-				{ID: "att-img-1", Kind: "image", Name: "cube.png", Mime: "image/png", Data: strings.TrimSpace(seedFlagArgentinaB64)},
+				{ID: "att-img-1", Kind: "image", Name: "cube.png", Mime: "image/png", Data: strings.TrimSpace(seedCubeBlueB64)},
 			},
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -285,6 +288,25 @@ No extra text, no JSON, no markdown.`,
 			}),
 			Attachments: []Attachment{
 				{ID: "att-img-code", Kind: "image", Name: "code.png", Mime: "image/png", Data: strings.TrimSpace(seedCodePngB64)},
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:             "t17",
+			Name:           "Vision: Identify the flag",
+			Description:    "Attach an image and identify the country represented by the flag.",
+			GroupID:        gMulti.ID,
+			Active:         true,
+			Order:          4,
+			Prompt:         "What country is this flag from?",
+			RequiredCaps:   []string{"vision"},
+			EvaluationType: "contains",
+			EvaluationConfig: mustJSON(map[string]any{
+				"expected": "Argentina",
+			}),
+			Attachments: []Attachment{
+				{ID: "att-img-flag", Kind: "image", Name: "flag.jpg", Mime: "image/jpeg", Data: strings.TrimSpace(seedFlagArgentinaB64)},
 			},
 			CreatedAt: now,
 			UpdatedAt: now,

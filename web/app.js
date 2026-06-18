@@ -5015,6 +5015,7 @@ let batteryLastTestSnapshot = null;
 let batteryTimelineTotal = 0;
 let batteryTimelineCompleted = []; // {index, name, model}
 let batteryTimelineCurrent = null; // {index, name, model, isThinking}
+const testHistoryResponses = new Map(); // respKey -> full response string
 
 function showBatteryProgressView(modelIDs, runID) {
   batteryCompletedTests = [];
@@ -5642,6 +5643,18 @@ function closeHumanReviewModal() {
   $("human-review-modal").hidden = true;
 }
 
+function openResponseViewModal(model, response) {
+  const modelEl = $("response-view-model");
+  const contentEl = $("response-view-content");
+  if (modelEl) modelEl.textContent = model || "—";
+  if (contentEl) contentEl.textContent = response || "";
+  $("response-view-modal").hidden = false;
+}
+
+function closeResponseViewModal() {
+  $("response-view-modal").hidden = true;
+}
+
 async function renderBatteryHistory() {
   const body = $("battery-history-body");
   if (!body) return;
@@ -5740,39 +5753,32 @@ async function renderTestHistoryModal(testId) {
       } else {
         badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
       }
-      const rating = h.human_rating ? ` · ${t("battery.human_review")}: ${escapeHtml(h.human_rating)}` : "";
       const reasoning = h.reasoning_used ? "🧠" : "";
       const tps = h.tokens_per_sec ? `${h.tokens_per_sec.toFixed(1)} tok/s` : "";
       const resp = h.model_response || "";
-      const respId = `th-${testId}-${escapeHtml(h.model)}-${new Date(h.timestamp).getTime()}`;
-      const respShort = escapeHtml(resp.slice(0, 200));
-      const respRest = escapeHtml(resp.slice(200));
+      const respPreview = escapeHtml(resp.slice(0, 60).replace(/\s+/g, " "));
+      const respKey = `th-${testId}-${escapeHtml(h.model).replace(/[^a-zA-Z0-9]/g, "-")}-${new Date(h.timestamp).getTime()}`;
       const sys = h.sys_info || {};
-      const sysParts = [];
-      if (sys.os) sysParts.push(`${t("battery.sys_os")}: ${escapeHtml(sys.os)}`);
-      if (sys.cpu_model) sysParts.push(`${t("battery.sys_cpu")}: ${escapeHtml(sys.cpu_model)}`);
-      if (sys.gpu_model) sysParts.push(`${t("battery.sys_gpu")}: ${escapeHtml(sys.gpu_model)}`);
-      if (sys.ram_gb) sysParts.push(`${t("battery.sys_ram")}: ${escapeHtml(sys.ram_gb)} GB`);
-      if (sys.vram_gb) sysParts.push(`${t("battery.sys_vram")}: ${escapeHtml(sys.vram_gb)} GB`);
-      const sysTooltip = sysParts.join(" | ");
       const sysLabel = sys.os ? escapeHtml(sys.os + (sys.ram_gb ? ` · ${sys.ram_gb}GB` : "")) : "—";
+      const modelShort = escapeHtml(h.model).replace(/^[^/]+\//, "");
+      testHistoryResponses.set(respKey, resp);
       rows += `
         <tr>
-          <td class="cell-time">${escapeHtml(date)}</td>
-          <td class="cell-model">${escapeHtml(h.model)}</td>
+          <td class="cell-time" title="${escapeHtml(date)}">${escapeHtml(date.split(" ")[0])}<br><span class="muted" style="font-size:10px">${escapeHtml(date.split(" ")[1] || "")}</span></td>
+          <td class="cell-model" title="${escapeHtml(h.model)}">${escapeHtml(modelShort)}</td>
           <td>${badge}</td>
-          <td class="cell-time">${fmtDuration(h.response_time_ms)} ${reasoning}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
-          <td class="cell-response">
-            <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
-            ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
+          <td class="cell-time">${fmtDuration(h.response_time_ms)} ${reasoning}<br><span class="muted" style="font-size:10px">${escapeHtml(tps)}</span></td>
+          <td class="cell-response-compact">
+            <span class="resp-preview">${respPreview}${resp.length > 60 ? "…" : ""}</span>
+            ${resp.trim().length > 0 ? `<button type="button" class="resp-view-btn" data-resp-key="${respKey}">${t("action.view")}</button>` : ""}
           </td>
-          <td class="cell-sys" title="${escapeHtml(sysTooltip)}">${sysLabel}</td>
+          <td class="cell-sys-compact" title="${escapeHtml(h.model)}">${sysLabel}</td>
         </tr>
       `;
     }
     body.innerHTML = `
-      <div class="battery-table-wrap">
-        <table class="battery-table">
+      <div class="battery-table-wrap battery-table-wrap--compact">
+        <table class="battery-table battery-table--compact">
           <thead>
             <tr>
               <th>${t("battery.date")}</th>
@@ -5787,12 +5793,11 @@ async function renderTestHistoryModal(testId) {
         </table>
       </div>
     `;
-    body.querySelectorAll(".resp-toggle").forEach((btn) => {
+    body.querySelectorAll(".resp-view-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const target = document.getElementById(btn.dataset.target);
-        if (!target) return;
-        target.hidden = !target.hidden;
-        btn.textContent = target.hidden ? "…" : "▲";
+        const model = btn.closest("tr")?.querySelector(".cell-model")?.getAttribute("title") || "";
+        const fullResp = testHistoryResponses.get(btn.dataset.respKey) || "";
+        openResponseViewModal(model, fullResp);
       });
     });
   } catch (err) {
@@ -5912,6 +5917,11 @@ $("human-review-modal")?.addEventListener("click", (e) => {
   if (e.target === $("human-review-modal")) closeHumanReviewModal();
 });
 $("human-review-modal-close")?.addEventListener("click", closeHumanReviewModal);
+
+$("response-view-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("response-view-modal")) closeResponseViewModal();
+});
+$("response-view-modal-close")?.addEventListener("click", closeResponseViewModal);
 
 $("tests-group-history-btn")?.addEventListener("click", () => {
   if (selectedGroupId) openGroupHistoryModal(selectedGroupId);

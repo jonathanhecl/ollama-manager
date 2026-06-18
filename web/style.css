@@ -3372,6 +3372,22 @@ button.chat-send:disabled:hover {
 .battery-table .cell-sys { min-width: 80px; max-width: 140px; font-size: 11px; color: var(--muted); cursor: help; }
 .battery-table .cell-time { min-width: 80px; }
 
+/* Compact table for test/group history modals */
+.battery-table-wrap--compact { overflow-x: hidden; }
+.battery-table--compact { font-size: 12px; }
+.battery-table--compact th,
+.battery-table--compact td { padding: 6px 8px; white-space: nowrap; }
+.battery-table--compact .cell-model { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.battery-table--compact .cell-time { min-width: 60px; font-size: 11px; }
+.battery-table--compact .cell-response-compact { max-width: 200px; font-size: 11px; color: var(--text-dim); }
+.battery-table--compact .cell-sys-compact { min-width: 60px; max-width: 100px; font-size: 10px; color: var(--muted); }
+.resp-preview { display: inline-block; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.resp-view-btn { display: inline-block; background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
+.resp-view-btn:hover { text-decoration: underline; }
+
+/* Response view modal */
+.response-view-modal-card { width: min(700px, 100%); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
+
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .badge-pass { background: rgba(111,207,151,.15); color: var(--good); }
 .badge-fail { background: rgba(255,107,107,.15); color: var(--bad); }

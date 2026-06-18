@@ -5767,7 +5767,6 @@ async function renderTestHistoryModal(testId) {
             ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
           </td>
           <td class="cell-sys" title="${escapeHtml(sysTooltip)}">${sysLabel}</td>
-          <td class="cell-time">${escapeHtml(h.group_name)}${rating}</td>
         </tr>
       `;
     }
@@ -5782,7 +5781,6 @@ async function renderTestHistoryModal(testId) {
               <th>${t("battery.response_time")}</th>
               <th>${t("chat.response")}</th>
               <th>${t("battery.sys_info")}</th>
-              <th>${t("tests.group")}</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -5873,7 +5871,6 @@ async function renderGroupHistoryModal(groupId) {
         <span style="color:var(--muted);font-weight:600;">${t("battery.legend_title")}:</span>
         <span class="badge badge-pass">${t("battery.legend_pass")}</span>
         <span class="badge badge-fail">${t("battery.legend_fail")}</span>
-        <span class="badge badge-human">${t("battery.legend_human")}</span>
         <span class="badge badge-na">${t("battery.legend_error")}</span>
       </div>
     `;

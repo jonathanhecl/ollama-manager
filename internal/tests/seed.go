@@ -294,7 +294,7 @@ Respond ONLY with the correct tool call. No extra text.`,
 			GroupID:     gJSON.ID,
 			Active:      true,
 			Order:       0,
-			Prompt: `Extract the person information from this text and return ONLY a raw JSON object. Do not wrap in markdown code blocks. No extra text.
+			Prompt: `Extract the person information from this text and return ONLY a raw JSON object with exactly these fields: name, age, job, city. Do not wrap in markdown code blocks. No extra text.
 Text: "John Doe is 34 years old and works as a software engineer in Berlin."`,
 			SystemPrompt:   "You must respond with valid JSON only. Do not wrap in markdown code blocks.",
 			EvaluationType: "json_schema",

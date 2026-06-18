@@ -127,6 +127,22 @@ func (s *Store) SeedIfEmpty() error {
 			UpdatedAt: now,
 		},
 
+		{
+			ID:             "t18",
+			Name:           "Parallel Processing Logic",
+			Description:    "Checks if the model understands that independent tasks can run simultaneously.",
+			GroupID:        gCore.ID,
+			Active:         true,
+			Order:          3,
+			Prompt:         "If it takes me 1 hour to dry a shirt in the sun, how long will it take me to dry 3 identical shirts at the same time? Just reply with the number.",
+			EvaluationType: "contains",
+			EvaluationConfig: mustJSON(map[string]any{
+				"expected": "1",
+			}),
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+
 		// === One-Shot Tool Use ===
 		// In one-shot tests the system prompt defines available tools.
 		// The evaluation checks that the model emits the tool call pattern.

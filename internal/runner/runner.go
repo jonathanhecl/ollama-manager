@@ -389,6 +389,28 @@ func scoreTest(test tests.Test, response string) *bool {
 		}
 		v := strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
 		return &v
+	case "contains_list":
+		var cfg struct {
+			Expected []string `json:"expected"`
+		}
+		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
+		normResponse := normalizeForContains(response)
+		for _, exp := range cfg.Expected {
+			normExpected := normalizeForContains(exp)
+			if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
+				if strings.Contains(strings.ToLower(stripWhitespace(normResponse)), strings.ToLower(stripWhitespace(normExpected))) {
+					v := true
+					return &v
+				}
+			} else {
+				if strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected)) {
+					v := true
+					return &v
+				}
+			}
+		}
+		v := false
+		return &v
 	case "regex":
 		var cfg struct {
 			Pattern string `json:"pattern"`

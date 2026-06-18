@@ -155,6 +155,21 @@ func (s *Store) SeedIfEmpty() error {
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		},
+		{
+			ID:             "t20",
+			Name:           "Cat in bed",
+			Description:    "Evaluates whether the model understands parallel causality in a simple scenario.",
+			GroupID:        gCore.ID,
+			Active:         true,
+			Order:          5,
+			Prompt:         "I'm lying in bed; my cat is sleeping on top of me. I can't get up unless my cat gets up first. My cat only gets up when he hears his food bowl. What needs to happen for me to get out of bed?",
+			EvaluationType: "contains_list",
+			EvaluationConfig: mustJSON(map[string]any{
+				"expected": []string{"make a sound", "make a noise", "make noise"},
+			}),
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
 
 		// === One-Shot Tool Use ===
 		// In one-shot tests the system prompt defines available tools.

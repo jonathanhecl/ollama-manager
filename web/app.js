@@ -5012,20 +5012,37 @@ async function renderBatteryModalModels() {
 let batteryPollTimer = null;
 let batteryCompletedTests = [];
 let batteryLastTestSnapshot = null;
+let batteryTimelineTotal = 0;
+let batteryTimelineCompleted = []; // {index, name, model}
+let batteryTimelineCurrent = null; // {index, name, model, isThinking}
 
 function showBatteryProgressView(modelIDs, runID) {
   batteryCompletedTests = [];
   batteryLastTestSnapshot = null;
   batteryPollRetryCount = 0;
+  batteryTimelineTotal = 0;
+  batteryTimelineCompleted = [];
+  batteryTimelineCurrent = null;
+
   const completedEl = $("battery-completed-tests");
   const headingEl = $("battery-completed-tests-heading");
   if (completedEl) { completedEl.innerHTML = ""; completedEl.hidden = true; }
   if (headingEl) headingEl.hidden = true;
+
+  // Reset new UI elements
+  const fill = $("battery-progress-fill");
+  const count = $("battery-progress-count");
+  const timeline = $("battery-timeline");
+  const sub = $("battery-progress-sub");
+  if (fill) fill.style.width = "0%";
+  if (count) count.textContent = "0 / 0";
+  if (timeline) timeline.innerHTML = `<div class="battery-timeline-empty">${escapeHtml(t("battery.starting"))}</div>`;
+  if (sub) sub.textContent = t("battery.progress_sub", { count: String(modelIDs.length) });
+
   hideAllMainViews();
   currentView = "battery-progress";
   $("battery-progress-view").hidden = false;
-  const sub = $("battery-progress-sub");
-  if (sub) sub.textContent = t("battery.progress_sub", { count: String(modelIDs.length) });
+
   const container = $("battery-progress-models");
   if (container) {
     container.innerHTML = modelIDs.map((m) => `
@@ -5042,6 +5059,123 @@ function showBatteryProgressView(modelIDs, runID) {
     history.pushState(null, "", progressPath);
   }
   void pollBatteryProgress(runID, modelIDs);
+}
+
+function renderBatteryTimeline() {
+  const container = $("battery-timeline");
+  if (!container) return;
+  if (batteryTimelineTotal === 0) {
+    container.innerHTML = `<div class="battery-timeline-empty">${escapeHtml(t("battery.starting"))}</div>`;
+    return;
+  }
+
+  let html = "";
+  // Completed items
+  for (const item of batteryTimelineCompleted) {
+    html += `
+      <div class="battery-timeline-item completed">
+        <div class="battery-timeline-left">
+          <div class="battery-timeline-dot">&#10003;</div>
+          <div class="battery-timeline-line"></div>
+        </div>
+        <div class="battery-timeline-body">
+          <div class="battery-timeline-name">${escapeHtml(item.name || "Test")}</div>
+          <div class="battery-timeline-meta">${escapeHtml(item.model || "")}</div>
+        </div>
+      </div>
+    `;
+  }
+  // Current item
+  if (batteryTimelineCurrent) {
+    html += `
+      <div class="battery-timeline-item active">
+        <div class="battery-timeline-left">
+          <div class="battery-timeline-dot pulse"></div>
+          <div class="battery-timeline-line"></div>
+        </div>
+        <div class="battery-timeline-body">
+          <div class="battery-timeline-name">${escapeHtml(batteryTimelineCurrent.name || "Test")}</div>
+          <div class="battery-timeline-meta">
+            ${escapeHtml(batteryTimelineCurrent.model || "")}
+            ${batteryTimelineCurrent.isThinking ? " &middot; " + escapeHtml(t("battery.status_thinking")) : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  // Pending items (fill up to total)
+  const shown = batteryTimelineCompleted.length + (batteryTimelineCurrent ? 1 : 0);
+  const pending = Math.max(0, batteryTimelineTotal - shown);
+  for (let i = 0; i < pending; i++) {
+    const isLast = i === pending - 1;
+    html += `
+      <div class="battery-timeline-item pending">
+        <div class="battery-timeline-left">
+          <div class="battery-timeline-dot"></div>
+          ${isLast ? "" : "<div class=\"battery-timeline-line\"></div>"}
+        </div>
+        <div class="battery-timeline-body">
+          <div class="battery-timeline-name">${escapeHtml(t("battery.status_pending"))}</div>
+        </div>
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+}
+
+function updateBatteryProgressUI(p) {
+  const total = p.total_tests || 0;
+  const idx = p.test_index || 0;
+  const done = p.done || false;
+
+  // Update bar
+  const fill = $("battery-progress-fill");
+  const count = $("battery-progress-count");
+  if (fill && total > 0) {
+    const pct = done ? 100 : Math.max(0, Math.min(100, Math.round(((idx - 1) / total) * 100)));
+    fill.style.width = pct + "%";
+  }
+  if (count && total > 0) {
+    const displayIdx = done ? total : Math.max(0, idx - 1);
+    count.textContent = `${displayIdx} / ${total}`;
+  }
+
+  // Update timeline state
+  if (total > 0) batteryTimelineTotal = total;
+
+  // Archive previous current into completed when test changes
+  if (batteryTimelineCurrent && batteryTimelineCurrent.testId && p.test_id && batteryTimelineCurrent.testId !== p.test_id) {
+    batteryTimelineCompleted.push({
+      index: batteryTimelineCurrent.index,
+      name: batteryTimelineCurrent.name,
+      model: batteryTimelineCurrent.model,
+      testId: batteryTimelineCurrent.testId,
+    });
+  }
+
+  // Set current
+  if (p.test_id && !done) {
+    batteryTimelineCurrent = {
+      index: idx,
+      testId: p.test_id,
+      name: p.test_name || "",
+      model: p.model || "",
+      isThinking: p.is_thinking || false,
+    };
+  } else if (done) {
+    // Archive final current
+    if (batteryTimelineCurrent) {
+      batteryTimelineCompleted.push({
+        index: batteryTimelineCurrent.index,
+        name: batteryTimelineCurrent.name,
+        model: batteryTimelineCurrent.model,
+        testId: batteryTimelineCurrent.testId,
+      });
+    }
+    batteryTimelineCurrent = null;
+  }
+
+  renderBatteryTimeline();
 }
 
 function renderBatteryCompletedTests() {
@@ -5085,16 +5219,9 @@ async function pollBatteryProgress(runID, modelIDs) {
       batteryCompletedTests.push(batteryLastTestSnapshot);
       renderBatteryCompletedTests();
     }
-    // Update current test info.
-    const currentDiv = $("battery-progress-current");
-    if (currentDiv && p.test_name) {
-      currentDiv.innerHTML = `
-        <div class="test-name">${escapeHtml(p.test_name)}</div>
-        <div class="test-meta">${escapeHtml(p.model)} — ${p.test_index} / ${p.total_tests}</div>
-      `;
-    } else if (currentDiv) {
-      currentDiv.innerHTML = "";
-    }
+    // Update timeline, bar, and count.
+    updateBatteryProgressUI(p);
+
     // Update streaming panel.
     const streamPanel = $("battery-stream-panel");
     const currentTest = tests.find((t) => t.id === p.test_id);

@@ -3423,42 +3423,164 @@ button.chat-send:disabled:hover {
 .group-history-modal-body { overflow-y: auto; flex: 1; min-height: 0; }
 
 /* battery progress */
-.battery-progress-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 60px; }
-.battery-progress-current {
-  margin: 16px 0 20px;
-  padding: 16px 20px;
-  border: 1px solid var(--accent-dim);
-  border-radius: var(--radius);
-  background: rgba(122,162,255,.08);
-  text-align: center;
-  max-width: 520px;
-  width: 100%;
+.battery-progress-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 24px;
+  padding: 24px 20px 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  align-items: start;
 }
-.battery-progress-current .test-name {
-  font-weight: 600;
-  font-size: 15px;
-  margin-bottom: 4px;
+@media (max-width: 980px) {
+  .battery-progress-layout { grid-template-columns: 1fr; }
 }
-.battery-progress-current .test-meta {
+
+/* Left column */
+.battery-progress-left {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.battery-progress-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.battery-progress-header h2 { margin: 0; font-size: 18px; }
+.battery-progress-meta { font-size: 13px; color: var(--muted); }
+.battery-progress-spinner {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: batterySpin .9s linear infinite;
+}
+@keyframes batterySpin { to { transform: rotate(360deg); } }
+
+/* Progress bar */
+.battery-progress-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.battery-progress-track {
+  height: 8px;
+  background: var(--panel-2);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.battery-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-dim));
+  border-radius: 4px;
+  width: 0%;
+  transition: width .6s ease;
+}
+.battery-progress-count {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* Timeline */
+.battery-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.battery-timeline-empty {
+  color: var(--muted);
   font-size: 13px;
+  padding: 12px 0;
+}
+.battery-timeline-item {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  align-items: flex-start;
+}
+.battery-timeline-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100%;
+}
+.battery-timeline-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  background: var(--panel-2);
+  border: 2px solid var(--border);
   color: var(--muted);
 }
-.battery-stream-panel { width: min(800px, 100%); margin-top: 24px; text-align: left; }
+.battery-timeline-item.completed .battery-timeline-dot {
+  background: rgba(111,207,151,.15);
+  border-color: var(--good);
+  color: var(--good);
+}
+.battery-timeline-item.active .battery-timeline-dot {
+  background: rgba(109,158,235,.2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.battery-timeline-item.active .battery-timeline-dot.pulse {
+  animation: batteryPulse 1.2s ease-in-out infinite;
+}
+.battery-timeline-line {
+  width: 2px;
+  flex: 1;
+  min-height: 20px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.battery-timeline-item.completed .battery-timeline-line {
+  background: linear-gradient(var(--good), var(--border));
+}
+.battery-timeline-body {
+  flex: 1;
+  padding-bottom: 10px;
+}
+.battery-timeline-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.battery-timeline-item.pending .battery-timeline-name {
+  color: var(--muted);
+  font-weight: 400;
+}
+.battery-timeline-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.battery-cancel-btn { align-self: flex-start; }
+
+/* Right column */
+.battery-progress-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.battery-stream-panel { width: 100%; text-align: left; }
 .battery-stream-header { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 12px 0 6px; display: flex; gap: 8px; align-items: center; }
 .battery-stream-block { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; }
 .battery-stream-block.thinking { background: rgba(245,180,97,.08); border-color: rgba(245,180,97,.25); color: var(--warn); }
 .battery-stream-block.response { background: rgba(111,207,151,.08); border-color: rgba(111,207,151,.25); }
-.battery-progress-spinner {
-  width: 56px; height: 56px; border-radius: 50%;
-  border: 4px solid var(--border);
-  border-top-color: var(--accent);
-  animation: batterySpin .9s linear infinite;
-  margin-bottom: 20px;
-}
-@keyframes batterySpin { to { transform: rotate(360deg); } }
-.battery-progress-wrap h2 { margin: 0 0 8px; font-size: 18px; }
-.battery-progress-sub { margin: 0 0 24px; font-size: 13px; }
-.battery-progress-models { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 480px; }
+
+.battery-progress-models { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .battery-progress-model {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);

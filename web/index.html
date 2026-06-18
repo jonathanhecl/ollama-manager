@@ -728,30 +728,48 @@
 
   <!-- Battery progress view -->
   <main id="battery-progress-view" hidden>
-    <div class="battery-wrap battery-progress-wrap">
-      <div class="battery-progress-spinner"></div>
-      <h2 data-i18n="battery.running">Running battery…</h2>
-      <p class="muted battery-progress-sub" id="battery-progress-sub"></p>
-      <button id="battery-progress-cancel" class="ghost danger-text" data-i18n="action.cancel">Cancel</button>
-      <div id="battery-progress-current" class="battery-progress-current"></div>
-      <div id="battery-progress-models" class="battery-progress-models"></div>
-      <div id="battery-stream-panel" class="battery-stream-panel" hidden>
-        <div class="battery-stream-header">
-          <span data-i18n="battery.stream_prompt">Prompt</span>
-          <span class="muted" id="battery-stream-prompt-name"></span>
+    <div class="battery-progress-layout">
+      <!-- Left: Timeline & progress -->
+      <div class="battery-progress-left">
+        <div class="battery-progress-header">
+          <div class="battery-progress-spinner"></div>
+          <h2 data-i18n="battery.running">Running battery…</h2>
+          <div class="battery-progress-meta" id="battery-progress-sub"></div>
         </div>
-        <div class="battery-stream-block" id="battery-stream-prompt"></div>
-        <div class="battery-stream-header">
-          <span data-i18n="battery.stream_thinking">Thinking</span>
+
+        <div class="battery-progress-bar-wrap">
+          <div class="battery-progress-track">
+            <div class="battery-progress-fill" id="battery-progress-fill"></div>
+          </div>
+          <div class="battery-progress-count" id="battery-progress-count">0 / 0</div>
         </div>
-        <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
-        <div class="battery-stream-header">
-          <span data-i18n="battery.stream_response">Response</span>
-        </div>
-        <div class="battery-stream-block response" id="battery-stream-response"></div>
+
+        <div class="battery-timeline" id="battery-timeline"></div>
+
+        <button id="battery-progress-cancel" class="ghost danger-text battery-cancel-btn" data-i18n="action.cancel">Cancel</button>
       </div>
-      <h3 id="battery-completed-tests-heading" class="battery-completed-tests-heading" data-i18n="battery.completed_tests_title" hidden>Completed tests in this run</h3>
-      <div id="battery-completed-tests" class="battery-completed-tests" hidden></div>
+
+      <!-- Right: Models & streaming -->
+      <div class="battery-progress-right">
+        <div id="battery-progress-models" class="battery-progress-models"></div>
+        <div id="battery-stream-panel" class="battery-stream-panel" hidden>
+          <div class="battery-stream-header">
+            <span data-i18n="battery.stream_prompt">Prompt</span>
+            <span class="muted" id="battery-stream-prompt-name"></span>
+          </div>
+          <div class="battery-stream-block" id="battery-stream-prompt"></div>
+          <div class="battery-stream-header">
+            <span data-i18n="battery.stream_thinking">Thinking</span>
+          </div>
+          <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
+          <div class="battery-stream-header">
+            <span data-i18n="battery.stream_response">Response</span>
+          </div>
+          <div class="battery-stream-block response" id="battery-stream-response"></div>
+        </div>
+        <h3 id="battery-completed-tests-heading" class="battery-completed-tests-heading" data-i18n="battery.completed_tests_title" hidden>Completed tests in this run</h3>
+        <div id="battery-completed-tests" class="battery-completed-tests" hidden></div>
+      </div>
     </div>
   </main>
 

@@ -328,14 +328,15 @@ func scoreTest(test tests.Test, response string) *bool {
 			Expected string `json:"expected"`
 		}
 		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
-		norm := normalizeForContains(response)
-		expected := cfg.Expected
-		// For code-like expected values, strip all whitespace for robust matching.
-		if strings.Contains(expected, "\n") || strings.Contains(expected, "\t") {
-			norm = stripWhitespace(norm)
-			expected = stripWhitespace(expected)
+		normResponse := normalizeForContains(response)
+		normExpected := normalizeForContains(cfg.Expected)
+		// When expected contains code with real newlines/tabs, compress
+		// whitespace on both sides so formatting differences don't matter.
+		if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
+			normResponse = stripWhitespace(normResponse)
+			normExpected = stripWhitespace(normExpected)
 		}
-		v := strings.Contains(strings.ToLower(norm), strings.ToLower(expected))
+		v := strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
 		return &v
 	case "regex":
 		var cfg struct {
@@ -419,11 +420,24 @@ func scoreTest(test tests.Test, response string) *bool {
 	}
 }
 
-// normalizeForContains strips LaTeX formatting so that
+// normalizeForContains strips LaTeX/markdown/JSON formatting so that
 // e.g. \frac{3}{4} becomes 3/4 for easier substring matching.
 func normalizeForContains(s string) string {
 	// Handle \frac{a}{b} -> a/b
 	s = regexp.MustCompile(`\\frac\{([^}]*)\}\{([^}]*)\}`).ReplaceAllString(s, "$1/$2")
+	// Remove common markdown.
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "*", "")
+	s = strings.ReplaceAll(s, "`", "")
+	// Strip quotes so quoted responses don't fail contains checks.
+	s = strings.ReplaceAll(s, `"`, "")
+	s = strings.ReplaceAll(s, `'`, "")
+	// Strip literal escaped newlines/tabs that appear in JSON/tool_call strings.
+	s = strings.ReplaceAll(s, `\n`, "")
+	s = strings.ReplaceAll(s, `\t`, "")
+	// Strip tool_call wrappers so JSON-embedded code can be evaluated.
+	s = strings.ReplaceAll(s, "<tool_call>", "")
+	s = strings.ReplaceAll(s, "</tool_call>", "")
 	return s
 }
 

@@ -200,7 +200,11 @@ Do not add any other text.`,
 			SystemPrompt: `You have two tools:
 - get_stock_price(ticker: string) -> {price: number, currency: string}
 - get_weather(location: string) -> {temperature: number, condition: string}
-Respond ONLY with the correct tool call. No extra text.`,
+
+Respond ONLY with the correct tool call in this exact format:
+function("data")
+
+No extra text, no JSON, no markdown.`,
 			Prompt:         "I want to know the current share price of Apple (AAPL).",
 			RequiredCaps:   []string{"tools"},
 			EvaluationType: "regex",

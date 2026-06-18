@@ -142,6 +142,19 @@ func (s *Store) SeedIfEmpty() error {
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
+		{
+			ID:             "t19",
+			Name:           "Chiste corto",
+			Description:    "Evaluates the model's ability to produce culturally competent humor in Spanish.",
+			GroupID:        gCore.ID,
+			Active:         true,
+			Order:          4,
+			SystemPrompt:   "Eres un humorista profesional español, experto en chistes cortos sobre programadores. Genera un chiste original, breve y gracioso en español.",
+			Prompt:         "Cuéntame un chiste corto de programadores en español.",
+			EvaluationType: "human_review",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
 
 		// === One-Shot Tool Use ===
 		// In one-shot tests the system prompt defines available tools.

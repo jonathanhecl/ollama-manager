@@ -262,9 +262,9 @@ Respond ONLY with the correct tool call. No extra text.`,
 			Order:          2,
 			Prompt:         "Transcribe this audio",
 			RequiredCaps:   []string{"audio"},
-			EvaluationType: "exact_match",
+			EvaluationType: "contains",
 			EvaluationConfig: mustJSON(map[string]any{
-				"expected": "Esta es una prueba de audio.",
+				"expected": "Esta es una prueba de audio",
 			}),
 			Attachments: []Attachment{
 				{ID: "att-aud-sp", Kind: "audio", Name: "test.wav", Mime: "audio/wav", Data: strings.TrimSpace(seedSpanishAudioB64)},

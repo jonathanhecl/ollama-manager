@@ -3392,6 +3392,7 @@ button.chat-send:disabled:hover {
 .battery-pass-fail button[data-passed="false"].active { background: var(--bad); color: #fff; border-color: var(--bad); }
 
 .battery-human-review-label { font-size: 11px; color: var(--warn); margin-top: 4px; }
+.battery-eval-label { font-size: 11px; color: var(--accent); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
 
 .battery-history-body { display: flex; flex-direction: column; gap: 10px; }
 .battery-history-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); cursor: pointer; transition: background .15s; }
@@ -3564,6 +3565,8 @@ button.chat-send:disabled:hover {
   overflow-y: auto;
 }
 .hr-system { color: var(--warn); background: rgba(245,180,97,.06); border-color: rgba(245,180,97,.2); }
+.hr-eval-type { color: var(--accent); font-weight: 600; background: rgba(109,158,235,.06); border-color: rgba(109,158,235,.2); }
+.hr-eval-config { color: var(--text-dim); }
 .hr-response { color: var(--text-dim); }
 .hr-attachments {
   display: flex;

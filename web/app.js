@@ -5327,9 +5327,8 @@ function renderBatteryResults(run) {
     const test = tests.find((t) => t.id === tid);
     const isHumanReview = test?.evaluation_type === "human_review";
     const testName = results[0]?.test_name || tid;
-    const promptBtn = isHumanReview
-      ? `<div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">prompt</button></div>`
-      : "";
+    const evalLabel = test?.evaluation_type ? `<div class="battery-eval-label">${escapeHtml(t("tests.eval_" + test.evaluation_type) || test.evaluation_type)}</div>` : "";
+    const promptBtn = `<div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button></div>`;
     const humanReviewLabel = isHumanReview
       ? `<div class="battery-human-review-label">${t("battery.human_review")}</div>`
       : "";
@@ -5368,7 +5367,7 @@ function renderBatteryResults(run) {
 
       rowsHtml += `
         <tr>
-          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${humanReviewLabel}${promptBtn}</td>` : ""}
+          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${evalLabel}${humanReviewLabel}${promptBtn}</td>` : ""}
           <td class="cell-model">${escapeHtml(r.model)}</td>
           <td>${resultCell}</td>
           <td class="cell-time">${fmtDuration(r.response_time_ms)} ${reasoningIcon}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
@@ -5463,6 +5462,33 @@ function openHumanReviewModal(run, testId, model) {
     sysEl.textContent = test.system_prompt || "";
     sysEl.parentElement.hidden = !test.system_prompt;
     if (sysEl.previousElementSibling) sysEl.previousElementSibling.hidden = !test.system_prompt;
+  }
+
+  // Evaluation
+  const evalTypeEl = $("human-review-eval-type");
+  const evalConfigEl = $("human-review-eval-config");
+  if (evalTypeEl) {
+    const evalName = t("tests.eval_" + test.evaluation_type) || test.evaluation_type || "";
+    evalTypeEl.textContent = evalName;
+  }
+  if (evalConfigEl) {
+    let cfgText = "";
+    let cfgObj = test.evaluation_config;
+    if (cfgObj) {
+      if (typeof cfgObj === "string") {
+        try { cfgObj = JSON.parse(cfgObj); } catch { cfgObj = null; }
+      }
+      if (cfgObj && typeof cfgObj === "object") {
+        if (cfgObj.expected !== undefined) cfgText = "Expected: " + String(cfgObj.expected);
+        else if (cfgObj.pattern !== undefined) cfgText = "Pattern: " + String(cfgObj.pattern);
+        else if (cfgObj.schema !== undefined) cfgText = "Schema: " + JSON.stringify(cfgObj.schema, null, 2);
+        else cfgText = JSON.stringify(cfgObj, null, 2);
+      } else if (cfgObj) {
+        cfgText = String(cfgObj);
+      }
+    }
+    evalConfigEl.textContent = cfgText;
+    evalConfigEl.parentElement.hidden = !cfgText;
   }
 
   // Attachments

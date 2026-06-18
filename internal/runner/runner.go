@@ -253,36 +253,73 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	var chunkMeta *ollama.ChatChunk
 	isThinking := false
 	start := time.Now()
+	var chatErr error
 
-	err := c.ollama.Chat(ctx, req, func(chunk ollama.ChatChunk) error {
-		if chunk.Message.Content != "" {
-			fullContent.WriteString(chunk.Message.Content)
-		}
-		if chunk.Message.Thinking != "" {
-			fullThinking.WriteString(chunk.Message.Thinking)
-		}
-		// Detect thinking tags in real-time and update progress with partial content.
-		content := fullContent.String()
-		wasThinking := isThinking
-		if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
-			isThinking = true
-		}
-		if isThinking && (strings.Contains(content, "</thinking>") || strings.Contains(content, "</stitching>") || strings.Contains(content, "</throat>")) {
+retryLoop:
+	for attempt := 0; attempt <= 3; attempt++ {
+		if attempt > 0 {
+			// Before retrying, check if the model is loaded in Ollama.
+			if loaded, psErr := c.isModelLoaded(ctx, model); psErr == nil && !loaded {
+				select {
+				case <-time.After(2 * time.Second):
+				case <-ctx.Done():
+					chatErr = ctx.Err()
+					break retryLoop
+				}
+			}
+			select {
+			case <-time.After(3 * time.Second):
+			case <-ctx.Done():
+				chatErr = ctx.Err()
+				break retryLoop
+			}
+			if chatErr != nil {
+				break retryLoop
+			}
+			// Reset accumulators for the retry.
+			fullContent.Reset()
+			fullThinking.Reset()
+			chunkMeta = nil
 			isThinking = false
 		}
-		c.updateProgressStream(runID, isThinking, content, fullThinking.String())
-		_ = wasThinking
-		if chunk.Done {
-			chunkMeta = &chunk
+
+		chatErr = c.ollama.Chat(ctx, req, func(chunk ollama.ChatChunk) error {
+			if chunk.Message.Content != "" {
+				fullContent.WriteString(chunk.Message.Content)
+			}
+			if chunk.Message.Thinking != "" {
+				fullThinking.WriteString(chunk.Message.Thinking)
+			}
+			content := fullContent.String()
+			wasThinking := isThinking
+			if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
+				isThinking = true
+			}
+			if isThinking && (strings.Contains(content, "</thinking>") || strings.Contains(content, "</stitching>") || strings.Contains(content, "</throat>")) {
+				isThinking = false
+			}
+			c.updateProgressStream(runID, isThinking, content, fullThinking.String())
+			_ = wasThinking
+			if chunk.Done {
+				chunkMeta = &chunk
+			}
+			return nil
+		})
+
+		if chatErr != nil {
+			break // Hard error, don't retry.
 		}
-		return nil
-	})
+		if strings.TrimSpace(fullContent.String()) != "" {
+			break // Got a non-empty response.
+		}
+		// Empty response: will retry unless this was the last attempt.
+	}
 
 	elapsed := time.Since(start).Milliseconds()
 	res.ResponseTimeMs = elapsed
 
-	if err != nil {
-		res.Error = err.Error()
+	if chatErr != nil {
+		res.Error = chatErr.Error()
 		return res
 	}
 
@@ -302,6 +339,20 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	// For human_review, passed stays nil and human_rating stays empty.
 
 	return res
+}
+
+// isModelLoaded queries Ollama /api/ps to check whether a model is currently loaded in memory.
+func (c *Client) isModelLoaded(ctx context.Context, model string) (bool, error) {
+	running, err := c.ollama.PS(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, rm := range running {
+		if rm.Name == model || rm.Model == model {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *Client) updateProgressStream(runID string, thinking bool, content, reasoning string) {

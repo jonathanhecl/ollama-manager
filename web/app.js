@@ -2072,13 +2072,17 @@ async function handleRouting() {
     const id = path.substring(24);
     const saved = localStorage.getItem(BATTERY_KEY);
     let modelIDs = [];
+    let groupId = "";
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        if (data.runID === id) modelIDs = data.modelIDs || [];
+        if (data.runID === id) {
+          modelIDs = data.modelIDs || [];
+          groupId = data.groupId || "";
+        }
       } catch {}
     }
-    showBatteryProgressView(modelIDs, id);
+    showBatteryProgressView(modelIDs, id, groupId);
   } else if (path.startsWith("/tests/battery/results/")) {
     const id = path.substring(23);
     void showBatteryResultsView(id);
@@ -5015,15 +5019,36 @@ let batteryLastTestSnapshot = null;
 let batteryTimelineTotal = 0;
 let batteryTimelineCompleted = []; // {index, name, model}
 let batteryTimelineCurrent = null; // {index, name, model, isThinking}
+let batteryTimelineQueue = []; // {index, testId, testName, model}
 const testHistoryResponses = new Map(); // respKey -> full response string
 
-function showBatteryProgressView(modelIDs, runID) {
+function buildBatteryTimelineQueue(groupId, modelIDs) {
+  const activeTests = tests
+    .filter((t) => t.group_id === groupId && t.active && t.evaluation_type !== "agent")
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const queue = [];
+  let idx = 0;
+  for (const model of modelIDs) {
+    const caps = modelCaps(model);
+    for (const test of activeTests) {
+      const required = (test.required_caps || []).map((c) => String(c).toLowerCase());
+      if (required.every((c) => caps.has(c))) {
+        idx++;
+        queue.push({ index: idx, testId: test.id, testName: test.name, model });
+      }
+    }
+  }
+  return queue;
+}
+
+function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryCompletedTests = [];
   batteryLastTestSnapshot = null;
   batteryPollRetryCount = 0;
   batteryTimelineTotal = 0;
   batteryTimelineCompleted = [];
   batteryTimelineCurrent = null;
+  batteryTimelineQueue = groupId ? buildBatteryTimelineQueue(groupId, modelIDs) : [];
 
   const completedEl = $("battery-completed-tests");
   const headingEl = $("battery-completed-tests-heading");
@@ -5054,7 +5079,7 @@ function showBatteryProgressView(modelIDs, runID) {
       </div>
     `).join("");
   }
-  localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs }));
+  localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs, groupId }));
   const progressPath = "/tests/battery/progress/" + runID;
   if (window.location.pathname !== progressPath) {
     history.pushState(null, "", progressPath);
@@ -5108,6 +5133,8 @@ function renderBatteryTimeline() {
   const shown = batteryTimelineCompleted.length + (batteryTimelineCurrent ? 1 : 0);
   const pending = Math.max(0, batteryTimelineTotal - shown);
   for (let i = 0; i < pending; i++) {
+    const shownIdx = shown + i + 1;
+    const queueItem = batteryTimelineQueue.find((q) => q.index === shownIdx);
     const isLast = i === pending - 1;
     html += `
       <div class="battery-timeline-item pending">
@@ -5116,7 +5143,8 @@ function renderBatteryTimeline() {
           ${isLast ? "" : "<div class=\"battery-timeline-line\"></div>"}
         </div>
         <div class="battery-timeline-body">
-          <div class="battery-timeline-name">${escapeHtml(t("battery.status_pending"))}</div>
+          <div class="battery-timeline-name">${escapeHtml(queueItem ? queueItem.testName : t("battery.status_pending"))}</div>
+          ${queueItem ? `<div class="battery-timeline-meta">${escapeHtml(queueItem.model)}</div>` : ""}
         </div>
       </div>
     `;
@@ -5355,7 +5383,7 @@ async function confirmBatteryRun() {
       toast(t("toast.error", { msg: "No run_id returned" }), "error");
       return;
     }
-    showBatteryProgressView(modelIDs, runID);
+    showBatteryProgressView(modelIDs, runID, selectedGroupId);
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
     showTestsView();

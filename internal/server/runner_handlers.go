@@ -169,6 +169,16 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *Server) handleCancelBatteryRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing run id"))
+		return
+	}
+	cancelled := s.runner.CancelRun(id)
+	writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})
+}
+
 func (s *Server) handleBatteryProgress(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

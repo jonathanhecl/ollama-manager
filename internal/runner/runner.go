@@ -60,6 +60,8 @@ type Client struct {
 	ollama     *ollama.Client
 	progressMu sync.Mutex
 	progress   map[string]*Progress
+	cancelMu   sync.Mutex
+	cancels    map[string]context.CancelFunc
 }
 
 // NewClient creates a runner client.
@@ -67,6 +69,7 @@ func NewClient(ollamaClient *ollama.Client) *Client {
 	return &Client{
 		ollama:   ollamaClient,
 		progress: make(map[string]*Progress),
+		cancels:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -133,7 +136,20 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 
 	c.setProgress(Progress{RunID: run.ID, TotalTests: total})
 
+	runCtx, cancel := context.WithCancel(context.Background())
+	c.cancelMu.Lock()
+	c.cancels[run.ID] = cancel
+	c.cancelMu.Unlock()
+
 	go func() {
+		defer func() {
+			c.cancelMu.Lock()
+			delete(c.cancels, run.ID)
+			c.cancelMu.Unlock()
+			if onComplete != nil {
+				onComplete(run)
+			}
+		}()
 		idx := 0
 		var runErr string
 		for _, model := range modelIDs {
@@ -151,8 +167,17 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 					TestIndex:  idx,
 					TotalTests: total,
 				})
-				res := c.runTest(ctx, run.ID, model, test)
+				res := c.runTest(runCtx, run.ID, model, test)
 				run.Results = append(run.Results, res)
+				// Unload model from memory after each test to prevent accumulation.
+				_ = c.ollama.Unload(runCtx, model)
+				if runCtx.Err() != nil {
+					runErr = runCtx.Err().Error()
+					break
+				}
+			}
+			if runCtx.Err() != nil {
+				break
 			}
 		}
 		if runErr != "" {
@@ -160,12 +185,21 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 		} else {
 			c.setProgress(Progress{RunID: run.ID, Done: true, TotalTests: total})
 		}
-		if onComplete != nil {
-			onComplete(run)
-		}
 	}()
 
 	return run.ID
+}
+
+// CancelRun cancels an active battery run by its ID.
+func (c *Client) CancelRun(runID string) bool {
+	c.cancelMu.Lock()
+	cancel, ok := c.cancels[runID]
+	c.cancelMu.Unlock()
+	if ok && cancel != nil {
+		cancel()
+		return true
+	}
+	return false
 }
 
 func (c *Client) runTest(ctx context.Context, runID string, model string, test tests.Test) TestResult {
@@ -173,6 +207,11 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		TestID:   test.ID,
 		TestName: test.Name,
 		Model:    model,
+	}
+
+	if ctx.Err() != nil {
+		res.Error = ctx.Err().Error()
+		return res
 	}
 
 	messages := []ollama.ChatMessage{

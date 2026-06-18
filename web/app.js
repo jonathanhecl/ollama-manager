@@ -260,6 +260,8 @@ let testEditorAttachments = []; // {id, kind, name, mime, data}
 let batteryModels = []; // installed models fetched for picker
 let batterySelectedModels = new Set();
 let currentBatteryRun = null;
+const BATTERY_KEY = "ollamaMgr.battery";
+let batteryPollRetryCount = 0;
 
 // Agent session state.
 let currentAgentSession = null; // session object from API
@@ -2066,6 +2068,17 @@ async function handleRouting() {
   } else if (path.startsWith("/tests/agent/")) {
     const id = path.substring(13);
     showAgentSessionView(id);
+  } else if (path.startsWith("/tests/battery/progress/")) {
+    const id = path.substring(24);
+    const saved = localStorage.getItem(BATTERY_KEY);
+    let modelIDs = [];
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.runID === id) modelIDs = data.modelIDs || [];
+      } catch {}
+    }
+    showBatteryProgressView(modelIDs, id);
   } else if (path.startsWith("/tests/battery/results/")) {
     const id = path.substring(23);
     void showBatteryResultsView(id);
@@ -5003,6 +5016,7 @@ let batteryLastTestSnapshot = null;
 function showBatteryProgressView(modelIDs, runID) {
   batteryCompletedTests = [];
   batteryLastTestSnapshot = null;
+  batteryPollRetryCount = 0;
   const completedEl = $("battery-completed-tests");
   const headingEl = $("battery-completed-tests-heading");
   if (completedEl) { completedEl.innerHTML = ""; completedEl.hidden = true; }
@@ -5021,6 +5035,11 @@ function showBatteryProgressView(modelIDs, runID) {
         <span class="battery-progress-status">${t("battery.status_pending")}</span>
       </div>
     `).join("");
+  }
+  localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs }));
+  const progressPath = "/tests/battery/progress/" + runID;
+  if (window.location.pathname !== progressPath) {
+    history.pushState(null, "", progressPath);
   }
   void pollBatteryProgress(runID, modelIDs);
 }
@@ -5141,6 +5160,7 @@ async function pollBatteryProgress(runID, modelIDs) {
         batteryCompletedTests.push(batteryLastTestSnapshot);
         renderBatteryCompletedTests();
       }
+      localStorage.removeItem(BATTERY_KEY);
       // Let the user read the last response for a moment.
       await new Promise((r) => setTimeout(r, 1500));
       // Fetch full run and show results.
@@ -5160,8 +5180,32 @@ async function pollBatteryProgress(runID, modelIDs) {
     }
     batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, modelIDs), 2000);
   } catch (err) {
+    batteryPollRetryCount++;
+    if (batteryPollRetryCount < 3) {
+      batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, modelIDs), 2000);
+      return;
+    }
+    localStorage.removeItem(BATTERY_KEY);
     toast(t("toast.error", { msg: err.message }), "error");
     showTestsView();
+  }
+}
+
+async function cancelBatteryRun() {
+  const saved = localStorage.getItem(BATTERY_KEY);
+  if (!saved) return;
+  let runID = "";
+  try {
+    const data = JSON.parse(saved);
+    runID = data.runID || "";
+  } catch {}
+  if (!runID) return;
+  try {
+    await api("/api/runner/runs/" + encodeURIComponent(runID) + "/cancel", { method: "POST" });
+    localStorage.removeItem(BATTERY_KEY);
+    showTestsView();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
   }
 }
 
@@ -5747,6 +5791,27 @@ $("battery-results-history")?.addEventListener("click", () => {
 });
 $("battery-history-back")?.addEventListener("click", () => {
   showTestsView();
+});
+$("battery-progress-cancel")?.addEventListener("click", () => {
+  void cancelBatteryRun();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && currentView === "battery-progress") {
+    const saved = localStorage.getItem(BATTERY_KEY);
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.runID) {
+          if (batteryPollTimer) {
+            clearTimeout(batteryPollTimer);
+            batteryPollTimer = null;
+          }
+          pollBatteryProgress(data.runID, data.modelIDs || []);
+        }
+      } catch {}
+    }
+  }
 });
 
 $("agent-session-back")?.addEventListener("click", () => {

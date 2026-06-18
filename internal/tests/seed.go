@@ -202,7 +202,7 @@ Do not add any other text.`,
 - get_weather(location: string) -> {temperature: number, condition: string}
 
 Respond ONLY with the correct tool call in this exact format:
-function("data")
+function_name("data")
 
 No extra text, no JSON, no markdown.`,
 			Prompt:         "I want to know the current share price of Apple (AAPL).",

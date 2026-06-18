@@ -227,7 +227,7 @@ No extra text, no JSON, no markdown.`,
 			RequiredCaps:   []string{"vision"},
 			EvaluationType: "human_review",
 			Attachments: []Attachment{
-				{ID: "att-img-1", Kind: "image", Name: "bandera-argentina.png", Mime: "image/png", Data: strings.TrimSpace(seedFlagArgentinaB64)},
+				{ID: "att-img-1", Kind: "image", Name: "cube.png", Mime: "image/png", Data: strings.TrimSpace(seedFlagArgentinaB64)},
 			},
 			CreatedAt: now,
 			UpdatedAt: now,

@@ -257,7 +257,6 @@ let currentTestId = null; // null for new, id for edit
 let testEditorAttachments = []; // {id, kind, name, mime, data}
 
 // Battery runner state.
-let batteryModels = []; // installed models fetched for picker
 let batterySelectedModels = new Set();
 let currentBatteryRun = null;
 const BATTERY_KEY = "ollamaMgr.battery";
@@ -4929,7 +4928,7 @@ async function openBatteryModal() {
   if (selectedGroupId === "") return;
   batterySelectedModels.clear();
   $("battery-modal").hidden = false;
-  void renderBatteryModalModels();
+  renderBatteryModalModels();
   // Load system info preview.
   const sysEl = $("battery-modal-sysinfo");
   if (sysEl) {
@@ -4955,17 +4954,12 @@ function closeBatteryModal() {
   $("battery-modal").hidden = true;
 }
 
-async function renderBatteryModalModels() {
+function renderBatteryModalModels() {
   const container = $("battery-modal-models");
   if (!container) return;
-  container.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
-  try {
-    const data = await api("/api/models");
-    batteryModels = data.models || [];
-  } catch (e) {
-    container.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
-    return;
-  }
+
+  // Reuse main list cache (capabilities + archived state); skip archived models.
+  const activeModels = models.filter((m) => !m.archived);
 
   // Determine required caps for the selected group.
   const groupTests = tests.filter((t) => t.group_id === selectedGroupId && t.active && t.evaluation_type !== "agent");
@@ -4974,7 +4968,7 @@ async function renderBatteryModalModels() {
     for (const c of t.required_caps || []) requiredCaps.add(c);
   }
 
-  const items = batteryModels
+  const items = activeModels
     .filter((m) => (m.capabilities || []).includes("completion"))
     .map((m) => {
       const caps = m.capabilities || [];

@@ -59,11 +59,21 @@ func (s *Server) handleTestsDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errMissingParam)
 		return
 	}
-	if err := s.testsStore.DeleteTest(id); err != nil {
+	if tests.IsSeedTestID(id) {
+		if err := s.runnerStore.DeleteTestHistory(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	result, err := s.testsStore.DeleteTest(id)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"reseeded": result.Reseeded,
+	})
 }
 
 func (s *Server) handleTestsReorder(w http.ResponseWriter, r *http.Request) {

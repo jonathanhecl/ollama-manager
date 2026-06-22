@@ -273,6 +273,43 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 	return out
 }
 
+// DeleteTestHistory removes all battery results for a test across every run.
+func (s *ResultStore) DeleteTestHistory(testID string) error {
+	if testID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	changed := false
+	kept := make([]BatteryRun, 0, len(s.runs))
+	for _, run := range s.runs {
+		filtered := run.Results[:0]
+		for _, res := range run.Results {
+			if res.TestID == testID {
+				changed = true
+				continue
+			}
+			filtered = append(filtered, res)
+		}
+		if len(filtered) == 0 {
+			if len(run.Results) > 0 {
+				changed = true
+			}
+			continue
+		}
+		if len(filtered) != len(run.Results) {
+			run.Results = filtered
+		}
+		kept = append(kept, run)
+	}
+	if !changed {
+		return nil
+	}
+	s.runs = kept
+	return s.saveLocked()
+}
+
 // DeleteRun removes a run by ID.
 func (s *ResultStore) DeleteRun(id string) error {
 	s.mu.Lock()

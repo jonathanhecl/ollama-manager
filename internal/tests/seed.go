@@ -3,7 +3,6 @@ package tests
 import (
 	_ "embed"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -26,20 +25,32 @@ var seedFlagArgentinaB64 string
 //go:embed seeddata/1986-hacker-manifesto.txt
 var seedNIAHManifesto string
 
-// SeedIfEmpty creates default groups and tests when the store has no data.
-// It is safe to call multiple times — it only seeds when truly empty.
-func (s *Store) SeedIfEmpty() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+var seedTestIDSet map[string]struct{}
 
-	// Already has groups or tests — skip.
-	if len(s.groups) > 0 || len(s.tests) > 0 {
-		return nil
+func init() {
+	seedTestIDSet = make(map[string]struct{})
+	for _, t := range buildSeedTests(time.Time{}) {
+		seedTestIDSet[t.ID] = struct{}{}
 	}
+}
 
-	now := time.Now().UTC()
+// IsSeedTestID reports whether id belongs to the built-in seed catalog.
+func IsSeedTestID(id string) bool {
+	_, ok := seedTestIDSet[id]
+	return ok
+}
 
-	// ---------- Groups ----------
+// GetSeedTest returns a fresh copy of a built-in test definition.
+func GetSeedTest(id string, now time.Time) (Test, bool) {
+	for _, t := range buildSeedTests(now) {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return Test{}, false
+}
+
+func buildSeedGroups() map[string]*Group {
 	gCore := &Group{
 		ID:          "core",
 		Name:        "Core Skills",
@@ -73,16 +84,24 @@ func (s *Store) SeedIfEmpty() error {
 		Order:        4,
 	}
 
-	s.groups = map[string]*Group{
+	return map[string]*Group{
 		gCore.ID:  gCore,
 		gTools.ID: gTools,
 		gMulti.ID: gMulti,
 		gJSON.ID:  gJSON,
 		gAgent.ID: gAgent,
 	}
+}
 
-	// ---------- Tests ----------
-	seedTests := []Test{
+func buildSeedTests(now time.Time) []Test {
+	groups := buildSeedGroups()
+	gCore := groups["core"]
+	gTools := groups["tools"]
+	gMulti := groups["multimodal"]
+	gJSON := groups["structured"]
+	gAgent := groups["agent"]
+
+	return []Test{
 		// === Core Skills ===
 		{
 			ID:             "t1",
@@ -559,25 +578,6 @@ Use the tools directly. Explain your changes after each action.`,
 			UpdatedAt:    now,
 		},
 	}
-
-	for i := range seedTests {
-		t := seedTests[i]
-		s.tests[t.ID] = &t
-	}
-
-	// Persist to disk.
-	if err := s.saveGroupsLocked(); err != nil {
-		return fmt.Errorf("seed groups: %w", err)
-	}
-	for gid := range s.groups {
-		if err := s.saveTestsLocked(gid); err != nil {
-			return fmt.Errorf("seed tests %s: %w", gid, err)
-		}
-	}
-	if err := s.saveTestsLocked(""); err != nil {
-		return fmt.Errorf("seed ungrouped: %w", err)
-	}
-	return nil
 }
 
 func mustJSON(v any) json.RawMessage {

@@ -1611,6 +1611,26 @@ async function refreshTests() {
   }
 }
 
+function isSeedTestId(id) {
+  return /^t\d+$/.test(String(id || ""));
+}
+
+async function deleteTestById(id) {
+  const ok = await askConfirm({
+    title: t("tests.delete_title"),
+    text: isSeedTestId(id) ? t("tests.delete_seed_text") : t("tests.delete_text"),
+    okText: t("action.delete"),
+    okClass: "danger",
+  });
+  if (!ok.ok) return false;
+  const data = await api("/api/tests/" + encodeURIComponent(id), { method: "DELETE" });
+  if (data.reseeded) {
+    toast(t("tests.reseeded_toast"), "success");
+  }
+  await refreshTests();
+  return true;
+}
+
 function renderTestsSidebar() {
   const container = $("tests-groups-list");
   if (!container) return;
@@ -1759,16 +1779,8 @@ function renderTestsList() {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
-      const ok = await askConfirm({
-        title: t("tests.delete_title"),
-        text: t("tests.delete_text"),
-        okText: t("action.delete"),
-        okClass: "danger",
-      });
-      if (!ok.ok) return;
       try {
-        await api("/api/tests/" + encodeURIComponent(id), { method: "DELETE" });
-        await refreshTests();
+        await deleteTestById(id);
       } catch (err) {
         toast(t("toast.error", { msg: err.message }), "error");
       }
@@ -1951,17 +1963,9 @@ async function saveTestEditor() {
 
 async function deleteTestEditor() {
   if (!currentTestId) return;
-  const confirmed = await askConfirm({
-    title: t("tests.delete_title"),
-    text: t("tests.delete_text"),
-    okText: t("action.delete"),
-    okClass: "danger",
-  });
-  if (!confirmed.ok) return;
   try {
-    await api("/api/tests/" + encodeURIComponent(currentTestId), { method: "DELETE" });
-    await refreshTests();
-    showTestsView();
+    const deleted = await deleteTestById(currentTestId);
+    if (deleted) showTestsView();
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }

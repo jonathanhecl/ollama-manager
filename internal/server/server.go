@@ -81,8 +81,8 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	if err := testsStore.Load(); err != nil {
 		log.Printf("tests: could not load %s: %v", testsPath, err)
 	}
-	if err := testsStore.SeedIfEmpty(); err != nil {
-		log.Printf("tests: seed failed: %v", err)
+	if err := testsStore.PopulateSeed(); err != nil {
+		log.Printf("tests: seed populate failed: %v", err)
 	}
 
 	agentStore := agent.NewSessionStore(filepath.Dir(cfg.Path()))

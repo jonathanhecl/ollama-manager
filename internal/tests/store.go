@@ -325,22 +325,84 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	return cp, nil
 }
 
+// DeleteTestResult describes the outcome of deleting a test.
+type DeleteTestResult struct {
+	Reseeded bool `json:"reseeded"`
+}
+
+// PopulateSeed ensures built-in groups and seed tests exist.
+// Missing catalog entries are added; existing ones are left unchanged.
+func (s *Store) PopulateSeed() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	groupsAdded := false
+	for id, g := range buildSeedGroups() {
+		if _, ok := s.groups[id]; ok {
+			continue
+		}
+		gg := *g
+		s.groups[id] = &gg
+		groupsAdded = true
+	}
+
+	affectedGroups := make(map[string]struct{})
+	for _, t := range buildSeedTests(now) {
+		if _, ok := s.tests[t.ID]; ok {
+			continue
+		}
+		tt := t
+		s.tests[t.ID] = &tt
+		affectedGroups[t.GroupID] = struct{}{}
+	}
+
+	if !groupsAdded && len(affectedGroups) == 0 {
+		return nil
+	}
+
+	if groupsAdded {
+		if err := s.saveGroupsLocked(); err != nil {
+			return fmt.Errorf("seed groups: %w", err)
+		}
+	}
+	for gid := range affectedGroups {
+		if err := s.saveTestsLocked(gid); err != nil {
+			return fmt.Errorf("seed tests %s: %w", gid, err)
+		}
+	}
+	return nil
+}
+
 // DeleteTest removes a test by id and persists its group's file.
-func (s *Store) DeleteTest(id string) error {
+// Built-in seed tests are immediately recreated from seed.go (Reseeded=true).
+func (s *Store) DeleteTest(id string) (DeleteTestResult, error) {
 	s.mu.Lock()
 	t, ok := s.tests[id]
 	if !ok {
 		s.mu.Unlock()
-		return errors.New("test not found")
+		return DeleteTestResult{}, errors.New("test not found")
 	}
 	groupID := t.GroupID
 	delete(s.tests, id)
+
+	result := DeleteTestResult{}
+	if IsSeedTestID(id) {
+		seed, ok := GetSeedTest(id, time.Now().UTC())
+		if !ok {
+			s.mu.Unlock()
+			return DeleteTestResult{}, fmt.Errorf("seed test %s not found in catalog", id)
+		}
+		s.tests[id] = &seed
+		result.Reseeded = true
+	}
+
 	if err := s.saveTestsLocked(groupID); err != nil {
 		s.mu.Unlock()
-		return err
+		return DeleteTestResult{}, err
 	}
 	s.mu.Unlock()
-	return nil
+	return result, nil
 }
 
 // ReorderTests bulk-updates the Order field for tests.

@@ -42,3 +42,4 @@ ollama-manager.exe
 # Editor/IDE
 # .idea/
 # .vscode/
+.DS_Store

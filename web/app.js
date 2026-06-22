@@ -5014,6 +5014,7 @@ let batteryTimelineTotal = 0;
 let batteryTimelineCompleted = []; // {index, name, model}
 let batteryTimelineCurrent = null; // {index, name, model, isThinking}
 let batteryTimelineQueue = []; // {index, testId, testName, model}
+let batteryTimelineScrollKey = "";
 let batteryProgressModelIDs = [];
 const testHistoryResponses = new Map(); // respKey -> full response string
 
@@ -5074,6 +5075,7 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryTimelineCompleted = [];
   batteryTimelineCurrent = null;
   batteryTimelineQueue = groupId ? buildBatteryTimelineQueue(groupId, modelIDs) : [];
+  batteryTimelineScrollKey = "";
 
   const completedEl = $("battery-completed-tests");
   const headingEl = $("battery-completed-tests-heading");
@@ -5167,6 +5169,26 @@ function renderBatteryTimeline() {
     `;
   }
   container.innerHTML = html;
+  requestAnimationFrame(() => scrollBatteryTimelineToActive());
+}
+
+function scrollBatteryTimelineToActive() {
+  const container = $("battery-timeline");
+  if (!container) return;
+  const active = container.querySelector(".battery-timeline-item.active");
+  if (!active) return;
+
+  const key = batteryTimelineCurrent
+    ? `${batteryTimelineCurrent.testId || ""}:${batteryTimelineCurrent.index || 0}`
+    : "";
+  const taskChanged = key !== batteryTimelineScrollKey;
+  if (key) batteryTimelineScrollKey = key;
+
+  active.scrollIntoView({
+    behavior: taskChanged ? "smooth" : "auto",
+    block: "center",
+    inline: "nearest",
+  });
 }
 
 function updateBatteryProgressUI(p) {

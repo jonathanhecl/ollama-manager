@@ -2211,7 +2211,8 @@ function renderMarkdownSafe(input) {
   const codeBlocks = [];
   let work = text.replace(/```([\w-]+)?\n([\s\S]*?)```/g, (_m, _lang, code) => {
     const key = `@@CODEBLOCK_${codeBlocks.length}@@`;
-    codeBlocks.push(`<pre class="chat-code"><code>${escapeHtml(code)}</code></pre>`);
+    const langLabel = _lang ? escapeHtml(_lang) : "";
+    codeBlocks.push(`<div class="chat-code-wrap"><div class="chat-code-header"><span class="chat-code-lang">${langLabel}</span><button type="button" class="chat-code-copy-btn" data-code="${escapeHtml(code)}" title="${escapeHtml(t("chat.copy_code"))}">${escapeHtml(t("chat.copy_code"))}</button></div><pre class="chat-code"><code>${escapeHtml(code)}</code></pre></div>`);
     return key;
   });
   const tableBlocks = [];
@@ -3799,7 +3800,16 @@ function bindChatEvents() {
       return;
     }
     const btn = e.target.closest(".chat-copy-btn");
-    if (!btn) return;
+    if (!btn) {
+      const codeBtn = e.target.closest(".chat-code-copy-btn");
+      if (codeBtn) {
+        e.preventDefault();
+        const code = codeBtn.getAttribute("data-code") || "";
+        const ok = await copyTextToClipboard(code);
+        toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
+      }
+      return;
+    }
     e.preventDefault();
     const id = btn.getAttribute("data-msg-id");
     if (!id) return;

@@ -1981,11 +1981,48 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   padding: 1px 5px;
   font-size: 12px;
 }
-.chat-code {
+.chat-code-wrap {
   margin: 8px 0;
-  background: #090a0f;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  overflow: hidden;
+}
+.chat-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: #11131a;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.chat-code-wrap:hover .chat-code-header {
+  opacity: 1;
+}
+.chat-code-lang {
+  color: var(--muted);
+  text-transform: lowercase;
+  font-family: var(--mono, monospace);
+}
+.chat-code-copy-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.chat-code-copy-btn:hover {
+  color: var(--text);
+  background: rgba(255,255,255,.08);
+}
+.chat-code {
+  margin: 0;
+  background: #090a0f;
   padding: 10px;
   overflow-x: auto;
 }

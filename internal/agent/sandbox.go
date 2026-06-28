@@ -2,11 +2,15 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Sandbox is an isolated file system directory for a single agent-test session.
@@ -133,10 +137,33 @@ func (sb *Sandbox) WriteFile(relPath string, content string) error {
 	return os.WriteFile(target, []byte(content), 0o600)
 }
 
-// Exec runs a command inside the sandbox directory. Restricted to simple commands.
+// Exec runs a command inside the sandbox directory with a 30-second timeout.
 func (sb *Sandbox) Exec(command string) (stdout, stderr string, exitCode int, err error) {
-	// For now, return a stub — real exec requires os/exec with timeouts.
-	return "", "exec not yet implemented", 1, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/c", command)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+	cmd.Dir = sb.Path
+
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return outBuf.String(), errBuf.String(), -1, fmt.Errorf("exec timed out after 30s")
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return outBuf.String(), errBuf.String(), exitErr.ExitCode(), nil
+		}
+		return outBuf.String(), errBuf.String(), -1, err
+	}
+	return outBuf.String(), errBuf.String(), 0, nil
 }
 
 // FileNode represents a file or directory in the sandbox tree.

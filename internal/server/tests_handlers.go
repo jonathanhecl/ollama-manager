@@ -59,11 +59,9 @@ func (s *Server) handleTestsDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errMissingParam)
 		return
 	}
-	if tests.IsSeedTestID(id) {
-		if err := s.runnerStore.DeleteTestHistory(id); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
+	if err := s.runnerStore.DeleteTestHistory(id); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
 	}
 	result, err := s.testsStore.DeleteTest(id)
 	if err != nil {

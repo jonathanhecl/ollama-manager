@@ -102,7 +102,7 @@ func (s *Server) handleAgentSessionMessage(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	_ = s.agentStore.UpdateStatus(id, agent.StatusWaitingHuman)
+	_ = s.agentStore.UpdateStatus(id, agent.StatusRunning)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

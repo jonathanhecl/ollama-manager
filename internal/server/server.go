@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/gense/ollama-manager/internal/agent"
 	"github.com/gense/ollama-manager/internal/config"
@@ -201,7 +202,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		log.Println("shutting down…")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5_000_000_000)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()

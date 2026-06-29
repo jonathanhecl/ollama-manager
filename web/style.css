@@ -1995,11 +1995,6 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   background: #11131a;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
-  opacity: 0;
-  transition: opacity .15s;
-}
-.chat-code-wrap:hover .chat-code-header {
-  opacity: 1;
 }
 .chat-code-lang {
   color: var(--muted);

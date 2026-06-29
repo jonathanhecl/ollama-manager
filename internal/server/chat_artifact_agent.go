@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -393,16 +394,66 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		var acc ollama.ChatMessage
 		acc.Role = "assistant"
 		toolCallSeen := false
+
+		// While the model is streaming, show a generic "using something" indicator
+		// if it goes silent for a short period. This covers the gap before the
+		// model emits the actual tool_call JSON.
+		var pendingMu sync.Mutex
+		var pendingSent bool
+		var pendingTimer *time.Timer
+		startPendingTimer := func() {
+			pendingMu.Lock()
+			defer pendingMu.Unlock()
+			if pendingTimer != nil {
+				pendingTimer.Stop()
+			}
+			if pendingSent {
+				return
+			}
+			pendingTimer = time.AfterFunc(800*time.Millisecond, func() {
+				pendingMu.Lock()
+				if pendingSent {
+					pendingMu.Unlock()
+					return
+				}
+				pendingSent = true
+				pendingMu.Unlock()
+				send("tool", map[string]any{"phase": "pending"})
+			})
+		}
+		stopPendingTimer := func() {
+			pendingMu.Lock()
+			defer pendingMu.Unlock()
+			if pendingTimer != nil {
+				pendingTimer.Stop()
+				pendingTimer = nil
+			}
+		}
+		startPendingTimer()
+		defer stopPendingTimer()
+
 		err := s.ollama.Chat(ctx, req, func(ev ollama.ChatChunk) error {
 			last = ev
 			m := ev.Message
+			// Reset pending timer every time we receive a chunk. If the model goes
+			// silent for 800ms, the frontend will see a generic "using something" hint.
+			startPendingTimer()
 			if m.Thinking != "" {
 				acc.Thinking += m.Thinking
+				pendingMu.Lock()
+				pendingSent = true
+				pendingMu.Unlock()
 			}
 			if m.Content != "" {
 				acc.Content += m.Content
+				pendingMu.Lock()
+				pendingSent = true
+				pendingMu.Unlock()
 			}
 			if len(m.ToolCalls) > 0 {
+				pendingMu.Lock()
+				pendingSent = true
+				pendingMu.Unlock()
 				acc.ToolCalls = m.ToolCalls
 				if !toolCallSeen {
 					toolCallSeen = true

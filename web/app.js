@@ -2434,8 +2434,10 @@ function renderAssistantToolLogEntry(e) {
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   }
   const st = e.status || "unknown";
-  const icon = st === "generating" ? "✎" : st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
-  const labelSuffix = st === "generating" ? "…" : "";
+  const isPending = st === "pending";
+  const icon = isPending ? "◌" : st === "generating" ? "✎" : st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
+  const titleText = isPending ? t("chat.tool.pending") : title;
+  const labelSuffix = (st === "generating" || isPending) ? "…" : "";
   let tail = "";
   if (st === "error" && e.error) {
     tail += renderToolErrorBlock(e.error);
@@ -2449,7 +2451,7 @@ function renderAssistantToolLogEntry(e) {
       : "";
     tail += `<div class="chat-tool-result-head">${meta}</div>${prev}`;
   }
-  return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${title}${labelSuffix}</span>${detailHtml}${tail}</div>${(st === "running" || st === "generating") ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
+  return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${titleText}${labelSuffix}</span>${detailHtml}${tail}</div>${(isPending || st === "running" || st === "generating") ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
 }
 
 function renderAssistantToolLog(m) {
@@ -3584,31 +3586,60 @@ async function runChatRequest(assistantMsg) {
         }
       } else if (event === "tool") {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
-        if (data?.phase === "generating") {
-          // Model is generating tool call arguments — show early feedback.
+        if (data?.phase === "pending") {
+          // Model went silent while streaming — show a generic "using something" hint.
           const existing = assistantMsg.toolLog.find(
-            (e) => e.name === data.name && e.status === "generating"
+            (e) => e.name === "..." && e.status === "pending"
           );
           if (!existing) {
-            // Flush any accumulated content/think to timeline before the tool entry.
             flushSegmentToTimeline(assistantMsg, assistantRaw, false);
-            const entry = {
-              name: data.name,
-              path: data.path,
-              command: data.command,
-              artifact_name: data.artifact_name,
-              status: "generating",
-            };
+            const entry = { name: "...", status: "pending" };
             assistantMsg.toolLog.push(entry);
             if (!assistantMsg.timeline) assistantMsg.timeline = [];
             assistantMsg.timeline.push({ type: "tool", entry });
           }
-        } else if (data?.phase === "start") {
-          // Upgrade 'generating' entries to 'running', or add new if none.
+        } else if (data?.phase === "generating") {
+          // Model is generating tool call arguments — show early feedback.
+          // Upgrade any pending entry to this specific tool, or add a new one.
           let upgraded = false;
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
             const e = assistantMsg.toolLog[i];
-            if (e.name === data.name && e.status === "generating") {
+            if (e.status === "pending") {
+              e.name = data.name;
+              e.path = data.path;
+              e.command = data.command;
+              e.artifact_name = data.artifact_name;
+              e.status = "generating";
+              upgraded = true;
+              break;
+            }
+          }
+          if (!upgraded) {
+            const existing = assistantMsg.toolLog.find(
+              (e) => e.name === data.name && e.status === "generating"
+            );
+            if (!existing) {
+              // Flush any accumulated content/think to timeline before the tool entry.
+              flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+              const entry = {
+                name: data.name,
+                path: data.path,
+                command: data.command,
+                artifact_name: data.artifact_name,
+                status: "generating",
+              };
+              assistantMsg.toolLog.push(entry);
+              if (!assistantMsg.timeline) assistantMsg.timeline = [];
+              assistantMsg.timeline.push({ type: "tool", entry });
+            }
+          }
+        } else if (data?.phase === "start") {
+          // Upgrade 'generating' or 'pending' entries to 'running', or add new if none.
+          let upgraded = false;
+          for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
+            const e = assistantMsg.toolLog[i];
+            if ((e.name === data.name && e.status === "generating") || e.status === "pending") {
+              e.name = data.name;
               e.status = "running";
               e.query = data.query;
               e.url = data.url;
@@ -3712,6 +3743,20 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.inThink = p2.inThink;
         if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {
           flushSegmentToTimeline(assistantMsg, assistantRaw, true);
+          // If the response ended without any real tool execution (only pending
+          // placeholders), remove the stale placeholder entries so the final
+          // message doesn't look like a tool was used.
+          const hasRealTool = assistantMsg.toolLog.some(
+            (e) => e.status !== "pending" && e.status !== "generating"
+          );
+          if (!hasRealTool) {
+            assistantMsg.toolLog = [];
+          }
+          if (assistantMsg.timeline) {
+            assistantMsg.timeline = assistantMsg.timeline.filter(
+              (it) => it.type !== "tool" || (it.entry && it.entry.status !== "pending" && it.entry.status !== "generating")
+            );
+          }
         }
         assistantMsg._accRaw = "";
         assistantMsg.streaming = false;

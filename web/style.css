@@ -1291,15 +1291,23 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .chat-glyph { font-family: var(--mono); font-size: 12px; font-weight: 700; }
 
 .chat-view {
+  --chat-right-width: 300px;
   padding: 16px 18px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) var(--chat-right-width);
+  grid-template-rows: 1fr;
   gap: 12px;
   height: calc(100dvh - 66px);
   min-height: 0;
   overflow: hidden;
 }
+.chat-view:has(#chat-artifact-panel:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr) 10px var(--chat-right-width);
+  gap: 0;
+}
 .chat-shell {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel);
@@ -1309,6 +1317,55 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   height: 100%;
   position: relative;
   overflow: hidden;
+}
+.chat-splitter {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  width: 10px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 5;
+  flex-shrink: 0;
+  margin: 0 -2px;
+}
+.chat-splitter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 40px;
+  background: var(--border-strong, #333);
+  border-radius: 2px;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+.chat-splitter:hover::after,
+.chat-splitter.dragging::after {
+  opacity: 0.8;
+  background: var(--accent);
+}
+.chat-side {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  height: 100%;
+  max-height: none;
+}
+.chat-view:has(#chat-artifact-panel:not([hidden])) .chat-side {
+  grid-column: 3 / 4;
+}
+#chat-artifact-panel {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+}
+.chat-view:has(#chat-artifact-panel:not([hidden])) #chat-artifact-panel {
+  grid-column: 3 / 4;
+}
+/* Hide options sidebar when artifact panel is open (they share the same area) */
+.chat-view:has(#chat-artifact-panel:not([hidden])) .chat-side {
+  display: none !important;
 }
 .chat-head {
   display: flex;
@@ -2334,7 +2391,8 @@ button.chat-send:disabled:hover {
 }
 .chat-side-top {
   display: none;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
 }
 .chat-options-close {
   width: 32px;
@@ -2342,6 +2400,14 @@ button.chat-send:disabled:hover {
   padding: 0;
   line-height: 1;
   border-radius: 8px;
+}
+.chat-artifact-back {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 8px;
+  color: var(--accent);
 }
 .chat-cap-block { margin: 0 0 2px; }
 .chat-cap-heading {
@@ -2393,6 +2459,97 @@ button.chat-send:disabled:hover {
   padding: 8px 10px;
 }
 #chat-system:focus { border-color: var(--accent); outline: none; }
+
+/* ---------- Artifact panel ---------- */
+.chat-artifact-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.chat-artifact-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.chat-artifact-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.chat-artifact-icon {
+  color: var(--accent);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.chat-artifact-title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-artifact-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.chat-artifact-actions button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 8px;
+}
+.chat-artifact-frame {
+  border: none;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  min-height: 0;
+}
+
+/* Artifact badge in chat messages */
+.chat-artifact-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent-dim, #3a4a6a);
+  border-radius: var(--radius);
+  background: rgba(122, 162, 255, 0.06);
+}
+.chat-artifact-badge-icon {
+  color: var(--accent);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.chat-artifact-badge-name {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-artifact-open-btn {
+  flex-shrink: 0;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+}
 
 /* ---------- Archived Models ---------- */
 .archived-banner {
@@ -2644,9 +2801,46 @@ button.chat-send:disabled:hover {
     position: relative;
     overflow: hidden;
   }
+  .chat-view:has(#chat-artifact-panel:not([hidden])),
+  .chat-view.chat-options-open {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .chat-splitter {
+    display: none !important;
+  }
   .chat-shell {
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
     min-height: 0;
     height: 100%;
+  }
+  .chat-side {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
+    width: 100%;
+    height: auto;
+    max-height: min(48dvh, 420px);
+    min-height: 200px;
+    overflow: hidden;
+    border-radius: 10px;
+    box-shadow: none;
+    overscroll-behavior: contain;
+  }
+  /* Mobile: artifact panel is an overlay on top of chat, not a grid row */
+  #chat-artifact-panel {
+    position: absolute;
+    top: 10px;
+    left: 9px;
+    right: 9px;
+    bottom: 10px;
+    width: auto;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    z-index: 20;
+    border-radius: 10px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
   }
   .chat-head {
     padding: 7px 8px;
@@ -2699,29 +2893,17 @@ button.chat-send:disabled:hover {
     padding: 10px;
     gap: 8px;
   }
-  .chat-side {
-    display: none;
-    position: static !important;
-    order: -1;
-    z-index: 1;
-    width: 100%;
-    height: auto;
-    max-height: min(48dvh, 420px);
-    overflow: hidden;
-    border-radius: 10px;
-    box-shadow: none;
-    overscroll-behavior: contain;
-  }
   .chat-view.chat-options-open .chat-side {
     display: flex;
     flex-direction: column;
   }
-  .chat-view.chat-options-open {
-    grid-template-rows: auto minmax(0, 1fr);
-  }
   .chat-view.chat-options-open::before { content: none; }
   .chat-view.chat-options-open .chat-shell::after {
     content: none;
+  }
+  /* Hide artifact overlay when options are open on mobile */
+  .chat-view.chat-options-open #chat-artifact-panel:not([hidden]) {
+    display: none;
   }
   .chat-side-card {
     flex: 1;

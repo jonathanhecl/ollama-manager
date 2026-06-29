@@ -856,14 +856,15 @@ func (s *Server) modelExists(ctx context.Context, name string) bool {
 // ---------- chat ----------
 
 type chatRequestBody struct {
-	Model    string               `json:"model"`
-	Messages []ollama.ChatMessage `json:"messages"`
-	Think    *bool                `json:"think,omitempty"`
-	Options  map[string]any       `json:"options,omitempty"`
-	WebTools *bool                `json:"web_tools,omitempty"`
-	Width    int                  `json:"width,omitempty"`
-	Height   int                  `json:"height,omitempty"`
-	Steps    int                  `json:"steps,omitempty"`
+	Model     string               `json:"model"`
+	Messages  []ollama.ChatMessage `json:"messages"`
+	Think     *bool                `json:"think,omitempty"`
+	Options   map[string]any       `json:"options,omitempty"`
+	WebTools  *bool                `json:"web_tools,omitempty"`
+	Artifacts *bool                `json:"artifacts,omitempty"`
+	Width     int                  `json:"width,omitempty"`
+	Height    int                  `json:"height,omitempty"`
+	Steps     int                  `json:"steps,omitempty"`
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
@@ -916,6 +917,16 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(body.Messages) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("missing 'messages'"))
+		return
+	}
+
+	if body.Artifacts != nil && *body.Artifacts {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+		s.runArtifactAgentLoop(r.Context(), w, flusher, body)
 		return
 	}
 
@@ -1298,6 +1309,35 @@ func (s *Server) handleJobsPauseQueue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleJobsResumeQueue(w http.ResponseWriter, r *http.Request) {
 	s.jobs.ResumeQueue()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "queue_paused": false})
+}
+
+// ---------- artifact files ----------
+
+func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
+	// Path: /api/artifacts/{timestamp}/{rest...}
+	rest := r.PathValue("rest")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	// Split into timestamp and subpath
+	slashIdx := strings.IndexByte(rest, '/')
+	if slashIdx < 0 {
+		// Just timestamp — serve index.html
+		http.ServeFile(w, r, filepath.Join("artifacts", rest, "index.html"))
+		return
+	}
+	ts := rest[:slashIdx]
+	subpath := rest[slashIdx+1:]
+
+	// Prevent path traversal
+	cleanPath := filepath.Clean(filepath.Join("artifacts", ts, subpath))
+	if !strings.HasPrefix(cleanPath, filepath.Join("artifacts", ts)+string(filepath.Separator)) &&
+		cleanPath != filepath.Join("artifacts", ts) {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, cleanPath)
 }
 
 // ---------- helpers ----------

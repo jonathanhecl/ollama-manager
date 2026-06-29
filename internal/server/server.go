@@ -188,6 +188,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/runner/test-history/{id}", s.requireAuth(s.handleGetTestHistory))
 	mux.Handle("GET /api/runner/group-history/{id}", s.requireAuth(s.handleGetGroupHistory))
 
+	// Artifact files — public (no auth) so sandboxed iframes can load them.
+	mux.HandleFunc("GET /api/artifacts/{rest...}", s.handleArtifactFiles)
+
 	return logging(mux)
 }
 

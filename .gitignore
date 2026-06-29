@@ -35,6 +35,9 @@ config.json
 jobs.json
 tests*.json
 
+# Runtime state: generated artifact projects
+artifacts/
+
 # Built binary
 ollama-manager
 ollama-manager.exe

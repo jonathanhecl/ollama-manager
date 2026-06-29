@@ -223,6 +223,7 @@ let chatAttachments = [];
 let chatStreamLock = false;
 let chatRenderRaf = null;
 let chatAbortController = null;
+let chatArtifactVisibleBeforeOptions = false;
 let chatThinkTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
@@ -1366,6 +1367,7 @@ function updateChatCapabilityUI() {
   $("chat-record-btn").hidden = !canAudio;
   $("chat-think-wrap").hidden = !canThinkToggle;
   $("chat-web-tools-wrap").hidden = !canTools;
+  $("chat-artifacts-wrap").hidden = !canTools;
   
   const imgOpts = $("chat-image-options-wrap");
   if (imgOpts) imgOpts.hidden = !isImageModel;
@@ -1390,6 +1392,8 @@ function updateChatCapabilityUI() {
   }
   const webW = $("chat-web-tools");
   if (webW) webW.checked = !isImageModel && !!canTools;
+  const artChk = $("chat-artifacts");
+  if (artChk) artChk.checked = false;
   restoreChatOptionsFromSession();
 
   const m = modelByName(model);
@@ -2399,8 +2403,18 @@ function renderToolErrorBlock(err) {
 function renderAssistantToolLogEntry(e) {
   const isSearch = e.name === "web_search";
   const isFetch = e.name === "web_fetch";
+  const isWrite = e.name === "write_file";
+  const isRead = e.name === "read_file";
+  const isList = e.name === "list_dir";
+  const isExec = e.name === "exec";
+  const isCreateArt = e.name === "create_artifact";
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
+    : isWrite ? t("chat.tool.write_file")
+    : isRead ? t("chat.tool.read_file")
+    : isList ? t("chat.tool.list_dir")
+    : isExec ? t("chat.tool.exec")
+    : isCreateArt ? t("chat.tool.create_artifact")
       : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
@@ -2410,6 +2424,14 @@ function renderAssistantToolLogEntry(e) {
   } else if (isFetch && e.url) {
     const u = escapeHtml(e.url);
     detailHtml = `<div class="chat-tool-detail"><a href="${u}" target="_blank" rel="noopener noreferrer" class="chat-tool-link mono">${u}</a></div>`;
+  } else if ((isWrite || isRead || isList) && e.path) {
+    detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.path)}</div>`;
+  } else if (isExec && e.command) {
+    detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.command)}</div>`;
+  } else if (isCreateArt && e.artifact_name) {
+    let d = escapeHtml(e.artifact_name);
+    if (e.description) d += ` — <span class="muted">${escapeHtml(e.description)}</span>`;
+    detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   }
   const st = e.status || "unknown";
   const icon = st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
@@ -2635,6 +2657,13 @@ function renderChatMessages() {
           </div>
         </div>`
       : "";
+    const artifactBadge = m.role === "assistant" && m.artifactUrl
+      ? `<div class="chat-artifact-badge">
+           <span class="chat-artifact-badge-icon">✦</span>
+           <span class="chat-artifact-badge-name">${escapeHtml(m.artifactName || "Artifact")}</span>
+           <button type="button" class="btn-icon chat-artifact-open-btn" data-artifact-url="${escapeHtml(m.artifactUrl)}" data-artifact-name="${escapeHtml(m.artifactName || "Artifact")}" title="${escapeHtml(t("chat.artifact.open"))}" aria-label="${escapeHtml(t("chat.artifact.open"))}">↗</button>
+         </div>`
+      : "";
     const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
     return `
       <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
@@ -2651,6 +2680,7 @@ function renderChatMessages() {
         ${thinkBlock}
         ${tailThinkBlock}
         <div class="chat-md">${bodyHTML || "<p></p>"}</div>
+        ${artifactBadge}
         ${footBlock}
       </article>
     `;
@@ -3145,6 +3175,7 @@ function saveChatOptionsToSession() {
     top_p: $("chat-top-p")?.value,
     no_think: $("chat-no-think")?.checked,
     web_tools: $("chat-web-tools")?.checked,
+    artifacts: $("chat-artifacts")?.checked,
     image_width: $("chat-image-width")?.value,
     image_height: $("chat-image-height")?.value,
     image_steps: $("chat-image-steps")?.value,
@@ -3176,6 +3207,9 @@ function restoreChatOptionsFromSession() {
     }
     if (opts.web_tools !== undefined && $("chat-web-tools")) {
       $("chat-web-tools").checked = opts.web_tools;
+    }
+    if (opts.artifacts !== undefined && $("chat-artifacts")) {
+      $("chat-artifacts").checked = opts.artifacts;
     }
     if (opts.image_width !== undefined && $("chat-image-width")) {
       $("chat-image-width").value = opts.image_width;
@@ -3455,6 +3489,7 @@ async function runChatRequest(assistantMsg) {
   const noThink = canThinkToggle ? $("chat-no-think").checked : false;
   const canTools = caps.has("tools");
   const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
+  const artifactsOn = !isImageModel && canTools && $("chat-artifacts").checked;
 
   const options = {};
   const imageParams = {};
@@ -3480,6 +3515,7 @@ async function runChatRequest(assistantMsg) {
     ...imageParams,
   };
   if (webToolsOn) payload.web_tools = true;
+  if (artifactsOn) payload.artifacts = true;
 
   chatAbortController = new AbortController();
   chatStreamLock = true;
@@ -3505,7 +3541,13 @@ async function runChatRequest(assistantMsg) {
       throw new Error(msg || "chat failed");
     }
     await readSSEStream(res, async (event, data) => {
-      if (event === "tool") {
+      if (event === "artifact") {
+        assistantMsg.artifactUrl = data?.url || "";
+        assistantMsg.artifactName = data?.name || "Artifact";
+        assistantMsg.artifactDescription = data?.description || "";
+        showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName);
+        scheduleRenderChatMessages();
+      } else if (event === "tool") {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
         if (data?.phase === "start") {
           flushSegmentToTimeline(assistantMsg, assistantRaw, false);
@@ -3514,6 +3556,10 @@ async function runChatRequest(assistantMsg) {
             query: data.query,
             url: data.url,
             max_results: data.max_results,
+            path: data.path,
+            command: data.command,
+            artifact_name: data.artifact_name,
+            description: data.description,
             status: "running",
           };
           assistantMsg.toolLog.push(entry);
@@ -3730,6 +3776,78 @@ async function sendChatMessage() {
   await runOneChatTurn(snapText, snapAtt);
 }
 
+let chatArtifactWidthSet = false;
+
+function showArtifactPanel(url, name) {
+  const panel = $("chat-artifact-panel");
+  const frame = $("chat-artifact-frame");
+  const title = $("chat-artifact-title");
+  const splitter = $("chat-splitter");
+  const chatView = $("chat-view");
+  if (!panel || !frame) return;
+  if (title && name) title.textContent = name;
+  frame.src = url;
+  panel.hidden = false;
+  // Close options panel so the artifact gets the full right/top area.
+  chatView?.classList.remove("chat-options-open");
+  // Show splitter on desktop and set default width to 50% on first open.
+  if (chatView && splitter) {
+    const savedWidth = localStorage.getItem("ollama_manager_artifact_width");
+    if (savedWidth) {
+      chatView.style.setProperty("--chat-right-width", savedWidth);
+    } else if (!chatArtifactWidthSet) {
+      chatView.style.setProperty("--chat-right-width", "50%");
+    }
+    chatArtifactWidthSet = true;
+    splitter.hidden = false;
+  }
+}
+
+function hideArtifactPanel() {
+  const panel = $("chat-artifact-panel");
+  const frame = $("chat-artifact-frame");
+  const splitter = $("chat-splitter");
+  const chatView = $("chat-view");
+  if (!panel) return;
+  panel.hidden = true;
+  if (frame) frame.src = "about:blank";
+  if (splitter) splitter.hidden = true;
+  // Restore default options sidebar width.
+  if (chatView) {
+    chatView.style.setProperty("--chat-right-width", "300px");
+  }
+  chatArtifactVisibleBeforeOptions = false;
+}
+
+function swapToOptions(cv) {
+  const artifactPanel = $("chat-artifact-panel");
+  const splitter = $("chat-splitter");
+  const backBtn = $("chat-artifact-back");
+  const artifactVisible = artifactPanel && !artifactPanel.hidden;
+  chatArtifactVisibleBeforeOptions = artifactVisible;
+  cv.classList.add("chat-options-open");
+  if (artifactPanel) artifactPanel.hidden = true;
+  if (splitter) splitter.hidden = true;
+  cv.style.setProperty("--chat-right-width", "300px");
+  if (backBtn) backBtn.hidden = !artifactVisible;
+}
+
+function swapToArtifact(cv) {
+  const artifactPanel = $("chat-artifact-panel");
+  const splitter = $("chat-splitter");
+  const backBtn = $("chat-artifact-back");
+  cv.classList.remove("chat-options-open");
+  if (chatArtifactVisibleBeforeOptions && artifactPanel) {
+    artifactPanel.hidden = false;
+    if (splitter) splitter.hidden = false;
+    const savedWidth = localStorage.getItem("ollama_manager_artifact_width");
+    cv.style.setProperty("--chat-right-width", savedWidth || "50%");
+  } else {
+    cv.style.setProperty("--chat-right-width", "300px");
+  }
+  if (backBtn) backBtn.hidden = true;
+}
+
 function bindChatEvents() {
   const chatView = $("chat-view");
   if (!chatView) return;
@@ -3748,16 +3866,31 @@ function bindChatEvents() {
     resetChatState();
   });
   $("chat-options-toggle")?.addEventListener("click", () => {
-    $("chat-view")?.classList.toggle("chat-options-open");
+    const cv = $("chat-view");
+    if (!cv) return;
+    if (cv.classList.contains("chat-options-open")) {
+      swapToArtifact(cv);
+    } else {
+      swapToOptions(cv);
+    }
   });
   $("chat-options-close")?.addEventListener("click", () => {
-    $("chat-view")?.classList.remove("chat-options-open");
+    const cv = $("chat-view");
+    if (!cv) return;
+    swapToArtifact(cv);
+  });
+  $("chat-artifact-back")?.addEventListener("click", () => {
+    const cv = $("chat-view");
+    if (!cv) return;
+    swapToArtifact(cv);
   });
   chatView.addEventListener("click", (e) => {
     if (!$("chat-view")?.classList.contains("chat-options-open")) return;
     if (e.target.closest(".chat-side")) return;
     if (e.target.closest("#chat-options-toggle")) return;
-    $("chat-view")?.classList.remove("chat-options-open");
+    if (e.target.closest("#chat-artifact-options")) return;
+    if (e.target.closest("#chat-artifact-back")) return;
+    swapToArtifact($("chat-view"));
   });
   $("chat-model")?.addEventListener("change", () => {
     updateChatCapabilityUI();
@@ -3782,6 +3915,14 @@ function bindChatEvents() {
   });
   $("chat-send-btn")?.addEventListener("click", sendChatMessage);
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("click", async (e) => {
+    const artBtn = e.target.closest(".chat-artifact-open-btn");
+    if (artBtn) {
+      e.preventDefault();
+      const url = artBtn.getAttribute("data-artifact-url") || "";
+      const name = artBtn.getAttribute("data-artifact-name") || "Artifact";
+      if (url) showArtifactPanel(url, name);
+      return;
+    }
     const regenB = e.target.closest(".chat-regenerate-btn");
     if (regenB) {
       e.preventDefault();
@@ -3948,6 +4089,7 @@ function bindChatEvents() {
     "chat-top-p",
     "chat-no-think",
     "chat-web-tools",
+    "chat-artifacts",
     "chat-image-width",
     "chat-image-height",
     "chat-image-steps",
@@ -3959,6 +4101,69 @@ function bindChatEvents() {
       const eventName = el.type === "checkbox" ? "change" : "input";
       el.addEventListener(eventName, saveChatOptionsToSession);
     }
+  }
+
+  // Artifact panel controls
+  $("chat-artifact-close")?.addEventListener("click", hideArtifactPanel);
+  $("chat-artifact-options")?.addEventListener("click", () => {
+    const cv = $("chat-view");
+    if (!cv) return;
+    swapToOptions(cv);
+  });
+  $("chat-artifact-open")?.addEventListener("click", () => {
+    const frame = $("chat-artifact-frame");
+    if (frame && frame.src) window.open(frame.src, "_blank", "noopener,noreferrer");
+  });
+  $("chat-artifact-refresh")?.addEventListener("click", () => {
+    const frame = $("chat-artifact-frame");
+    if (frame && frame.src) {
+      const currentSrc = frame.src;
+      frame.src = "about:blank";
+      requestAnimationFrame(() => { frame.src = currentSrc; });
+    }
+  });
+
+  // Splitter drag-to-resize (desktop only)
+  const splitter = $("chat-splitter");
+  if (splitter && chatView) {
+    let dragging = false;
+    let overlay = null;
+    splitter.addEventListener("mousedown", (e) => {
+      if (window.innerWidth <= 900) return;
+      dragging = true;
+      splitter.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      // Create overlay to prevent iframe from capturing mouse events
+      overlay = document.createElement("div");
+      overlay.style.cssText = "position:fixed;inset:0;z-index:9999;cursor:col-resize;background:transparent;";
+      document.body.appendChild(overlay);
+      e.preventDefault();
+    });
+    document.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      const rect = chatView.getBoundingClientRect();
+      const rightWidth = rect.right - e.clientX;
+      const minW = 280;
+      const maxW = rect.width - 300;
+      const clamped = Math.max(minW, Math.min(maxW, rightWidth));
+      chatView.style.setProperty("--chat-right-width", clamped + "px");
+    });
+    document.addEventListener("mouseup", () => {
+      if (!dragging) return;
+      dragging = false;
+      splitter.classList.remove("dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (overlay) {
+        overlay.remove();
+        overlay = null;
+      }
+      const w = chatView.style.getPropertyValue("--chat-right-width");
+      if (w && w.endsWith("px")) {
+        localStorage.setItem("ollama_manager_artifact_width", w);
+      }
+    });
   }
 }
 

@@ -155,9 +155,28 @@
       </footer>
     </section>
 
+    <div id="chat-splitter" class="chat-splitter" hidden></div>
+
+    <aside id="chat-artifact-panel" class="chat-artifact-panel" hidden>
+      <header class="chat-artifact-head">
+        <div class="chat-artifact-title-row">
+          <span class="chat-artifact-icon" aria-hidden="true">✦</span>
+          <span id="chat-artifact-title" class="chat-artifact-title">Artifact</span>
+        </div>
+        <div class="chat-artifact-actions">
+          <button id="chat-artifact-options" type="button" class="ghost" data-i18n-attr="title" data-i18n="chat.artifact.options" title="Show options">⚙</button>
+          <button id="chat-artifact-refresh" type="button" class="ghost" data-i18n-attr="title" data-i18n="chat.artifact.refresh" title="Refresh">🔄</button>
+          <button id="chat-artifact-open" type="button" class="ghost" data-i18n-attr="title" data-i18n="chat.artifact.open" title="Open in new window">↗</button>
+          <button id="chat-artifact-close" type="button" class="ghost" data-i18n-attr="title" data-i18n="chat.artifact.close" title="Close">×</button>
+        </div>
+      </header>
+      <iframe id="chat-artifact-frame" class="chat-artifact-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"></iframe>
+    </aside>
+
     <aside class="chat-side">
       <section class="chat-side-card">
         <div class="chat-side-top">
+          <button id="chat-artifact-back" type="button" class="ghost chat-artifact-back" data-i18n-attr="title aria-label" data-i18n="chat.artifact.back" title="Back to artifact" aria-label="Back to artifact" hidden>✦</button>
           <button id="chat-options-close" type="button" class="ghost chat-options-close" data-i18n-attr="title aria-label" data-i18n="action.close" title="Close" aria-label="Close">×</button>
         </div>
         <div id="chat-model-copy-container" class="chat-model-copy-container">
@@ -208,6 +227,16 @@
           </div>
           <label class="switch">
             <input id="chat-web-tools" type="checkbox" autocomplete="off">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div id="chat-artifacts-wrap" class="field switch-field" hidden>
+          <div class="switch-label">
+            <span data-i18n="chat.artifacts">Artifacts</span>
+            <small class="muted" data-i18n="chat.artifacts_hint">Agent creates web projects you can preview live.</small>
+          </div>
+          <label class="switch">
+            <input id="chat-artifacts" type="checkbox" autocomplete="off">
             <span class="switch-slider"></span>
           </label>
         </div>

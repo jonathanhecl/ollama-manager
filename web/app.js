@@ -225,6 +225,7 @@ let chatRenderRaf = null;
 let chatAbortController = null;
 let chatArtifactVisibleBeforeOptions = false;
 let chatThinkTicker = null;
+let chatStreamTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
@@ -2677,11 +2678,11 @@ function renderChatMessages() {
           </div>
         </div>`
       : "";
-    const artifactBadge = m.role === "assistant" && m.artifactUrl
+    const artifactBadge = m.role === "assistant" && (m.artifactUrl || m.artifactGenerating)
       ? `<div class="chat-artifact-badge">
            <span class="chat-artifact-badge-icon">✦</span>
            <span class="chat-artifact-badge-name">${escapeHtml(m.artifactName || "Artifact")}</span>
-           <button type="button" class="btn-icon chat-artifact-open-btn" data-artifact-url="${escapeHtml(m.artifactUrl)}" data-artifact-name="${escapeHtml(m.artifactName || "Artifact")}" title="${escapeHtml(t("chat.artifact.open"))}" aria-label="${escapeHtml(t("chat.artifact.open"))}">↗</button>
+           ${m.artifactUrl ? `<button type="button" class="btn-icon chat-artifact-open-btn" data-artifact-url="${escapeHtml(m.artifactUrl)}" data-artifact-name="${escapeHtml(m.artifactName || "Artifact")}" title="${escapeHtml(t("chat.artifact.open"))}" aria-label="${escapeHtml(t("chat.artifact.open"))}">↗</button>` : ""}
          </div>`
       : "";
     const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
@@ -2845,7 +2846,21 @@ function startThinkTicker(msg) {
   chatThinkTicker = setInterval(() => {
     if (!msg || !msg.inThink || !msg.thinkStartedAt) return;
     msg.thinkMs = Date.now() - msg.thinkStartedAt;
-    msg.elapsedMs = Math.max(msg.elapsedMs || 0, Date.now() - (msg.streamStartedAt || msg.thinkStartedAt));
+    scheduleRenderChatMessages();
+  }, 250);
+}
+
+function stopStreamTicker() {
+  if (!chatStreamTicker) return;
+  clearInterval(chatStreamTicker);
+  chatStreamTicker = null;
+}
+
+function startStreamTicker(msg, turnStartedAt) {
+  stopStreamTicker();
+  chatStreamTicker = setInterval(() => {
+    if (!msg) return;
+    msg.elapsedMs = Date.now() - turnStartedAt;
     updateLiveAssistantMetrics(msg, "");
     updateStreamBar();
     scheduleRenderChatMessages();
@@ -3563,6 +3578,7 @@ async function runChatRequest(assistantMsg) {
   updateStreamBar();
   const turnStartedAt = Date.now();
   assistantMsg.streamStartedAt = turnStartedAt;
+  startStreamTicker(assistantMsg, turnStartedAt);
   let assistantRaw = "";
   try {
     const res = await fetch("/api/chat", {
@@ -3643,21 +3659,34 @@ async function runChatRequest(assistantMsg) {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
         if (data?.phase === "generating") {
           // Model is generating tool call arguments — show early feedback.
-          const existing = assistantMsg.toolLog.find(
+          let existing = assistantMsg.toolLog.find(
             (e) => e.name === data.name && e.status === "generating"
           );
           if (!existing) {
             flushSegmentToTimeline(assistantMsg, assistantRaw, false);
-            const entry = {
+            existing = {
               name: data.name,
               path: data.path,
               command: data.command,
               artifact_name: data.artifact_name,
               status: "generating",
             };
-            assistantMsg.toolLog.push(entry);
+            assistantMsg.toolLog.push(existing);
             if (!assistantMsg.timeline) assistantMsg.timeline = [];
-            assistantMsg.timeline.push({ type: "tool", entry });
+            assistantMsg.timeline.push({ type: "tool", entry: existing });
+          } else {
+            // Update existing entry with any newly received fields.
+            if (data.path) existing.path = data.path;
+            if (data.command) existing.command = data.command;
+            if (data.artifact_name) existing.artifact_name = data.artifact_name;
+          }
+
+          if (data.name === "create_artifact") {
+            assistantMsg.artifactGenerating = true;
+            if (data.artifact_name) {
+              assistantMsg.artifactName = data.artifact_name;
+            }
+            showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
           }
         } else if (data?.phase === "start") {
           // Upgrade 'generating' entries to 'running', or add new if none.
@@ -3693,6 +3722,14 @@ async function runChatRequest(assistantMsg) {
             assistantMsg.toolLog.push(entry);
             if (!assistantMsg.timeline) assistantMsg.timeline = [];
             assistantMsg.timeline.push({ type: "tool", entry });
+          }
+
+          if (data.name === "create_artifact") {
+            assistantMsg.artifactGenerating = true;
+            if (data.artifact_name) {
+              assistantMsg.artifactName = data.artifact_name;
+            }
+            showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
           }
         } else if (data?.phase === "done") {
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
@@ -3851,6 +3888,7 @@ async function runChatRequest(assistantMsg) {
   } finally {
     chatAbortController = null;
     stopThinkTicker();
+    stopStreamTicker();
     chatStreamLock = false;
     activeStreamMessage = null;
     updateStreamBar();
@@ -3960,14 +3998,10 @@ function showArtifactPanel(url, name, generating) {
   panel.hidden = false;
   // Close options panel so the artifact gets the full right/top area.
   chatView?.classList.remove("chat-options-open");
-  // Show splitter on desktop and set default width to 50% on first open.
+  // Show splitter on desktop and set default width to 50% on open.
   if (chatView && splitter) {
     const savedWidth = localStorage.getItem("ollama_manager_artifact_width");
-    if (savedWidth) {
-      chatView.style.setProperty("--chat-right-width", savedWidth);
-    } else if (!chatArtifactWidthSet) {
-      chatView.style.setProperty("--chat-right-width", "50%");
-    }
+    chatView.style.setProperty("--chat-right-width", savedWidth || "50%");
     chatArtifactWidthSet = true;
     splitter.hidden = false;
   }

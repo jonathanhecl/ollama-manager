@@ -413,7 +413,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		var last ollama.ChatChunk
 		var acc ollama.ChatMessage
 		acc.Role = "assistant"
-		toolCallSeen := false
+		sentTools := make(map[int]*toolSentState)
 
 		err := s.ollama.Chat(ctx, req, func(ev ollama.ChatChunk) error {
 			last = ev
@@ -426,27 +426,58 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			}
 			if len(m.ToolCalls) > 0 {
 				acc.ToolCalls = m.ToolCalls
-				if !toolCallSeen {
-					toolCallSeen = true
-					// Send a progress event so the frontend can show which tool is being generated.
-					for _, tc := range m.ToolCalls {
-						name := tc.Function.Name
-						if name == "" {
-							continue
-						}
+				for i, tc := range m.ToolCalls {
+					name := tc.Function.Name
+					if name == "" {
+						continue
+					}
+					partial := parseToolArgs(tc.Function.Arguments)
+					var path, cmd, artName string
+					if partial != nil {
+						path, _ = partial["path"].(string)
+						cmd, _ = partial["command"].(string)
+						artName, _ = partial["name"].(string)
+					}
+
+					state, exists := sentTools[i]
+					if !exists {
+						state = &toolSentState{name: name}
+						sentTools[i] = state
 						p := map[string]any{"phase": "generating", "name": name}
-						// Try to extract partial path/command for early feedback.
-						partial := parseToolArgs(tc.Function.Arguments)
-						if path, _ := partial["path"].(string); path != "" {
+						if path != "" {
 							p["path"] = path
+							state.path = path
 						}
-						if cmd, _ := partial["command"].(string); cmd != "" {
+						if cmd != "" {
 							p["command"] = cmd
+							state.command = cmd
 						}
-						if artName, _ := partial["name"].(string); artName != "" {
+						if artName != "" {
 							p["artifact_name"] = artName
+							state.artifactName = artName
 						}
 						send("tool", p)
+					} else {
+						updated := false
+						p := map[string]any{"phase": "generating", "name": name}
+						if path != "" && path != state.path {
+							p["path"] = path
+							state.path = path
+							updated = true
+						}
+						if cmd != "" && cmd != state.command {
+							p["command"] = cmd
+							state.command = cmd
+							updated = true
+						}
+						if artName != "" && artName != state.artifactName {
+							p["artifact_name"] = artName
+							state.artifactName = artName
+							updated = true
+						}
+						if updated {
+							send("tool", p)
+						}
 					}
 				}
 			}
@@ -604,4 +635,11 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 // isWebTool returns true for the web tools (web_search, web_fetch).
 func isWebTool(name string) bool {
 	return name == "web_search" || name == "web_fetch"
+}
+
+type toolSentState struct {
+	name         string
+	path         string
+	command      string
+	artifactName string
 }

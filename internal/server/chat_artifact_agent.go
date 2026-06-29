@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -65,7 +66,7 @@ func artifactToolDefinitions() []any {
 				"name":        "list_dir",
 				"description": "List files and directories in the artifact project directory.",
 				"parameters": map[string]any{
-					"type":     "object",
+					"type": "object",
 					"properties": map[string]any{
 						"path": map[string]any{
 							"type":        "string",
@@ -231,7 +232,7 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		if strings.TrimSpace(command) == "" {
 			return "Error: missing command for exec", nil
 		}
-		return execInDir(artifactDir, command)
+		return execInDir(ctx, artifactDir, command)
 
 	case "create_artifact":
 		// No I/O — the loop handles sending the SSE artifact event.
@@ -250,8 +251,9 @@ func isPathSafe(base, target string) bool {
 }
 
 // execInDir runs a shell command in dir with a 30-second timeout.
-func execInDir(dir, command string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// parentCtx allows cancellation to propagate from the request context.
+func execInDir(parentCtx context.Context, dir, command string) (string, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
 	var cmd *exec.Cmd
@@ -266,6 +268,7 @@ func execInDir(dir, command string) (string, error) {
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 
+	log.Printf("[artifact] exec: %q in %s", command, dir)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return outBuf.String(), fmt.Errorf("exec timed out after 30s")
@@ -331,8 +334,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 
 	for round := 0; round < maxArtifactRounds; round++ {
 		if ctx.Err() != nil {
+			log.Printf("[artifact] context cancelled at round %d", round)
 			return
 		}
+		log.Printf("[artifact] round %d start, messages: %d", round, len(msgs))
 		req := ollama.ChatRequest{
 			Model:    body.Model,
 			Messages: msgs,
@@ -344,6 +349,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		var last ollama.ChatChunk
 		var acc ollama.ChatMessage
 		acc.Role = "assistant"
+		toolCallSeen := false
 		err := s.ollama.Chat(ctx, req, func(ev ollama.ChatChunk) error {
 			last = ev
 			m := ev.Message
@@ -355,6 +361,29 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			}
 			if len(m.ToolCalls) > 0 {
 				acc.ToolCalls = m.ToolCalls
+				if !toolCallSeen {
+					toolCallSeen = true
+					// Send a progress event so the frontend can show which tool is being generated.
+					for _, tc := range m.ToolCalls {
+						name := tc.Function.Name
+						if name == "" {
+							continue
+						}
+						p := map[string]any{"phase": "generating", "name": name}
+						// Try to extract partial path/command for early feedback.
+						partial := parseToolArgs(tc.Function.Arguments)
+						if path, _ := partial["path"].(string); path != "" {
+							p["path"] = path
+						}
+						if cmd, _ := partial["command"].(string); cmd != "" {
+							p["command"] = cmd
+						}
+						if artName, _ := partial["name"].(string); artName != "" {
+							p["artifact_name"] = artName
+						}
+						send("tool", p)
+					}
+				}
 			}
 			send("chunk", ev)
 			return nil
@@ -376,6 +405,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		accEvalNS += last.EvalDuration
 
 		if len(assistant.ToolCalls) == 0 {
+			if strings.TrimSpace(assistant.Content) == "" && strings.TrimSpace(assistant.Thinking) == "" {
+				log.Printf("[artifact] round %d: empty response (no content, no tool calls), stopping", round)
+			}
 			send("done", map[string]any{
 				"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 				"prompt_tokens":      last.PromptEvalCount,
@@ -447,6 +479,12 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			send("tool", done)
 		}
 	}
+	log.Printf("[artifact] reached max rounds (%d), stopping", maxArtifactRounds)
+	send("done", map[string]any{
+		"elapsed_ms":        time.Since(startedAt).Milliseconds(),
+		"completion_tokens": accComp,
+		"total_tokens":      accComp,
+	})
 	send("error", map[string]any{"error": "artifacts: too many tool rounds"})
 }
 

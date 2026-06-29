@@ -2359,7 +2359,7 @@ function assistantMetricText(m, opts = {}) {
  * Añade al timeline el texto desde segmentFlushIndex hasta ahora, como think (y opcional bloque md).
  * @param {object} assistantMsg
  * @param {string} assistantRaw
- * @param {boolean} isFinal - si true, no mete "answer" en el timeline (va en m.content)
+ * @param {boolean} isFinal - si true, es el ultimo flush antes de done
  */
 function flushSegmentToTimeline(assistantMsg, assistantRaw, isFinal) {
   const start = Number(assistantMsg.segmentFlushIndex) || 0;
@@ -2371,7 +2371,7 @@ function flushSegmentToTimeline(assistantMsg, assistantRaw, isFinal) {
   if (parts.think && String(parts.think).trim()) {
     assistantMsg.timeline.push({ type: "think", think: parts.think, segId: nanoid() });
   }
-  if (!isFinal && parts.answer && String(parts.answer).trim()) {
+  if (parts.answer && String(parts.answer).trim()) {
     assistantMsg.timeline.push({ type: "md", content: parts.answer });
   }
 }
@@ -2434,7 +2434,8 @@ function renderAssistantToolLogEntry(e) {
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   }
   const st = e.status || "unknown";
-  const icon = st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
+  const icon = st === "generating" ? "✎" : st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
+  const labelSuffix = st === "generating" ? "…" : "";
   let tail = "";
   if (st === "error" && e.error) {
     tail += renderToolErrorBlock(e.error);
@@ -2448,7 +2449,7 @@ function renderAssistantToolLogEntry(e) {
       : "";
     tail += `<div class="chat-tool-result-head">${meta}</div>${prev}`;
   }
-  return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${title}</span>${detailHtml}${tail}</div>${st === "running" ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
+  return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${title}${labelSuffix}</span>${detailHtml}${tail}</div>${(st === "running" || st === "generating") ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
 }
 
 function renderAssistantToolLog(m) {
@@ -2546,6 +2547,7 @@ function renderChatMessages() {
     const tailStr = hasTl && m.streaming && acc && acc.length > flushI ? acc.slice(flushI) : "";
     const tailParts = tailStr ? splitThink(tailStr) : { think: "", inThink: false, answer: "" };
     const showTailThink = hasTl && (Boolean((tailParts.think || "").trim()) || (m.streaming && tailParts.inThink));
+    const showTailMd = hasTl && m.streaming && Boolean((tailParts.answer || "").trim());
 
     const thinkBlock = hasTl || !m.thinkContent
       ? ""
@@ -2565,6 +2567,9 @@ function renderChatMessages() {
           <summary>${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && tailParts.inThink))}</summary>
           <pre>${escapeHtml(tailParts.think || "")}</pre>
         </details>`
+      : "";
+    const tailMdBlock = showTailMd
+      ? `<div class="chat-timeline-md">${renderMarkdownSafe(tailParts.answer || "")}</div>`
       : "";
 
     let bodyHTML = "";
@@ -2665,6 +2670,15 @@ function renderChatMessages() {
          </div>`
       : "";
     const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
+    let contentBlock;
+    if (hasTl) {
+      // Timeline mode: all think/md/tool segments are in the timeline in order.
+      // Add tail (streaming think + md) after the timeline.
+      contentBlock = `${timelineBlock}${tailThinkBlock}${tailMdBlock}`;
+    } else {
+      // Simple mode: no timeline, render think + toolLog + body in order.
+      contentBlock = `${thinkBlock}${toolLogBlock}<div class="chat-md">${bodyHTML || "<p></p>"}</div>`;
+    }
     return `
       <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
         <header class="chat-msg-head">
@@ -2675,11 +2689,7 @@ function renderChatMessages() {
         </header>
         ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
         ${files ? `<div class="chat-file-list">${files}</div>` : ""}
-        ${timelineBlock}
-        ${toolLogBlock}
-        ${thinkBlock}
-        ${tailThinkBlock}
-        <div class="chat-md">${bodyHTML || "<p></p>"}</div>
+        ${contentBlock}
         ${artifactBadge}
         ${footBlock}
       </article>
@@ -3549,22 +3559,60 @@ async function runChatRequest(assistantMsg) {
         scheduleRenderChatMessages();
       } else if (event === "tool") {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
-        if (data?.phase === "start") {
-          flushSegmentToTimeline(assistantMsg, assistantRaw, false);
-          const entry = {
-            name: data.name,
-            query: data.query,
-            url: data.url,
-            max_results: data.max_results,
-            path: data.path,
-            command: data.command,
-            artifact_name: data.artifact_name,
-            description: data.description,
-            status: "running",
-          };
-          assistantMsg.toolLog.push(entry);
-          if (!assistantMsg.timeline) assistantMsg.timeline = [];
-          assistantMsg.timeline.push({ type: "tool", entry });
+        if (data?.phase === "generating") {
+          // Model is generating tool call arguments — show early feedback.
+          const existing = assistantMsg.toolLog.find(
+            (e) => e.name === data.name && e.status === "generating"
+          );
+          if (!existing) {
+            // Flush any accumulated content/think to timeline before the tool entry.
+            flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+            const entry = {
+              name: data.name,
+              path: data.path,
+              command: data.command,
+              artifact_name: data.artifact_name,
+              status: "generating",
+            };
+            assistantMsg.toolLog.push(entry);
+            if (!assistantMsg.timeline) assistantMsg.timeline = [];
+            assistantMsg.timeline.push({ type: "tool", entry });
+          }
+        } else if (data?.phase === "start") {
+          // Upgrade 'generating' entries to 'running', or add new if none.
+          let upgraded = false;
+          for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
+            const e = assistantMsg.toolLog[i];
+            if (e.name === data.name && e.status === "generating") {
+              e.status = "running";
+              e.query = data.query;
+              e.url = data.url;
+              e.max_results = data.max_results;
+              e.description = data.description;
+              if (data.path) e.path = data.path;
+              if (data.command) e.command = data.command;
+              if (data.artifact_name) e.artifact_name = data.artifact_name;
+              upgraded = true;
+              break;
+            }
+          }
+          if (!upgraded) {
+            flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+            const entry = {
+              name: data.name,
+              query: data.query,
+              url: data.url,
+              max_results: data.max_results,
+              path: data.path,
+              command: data.command,
+              artifact_name: data.artifact_name,
+              description: data.description,
+              status: "running",
+            };
+            assistantMsg.toolLog.push(entry);
+            if (!assistantMsg.timeline) assistantMsg.timeline = [];
+            assistantMsg.timeline.push({ type: "tool", entry });
+          }
         } else if (data?.phase === "done") {
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
             const e = assistantMsg.toolLog[i];

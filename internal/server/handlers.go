@@ -921,6 +921,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	imageCount := 0
+	for _, m := range body.Messages {
+		imageCount += len(m.Images)
+	}
+	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v", body.Model, len(body.Messages), imageCount, body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools)
+
 	if body.Artifacts != nil && *body.Artifacts {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache, no-transform")
@@ -941,17 +947,25 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isImageModel := false
+	isImageGenerationModel := false
 	if show, err := s.ollama.Show(r.Context(), body.Model); err == nil && show != nil {
+		hasImage := false
+		hasVision := false
+		hasCompletion := false
 		for _, cap := range show.Capabilities {
-			if cap == "image" {
-				isImageModel = true
-				break
+			switch cap {
+			case "image":
+				hasImage = true
+			case "vision":
+				hasVision = true
+			case "completion":
+				hasCompletion = true
 			}
 		}
+		isImageGenerationModel = hasImage && !hasVision && !hasCompletion
 	}
 
-	if isImageModel {
+	if isImageGenerationModel {
 		var prompt string
 		var images []string
 		for i := len(body.Messages) - 1; i >= 0; i-- {

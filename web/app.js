@@ -1318,6 +1318,10 @@ function modelCaps(name) {
   return out;
 }
 
+function isImageGenerationOnlyCaps(caps) {
+  return caps.has("image") && !caps.has("vision") && !caps.has("completion");
+}
+
 function formatCapabilityLabel(raw) {
   const k = String(raw || "").toLowerCase().trim();
   if (!k) return "";
@@ -1374,8 +1378,8 @@ function updateChatCapabilityUI() {
     $("chat-model-name-value").textContent = model;
   }
   const caps = modelCaps(model);
-  const isImageModel = caps.has("image");
-  const canVision = caps.has("vision") || isImageModel;
+  const isImageModel = isImageGenerationOnlyCaps(caps);
+  const canVision = caps.has("vision");
   const canAudio = caps.has("audio");
   const canThinkToggle = caps.has("thinking");
   const canTools = caps.has("tools");
@@ -2924,7 +2928,7 @@ function toBase64(file) {
 async function addFiles(files) {
   const selectedModel = $("chat-model").value;
   const caps = modelCaps(selectedModel);
-  const canVision = caps.has("vision") || caps.has("image");
+  const canVision = caps.has("vision");
   const canAudio = caps.has("audio");
   const accepted = [];
   for (const file of files) {
@@ -3122,7 +3126,8 @@ function writeAscii(view, offset, value) {
 function buildOutboundMessages() {
   const out = [];
   const selectedModel = $("chat-model").value;
-  const isImageModel = selectedModel && modelCaps(selectedModel).has("image");
+  const selectedCaps = selectedModel ? modelCaps(selectedModel) : new Set();
+  const isImageModel = isImageGenerationOnlyCaps(selectedCaps);
   const systemPrompt = isImageModel ? "" : $("chat-system").value.trim();
   if (systemPrompt) out.push({ role: "system", content: systemPrompt });
   for (const m of chatMessages) {
@@ -3505,7 +3510,7 @@ async function runChatRequest(assistantMsg) {
   }
 
   const caps = modelCaps(modelName);
-  const isImageModel = caps.has("image");
+  const isImageModel = isImageGenerationOnlyCaps(caps);
   const canThinkToggle = caps.has("thinking");
   const noThink = canThinkToggle ? $("chat-no-think").checked : false;
   const canTools = caps.has("tools");

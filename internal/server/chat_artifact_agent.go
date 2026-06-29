@@ -20,36 +20,8 @@ import (
 
 const maxArtifactRounds = 30
 
-// artifactInitialToolDefinitions returns only the create_artifact tool.
-// This is the initial set before the agent unlocks file tools.
-func artifactInitialToolDefinitions() []any {
-	return []any{
-		map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name":        "create_artifact",
-				"description": "Initialize a new artifact project. Call this first to get access to file creation tools (write_file, read_file, list_dir, exec). Provide a name and optional description for the project.",
-				"parameters": map[string]any{
-					"type":     "object",
-					"required": []string{"name"},
-					"properties": map[string]any{
-						"name": map[string]any{
-							"type":        "string",
-							"description": "Display name for the artifact",
-						},
-						"description": map[string]any{
-							"type":        "string",
-							"description": "Short description of what the artifact does",
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
 // artifactFullToolDefinitions returns all tool schemas for artifact creation.
-// This is used after create_artifact has been called (or when iterating an existing artifact).
+// These are always available; the model decides when to create or iterate.
 func artifactFullToolDefinitions() []any {
 	return []any{
 		map[string]any{
@@ -147,21 +119,14 @@ func artifactFullToolDefinitions() []any {
 	}
 }
 
-// artifactInitialSystemPrompt returns the system prompt for the initial phase
-// where only create_artifact is available.
-func artifactInitialSystemPrompt() string {
-	return `You can create web projects with live preview. Call create_artifact with a name and optional description to initialize the project and unlock file creation tools (write_file, read_file, list_dir, exec).
-
-After calling create_artifact, create your project files starting with index.html as the entry point. Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.` + "\n\n" + `IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.`
-}
-
-// artifactSystemPrompt returns the system prompt injected when artifacts mode is on
-// with full tools available (after create_artifact has been called).
+// artifactSystemPrompt returns the system prompt injected when artifacts mode is on.
 func artifactSystemPrompt() string {
-	return `You have access to filesystem tools to create web projects. Use write_file to create files (HTML, CSS, JS, etc.). Use read_file and list_dir to inspect what you've created. Use exec to run commands if needed (e.g. installing dependencies).
-
-When the project is ready, call create_artifact with a name and description to make it previewable by the user. The entry point for preview is index.html — always create one if the project is a web app.
-
+	return `You are a helpful assistant that can also create web projects with a live preview.
+You have filesystem tools (write_file, read_file, list_dir, exec) for building projects.
+Use them only when the user asks for a web project, app, dashboard, or other runnable result.
+If the user attaches an image, you can see it. Use it as reference when describing or building things.
+When building a web project, write the files starting with index.html as the entry point.
+When the project is ready, call create_artifact with a name and description to make it previewable by the user.
 Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.` + "\n\n" + `IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.`
 }
 
@@ -391,18 +356,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		}
 	}
 
-	// Determine if we're iterating on an existing artifact or starting fresh.
-	// For existing artifacts, use full tools from the start. For new ones,
-	// start with only create_artifact and unlock full tools after it's called.
-	iteratingExisting := artifactDir != ""
-
-	// Build tool list: initial or full artifact tools + web tools if web_tools is also on.
-	var tools []any
-	if iteratingExisting {
-		tools = artifactFullToolDefinitions()
-	} else {
-		tools = artifactInitialToolDefinitions()
-	}
+	// Build tool list: all artifact tools are available from the start so the
+	// agent can respond naturally, inspect images, and decide when to create.
+	tools := artifactFullToolDefinitions()
 	if body.WebTools != nil && *body.WebTools {
 		tools = append(tools, webToolDefinitions()...)
 	}
@@ -422,33 +378,30 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		return nil
 	}
 
-	// Inject system prompt: initial prompt for new artifacts, full prompt for existing.
+	// Inject system prompt for artifacts (with existing file listing if iterating).
 	msgs := make([]ollama.ChatMessage, 0, len(body.Messages)+1)
-	var systemPrompt string
-	if iteratingExisting {
-		systemPrompt = buildArtifactSystemPrompt(artifactDir)
-	} else {
-		systemPrompt = artifactInitialSystemPrompt()
-	}
 	msgs = append(msgs, ollama.ChatMessage{
 		Role:    "system",
-		Content: systemPrompt,
+		Content: buildArtifactSystemPrompt(artifactDir),
 	})
 	msgs = append(msgs, body.Messages...)
 
 	accComp := 0
 	var accEvalNS int64
-	// If iterating on an existing artifact, mark as already sent so write_file
-	// triggers reload events without needing create_artifact again.
-	artifactSent := iteratingExisting
-	artifactLoaded := iteratingExisting // preview is already live when iterating
+	// For existing artifacts the preview is already live, so subsequent writes
+	// should trigger reload events rather than a fresh loaded event.
+	artifactLoaded := artifactDir != ""
 
 	for round := 0; round < maxArtifactRounds; round++ {
 		if ctx.Err() != nil {
 			log.Printf("[artifact] context cancelled at round %d", round)
 			return
 		}
-		log.Printf("[artifact] round %d start, messages: %d", round, len(msgs))
+		imgCount := 0
+		for _, m := range msgs {
+			imgCount += len(m.Images)
+		}
+		log.Printf("[artifact] round %d start, messages: %d, images: %d", round, len(msgs), imgCount)
 		req := ollama.ChatRequest{
 			Model:    body.Model,
 			Messages: msgs,
@@ -566,10 +519,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			}
 			out = truncateRunes(out, maxToolResultRunes)
 
-			// Handle create_artifact: send generating event and unlock full tools.
-			if n == "create_artifact" && !artifactSent {
-				artifactSent = true
-				// Make sure the directory exists so the preview URL is valid.
+			// Handle create_artifact: reveal the artifact panel.
+			// If index.html is already present we can load the preview immediately;
+			// otherwise show a loading screen until the entry point is written.
+			if n == "create_artifact" {
 				if artifactDir == "" {
 					_ = ensureArtifactDir()
 				}
@@ -580,26 +533,30 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 					artName = "Artifact"
 				}
 				previewURL := fmt.Sprintf("/api/artifacts/%d/", ts)
-				send("artifact", map[string]any{
+				indexPath := filepath.Join(artifactDir, "index.html")
+				hasIndex := false
+				if info, err := os.Stat(indexPath); err == nil && !info.IsDir() {
+					hasIndex = true
+				}
+				event := map[string]any{
 					"url":         previewURL,
 					"name":        artName,
 					"description": artDesc,
 					"timestamp":   ts,
-					"generating":  true,
-				})
-				// Unlock full tools for subsequent rounds.
-				tools = artifactFullToolDefinitions()
-				if body.WebTools != nil && *body.WebTools {
-					tools = append(tools, webToolDefinitions()...)
 				}
-				// Override the tool result to guide the agent.
-				out = "Artifact project initialized. You now have access to write_file, read_file, list_dir, and exec tools. Create your project files starting with index.html."
+				if !artifactLoaded && hasIndex {
+					artifactLoaded = true
+					event["loaded"] = true
+				} else if !artifactLoaded {
+					event["generating"] = true
+				}
+				send("artifact", event)
+				out = "Artifact project ready for preview."
 			}
-
 			// After write_file on an artifact, send the appropriate event:
 			// - loaded: first time index.html is written (transition from loading screen)
 			// - reload: subsequent writes (refresh the live preview)
-			if n == "write_file" && toolErr == nil && artifactSent {
+			if n == "write_file" && toolErr == nil {
 				writePath, _ := parseToolArgs(tc.Function.Arguments)["path"].(string)
 				normalizedPath := strings.TrimPrefix(strings.ToLower(writePath), "./")
 				previewURL := fmt.Sprintf("/api/artifacts/%d/", ts)

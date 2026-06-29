@@ -3565,13 +3565,49 @@ async function runChatRequest(assistantMsg) {
       throw new Error(msg || "chat failed");
     }
     await readSSEStream(res, async (event, data) => {
+      // Debug: log every SSE event with full data
+      if (event === "chunk") {
+        const thinkDelta = data?.message?.thinking || "";
+        const contentDelta = data?.message?.content || "";
+        const toolCalls = data?.message?.tool_calls;
+        if (thinkDelta || contentDelta || toolCalls) {
+          console.log("[chat] chunk", {
+            thinking: thinkDelta ? thinkDelta.slice(0, 200) : "",
+            content: contentDelta ? contentDelta.slice(0, 200) : "",
+            tool_calls: toolCalls,
+            done: data?.done,
+            eval_count: data?.eval_count,
+          });
+        }
+      } else {
+        console.log(`[chat] event:${event}`, data);
+      }
       if (event === "artifact") {
-        if (data?.reload) {
+        if (data?.generating) {
+          // create_artifact was called — show loading screen, don't load URL yet.
+          assistantMsg.artifactUrl = data?.url || "";
+          assistantMsg.artifactName = data?.name || "Artifact";
+          assistantMsg.artifactDescription = data?.description || "";
+          assistantMsg.artifactGenerating = true;
+          showArtifactPanel(null, assistantMsg.artifactName, true);
+          scheduleRenderChatMessages();
+        } else if (data?.loaded) {
+          // index.html was written — transition from loading screen to live preview.
+          assistantMsg.artifactGenerating = false;
+          const url = data?.url || assistantMsg.artifactUrl || "";
+          const frame = $("chat-artifact-frame");
+          if (frame && url) {
+            frame.removeAttribute("srcdoc");
+            frame.src = url;
+          }
+          scheduleRenderChatMessages();
+        } else if (data?.reload) {
           // Reload the iframe if the artifact panel is already visible.
           const panel = $("chat-artifact-panel");
           const frame = $("chat-artifact-frame");
           if (panel && !panel.hidden && frame && frame.src) {
             const currentSrc = frame.src;
+            frame.removeAttribute("srcdoc");
             frame.src = "about:blank";
             // Small delay to allow the file write to settle.
             setTimeout(() => { frame.src = currentSrc; }, 50);
@@ -3702,6 +3738,15 @@ async function runChatRequest(assistantMsg) {
       } else if (event === "error") {
         throw new Error(data?.error || "stream error");
       } else if (event === "done") {
+        console.log("[chat] done event", {
+          toolLog: assistantMsg.toolLog || [],
+          artifactUrl: assistantMsg.artifactUrl || null,
+          artifactGenerating: assistantMsg.artifactGenerating || false,
+          contentPreview: (assistantMsg.content || "").slice(0, 300),
+          thinkPreview: (assistantMsg.thinkContent || "").slice(0, 300),
+          tokens: data?.total_tokens,
+          elapsed_ms: data?.elapsed_ms,
+        });
         if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
           assistantRaw += "\n</think>\n";
           assistantMsg.thinkBlockClosed = true;
@@ -3869,7 +3914,7 @@ async function sendChatMessage() {
 
 let chatArtifactWidthSet = false;
 
-function showArtifactPanel(url, name) {
+function showArtifactPanel(url, name, generating) {
   const panel = $("chat-artifact-panel");
   const frame = $("chat-artifact-frame");
   const title = $("chat-artifact-title");
@@ -3877,7 +3922,20 @@ function showArtifactPanel(url, name) {
   const chatView = $("chat-view");
   if (!panel || !frame) return;
   if (title && name) title.textContent = name;
-  frame.src = url;
+  if (generating) {
+    const loadingText = t("chat.artifact.generating");
+    frame.src = "about:blank";
+    frame.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
+      + 'html,body{margin:0;height:100%;background:#0d0d0d;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}'
+      + '.loader{color:#888;font-size:1.1rem;letter-spacing:.03em;display:flex;align-items:center;gap:.6rem}'
+      + '.spinner{width:18px;height:18px;border:2px solid #333;border-top-color:#888;border-radius:50%;animation:spin 0.8s linear infinite}'
+      + '@keyframes spin{to{transform:rotate(360deg)}}'
+      + '</style></head><body><div class="loader"><span class="spinner"></span><span>'
+      + loadingText + '</span></div></body></html>';
+  } else {
+    frame.removeAttribute("srcdoc");
+    frame.src = url;
+  }
   panel.hidden = false;
   // Close options panel so the artifact gets the full right/top area.
   chatView?.classList.remove("chat-options-open");

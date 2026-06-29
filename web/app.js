@@ -2473,7 +2473,7 @@ function renderAssistantTimeline(m) {
         </details>`;
     }
     if (it.type === "md") {
-      return `<div class="chat-timeline-md">${renderMarkdownSafe(it.content || "")}</div>`;
+      return `<div class="chat-md chat-timeline-md">${renderMarkdownSafe(it.content || "")}</div>`;
     }
     if (it.type === "tool" && it.entry) {
       return `<div class="chat-tool-log chat-tool-log--tl" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${renderAssistantToolLogEntry(it.entry)}</div>`;
@@ -2571,7 +2571,7 @@ function renderChatMessages() {
         </details>`
       : "";
     const tailMdBlock = showTailMd
-      ? `<div class="chat-timeline-md">${renderMarkdownSafe(tailParts.answer || "")}</div>`
+      ? `<div class="chat-md chat-timeline-md">${renderMarkdownSafe(tailParts.answer || "")}</div>`
       : "";
 
     let bodyHTML = "";
@@ -3752,7 +3752,10 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.thinkContent = p2.think;
         assistantMsg.content = p2.answer;
         assistantMsg.inThink = p2.inThink;
-        if (assistantMsg.timeline && assistantMsg.timeline.length > 0) {
+        // Always flush remaining content to timeline for faithful chronological order.
+        // Skip image models — their content is base64 image data, not text.
+        const isImgModel = assistantMsg.model && modelCaps(assistantMsg.model).has("image");
+        if (!isImgModel) {
           flushSegmentToTimeline(assistantMsg, assistantRaw, true);
         }
         if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {

@@ -1992,6 +1992,10 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   overflow-y: auto;
   scroll-behavior: smooth;
 }
+.chat-msg.chat-streaming .chat-timeline-md {
+  max-height: none;
+  overflow: visible;
+}
 .chat-debug {
   margin-top: 10px;
   padding-top: 8px;

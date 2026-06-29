@@ -925,7 +925,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	for _, m := range body.Messages {
 		imageCount += len(m.Images)
 	}
-	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v", body.Model, len(body.Messages), imageCount, body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools)
+	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v think=%v", body.Model, len(body.Messages), imageCount, body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, body.Think)
 
 	if body.Artifacts != nil && *body.Artifacts {
 		w.Header().Set("Content-Type", "text/event-stream")

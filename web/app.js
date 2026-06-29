@@ -2911,6 +2911,9 @@ function resizeImageToBase64(file, maxDim = 1024) {
 }
 
 function toBase64(file) {
+  if (file.type && file.type.startsWith("image/")) {
+    return resizeImageToBase64(file, 1024);
+  }
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
     fr.onload = () => {
@@ -2921,6 +2924,7 @@ function toBase64(file) {
     fr.readAsDataURL(file);
   });
 }
+
 
 async function addFiles(files) {
   const selectedModel = $("chat-model").value;

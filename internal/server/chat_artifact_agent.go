@@ -132,6 +132,9 @@ Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs 
 // existing files when iterating on a previously created artifact.
 func buildArtifactSystemPrompt(artifactDir string) string {
 	base := artifactSystemPrompt()
+	if artifactDir == "" {
+		return base
+	}
 	entries, err := os.ReadDir(artifactDir)
 	if err != nil || len(entries) == 0 {
 		return base
@@ -337,7 +340,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		tools = append(tools, webToolDefinitions()...)
 	}
 
-	// Use existing artifact directory if provided, otherwise create a new one.
+	// Use existing artifact directory if provided. For new requests, do NOT create
+	// a directory yet — it will be created on-demand when the agent actually
+	// writes a file. This avoids leaving empty artifact folders for messages
+	// that never create anything.
 	var artifactDir string
 	var ts int64
 	if body.ArtifactDir != "" {
@@ -353,13 +359,20 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			log.Printf("[artifact] reusing existing dir: %s", artifactDir)
 		}
 	}
-	if artifactDir == "" {
+
+	// Lazy directory creation helper: only makes the artifacts/<ts>/ folder when
+	// the agent is about to write something for the first time.
+	ensureArtifactDir := func() error {
+		if artifactDir != "" {
+			return nil
+		}
 		ts = time.Now().Unix()
 		artifactDir = filepath.Join("artifacts", fmt.Sprintf("%d", ts))
 		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
-			send("error", map[string]any{"error": fmt.Sprintf("create artifact dir: %v", err)})
-			return
+			return fmt.Errorf("create artifact dir: %w", err)
 		}
+		log.Printf("[artifact] created dir on demand: %s", artifactDir)
+		return nil
 	}
 
 	// Inject system prompt for artifacts (with existing file listing if iterating).
@@ -532,7 +545,16 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			if isWebTool(n) {
 				out, toolErr = s.runWebTool(ctx, n, tc.Function.Arguments)
 			} else {
-				out, toolErr = s.runArtifactTool(ctx, artifactDir, n, tc.Function.Arguments)
+				// Only create the artifacts directory when the agent is actually
+				// about to write or run a command in the project.
+				if n == "write_file" || n == "exec" {
+					if err := ensureArtifactDir(); err != nil {
+						toolErr = err
+					}
+				}
+				if toolErr == nil {
+					out, toolErr = s.runArtifactTool(ctx, artifactDir, n, tc.Function.Arguments)
+				}
 			}
 			if toolErr != nil {
 				out = "Error: " + toolErr.Error()
@@ -542,6 +564,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			// Handle create_artifact: send artifact event.
 			if n == "create_artifact" && !artifactSent {
 				artifactSent = true
+				// Make sure the directory exists so the preview URL is valid.
+				if artifactDir == "" {
+					_ = ensureArtifactDir()
+				}
 				m := parseToolArgs(tc.Function.Arguments)
 				artName, _ := m["name"].(string)
 				artDesc, _ := m["description"].(string)

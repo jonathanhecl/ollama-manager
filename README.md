@@ -5,6 +5,7 @@ Tiny Go web server to manage the [Ollama](https://ollama.com) models installed o
 - List models: name, family, parameters, quantization, size, context, install date, loaded state.
 - Live system meters in the top bar: CPU load, memory usage (including RAM used by loaded models), and disk free/used.
 - **Chat** in the browser: talk to a selected model with streaming (SSE), optional *thinking* traces, stop/regenerate, and an optional **web tools** mode (`web_search` + `web_fetch` executed on the server) with a **timeline** UI (think → tool → think → answer).
+- **Artifacts** in the chat: build web applications, dashboards, or interactive scripts directly in the chat. The model utilizes sandboxed filesystem tools (`create_artifact`, `write_file`, `exec`, etc.) and the user gets a live side-by-side preview with a resizable/draggable splitter and real-time generation indicators.
 - **Download queue**: enqueue multiple installs; the manager runs one at a time, persists the queue to `jobs.json`, and resumes after restart (partial layers are kept by Ollama).
 - Cancel/remove/retry individual jobs and clear finished history from the UI.
 - Uninstall models.
@@ -112,7 +113,8 @@ To allow audio recording on remote LAN devices in Google Chrome (or other Chromi
 | GET | `/api/running` | Light view of Ollama [`/api/ps`](https://github.com/ollama/ollama/blob/main/docs/api.md#list-running-models) (what is currently loaded) |
 | GET | `/api/models/{name}` | Details: context, capabilities, template, modelinfo |
 | DELETE | `/api/models/{name}` | Uninstall model |
-| POST | `/api/chat` | Chat with the model. **Server-Sent Events** stream: `chunk` (content/thinking), optional `tool` (web agent), `done` (usage), `error`. Set `web_tools: true` in the JSON body to enable `web_search` / `web_fetch` for models that support tools. |
+| POST | `/api/chat` | Chat with the model. **Server-Sent Events** stream: `chunk` (content/thinking), optional `tool` (web agent), `done` (usage), `error`. Set `web_tools: true` or `artifacts: true` in the JSON body to enable web tools or sandbox artifacts workspace mode. |
+| GET | `/api/artifacts/{timestamp}/{path}` | Serve built artifact files (like HTML, CSS, JS, etc.) for live previewing. |
 | POST | `/api/pull` | Enqueue a download. Body `{"name":"llama3:8b"}`. Returns `{job_id, status, name}`. Progress is served via `/api/jobs/events` |
 | GET | `/api/jobs` | List all jobs (queued/running/done/error/cancelled) in insertion order |
 | GET | `/api/jobs/events` | SSE stream: one `snapshot` event with the current list, then `update`/`remove` events for every change |

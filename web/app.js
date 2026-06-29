@@ -3592,11 +3592,11 @@ async function runChatRequest(assistantMsg) {
             (e) => e.name === "..." && e.status === "pending"
           );
           if (!existing) {
-            flushSegmentToTimeline(assistantMsg, assistantRaw, false);
             const entry = { name: "...", status: "pending" };
             assistantMsg.toolLog.push(entry);
-            if (!assistantMsg.timeline) assistantMsg.timeline = [];
-            assistantMsg.timeline.push({ type: "tool", entry });
+            // Don't add to timeline yet — pending is a placeholder that may
+            // fire before any content arrives. It will be added to the timeline
+            // when upgraded to generating/start, after flushing content first.
           }
         } else if (data?.phase === "generating") {
           // Model is generating tool call arguments — show early feedback.
@@ -3611,6 +3611,10 @@ async function runChatRequest(assistantMsg) {
               e.artifact_name = data.artifact_name;
               e.status = "generating";
               upgraded = true;
+              // Pending entry was not in timeline — flush content first, then add.
+              flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+              if (!assistantMsg.timeline) assistantMsg.timeline = [];
+              assistantMsg.timeline.push({ type: "tool", entry: e });
               break;
             }
           }
@@ -3639,6 +3643,7 @@ async function runChatRequest(assistantMsg) {
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
             const e = assistantMsg.toolLog[i];
             if ((e.name === data.name && e.status === "generating") || e.status === "pending") {
+              const wasPending = e.status === "pending";
               e.name = data.name;
               e.status = "running";
               e.query = data.query;
@@ -3649,6 +3654,12 @@ async function runChatRequest(assistantMsg) {
               if (data.command) e.command = data.command;
               if (data.artifact_name) e.artifact_name = data.artifact_name;
               upgraded = true;
+              if (wasPending) {
+                // Pending entry was not in timeline — flush content first, then add.
+                flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+                if (!assistantMsg.timeline) assistantMsg.timeline = [];
+                assistantMsg.timeline.push({ type: "tool", entry: e });
+              }
               break;
             }
           }
@@ -3741,8 +3752,10 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.thinkContent = p2.think;
         assistantMsg.content = p2.answer;
         assistantMsg.inThink = p2.inThink;
-        if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {
+        if (assistantMsg.timeline && assistantMsg.timeline.length > 0) {
           flushSegmentToTimeline(assistantMsg, assistantRaw, true);
+        }
+        if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {
           // If the response ended without any real tool execution (only pending
           // placeholders), remove the stale placeholder entries so the final
           // message doesn't look like a tool was used.

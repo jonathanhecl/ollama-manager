@@ -3525,7 +3525,20 @@ async function runChatRequest(assistantMsg) {
     ...imageParams,
   };
   if (webToolsOn) payload.web_tools = true;
-  if (artifactsOn) payload.artifacts = true;
+  if (artifactsOn) {
+    payload.artifacts = true;
+    // Find the most recent artifact URL in chat history to iterate on it.
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
+      const msg = chatMessages[i];
+      if (msg.artifactUrl) {
+        const match = String(msg.artifactUrl).match(/\/api\/artifacts\/(\d+)\//);
+        if (match) {
+          payload.artifact_dir = match[1];
+          break;
+        }
+      }
+    }
+  }
 
   chatAbortController = new AbortController();
   chatStreamLock = true;
@@ -3552,11 +3565,23 @@ async function runChatRequest(assistantMsg) {
     }
     await readSSEStream(res, async (event, data) => {
       if (event === "artifact") {
-        assistantMsg.artifactUrl = data?.url || "";
-        assistantMsg.artifactName = data?.name || "Artifact";
-        assistantMsg.artifactDescription = data?.description || "";
-        showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName);
-        scheduleRenderChatMessages();
+        if (data?.reload) {
+          // Reload the iframe if the artifact panel is already visible.
+          const panel = $("chat-artifact-panel");
+          const frame = $("chat-artifact-frame");
+          if (panel && !panel.hidden && frame && frame.src) {
+            const currentSrc = frame.src;
+            frame.src = "about:blank";
+            // Small delay to allow the file write to settle.
+            setTimeout(() => { frame.src = currentSrc; }, 50);
+          }
+        } else {
+          assistantMsg.artifactUrl = data?.url || "";
+          assistantMsg.artifactName = data?.name || "Artifact";
+          assistantMsg.artifactDescription = data?.description || "";
+          showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName);
+          scheduleRenderChatMessages();
+        }
       } else if (event === "tool") {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
         if (data?.phase === "generating") {

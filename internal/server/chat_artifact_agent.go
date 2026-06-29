@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -124,6 +125,29 @@ func artifactSystemPrompt() string {
 When the project is ready, call create_artifact with a name and description to make it previewable by the user. The entry point for preview is index.html — always create one if the project is a web app.
 
 Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.` + "\n\n" + `IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.`
+}
+
+// buildArtifactSystemPrompt returns the system prompt, including a listing of
+// existing files when iterating on a previously created artifact.
+func buildArtifactSystemPrompt(artifactDir string) string {
+	base := artifactSystemPrompt()
+	entries, err := os.ReadDir(artifactDir)
+	if err != nil || len(entries) == 0 {
+		return base
+	}
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() {
+			files = append(files, e.Name()+"/")
+		} else {
+			files = append(files, e.Name())
+		}
+	}
+	return base + "\n\n" + fmt.Sprintf(
+		"You are working on an EXISTING project. The following files are already present:\n  %s\n"+
+			"Use read_file to inspect current files before making changes. Edit files with write_file to update them. "+
+			"Only recreate files that need changes — do not rewrite the entire project unless necessary.",
+		strings.Join(files, "\n  "))
 }
 
 // artifactToolStartPayload builds the SSE "tool start" payload for artifact tools.
@@ -312,25 +336,44 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		tools = append(tools, webToolDefinitions()...)
 	}
 
-	// Create artifact directory: ./artifacts/<unixtime>/
-	ts := time.Now().Unix()
-	artifactDir := filepath.Join("artifacts", fmt.Sprintf("%d", ts))
-	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
-		send("error", map[string]any{"error": fmt.Sprintf("create artifact dir: %v", err)})
-		return
+	// Use existing artifact directory if provided, otherwise create a new one.
+	var artifactDir string
+	var ts int64
+	if body.ArtifactDir != "" {
+		candidate := filepath.Join("artifacts", filepath.Clean(body.ArtifactDir))
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			artifactDir = candidate
+			// Extract timestamp from dir name for preview URL.
+			if base := filepath.Base(artifactDir); base != "" {
+				if parsed, err := strconv.ParseInt(base, 10, 64); err == nil {
+					ts = parsed
+				}
+			}
+			log.Printf("[artifact] reusing existing dir: %s", artifactDir)
+		}
+	}
+	if artifactDir == "" {
+		ts = time.Now().Unix()
+		artifactDir = filepath.Join("artifacts", fmt.Sprintf("%d", ts))
+		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+			send("error", map[string]any{"error": fmt.Sprintf("create artifact dir: %v", err)})
+			return
+		}
 	}
 
-	// Inject system prompt for artifacts.
+	// Inject system prompt for artifacts (with existing file listing if iterating).
 	msgs := make([]ollama.ChatMessage, 0, len(body.Messages)+1)
 	msgs = append(msgs, ollama.ChatMessage{
 		Role:    "system",
-		Content: artifactSystemPrompt(),
+		Content: buildArtifactSystemPrompt(artifactDir),
 	})
 	msgs = append(msgs, body.Messages...)
 
 	accComp := 0
 	var accEvalNS int64
-	artifactSent := false
+	// If iterating on an existing artifact, mark as already sent so write_file
+	// triggers reload events without needing create_artifact again.
+	artifactSent := body.ArtifactDir != "" && artifactDir != ""
 
 	for round := 0; round < maxArtifactRounds; round++ {
 		if ctx.Err() != nil {
@@ -460,6 +503,17 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 					"name":        artName,
 					"description": artDesc,
 					"timestamp":   ts,
+				})
+			}
+
+			// After write_file on an existing artifact, send a reload event so
+			// the frontend can refresh the iframe preview in real time.
+			if n == "write_file" && toolErr == nil && artifactSent {
+				previewURL := fmt.Sprintf("/api/artifacts/%d/", ts)
+				send("artifact", map[string]any{
+					"url":       previewURL,
+					"reload":    true,
+					"timestamp": ts,
 				})
 			}
 

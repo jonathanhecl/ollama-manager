@@ -856,15 +856,16 @@ func (s *Server) modelExists(ctx context.Context, name string) bool {
 // ---------- chat ----------
 
 type chatRequestBody struct {
-	Model     string               `json:"model"`
-	Messages  []ollama.ChatMessage `json:"messages"`
-	Think     *bool                `json:"think,omitempty"`
-	Options   map[string]any       `json:"options,omitempty"`
-	WebTools  *bool                `json:"web_tools,omitempty"`
-	Artifacts *bool                `json:"artifacts,omitempty"`
-	Width     int                  `json:"width,omitempty"`
-	Height    int                  `json:"height,omitempty"`
-	Steps     int                  `json:"steps,omitempty"`
+	Model       string               `json:"model"`
+	Messages    []ollama.ChatMessage `json:"messages"`
+	Think       *bool                `json:"think,omitempty"`
+	Options     map[string]any       `json:"options,omitempty"`
+	WebTools    *bool                `json:"web_tools,omitempty"`
+	Artifacts   *bool                `json:"artifacts,omitempty"`
+	ArtifactDir string               `json:"artifact_dir,omitempty"`
+	Width       int                  `json:"width,omitempty"`
+	Height      int                  `json:"height,omitempty"`
+	Steps       int                  `json:"steps,omitempty"`
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {

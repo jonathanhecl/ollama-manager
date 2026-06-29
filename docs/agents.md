@@ -24,7 +24,7 @@ think → tool (using) → tool (used) → speak → tool (using) → tool (used
 
 Tools have two visual states that transition in order:
 
-1. **Using** (`pending` / `generating` / `running`) — the tool is being called or executing. Shows a pulse animation (`◌` or `✎`).
+1. **Using** (`generating` / `running`) — the tool is being called or executing. Shows a pulse animation (`◌` or `✎`).
 2. **Used** (`ok` / `error`) — the tool finished. Shows a checkmark (`✓`) or cross (`✗`) with optional result preview.
 
 The transition happens when the backend sends a `done` event for the tool, changing the entry's status from `running` to `ok` or `error`.
@@ -37,10 +37,9 @@ Content accumulates in `assistantRaw`. Think blocks (`<think>...</think>`) and a
 
 ### When a Tool Event Arrives (`tool` event)
 
-1. **`pending`** — Model went silent for >800ms. A placeholder entry is added to `toolLog` but **not** to the timeline yet. It will be added when upgraded.
-2. **`generating`** — Model is generating tool call arguments. Before adding the tool to the timeline, `flushSegmentToTimeline()` is called to push any accumulated think/md content to the timeline first. Then the tool entry is added.
-3. **`start`** — Tool execution begins. If upgrading from `pending`, content is flushed first, then the entry is added to the timeline. If upgrading from `generating`, the existing timeline entry is updated in place.
-4. **`done`** — Tool finished. The existing timeline entry's status is updated to `ok` or `error`.
+1. **`generating`** — Model is generating tool call arguments. Before adding the tool to the timeline, `flushSegmentToTimeline()` is called to push any accumulated think/md content to the timeline first. Then the tool entry is added.
+2. **`start`** — Tool execution begins. If upgrading from `generating`, the existing timeline entry is updated in place. If no prior entry exists, content is flushed first, then a new entry is added.
+3. **`done`** — Tool finished. The existing timeline entry's status is updated to `ok` or `error`.
 
 ### On Completion (`done` event)
 
@@ -67,8 +66,6 @@ Before adding any tool entry to the timeline, `flushSegmentToTimeline()` is call
 
 Image models bypass the timeline and render directly: think block + content.
 
-## Pending Placeholder
+## Stale Generating Entries
 
-The "using something" (`pending`) indicator fires from the backend after 800ms of silence. It is **not** added to the timeline immediately — it's only added when upgraded to `generating` or `start`, after flushing content. This prevents it from appearing above content that was produced before the silence.
-
-If the response ends with only pending placeholders (no real tool execution), they are cleaned up and removed from the timeline.
+If the response ends with only `generating` entries (no real tool execution completed), they are cleaned up and removed from the timeline.

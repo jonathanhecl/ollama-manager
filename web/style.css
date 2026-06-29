@@ -2417,6 +2417,16 @@ button.chat-send:disabled:hover {
   border-radius: 8px;
   color: var(--accent);
 }
+@media (max-width: 1135px) {
+  .chat-options-close {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    font-size: 22px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+}
 .chat-cap-block { margin: 0 0 2px; }
 .chat-cap-heading {
   margin: 0 0 6px;
@@ -2823,9 +2833,13 @@ button.chat-send:disabled:hover {
   }
   .chat-shell {
     grid-column: 1 / 2;
-    grid-row: 2 / 3;
+    grid-row: 1 / 2;
     min-height: 0;
     height: 100%;
+  }
+  .chat-view.chat-options-open .chat-shell,
+  .chat-view:has(#chat-artifact-panel:not([hidden])) .chat-shell {
+    grid-row: 2 / 3;
   }
   .chat-side {
     grid-column: 1 / 2;
@@ -2838,6 +2852,19 @@ button.chat-send:disabled:hover {
     border-radius: 10px;
     box-shadow: none;
     overscroll-behavior: contain;
+    z-index: 15;
+    display: none;
+  }
+  .chat-view.chat-options-open .chat-side {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    inset: 10px 9px 10px;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    border-radius: 10px;
+    z-index: 25;
   }
   /* Mobile: artifact panel is an overlay on top of chat, not a grid row */
   #chat-artifact-panel {
@@ -2905,9 +2932,8 @@ button.chat-send:disabled:hover {
     padding: 10px;
     gap: 8px;
   }
-  .chat-view.chat-options-open .chat-side {
-    display: flex;
-    flex-direction: column;
+  .chat-view.chat-options-open .chat-shell {
+    visibility: hidden;
   }
   .chat-view.chat-options-open::before { content: none; }
   .chat-view.chat-options-open .chat-shell::after {

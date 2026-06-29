@@ -2437,10 +2437,13 @@ button.chat-send:disabled:hover {
   letter-spacing: 0;
   background: var(--panel-2);
 }
+.chat-cap-pill[data-cap="completion"] { border-color: #4a5568; color: #c6d3e6; background: #131720; }
 .chat-cap-pill[data-cap="vision"] { border-color: #2a4a6a; color: #8ec5ff; background: #101a28; }
 .chat-cap-pill[data-cap="audio"] { border-color: #3a5a4a; color: #9dffc4; background: #101a14; }
 .chat-cap-pill[data-cap="thinking"] { border-color: #4a3a6a; color: #c9b3ff; background: #14101f; }
 .chat-cap-pill[data-cap="tools"] { border-color: #5a4a2a; color: #e8c48a; background: #1a150f; }
+.chat-cap-pill[data-cap="image"] { border-color: #3a6a64; color: #9dfff7; background: #1a1010; }
+.chat-cap-pill[data-cap="embedding"] { border-color: #4a2a2a; color: #c97a7a; background: #120c0c; }
 .chat-side-card h3 {
   margin: 0 0 2px;
   font-size: 11px;
@@ -2808,6 +2811,7 @@ button.chat-send:disabled:hover {
     gap: 10px;
     position: relative;
     overflow: hidden;
+    height: calc(100dvh - 110px);
   }
   .chat-view:has(#chat-artifact-panel:not([hidden])),
   .chat-view.chat-options-open {
@@ -2845,7 +2849,7 @@ button.chat-send:disabled:hover {
     width: auto;
     height: auto;
     max-height: none;
-    min-height: 0;
+    min-height: 300px;
     z-index: 20;
     border-radius: 10px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.4);
@@ -3149,7 +3153,10 @@ button.chat-send:disabled:hover {
     padding: 1px 7px;
   }
   .cell-modified { font-size: 12px; }
-  .chat-view { padding: 8px 10px; }
+  .chat-view {
+    padding: 8px 10px;
+    height: calc(100dvh - 140px);
+  }
   .chat-side {
     max-height: min(50dvh, 430px);
   }

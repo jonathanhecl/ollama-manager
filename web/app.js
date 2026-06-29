@@ -779,12 +779,8 @@ function renderTable() {
   const infoTitle = t("detail.info_btn");
   const archiveTitle = t("detail.archive_title");
   const unarchiveTitle = t("detail.unarchive_title");
-  const renderCapabilities = (caps) => (caps || [])
-    .map((c) => `<span class="pill">${escapeHtml(c)}</span>`)
-    .join("");
-
   tbody.innerHTML = allToRender.map((m) => {
-    const capsHtml = renderCapabilities(m.capabilities);
+    const capsHtml = renderCapabilityPills(m.capabilities);
     const rowClass = m.isPending ? "row pending" : `row${m.name === activeName ? " active" : ""}`;
     const job = m.job || runningJobByName.get(m.name);
     const pct = job && job.status === "running" ? Math.max(0, Math.min(100, job.percent || 0)) : 0;
@@ -916,7 +912,7 @@ function renderDetail(d) {
   const grid = rows.map(([k, v, isState]) =>
     `<div class="k">${escapeHtml(k)}</div><div class="v"${isState ? " id=\"detail-state-value\"" : ""}>${isState ? escapeHtml(v) : v}</div>`).join("");
 
-  const caps = (d.capabilities || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
+  const caps = renderCapabilityPills(d.capabilities);
   const capsBlock = caps ? `<div class="detail-section"><h3>${escapeHtml(t("detail.capabilities"))}</h3><div class="cap-list">${caps}</div></div>` : "";
 
   const paramsBlock = d.parameters ? `<div class="detail-section"><h3>${escapeHtml(t("detail.parameters_section"))}</h3><pre>${escapeHtml(d.parameters)}</pre></div>` : "";
@@ -1331,6 +1327,27 @@ function formatCapabilityLabel(raw) {
   return k.charAt(0).toUpperCase() + k.slice(1);
 }
 
+const CAPABILITY_ORDER = ["completion", "tools", "thinking", "vision", "audio"];
+
+function capabilityOrderKey(cap) {
+  const k = String(cap || "").toLowerCase().trim();
+  const idx = CAPABILITY_ORDER.indexOf(k);
+  return idx === -1 ? CAPABILITY_ORDER.length : idx;
+}
+
+function renderCapabilityPills(caps) {
+  return (caps || [])
+    .slice()
+    .sort((a, b) => capabilityOrderKey(a) - capabilityOrderKey(b))
+    .map((c) => {
+      const raw = String(c);
+      const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const label = formatCapabilityLabel(raw);
+      return `<span class="pill chat-cap-pill" data-cap="${escapeHtml(slug)}">${escapeHtml(label)}</span>`;
+    })
+    .join("");
+}
+
 function syncChatModelOptions() {
   const sel = $("chat-model");
   if (!sel) return;
@@ -1397,23 +1414,16 @@ function updateChatCapabilityUI() {
   restoreChatOptionsFromSession();
 
   const m = modelByName(model);
-  const list = m?.capabilities && m.capabilities.length
-    ? [...m.capabilities].sort((a, b) => String(a).localeCompare(String(b)))
-    : [];
+  const capsHtml = renderCapabilityPills(m?.capabilities);
   const capBlock = $("chat-cap-block");
   const capHost = $("chat-cap-flags");
   if (capBlock && capHost) {
-    if (!list.length) {
+    if (!capsHtml) {
       capBlock.hidden = true;
       capHost.innerHTML = "";
     } else {
       capBlock.hidden = false;
-      capHost.innerHTML = list.map((c) => {
-        const raw = String(c);
-        const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        const label = formatCapabilityLabel(raw);
-        return `<span class="pill chat-cap-pill" data-cap="${escapeHtml(slug)}">${escapeHtml(label)}</span>`;
-      }).join("");
+      capHost.innerHTML = capsHtml;
     }
   }
   updateChatModelLoadDot();
@@ -3595,11 +3605,15 @@ async function runChatRequest(assistantMsg) {
           // index.html was written — transition from loading screen to live preview.
           assistantMsg.artifactGenerating = false;
           const url = data?.url || assistantMsg.artifactUrl || "";
+          const panel = $("chat-artifact-panel");
           const frame = $("chat-artifact-frame");
+          if (panel) panel.hidden = false;
           if (frame && url) {
             frame.removeAttribute("srcdoc");
             frame.src = url;
           }
+          // Close options panel so artifact is visible on mobile
+          $("chat-view")?.classList.remove("chat-options-open");
           scheduleRenderChatMessages();
         } else if (data?.reload) {
           // Reload the iframe if the artifact panel is already visible.
@@ -3921,6 +3935,7 @@ function showArtifactPanel(url, name, generating) {
   const splitter = $("chat-splitter");
   const chatView = $("chat-view");
   if (!panel || !frame) return;
+  console.log("[artifact] showArtifactPanel", { url, name, generating, panelHidden: panel.hidden, frameSrc: frame.src, frameSrcdoc: frame.srcdoc ? "(set)" : "(none)" });
   if (title && name) title.textContent = name;
   if (generating) {
     const loadingText = t("chat.artifact.generating");

@@ -121,10 +121,27 @@ func artifactFullToolDefinitions() []any {
 
 // artifactSystemPrompt returns the system prompt injected when artifacts mode is on.
 func artifactSystemPrompt() string {
-	return `You are a helpful assistant that can also create web projects with a live preview.
-To start a new project, you MUST first call the tool 'create_artifact' with a name and description. In response to 'create_artifact', you will receive the filesystem tools (write_file, read_file, list_dir, exec) to build your project.
+	return `You are a helpful assistant. If the user wants you to create a web project, display a web page, design a window interface and show it, or explain/visualize something using a website, you MUST call the tool 'create_artifact' with a name and description to initialize the project space.
 Do not attempt to write files or execute commands before calling 'create_artifact'.
 When building a web project, write the files starting with index.html as the entry point.
+Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
+IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.`
+}
+
+// artifactExistingSystemPrompt returns the system prompt injected when modifying an existing project.
+func artifactExistingSystemPrompt() string {
+	return `You are a helpful assistant. You are working on an EXISTING project workspace. You must use the following tools to inspect, edit, and build the project:
+- 'write_file': Create or overwrite a file in the project. Arguments:
+  * 'path': Relative path inside the project (e.g. index.html, styles.css, js/app.js)
+  * 'content': Full file content
+- 'read_file': Read the contents of an existing file. Arguments:
+  * 'path': Relative path inside the project
+- 'list_dir': List files and folders in a directory. Arguments:
+  * 'path': Relative path inside the project (default '.')
+- 'exec': Run a shell command in the project directory (e.g., to install npm packages, compile code, etc.). Arguments:
+  * 'command': The shell command to run
+
+When building or updating a web project, write the files starting with index.html as the entry point.
 Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
 IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.`
 }
@@ -132,13 +149,12 @@ IMPORTANT: All file paths are relative to the project root. Do not use absolute 
 // buildArtifactSystemPrompt returns the system prompt, including a listing of
 // existing files when iterating on a previously created artifact.
 func buildArtifactSystemPrompt(artifactDir string) string {
-	base := artifactSystemPrompt()
 	if artifactDir == "" {
-		return base
+		return artifactSystemPrompt()
 	}
 	entries, err := os.ReadDir(artifactDir)
 	if err != nil || len(entries) == 0 {
-		return base
+		return artifactSystemPrompt()
 	}
 	var files []string
 	for _, e := range entries {
@@ -148,8 +164,8 @@ func buildArtifactSystemPrompt(artifactDir string) string {
 			files = append(files, e.Name())
 		}
 	}
-	return base + "\n\n" + fmt.Sprintf(
-		"You are working on an EXISTING project. The following files are already present:\n  %s\n"+
+	return artifactExistingSystemPrompt() + "\n\n" + fmt.Sprintf(
+		"The following files are already present in the workspace:\n  %s\n"+
 			"Use read_file to inspect current files before making changes. Edit files with write_file to update them. "+
 			"Only recreate files that need changes — do not rewrite the entire project unless necessary.",
 		strings.Join(files, "\n  "))

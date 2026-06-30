@@ -592,6 +592,11 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			if toolErr != nil {
 				out = "Error: " + toolErr.Error()
 			}
+			if toolErr != nil || strings.HasPrefix(out, "Error:") {
+				if guide := toolUsageGuide(n); guide != "" {
+					out += guide
+				}
+			}
 			out = truncateRunes(out, maxToolResultRunes)
 
 			// Handle create_artifact: reveal the artifact panel.
@@ -680,6 +685,53 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 // isWebTool returns true for the web tools (web_search, web_fetch).
 func isWebTool(name string) bool {
 	return name == "web_search" || name == "web_fetch"
+}
+
+func toolUsageGuide(name string) string {
+	switch name {
+	case "write_file":
+		return "\n\nCorrect usage of 'write_file':\n" +
+			"- Description: Create or overwrite a file in the project.\n" +
+			"- Required Arguments:\n" +
+			"  * 'path': string (relative path inside the project, e.g. 'index.html', 'js/app.js')\n" +
+			"  * 'content': string (complete file content)"
+	case "read_file":
+		return "\n\nCorrect usage of 'read_file':\n" +
+			"- Description: Read the contents of a file.\n" +
+			"- Required Arguments:\n" +
+			"  * 'path': string (relative path of the file, e.g. 'index.html')"
+	case "list_dir":
+		return "\n\nCorrect usage of 'list_dir':\n" +
+			"- Description: List files and folders in a directory.\n" +
+			"- Optional Arguments:\n" +
+			"  * 'path': string (relative directory path, e.g. '.' or 'css')"
+	case "exec":
+		return "\n\nCorrect usage of 'exec':\n" +
+			"- Description: Execute a shell command in the project directory.\n" +
+			"- Required Arguments:\n" +
+			"  * 'command': string (shell command to run, e.g. 'npm install')"
+	case "create_artifact":
+		return "\n\nCorrect usage of 'create_artifact':\n" +
+			"- Description: Initialize a new project space.\n" +
+			"- Required Arguments:\n" +
+			"  * 'name': string (display name)\n" +
+			"- Optional Arguments:\n" +
+			"  * 'description': string"
+	case "web_search":
+		return "\n\nCorrect usage of 'web_search':\n" +
+			"- Description: Search the public web for information.\n" +
+			"- Required Arguments:\n" +
+			"  * 'query': string (search query)\n" +
+			"- Optional Arguments:\n" +
+			"  * 'max_results': integer"
+	case "web_fetch":
+		return "\n\nCorrect usage of 'web_fetch':\n" +
+			"- Description: Fetch main text content of a URL.\n" +
+			"- Required Arguments:\n" +
+			"  * 'url': string (http/https URL)"
+	default:
+		return ""
+	}
 }
 
 type toolSentState struct {

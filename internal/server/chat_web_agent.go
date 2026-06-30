@@ -240,6 +240,11 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 			if err != nil {
 				out = "Error: " + err.Error()
 			}
+			if err != nil || strings.HasPrefix(out, "Error:") {
+				if guide := toolUsageGuide(n); guide != "" {
+					out += guide
+				}
+			}
 			out = truncateRunes(out, maxToolResultRunes)
 			msgs = append(msgs, ollama.ChatMessage{
 				Role:     "tool",

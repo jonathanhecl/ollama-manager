@@ -20,9 +20,9 @@ import (
 
 const maxArtifactRounds = 30
 
-// artifactFullToolDefinitions returns all tool schemas for artifact creation.
-// These are always available; the model decides when to create or iterate.
-func artifactFullToolDefinitions() []any {
+// artifactOperationalToolDefinitions returns filesystem and execution tool schemas.
+// These are available once an artifact has been initialized.
+func artifactOperationalToolDefinitions() []any {
 	return []any{
 		map[string]any{
 			"type": "function",
@@ -90,27 +90,6 @@ func artifactFullToolDefinitions() []any {
 						"command": map[string]any{
 							"type":        "string",
 							"description": "Shell command to run",
-						},
-					},
-				},
-			},
-		},
-		map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name":        "create_artifact",
-				"description": "Mark the project as ready for preview. Call this AFTER creating all necessary files (especially index.html). The user will see a live preview of the project.",
-				"parameters": map[string]any{
-					"type":     "object",
-					"required": []string{"name"},
-					"properties": map[string]any{
-						"name": map[string]any{
-							"type":        "string",
-							"description": "Display name for the artifact",
-						},
-						"description": map[string]any{
-							"type":        "string",
-							"description": "Short description of what the artifact does",
 						},
 					},
 				},
@@ -417,7 +396,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 
 		var tools []any
 		if createArtifactCalled {
-			tools = artifactFullToolDefinitions()
+			tools = artifactOperationalToolDefinitions()
 		} else {
 			// Initially, only expose create_artifact tool.
 			// This forces the agent to call create_artifact first before it gets files tools.

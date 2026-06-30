@@ -7,7 +7,7 @@
     ./release.ps1 v0.1.0
 #>
 param(
-    [Parameter(Mandatory=$true, Position=0)]
+    [Parameter(Mandatory = $true, Position = 0)]
     [string]$Version
 )
 
@@ -54,7 +54,8 @@ $remoteUrl = (git remote get-url origin).Trim()
 if ($remoteUrl -match 'github\.com[:/]([^/]+)/([^/.]+?)(\.git)?$') {
     $owner = $Matches[1]
     $repo = $Matches[2]
-} else {
+}
+else {
     Write-Host "Error: No se pudo determinar el propietario/repositorio de GitHub desde la URL de remote origin: $remoteUrl" -ForegroundColor Red
     exit 1
 }
@@ -114,7 +115,8 @@ try {
     
     Write-Host "Subiendo tag '$Version' a origin..." -ForegroundColor DarkGray
     git push origin $Version
-} catch {
+}
+catch {
     Write-Host "Error: Falló alguna operación de git. Abortando la creación del release en GitHub." -ForegroundColor Red
     # Intenta borrar el tag local para evitar inconsistencias si falló la subida
     git tag -d $Version 2>&1 | Out-Null
@@ -147,7 +149,8 @@ try {
     # Clean the template tag {?name,label}
     $uploadUrlBase = $uploadUrlTemplate -replace '\{.*?\}', ''
     Write-Host "Release creado exitosamente en GitHub: $htmlUrl" -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Host "Error al crear el release en GitHub: $_" -ForegroundColor Red
     if ($_.Exception.Response) {
         $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
@@ -185,8 +188,9 @@ foreach ($asset in $assets) {
     try {
         $uploadResponse = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $uploadHeaders -InFile $filePath
         Write-Host "¡Subida exitosa: $fileName!" -ForegroundColor Green
-    } catch {
-        Write-Host "Error al subir $fileName: $_" -ForegroundColor Red
+    }
+    catch {
+        Write-Host "Error al subir $fileName : $_" -ForegroundColor Red
         if ($_.Exception.Response) {
             $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
             $responseBody = $reader.ReadToEnd()

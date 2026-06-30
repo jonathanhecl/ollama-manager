@@ -2326,7 +2326,9 @@ function renderChatMath(container) {
 function splitThink(raw) {
   const text = String(raw || "");
   const open = text.indexOf("<think>");
-  if (open === -1) return { think: "", answer: text, inThink: false };
+  if (open === -1) {
+    return { think: "", answer: text.replace(/<\/?think>/g, ""), inThink: false };
+  }
   const close = text.indexOf("</think>", open + 7);
   if (close === -1) {
     return {
@@ -2338,11 +2340,69 @@ function splitThink(raw) {
   const before = text.slice(0, open);
   const think = text.slice(open + 7, close);
   const after = text.slice(close + 8);
+  const sub = splitThink(after);
   return {
-    think,
-    answer: (before + after).replace(/<\/?think>/g, ""),
-    inThink: false,
+    think: think + (sub.think ? "\n" + sub.think : ""),
+    answer: (before).replace(/<\/?think>/g, "") + sub.answer,
+    inThink: sub.inThink,
   };
+}
+
+function splitThinkSegment(seg, wasInThink) {
+  const text = String(seg || "");
+  
+  if (wasInThink) {
+    const close = text.indexOf("</think>");
+    if (close === -1) {
+      return {
+        think: text,
+        answer: "",
+        inThink: true,
+        closePrevious: false,
+      };
+    } else {
+      const thinkPart = text.slice(0, close);
+      const remaining = text.slice(close + 8);
+      const sub = splitThinkSegment(remaining, false);
+      return {
+        think: thinkPart + (sub.think ? "\n" + sub.think : ""),
+        answer: sub.answer,
+        inThink: sub.inThink,
+        closePrevious: true,
+      };
+    }
+  }
+
+  const open = text.indexOf("<think>");
+  if (open === -1) {
+    return {
+      think: "",
+      answer: text.replace(/<\/?think>/g, ""),
+      inThink: false,
+      closePrevious: false,
+    };
+  }
+
+  const before = text.slice(0, open);
+  const close = text.indexOf("</think>", open + 7);
+  if (close === -1) {
+    return {
+      think: text.slice(open + 7),
+      answer: before.replace(/<\/?think>/g, ""),
+      inThink: true,
+      closePrevious: false,
+    };
+  } else {
+    const think = text.slice(open + 7, close);
+    const after = text.slice(close + 8);
+    const sub = splitThinkSegment(after, false);
+    return {
+      think: think + (sub.think ? "\n" + sub.think : ""),
+      answer: before.replace(/<\/?think>/g, "") + sub.answer,
+      inThink: sub.inThink,
+      closePrevious: false,
+    };
+  }
 }
 
 function thinkLabel(ms, streaming) {
@@ -2382,11 +2442,33 @@ function flushSegmentToTimeline(assistantMsg, assistantRaw, isFinal) {
   const seg = assistantRaw.slice(start);
   assistantMsg.segmentFlushIndex = assistantRaw.length;
   if (!assistantMsg.timeline) assistantMsg.timeline = [];
-  const parts = splitThink(seg);
-  if (parts.think && String(parts.think).trim()) {
-    assistantMsg.timeline.push({ type: "think", think: parts.think, segId: nanoid() });
+  
+  const wasInThink = assistantMsg._lastSegInThink || false;
+  const parts = splitThinkSegment(seg, wasInThink);
+  assistantMsg._lastSegInThink = parts.inThink;
+
+  if (parts.closePrevious) {
+    let lastThink = null;
+    for (let i = assistantMsg.timeline.length - 1; i >= 0; i--) {
+      if (assistantMsg.timeline[i].type === "think") {
+        lastThink = assistantMsg.timeline[i];
+        break;
+      }
+    }
+    if (lastThink) {
+      if (parts.think && parts.think.trim()) {
+        lastThink.think = (lastThink.think + "\n" + parts.think).trim();
+      }
+    } else if (parts.think && parts.think.trim()) {
+      assistantMsg.timeline.push({ type: "think", think: parts.think, segId: nanoid() });
+    }
+  } else {
+    if (parts.think && parts.think.trim()) {
+      assistantMsg.timeline.push({ type: "think", think: parts.think, segId: nanoid() });
+    }
   }
-  if (parts.answer && String(parts.answer).trim()) {
+
+  if (parts.answer && parts.answer.trim()) {
     assistantMsg.timeline.push({ type: "md", content: parts.answer });
   }
 }
@@ -3452,6 +3534,7 @@ function newAssistantMessage() {
     timeline: [],
     segmentFlushIndex: 0,
     tailThinkOpen: true,
+    _lastSegInThink: false,
   };
 }
 

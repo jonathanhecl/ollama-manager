@@ -122,6 +122,7 @@ func artifactFullToolDefinitions() []any {
 // artifactSystemPrompt returns the system prompt injected when artifacts mode is on.
 func artifactSystemPrompt() string {
 	return `You are a helpful assistant. If the user wants you to create a web project, display a web page, design a window interface and show it, or explain/visualize something using a website, you MUST call the tool 'create_artifact' with a name and description to initialize the project space.
+You must be highly proactive: when the user asks you to build, showcase, explain, or design something, do not just describe it or write code snippets in chat. Directly initialize the workspace via 'create_artifact' and implement the code files immediately.
 Do not attempt to write files or execute commands before calling 'create_artifact'.
 When building a web project, write the files starting with index.html as the entry point.
 Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
@@ -130,7 +131,9 @@ IMPORTANT: All file paths are relative to the project root. Do not use absolute 
 
 // artifactExistingSystemPrompt returns the system prompt injected when modifying an existing project.
 func artifactExistingSystemPrompt() string {
-	return `You are a helpful assistant. You are working on an EXISTING project workspace. You must use the following tools to inspect, edit, and build the project:
+	return `You are a helpful assistant. You are working on an EXISTING project workspace.
+You must be highly proactive: when the user asks for changes, updates, additions, or bug fixes, directly apply those changes to the project files using the filesystem tools. Do not just describe the changes in conversation; implement them immediately in the workspace so the user can see the updated preview.
+You must use the following tools to inspect, edit, and build the project:
 - 'write_file': Create or overwrite a file in the project. Arguments:
   * 'path': Relative path inside the project (e.g. index.html, styles.css, js/app.js)
   * 'content': Full file content

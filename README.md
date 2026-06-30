@@ -2,6 +2,8 @@
 
 Tiny Go web server to manage the [Ollama](https://ollama.com) models installed on a machine.
 
+![ollama-manager Showcase](image.png)
+
 - List models: name, family, parameters, quantization, size, context, install date, loaded state.
 - Live system meters in the top bar: CPU load, memory usage (including RAM used by loaded models), and disk free/used.
 - **Chat** in the browser: talk to a selected model with streaming (SSE), optional *thinking* traces, stop/regenerate, and an optional **web tools** mode (`web_search` + `web_fetch` executed on the server) with a **timeline** UI (think → tool → think → answer).
@@ -43,6 +45,20 @@ GOOS=windows GOARCH=amd64 go build -ldflags "-X 'main.buildTime=$(date +'%F %T')
 # Windows PowerShell example
 $env:CGO_ENABLED = "0"; $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -trimpath -ldflags="-s -w -X 'main.buildTime=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))'" -o ollama-manager .
 ```
+
+### Automated Multiplatform Build & Release (PowerShell)
+
+We provide scripts to compile for all systems and automate GitHub releases locally:
+
+- **Build all platforms**: Compiles for Windows, Linux, and macOS (amd64/arm64) and packages them into `dist/` (binaries inside are named generically `ollama-manager`):
+  ```powershell
+  ./build-all.ps1 -Version v1.0.0
+  ```
+- **Release to GitHub**: Runs the builds, tags the code, pushes commits & tags to GitHub, and uploads the compressed assets to a new GitHub Release via REST API:
+  ```powershell
+  $env:GITHUB_TOKEN = "your_github_token"
+  ./release.ps1 v1.0.0
+  ```
 
 ## Usage
 

@@ -34,6 +34,7 @@ config.json
 # Runtime state: persisted download queue
 jobs.json
 tests*.json
+archived*.json
 
 # Runtime state: generated artifact projects
 artifacts/

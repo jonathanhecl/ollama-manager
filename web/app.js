@@ -3796,11 +3796,11 @@ async function runChatRequest(assistantMsg) {
           const panel = $("chat-artifact-panel");
           const frame = $("chat-artifact-frame");
           if (panel && !panel.hidden && frame && frame.src) {
-            const currentSrc = frame.src;
             frame.removeAttribute("srcdoc");
-            frame.src = "about:blank";
-            // Small delay to allow the file write to settle.
-            setTimeout(() => { frame.src = currentSrc; }, 50);
+            // Bypass browser cache and trigger immediate reload
+            const u = new URL(frame.src, window.location.href);
+            u.searchParams.set("_t", Date.now());
+            frame.src = u.toString();
           }
         } else {
           assistantMsg.artifactUrl = data?.url || "";

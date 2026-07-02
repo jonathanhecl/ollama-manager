@@ -4081,7 +4081,7 @@ function showArtifactPanel(url, name, generating) {
   if (title && name) title.textContent = name;
   if (generating) {
     const loadingText = t("chat.artifact.generating");
-    frame.src = "about:blank";
+    frame.removeAttribute("src");
     frame.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
       + 'html,body{margin:0;height:100%;background:#0d0d0d;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}'
       + '.loader{color:#888;font-size:1.1rem;letter-spacing:.03em;display:flex;align-items:center;gap:.6rem}'

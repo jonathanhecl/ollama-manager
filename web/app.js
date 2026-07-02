@@ -2532,8 +2532,9 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     let d = escapeHtml(e.artifact_name);
     if (e.description) d += ` — <span class="muted">${escapeHtml(e.description)}</span>`;
     const msg = chatMessages.find((x) => x.id === msgId);
-    if (msg && msg.artifactTimestamp) {
-      d += ` <span class="chat-tool-runes mono" style="margin-left: 8px;">[folder: ${msg.artifactTimestamp}]</span>`;
+    const timestamp = (msg && msg.artifactTimestamp) || activeArtifactTimestamp;
+    if (timestamp) {
+      d += ` <span class="chat-tool-runes mono" style="margin-left: 8px;">[folder: ${timestamp}]</span>`;
     }
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   }
@@ -3739,6 +3740,7 @@ async function runChatRequest(assistantMsg) {
       if (event === "artifact") {
         if (data?.timestamp) {
           assistantMsg.artifactTimestamp = data.timestamp;
+          activeArtifactTimestamp = data.timestamp;
         }
         if (data?.generating) {
           // create_artifact was called — show loading screen, don't load URL yet.

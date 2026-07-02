@@ -2994,7 +2994,15 @@ function updateLiveAssistantMetrics(msg, deltaText) {
   }
   msg.tokens = msg.completionTokens;
   if (msg.elapsedMs > 0) {
-    msg.tps = msg.completionTokens / (msg.elapsedMs / 1000);
+    let activeElapsedMs = msg.elapsedMs;
+    if (msg._toolActiveStart) {
+      const currentToolDuration = Date.now() - msg._toolActiveStart;
+      activeElapsedMs -= ((msg._toolTotalTimeMs || 0) + currentToolDuration);
+    } else {
+      activeElapsedMs -= (msg._toolTotalTimeMs || 0);
+    }
+    activeElapsedMs = Math.max(1, activeElapsedMs);
+    msg.tps = msg.completionTokens / (activeElapsedMs / 1000);
   }
 }
 
@@ -3810,6 +3818,9 @@ async function runChatRequest(assistantMsg) {
             showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
           }
         } else if (data?.phase === "start") {
+          if (!assistantMsg._toolActiveStart) {
+            assistantMsg._toolActiveStart = Date.now();
+          }
           // Upgrade 'generating' entries to 'running', or add new if none.
           let upgraded = false;
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
@@ -3853,6 +3864,11 @@ async function runChatRequest(assistantMsg) {
             showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
           }
         } else if (data?.phase === "done") {
+          if (assistantMsg._toolActiveStart) {
+            const duration = Date.now() - assistantMsg._toolActiveStart;
+            assistantMsg._toolTotalTimeMs = (assistantMsg._toolTotalTimeMs || 0) + duration;
+            assistantMsg._toolActiveStart = null;
+          }
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
             const e = assistantMsg.toolLog[i];
             if (e.name === data.name && e.status === "running") {

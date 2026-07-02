@@ -3919,8 +3919,6 @@ async function runChatRequest(assistantMsg) {
         if (data?.total != null) {
           assistantMsg.totalSteps = data.total;
         }
-        const thinkDelta = data?.message?.thinking || "";
-        const contentDelta = data?.message?.content || "";
         if (thinkDelta) {
           if (!assistantMsg.thinkBlockStarted) {
             assistantRaw += "<think>\n";

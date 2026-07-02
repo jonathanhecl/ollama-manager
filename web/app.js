@@ -3682,14 +3682,18 @@ async function runChatRequest(assistantMsg) {
   if (webToolsOn) payload.web_tools = true;
   if (artifactsOn) {
     payload.artifacts = true;
-    // Find the most recent artifact URL in chat history to iterate on it.
-    for (let i = chatMessages.length - 1; i >= 0; i--) {
-      const msg = chatMessages[i];
-      if (msg.artifactUrl) {
-        const match = String(msg.artifactUrl).match(/\/api\/artifacts\/([^\/]+)\//);
-        if (match) {
-          payload.artifact_dir = match[1];
-          break;
+    if (activeArtifactTimestamp) {
+      payload.artifact_dir = activeArtifactTimestamp;
+    } else {
+      // Find the most recent artifact URL in chat history to iterate on it.
+      for (let i = chatMessages.length - 1; i >= 0; i--) {
+        const msg = chatMessages[i];
+        if (msg.artifactUrl) {
+          const match = String(msg.artifactUrl).match(/\/api\/artifacts\/([^\/]+)\//);
+          if (match) {
+            payload.artifact_dir = match[1];
+            break;
+          }
         }
       }
     }

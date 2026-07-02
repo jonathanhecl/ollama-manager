@@ -290,6 +290,9 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		return execInDir(ctx, artifactDir, command)
 
 	case "create_artifact":
+		if artifactDir != "" {
+			return "Error: an artifact is already active in this session. Do NOT call create_artifact again. You must modify files in the existing project workspace using write_file instead.", nil
+		}
 		// No I/O — the loop handles sending the SSE artifact event.
 		return "artifact ready", nil
 

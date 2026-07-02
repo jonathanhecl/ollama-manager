@@ -115,7 +115,12 @@ You must be highly proactive: when the user asks you to build, showcase, explain
 Do not attempt to write files or execute commands before calling 'create_artifact'.
 When building a web project, write the files starting with index.html as the entry point.
 Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
-IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.`
+IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.
+
+UI/CONVERSATION RULES:
+1. Do NOT write, repeat, or output code blocks in your chat response when you are writing/editing them using the file tools. The user will see the code and run it in the preview panel automatically.
+2. Be extremely concise in your chat messages. Do NOT explain how you are going to do it or what code you are writing in excessive detail. Keep conversational text to 1-2 brief sentences max, prioritizing tool calls.
+3. Your primary goal is to build and implement the artifact in the workspace. Conversational text is secondary and should be kept minimal.`
 }
 
 // artifactExistingSystemPrompt returns the system prompt injected when modifying an existing project.
@@ -135,7 +140,12 @@ You must use the following tools to inspect, edit, and build the project:
 
 When building or updating a web project, write the files starting with index.html as the entry point.
 Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
-IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.`
+IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.
+
+UI/CONVERSATION RULES:
+1. Do NOT write, repeat, or output code blocks in your chat response when you are writing/editing them using the file tools. The user will see the code and run it in the preview panel automatically.
+2. Be extremely concise in your chat messages. Do NOT explain how you are going to do it or what code you are writing in excessive detail. Keep conversational text to 1-2 brief sentences max, prioritizing tool calls.
+3. Your primary goal is to build and implement the artifact in the workspace. Conversational text is secondary and should be kept minimal.`
 }
 
 // buildArtifactSystemPrompt returns the system prompt, including a listing of

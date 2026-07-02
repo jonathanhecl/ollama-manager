@@ -275,7 +275,7 @@ let sort = { col: "modified_at", dir: "desc" };
 try {
   const saved = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
   if (saved && saved.col) sort = saved;
-} catch {}
+} catch { }
 
 // ---------- API ----------
 async function api(path, opts = {}) {
@@ -286,7 +286,7 @@ async function api(path, opts = {}) {
   }
   if (!res.ok) {
     let err = res.statusText;
-    try { const j = await res.json(); if (j.error) err = j.error; } catch {}
+    try { const j = await res.json(); if (j.error) err = j.error; } catch { }
     throw new Error(err);
   }
   return res.json();
@@ -681,14 +681,14 @@ function patchDetailLoadedState() {
 
 function sortKey(m, col) {
   switch (col) {
-    case "name":           return (m.name || "").toLowerCase();
-    case "family":         return (m.family || "").toLowerCase();
+    case "name": return (m.name || "").toLowerCase();
+    case "family": return (m.family || "").toLowerCase();
     case "parameter_size": return parseParamSize(m.parameter_size);
-    case "quantization":   return (m.quantization || "").toLowerCase();
+    case "quantization": return (m.quantization || "").toLowerCase();
     case "context_length": return Number(m.context_length) || 0;
-    case "size":           return Number(m.size) || 0;
-    case "modified_at":    return new Date(m.modified_at).getTime() || 0;
-    default:               return "";
+    case "size": return Number(m.size) || 0;
+    case "modified_at": return new Date(m.modified_at).getTime() || 0;
+    default: return "";
   }
 }
 
@@ -731,9 +731,9 @@ function applySort(arr) {
 function renderTable() {
   updateSortIndicators();
   const tbody = $("models-tbody");
-  
+
   // Filter models based on archived state
-  const filteredModels = models.filter(m => !!m.archived === showArchivedOnly).map(m => ({...m}));
+  const filteredModels = models.filter(m => !!m.archived === showArchivedOnly).map(m => ({ ...m }));
 
   if (!filteredModels.length && showArchivedOnly) {
     tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
@@ -1391,7 +1391,7 @@ function updateChatCapabilityUI() {
   $("chat-think-wrap").hidden = !canThinkToggle;
   $("chat-web-tools-wrap").hidden = !canTools;
   $("chat-artifacts-wrap").hidden = !canTools;
-  
+
   const imgOpts = $("chat-image-options-wrap");
   if (imgOpts) imgOpts.hidden = !isImageModel;
   const sysField = $("chat-system-field");
@@ -1479,7 +1479,7 @@ function resetChatState() {
   stopAudioRecording(true);
   stopSpeechPlayback();
   if (chatAbortController) {
-    try { chatAbortController.abort(); } catch (_) {}
+    try { chatAbortController.abort(); } catch (_) { }
     chatAbortController = null;
   }
   chatStreamLock = false;
@@ -2059,7 +2059,7 @@ function showChatViewWithModel(name) {
   updateChatCapabilityUI();
   updateChatContextMeter();
   void applyChatDefaultsForModel(name, true);
-  
+
   const model = modelByName(name);
   if (model && model.digest) {
     const urlDigest = model.digest.replace(":", "-");
@@ -2105,7 +2105,7 @@ async function handleRouting() {
           modelIDs = data.modelIDs || [];
           groupId = data.groupId || "";
         }
-      } catch {}
+      } catch { }
     }
     showBatteryProgressView(modelIDs, id, groupId);
   } else if (path.startsWith("/tests/battery/results/")) {
@@ -2353,7 +2353,7 @@ function splitThink(raw) {
 
 function splitThinkSegment(seg, wasInThink) {
   const text = String(seg || "");
-  
+
   if (wasInThink) {
     const close = text.indexOf("</think>");
     if (close === -1) {
@@ -2445,7 +2445,7 @@ function flushSegmentToTimeline(assistantMsg, assistantRaw, isFinal) {
   const seg = assistantRaw.slice(start);
   assistantMsg.segmentFlushIndex = assistantRaw.length;
   if (!assistantMsg.timeline) assistantMsg.timeline = [];
-  
+
   const wasInThink = assistantMsg._lastSegInThink || false;
   const parts = splitThinkSegment(seg, wasInThink);
   assistantMsg._lastSegInThink = parts.inThink;
@@ -2510,12 +2510,12 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isCreateArt = e.name === "create_artifact";
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
-    : isWrite ? t("chat.tool.write_file")
-    : isRead ? t("chat.tool.read_file")
-    : isList ? t("chat.tool.list_dir")
-    : isExec ? t("chat.tool.exec")
-    : isCreateArt ? t("chat.tool.create_artifact")
-      : escapeHtml(e.name);
+      : isWrite ? t("chat.tool.write_file")
+        : isRead ? t("chat.tool.read_file")
+          : isList ? t("chat.tool.list_dir")
+            : isExec ? t("chat.tool.exec")
+              : isCreateArt ? t("chat.tool.create_artifact")
+                : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -2948,7 +2948,7 @@ function startThinkTicker(msg) {
   chatThinkTicker = setInterval(() => {
     if (!msg || !msg.inThink || !msg.thinkStartedAt) return;
     msg.thinkMs = Date.now() - msg.thinkStartedAt;
-    
+
     document.querySelectorAll(`details.chat-think[data-id="${msg.id}"]`).forEach((details) => {
       const summary = details.querySelector("summary");
       if (summary) {
@@ -3120,21 +3120,21 @@ function setRecordButtonState(isRecording) {
 
 function releaseAudioRecorder() {
   if (chatAudioProcessor) {
-    try { chatAudioProcessor.disconnect(); } catch {}
+    try { chatAudioProcessor.disconnect(); } catch { }
     chatAudioProcessor.onaudioprocess = null;
     chatAudioProcessor = null;
   }
   if (chatAudioSource) {
-    try { chatAudioSource.disconnect(); } catch {}
+    try { chatAudioSource.disconnect(); } catch { }
     chatAudioSource = null;
   }
   if (chatAudioContext) {
-    try { chatAudioContext.close(); } catch {}
+    try { chatAudioContext.close(); } catch { }
     chatAudioContext = null;
   }
   if (chatRecorderStream) {
     for (const tr of chatRecorderStream.getTracks()) {
-      try { tr.stop(); } catch {}
+      try { tr.stop(); } catch { }
     }
     chatRecorderStream = null;
   }
@@ -3183,7 +3183,7 @@ function stopAudioRecording(silent = false) {
   if (!chatIsRecording) return;
   chatIsRecording = false;
   setRecordButtonState(false);
-  
+
   if (silent) {
     if (chatAudioProcessor) {
       chatAudioProcessor.onaudioprocess = null;
@@ -3191,15 +3191,15 @@ function stopAudioRecording(silent = false) {
     releaseAudioRecorder();
     return;
   }
-  
+
   const buffers = chatAudioBuffers.slice();
   const sampleRate = chatAudioSampleRate;
   releaseAudioRecorder();
-  
+
   if (!buffers.length || !sampleRate) return;
   const blob = createWavBlob(buffers, sampleRate);
   if (blob.size === 0) return;
-  
+
   const file = new File([blob], `recording-${Date.now()}.wav`, { type: "audio/wav" });
   addFiles([file]);
 }
@@ -3436,7 +3436,7 @@ function formatEmbeddingResult(vec) {
 
 function stopSpeechPlayback() {
   if (!window.speechSynthesis) return;
-  try { window.speechSynthesis.cancel(); } catch {}
+  try { window.speechSynthesis.cancel(); } catch { }
   speakingMsgId = "";
 }
 
@@ -3532,7 +3532,7 @@ function updateStreamBar() {
 
 function stopChatGeneration() {
   if (!chatStreamLock || !chatAbortController) return;
-  try { chatAbortController.abort(); } catch (_) {}
+  try { chatAbortController.abort(); } catch (_) { }
 }
 
 function newAssistantMessage() {
@@ -3677,7 +3677,7 @@ async function runChatRequest(assistantMsg) {
     for (let i = chatMessages.length - 1; i >= 0; i--) {
       const msg = chatMessages[i];
       if (msg.artifactUrl) {
-        const match = String(msg.artifactUrl).match(/\/api\/artifacts\/(\d+)\//);
+        const match = String(msg.artifactUrl).match(/\/api\/artifacts\/([^\/]+)\//);
         if (match) {
           payload.artifact_dir = match[1];
           break;
@@ -3707,7 +3707,7 @@ async function runChatRequest(assistantMsg) {
       try {
         const j = await res.json();
         if (j.error) msg = j.error;
-      } catch {}
+      } catch { }
       throw new Error(msg || "chat failed");
     }
     await readSSEStream(res, async (event, data) => {
@@ -3717,13 +3717,13 @@ async function runChatRequest(assistantMsg) {
         const contentDelta = data?.message?.content || "";
         const toolCalls = data?.message?.tool_calls;
         if (thinkDelta || contentDelta || toolCalls) {
-          console.log("[chat] chunk", {
-            thinking: thinkDelta ? thinkDelta.slice(0, 200) : "",
-            content: contentDelta ? contentDelta.slice(0, 200) : "",
-            tool_calls: toolCalls,
-            done: data?.done,
-            eval_count: data?.eval_count,
-          });
+          // console.log("[chat] chunk", {
+          //   thinking: thinkDelta ? thinkDelta.slice(0, 200) : "",
+          //   content: contentDelta ? contentDelta.slice(0, 200) : "",
+          //   tool_calls: toolCalls,
+          //   done: data?.done,
+          //   eval_count: data?.eval_count,
+          // });
         }
       } else {
         console.log(`[chat] event:${event}`, data);
@@ -3750,7 +3750,7 @@ async function runChatRequest(assistantMsg) {
           if (frame && url) {
             frame.removeAttribute("srcdoc");
             frame.src = url;
-            const match = String(url).match(/\/api\/artifacts\/(\d+)\//);
+            const match = String(url).match(/\/api\/artifacts\/([^\/]+)\//);
             if (match) {
               activeArtifactTimestamp = match[1];
             }
@@ -4103,9 +4103,9 @@ function showArtifactPanel(url, name, generating) {
   const chatView = $("chat-view");
   if (!panel || !frame) return;
   console.log("[artifact] showArtifactPanel", { url, name, generating, panelHidden: panel.hidden, frameSrc: frame.src, frameSrcdoc: frame.srcdoc ? "(set)" : "(none)" });
-  
+
   if (url) {
-    const match = String(url).match(/\/api\/artifacts\/(\d+)\//);
+    const match = String(url).match(/\/api\/artifacts\/([^\/]+)\//);
     if (match) {
       activeArtifactTimestamp = match[1];
     }
@@ -4232,7 +4232,7 @@ function bindChatEvents() {
     updateChatCapabilityUI();
     updateChatContextMeter();
     void applyChatDefaultsForModel($("chat-model").value, true);
-    
+
     const name = $("chat-model").value;
     const model = modelByName(name);
     if (model && model.digest) {
@@ -4635,7 +4635,7 @@ function connectJobsStream() {
       jobs = new Map((data.jobs || []).map((j) => [j.id, j]));
       queuePaused = !!data.queue_paused;
       onJobsChanged();
-    } catch {}
+    } catch { }
   });
 
   jobsStream.addEventListener("update", (ev) => {
@@ -4654,7 +4654,7 @@ function connectJobsStream() {
         toast(t("downloads.installed", { name: j.name || "model" }), "success");
         refreshModels();
       }
-    } catch {}
+    } catch { }
   });
 
   jobsStream.addEventListener("remove", (ev) => {
@@ -4664,7 +4664,7 @@ function connectJobsStream() {
       if (!data.id) return;
       jobs.delete(data.id);
       onJobsChanged();
-    } catch {}
+    } catch { }
   });
 
   jobsStream.onopen = () => { jobsBackoffMs = 1000; };
@@ -5946,7 +5946,7 @@ async function cancelBatteryRun() {
   try {
     const data = JSON.parse(saved);
     runID = data.runID || "";
-  } catch {}
+  } catch { }
   if (!runID) return;
   try {
     await api("/api/runner/runs/" + encodeURIComponent(runID) + "/cancel", { method: "POST" });
@@ -6589,7 +6589,7 @@ document.addEventListener("visibilitychange", () => {
           }
           pollBatteryProgress(data.runID, data.modelIDs || []);
         }
-      } catch {}
+      } catch { }
     }
   }
 });

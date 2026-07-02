@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -372,17 +371,12 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 	// writes a file. This avoids leaving empty artifact folders for messages
 	// that never create anything.
 	var artifactDir string
-	var ts int64
+	var ts string
 	if body.ArtifactDir != "" {
 		candidate := filepath.Join("artifacts", filepath.Clean(body.ArtifactDir))
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			artifactDir = candidate
-			// Extract timestamp from dir name for preview URL.
-			if base := filepath.Base(artifactDir); base != "" {
-				if parsed, err := strconv.ParseInt(base, 10, 64); err == nil {
-					ts = parsed
-				}
-			}
+			ts = filepath.Base(artifactDir)
 			log.Printf("[artifact] reusing existing dir: %s", artifactDir)
 		}
 	}
@@ -393,8 +387,8 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		if artifactDir != "" {
 			return nil
 		}
-		ts = time.Now().Unix()
-		artifactDir = filepath.Join("artifacts", fmt.Sprintf("%d", ts))
+		ts = fmt.Sprintf("%s %s", time.Now().Format("2006-01-02 15-04-05"), cleanModelName(body.Model))
+		artifactDir = filepath.Join("artifacts", ts)
 		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 			return fmt.Errorf("create artifact dir: %w", err)
 		}
@@ -629,7 +623,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 				if artName == "" {
 					artName = "Artifact"
 				}
-				previewURL := fmt.Sprintf("/api/artifacts/%d/", ts)
+				previewURL := fmt.Sprintf("/api/artifacts/%s/", ts)
 				indexPath := filepath.Join(artifactDir, "index.html")
 				hasIndex := false
 				if info, err := os.Stat(indexPath); err == nil && !info.IsDir() {
@@ -656,7 +650,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			if n == "write_file" && toolErr == nil {
 				writePath, _ := parseToolArgs(tc.Function.Arguments)["path"].(string)
 				normalizedPath := strings.TrimPrefix(strings.ToLower(writePath), "./")
-				previewURL := fmt.Sprintf("/api/artifacts/%d/", ts)
+				previewURL := fmt.Sprintf("/api/artifacts/%s/", ts)
 				if !artifactLoaded && normalizedPath == "index.html" {
 					artifactLoaded = true
 					send("artifact", map[string]any{
@@ -755,4 +749,16 @@ type toolSentState struct {
 	path         string
 	command      string
 	artifactName string
+}
+
+func cleanModelName(model string) string {
+	s := strings.ReplaceAll(model, ":", "-")
+	invalid := []string{"\\", "/", "*", "?", "\"", "<", ">", "|", " ", "\n", "\r", "\t"}
+	for _, char := range invalid {
+		s = strings.ReplaceAll(s, char, "-")
+	}
+	if len(s) > 32 {
+		s = s[:32]
+	}
+	return strings.Trim(s, "-")
 }

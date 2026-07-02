@@ -162,6 +162,9 @@ func buildArtifactSystemPrompt(artifactDir string) string {
 		if e.IsDir() {
 			files = append(files, e.Name()+"/")
 		} else {
+			if e.Name() == "prompt.txt" {
+				continue
+			}
 			files = append(files, e.Name())
 		}
 	}
@@ -241,6 +244,9 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		if !isPathSafe(artifactDir, full) {
 			return "Error: path escapes project directory", nil
 		}
+		if filepath.Clean(full) == filepath.Clean(filepath.Join(artifactDir, "prompt.txt")) {
+			return "Error: file not found", nil
+		}
 		b, err := os.ReadFile(full)
 		if err != nil {
 			return "", err
@@ -262,6 +268,9 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		}
 		var lines []string
 		for _, e := range entries {
+			if !e.IsDir() && e.Name() == "prompt.txt" {
+				continue
+			}
 			kind := "file"
 			if e.IsDir() {
 				kind = "dir"
@@ -393,6 +402,24 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			return fmt.Errorf("create artifact dir: %w", err)
 		}
 		log.Printf("[artifact] created dir on demand: %s", artifactDir)
+
+		// Save initial user prompt to prompt.txt inside the new folder.
+		var initialUserPrompt string
+		for i := len(body.Messages) - 1; i >= 0; i-- {
+			if body.Messages[i].Role == "user" {
+				initialUserPrompt = body.Messages[i].Content
+				break
+			}
+		}
+		if initialUserPrompt != "" {
+			promptPath := filepath.Join(artifactDir, "prompt.txt")
+			if err := os.WriteFile(promptPath, []byte(initialUserPrompt), 0o644); err != nil {
+				log.Printf("[artifact] warning: failed to write prompt.txt: %v", err)
+			} else {
+				log.Printf("[artifact] saved initial user prompt to prompt.txt")
+			}
+		}
+
 		return nil
 	}
 

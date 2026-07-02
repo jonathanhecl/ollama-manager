@@ -2485,13 +2485,13 @@ function toolErrOneLinePeek(s, max) {
   return t.slice(0, max - 1) + "…";
 }
 
-function renderToolErrorBlock(err) {
+function renderToolErrorBlock(err, toolIdx, msgId, open) {
   const text = String(err);
   if (text.length <= TOOL_ERR_COLLAPSE_LEN) {
     return `<div class="chat-tool-err mono">${escapeHtml(text)}</div>`;
   }
   const peek = toolErrOneLinePeek(text, 96);
-  return `<details class="chat-tool-preview chat-tool-err-details">
+  return `<details class="chat-tool-preview chat-tool-err-details" ${open ? "open" : ""} data-msg-id="${escapeHtml(msgId)}" data-tool-idx="${toolIdx}">
   <summary class="chat-tool-err-summary">
     <span class="chat-tool-err-peek mono">${escapeHtml(peek)}</span>
     <span class="chat-tool-err-expand muted">${escapeHtml(t("chat.tool.error_expand", { n: String(text.length) }))}</span>
@@ -2500,7 +2500,7 @@ function renderToolErrorBlock(err) {
 </details>`;
 }
 
-function renderAssistantToolLogEntry(e) {
+function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isSearch = e.name === "web_search";
   const isFetch = e.name === "web_fetch";
   const isWrite = e.name === "write_file";
@@ -2539,14 +2539,14 @@ function renderAssistantToolLogEntry(e) {
   const labelSuffix = st === "generating" ? "…" : "";
   let tail = "";
   if (st === "error" && e.error) {
-    tail += renderToolErrorBlock(e.error);
+    tail += renderToolErrorBlock(e.error, toolIdx, msgId, !!e.open);
   }
   if (st === "ok" && (e.result_preview || e.result_runes)) {
     const metaBits = [];
     if (e.result_runes) metaBits.push(t("chat.tool.chars", { n: e.result_runes }));
     const meta = metaBits.length ? `<span class="chat-tool-runes mono">${escapeHtml(metaBits.join(" · "))}</span>` : "";
     const prev = e.result_preview
-      ? `<details class="chat-tool-preview"><summary>${escapeHtml(t("chat.tool.result_preview"))}</summary><pre>${escapeHtml(e.result_preview)}</pre></details>`
+      ? `<details class="chat-tool-preview" ${e.open ? "open" : ""} data-msg-id="${escapeHtml(msgId)}" data-tool-idx="${toolIdx}"><summary>${escapeHtml(t("chat.tool.result_preview"))}</summary><pre>${escapeHtml(e.result_preview)}</pre></details>`
       : "";
     tail += `<div class="chat-tool-result-head">${meta}</div>${prev}`;
   }
@@ -2556,7 +2556,7 @@ function renderAssistantToolLogEntry(e) {
 function renderAssistantToolLog(m) {
   const entries = m.toolLog || [];
   if (!entries.length) return "";
-  const lines = entries.map((e) => renderAssistantToolLogEntry(e));
+  const lines = entries.map((e, idx) => renderAssistantToolLogEntry(e, idx, m.id));
   return `<div class="chat-tool-log" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${lines.join("")}</div>`;
 }
 
@@ -2575,7 +2575,8 @@ function renderAssistantTimeline(m) {
       return `<div class="chat-md chat-timeline-md">${renderMarkdownSafe(it.content || "")}</div>`;
     }
     if (it.type === "tool" && it.entry) {
-      return `<div class="chat-tool-log chat-tool-log--tl" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${renderAssistantToolLogEntry(it.entry)}</div>`;
+      const toolIdx = (m.toolLog || []).indexOf(it.entry);
+      return `<div class="chat-tool-log chat-tool-log--tl" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${renderAssistantToolLogEntry(it.entry, toolIdx, m.id)}</div>`;
     }
     return "";
   });
@@ -2811,6 +2812,18 @@ function renderChatMessages() {
       }
     });
   });
+
+  host.querySelectorAll("details.chat-tool-preview").forEach((el) => {
+    el.addEventListener("toggle", () => {
+      const msg = chatMessages.find((x) => x.id === el.dataset.msgId);
+      if (!msg) return;
+      const toolIdx = parseInt(el.dataset.toolIdx, 10);
+      if (msg.toolLog && msg.toolLog[toolIdx]) {
+        msg.toolLog[toolIdx].open = el.open;
+      }
+    });
+  });
+
   renderChatMath(host);
   scrollChatToBottom();
 }
@@ -2931,7 +2944,17 @@ function startThinkTicker(msg) {
   chatThinkTicker = setInterval(() => {
     if (!msg || !msg.inThink || !msg.thinkStartedAt) return;
     msg.thinkMs = Date.now() - msg.thinkStartedAt;
-    scheduleRenderChatMessages();
+    
+    document.querySelectorAll(`details.chat-think[data-id="${msg.id}"]`).forEach((details) => {
+      const summary = details.querySelector("summary");
+      if (summary) {
+        const isTail = details.dataset.tail === "1";
+        const tailStr = msg._accRaw || "";
+        const tailParts = splitThink(tailStr);
+        const inThink = isTail ? tailParts.inThink : msg.inThink;
+        summary.textContent = thinkLabel(msg.thinkMs, inThink);
+      }
+    });
   }, 250);
 }
 
@@ -2948,7 +2971,6 @@ function startStreamTicker(msg, turnStartedAt) {
     msg.elapsedMs = Date.now() - turnStartedAt;
     updateLiveAssistantMetrics(msg, "");
     updateStreamBar();
-    scheduleRenderChatMessages();
   }, 250);
 }
 
@@ -3542,9 +3564,11 @@ function newAssistantMessage() {
 }
 
 /** Keep the chat pane pinned to the latest content (streaming + layout). */
-function scrollChatToBottom() {
+function scrollChatToBottom(force = false) {
   const host = $("chat-scroll-shell") || $("chat-messages");
   if (!host) return;
+  const isAtBottom = host.scrollHeight - host.clientHeight - host.scrollTop < 120;
+  if (!force && !isAtBottom) return;
   const go = () => {
     host.scrollTop = host.scrollHeight;
     $("chat-messages")?.lastElementChild?.scrollIntoView({ block: "end" });
@@ -4005,6 +4029,7 @@ async function runOneChatTurn(text, attachments) {
   assistantMsg.model = $("chat-model").value;
   chatMessages.push(assistantMsg);
   renderChatMessages();
+  scrollChatToBottom(true);
   await runChatRequest(assistantMsg);
 }
 
@@ -4033,6 +4058,7 @@ async function regenerateLastAssistantMessage(clickedId) {
   assistantMsg.model = $("chat-model").value;
   chatMessages.push(assistantMsg);
   renderChatMessages();
+  scrollChatToBottom(true);
   await runChatRequest(assistantMsg);
 }
 

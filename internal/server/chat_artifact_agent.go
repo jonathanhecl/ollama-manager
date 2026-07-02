@@ -95,6 +95,16 @@ func artifactOperationalToolDefinitions() []any {
 				},
 			},
 		},
+		map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "get_artifact_console",
+				"description": "Retrieve the console logs, outputs, and javascript runtime errors captured from the active artifact preview. Use this to verify your code execution or debug runtime issues if the user reports that the app is blank, not working, or has errors.",
+				"parameters": map[string]any{
+					"type": "object",
+				},
+			},
+		},
 	}
 }
 
@@ -264,6 +274,20 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 	case "create_artifact":
 		// No I/O — the loop handles sending the SSE artifact event.
 		return "artifact ready", nil
+
+	case "get_artifact_console":
+		ts := filepath.Base(artifactDir)
+		s.artifactConsoleMu.RLock()
+		logs := s.artifactConsoleLogs[ts]
+		s.artifactConsoleMu.RUnlock()
+		if len(logs) == 0 {
+			return "No console logs or javascript errors captured yet.", nil
+		}
+		start := 0
+		if len(logs) > 50 {
+			start = len(logs) - 50
+		}
+		return strings.Join(logs[start:], "\n"), nil
 
 	default:
 		return fmt.Sprintf("Error: tool %q is not implemented", name), nil

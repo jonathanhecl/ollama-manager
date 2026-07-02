@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1337,22 +1338,111 @@ func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	// Split into timestamp and subpath
 	slashIdx := strings.IndexByte(rest, '/')
+	var cleanPath string
 	if slashIdx < 0 {
 		// Just timestamp — serve index.html
-		http.ServeFile(w, r, filepath.Join("artifacts", rest, "index.html"))
-		return
+		cleanPath = filepath.Join("artifacts", rest, "index.html")
+	} else {
+		ts := rest[:slashIdx]
+		subpath := rest[slashIdx+1:]
+		cleanPath = filepath.Clean(filepath.Join("artifacts", ts, subpath))
+		// Prevent path traversal
+		if !strings.HasPrefix(cleanPath, filepath.Join("artifacts", ts)+string(filepath.Separator)) &&
+			cleanPath != filepath.Join("artifacts", ts) {
+			http.NotFound(w, r)
+			return
+		}
 	}
-	ts := rest[:slashIdx]
-	subpath := rest[slashIdx+1:]
 
-	// Prevent path traversal
-	cleanPath := filepath.Clean(filepath.Join("artifacts", ts, subpath))
-	if !strings.HasPrefix(cleanPath, filepath.Join("artifacts", ts)+string(filepath.Separator)) &&
-		cleanPath != filepath.Join("artifacts", ts) {
-		http.NotFound(w, r)
+	// Serve the file, inject script if it's index.html or ends with .html
+	if strings.HasSuffix(strings.ToLower(cleanPath), ".html") {
+		content, err := os.ReadFile(cleanPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		injected := injectConsoleCaptureScript(content)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(injected)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(injected)
 		return
 	}
+
 	http.ServeFile(w, r, cleanPath)
+}
+
+func (s *Server) handleArtifactConsoleLogs(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Timestamp string `json:"timestamp"`
+		Log       string `json:"log"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if body.Timestamp == "" || body.Log == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing timestamp or log"})
+		return
+	}
+
+	s.artifactConsoleMu.Lock()
+	if s.artifactConsoleLogs == nil {
+		s.artifactConsoleLogs = make(map[string][]string)
+	}
+	s.artifactConsoleLogs[body.Timestamp] = append(s.artifactConsoleLogs[body.Timestamp], body.Log)
+	if len(s.artifactConsoleLogs[body.Timestamp]) > 200 {
+		s.artifactConsoleLogs[body.Timestamp] = s.artifactConsoleLogs[body.Timestamp][len(s.artifactConsoleLogs[body.Timestamp])-200:]
+	}
+	s.artifactConsoleMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func injectConsoleCaptureScript(htmlContent []byte) []byte {
+	script := []byte(`
+<script>
+(function() {
+  const sendLog = (type, msg) => {
+    window.parent.postMessage({ type: 'artifact-console', logType: type, message: msg }, '*');
+  };
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = function() {
+    sendLog('log', Array.from(arguments).map(arg => {
+      try { return typeof arg === 'object' ? JSON.stringify(arg) : String(arg); } catch(e) { return String(arg); }
+    }).join(' '));
+    originalLog.apply(console, arguments);
+  };
+  console.error = function() {
+    sendLog('error', Array.from(arguments).map(arg => {
+      try { return typeof arg === 'object' ? JSON.stringify(arg) : String(arg); } catch(e) { return String(arg); }
+    }).join(' '));
+    originalError.apply(console, arguments);
+  };
+  window.onerror = function(message, source, lineno, colno, error) {
+    sendLog('error', message + ' (' + source + ':' + lineno + ':' + colno + ')');
+  };
+  window.addEventListener('unhandledrejection', function(event) {
+    sendLog('error', 'Unhandled Promise Rejection: ' + event.reason);
+  });
+})();
+</script>`)
+
+	lower := bytes.ToLower(htmlContent)
+	headIdx := bytes.Index(lower, []byte("<head>"))
+	if headIdx >= 0 {
+		insertPos := headIdx + len("<head>")
+		res := make([]byte, 0, len(htmlContent)+len(script))
+		res = append(res, htmlContent[:insertPos]...)
+		res = append(res, script...)
+		res = append(res, htmlContent[insertPos:]...)
+		return res
+	}
+	res := make([]byte, 0, len(htmlContent)+len(script))
+	res = append(res, script...)
+	res = append(res, htmlContent...)
+	return res
 }
 
 // ---------- helpers ----------

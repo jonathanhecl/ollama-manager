@@ -238,6 +238,7 @@ let chatAudioBuffers = [];
 let chatAudioSampleRate = 0;
 let speakingMsgId = "";
 let activeStreamMessage = null;
+let activeArtifactTimestamp = null;
 const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
 const STATUS_REFRESH_MS = 1000;
 const chatModelDefaultsCache = new Map();
@@ -1491,6 +1492,7 @@ function resetChatState() {
   updateStreamBar();
   closeImagePreview();
   hideArtifactPanel();
+  activeArtifactTimestamp = null;
   $("chat-dropzone").hidden = true;
   $("chat-attachments").hidden = true;
   $("chat-attachments").innerHTML = "";
@@ -3705,7 +3707,7 @@ async function runChatRequest(assistantMsg) {
           assistantMsg.artifactName = data?.name || "Artifact";
           assistantMsg.artifactDescription = data?.description || "";
           assistantMsg.artifactGenerating = true;
-          showArtifactPanel(null, assistantMsg.artifactName, true);
+          showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName, true);
           scheduleRenderChatMessages();
         } else if (data?.loaded) {
           // index.html was written — transition from loading screen to live preview.
@@ -3717,6 +3719,10 @@ async function runChatRequest(assistantMsg) {
           if (frame && url) {
             frame.removeAttribute("srcdoc");
             frame.src = url;
+            const match = String(url).match(/\/api\/artifacts\/(\d+)\//);
+            if (match) {
+              activeArtifactTimestamp = match[1];
+            }
           }
           // Close options panel so artifact is visible on mobile
           $("chat-view")?.classList.remove("chat-options-open");
@@ -4064,6 +4070,14 @@ function showArtifactPanel(url, name, generating) {
   const chatView = $("chat-view");
   if (!panel || !frame) return;
   console.log("[artifact] showArtifactPanel", { url, name, generating, panelHidden: panel.hidden, frameSrc: frame.src, frameSrcdoc: frame.srcdoc ? "(set)" : "(none)" });
+  
+  if (url) {
+    const match = String(url).match(/\/api\/artifacts\/(\d+)\//);
+    if (match) {
+      activeArtifactTimestamp = match[1];
+    }
+  }
+
   if (title && name) title.textContent = name;
   if (generating) {
     const loadingText = t("chat.artifact.generating");
@@ -4105,6 +4119,7 @@ function hideArtifactPanel() {
     chatView.style.setProperty("--chat-right-width", "300px");
   }
   chatArtifactVisibleBeforeOptions = false;
+  activeArtifactTimestamp = null;
 }
 
 function swapToOptions(cv) {
@@ -4453,6 +4468,23 @@ function bindChatEvents() {
       }
     });
   }
+
+  window.addEventListener("message", async (e) => {
+    if (e.data && e.data.type === "artifact-console" && activeArtifactTimestamp) {
+      try {
+        await api("/api/artifacts/console", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            timestamp: activeArtifactTimestamp,
+            log: `[${e.data.logType.toUpperCase()}] ${e.data.message}`
+          })
+        });
+      } catch (err) {
+        console.warn("Failed to send console log to server:", err);
+      }
+    }
+  });
 }
 
 // ---------- delete ----------

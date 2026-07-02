@@ -1314,6 +1314,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 0;
+  min-width: 0;
   height: 100%;
   position: relative;
   overflow: hidden;
@@ -1407,7 +1408,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   flex-shrink: 0;
 }
 #chat-model {
-  min-width: 260px;
+  min-width: 120px;
   max-width: 45vw;
   background: #0f0f13;
   color: var(--text);

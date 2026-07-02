@@ -27,7 +27,6 @@ type sandboxStore struct {
 
 // NewSandboxStore creates a manager rooted at baseDir.
 func NewSandboxStore(baseDir string) *sandboxStore {
-	_ = os.MkdirAll(baseDir, 0o700)
 	return &sandboxStore{
 		baseDir:   baseDir,
 		sandboxes: make(map[string]*Sandbox),

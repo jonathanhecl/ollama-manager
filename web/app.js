@@ -2971,9 +2971,18 @@ function stopStreamTicker() {
 
 function startStreamTicker(msg, turnStartedAt) {
   stopStreamTicker();
+  msg._lastChunkAt = Date.now();
+  msg._accumulatedPauseMs = 0;
   chatStreamTicker = setInterval(() => {
     if (!msg) return;
-    msg.elapsedMs = Date.now() - turnStartedAt;
+    const isToolActive = !!msg._toolActiveStart;
+    const timeSinceLastChunk = Date.now() - (msg._lastChunkAt || Date.now());
+    const isStreamIdle = timeSinceLastChunk > 1000;
+    if (isToolActive || isStreamIdle) {
+      msg._accumulatedPauseMs = (msg._accumulatedPauseMs || 0) + 250;
+    }
+    const totalElapsed = Date.now() - turnStartedAt;
+    msg.elapsedMs = Math.max(0, totalElapsed - (msg._accumulatedPauseMs || 0));
     updateLiveAssistantMetrics(msg, "");
     updateStreamBar();
   }, 250);
@@ -2995,15 +3004,7 @@ function updateLiveAssistantMetrics(msg, deltaText) {
   }
   msg.tokens = msg.completionTokens;
   if (msg.elapsedMs > 0) {
-    let activeElapsedMs = msg.elapsedMs;
-    if (msg._toolActiveStart) {
-      const currentToolDuration = Date.now() - msg._toolActiveStart;
-      activeElapsedMs -= ((msg._toolTotalTimeMs || 0) + currentToolDuration);
-    } else {
-      activeElapsedMs -= (msg._toolTotalTimeMs || 0);
-    }
-    activeElapsedMs = Math.max(1, activeElapsedMs);
-    msg.tps = msg.completionTokens / (activeElapsedMs / 1000);
+    msg.tps = msg.completionTokens / (msg.elapsedMs / 1000);
   }
 }
 
@@ -3889,6 +3890,11 @@ async function runChatRequest(assistantMsg) {
         assistantMsg._accRaw = assistantRaw;
         scheduleRenderChatMessages();
       } else if (event === "chunk") {
+        const thinkDelta = data?.message?.thinking || "";
+        const contentDelta = data?.message?.content || "";
+        if (thinkDelta || contentDelta) {
+          assistantMsg._lastChunkAt = Date.now();
+        }
         if (data?.completed != null) {
           assistantMsg.completedSteps = data.completed;
         }

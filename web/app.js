@@ -1490,6 +1490,7 @@ function resetChatState() {
   stopThinkTicker();
   updateStreamBar();
   closeImagePreview();
+  hideArtifactPanel();
   $("chat-dropzone").hidden = true;
   $("chat-attachments").hidden = true;
   $("chat-attachments").innerHTML = "";

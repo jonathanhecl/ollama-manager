@@ -3578,19 +3578,37 @@ function newAssistantMessage() {
 }
 
 /** Keep the chat pane pinned to the latest content (streaming + layout). */
+let lastScrollTime = 0;
 function scrollChatToBottom(force = false) {
   const host = $("chat-scroll-shell") || $("chat-messages");
   if (!host) return;
-  const isAtBottom = host.scrollHeight - host.clientHeight - host.scrollTop < 120;
-  if (!force && !isAtBottom) return;
-  const go = () => {
+  const isStreaming = chatStreamLock;
+  
+  // If not streaming, only scroll if we were already near bottom, or forced
+  if (!force && !isStreaming) {
+    const isAtBottom = host.scrollHeight - host.clientHeight - host.scrollTop < 120;
+    if (!isAtBottom) return;
+  }
+  
+  const now = Date.now();
+  if (isStreaming && now - lastScrollTime < 100) {
+    // Instant update to keep scroll at bottom without lagging behind fast text stream
     host.scrollTop = host.scrollHeight;
-    $("chat-messages")?.lastElementChild?.scrollIntoView({ block: "end" });
+    return;
+  }
+  lastScrollTime = now;
+  
+  const go = () => {
+    const last = $("chat-messages")?.lastElementChild;
+    if (last) {
+      last.scrollIntoView({ behavior: "smooth", block: "end" });
+    } else {
+      host.scrollTop = host.scrollHeight;
+    }
   };
   go();
   requestAnimationFrame(() => {
-    go();
-    requestAnimationFrame(go);
+    host.scrollTop = host.scrollHeight;
   });
 }
 

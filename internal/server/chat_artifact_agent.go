@@ -674,7 +674,11 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 					event["generating"] = true
 				}
 				send("artifact", event)
-				out = "Artifact project created. You now have access to the filesystem tools (write_file, read_file, list_dir, exec) to write your files."
+				absPath, err := filepath.Abs(artifactDir)
+				if err != nil {
+					absPath = artifactDir
+				}
+				out = fmt.Sprintf("Artifact project created at absolute path '%s'. You now have access to the project tools: write_file, read_file, list_dir, exec, and get_artifact_console.", absPath)
 			}
 			// After write_file on an artifact, send the appropriate event:
 			// - loaded: first time index.html is written (transition from loading screen)

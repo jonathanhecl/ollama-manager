@@ -136,6 +136,7 @@ You must use the following tools to inspect, edit, and build the project:
   * 'path': Relative path inside the project (default '.')
 - 'exec': Run a shell command in the project directory (e.g., to install npm packages, compile code, etc.). Arguments:
   * 'command': The shell command to run
+- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors captured from the active artifact preview. Arguments: none.
 
 When building or updating a web project, write the files starting with index.html as the entry point.
 Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
@@ -144,7 +145,8 @@ IMPORTANT: All file paths are relative to the project root. Do not use absolute 
 UI/CONVERSATION RULES:
 1. Do NOT write, repeat, or output code blocks in your chat response when you are writing/editing them using the file tools. The user will see the code and run it in the preview panel automatically.
 2. Be extremely concise in your chat messages. Do NOT explain how you are going to do it or what code you are writing in excessive detail. Keep conversational text to 1-2 brief sentences max, prioritizing tool calls.
-3. Your primary goal is to build and implement the artifact in the workspace. Conversational text is secondary and should be kept minimal.`
+3. Your primary goal is to build and implement the artifact in the workspace. Conversational text is secondary and should be kept minimal.
+4. When the user reports an issue, bug, error, blank screen, or unexpected behavior in the preview, or when you finish implementing/updating the project and want to verify it works, you MUST call 'get_artifact_console' to check for any runtime errors or warning logs before concluding.`
 }
 
 // buildArtifactSystemPrompt returns the system prompt, including a listing of

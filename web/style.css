@@ -270,10 +270,10 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 }
 .model-cap-list { margin-top: 4px; }
 .model-progress {
-  margin-top: 5px;
-  height: 4px;
-  background: #0e0e12;
-  border: 1px solid var(--border);
+  margin-top: 6px;
+  height: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, #0e0e12);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-strong));
   border-radius: 999px;
   overflow: hidden;
   max-width: 240px;
@@ -281,7 +281,8 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 .model-progress-bar {
   height: 100%;
   width: 0;
-  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
   transition: width .3s ease;
 }
 .cell-size, .cell-quant, .cell-params, .cell-ctx { font-family: var(--mono); color: var(--text-dim); }

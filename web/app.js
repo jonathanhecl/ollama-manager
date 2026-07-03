@@ -781,16 +781,8 @@ function renderTable() {
   const infoTitle = t("detail.info_btn");
   const archiveTitle = t("detail.archive_title");
   const unarchiveTitle = t("detail.unarchive_title");
-  tbody.innerHTML = allToRender.map((m) => {
-    const capsHtml = renderCapabilityPills(m.capabilities);
-    const rowClass = m.isPending ? "row pending" : `row${m.name === activeName ? " active" : ""}`;
-    const job = m.job || runningJobByName.get(m.name);
-    const pct = job && job.status === "running" ? Math.max(0, Math.min(100, job.percent || 0)) : 0;
-    const progressHtml = job && job.status === "running"
-      ? `<div class="model-progress"><div class="model-progress-bar" style="width:${pct.toFixed(1)}%"></div></div>`
-      : "";
+  function getRowInnerHtml(m, capsHtml, progressHtml) {
     return `
-    <tr class="${rowClass}" data-name="${escapeHtml(m.name)}" ${m.isPending ? 'title="Downloading..." style="pointer-events: none;"' : ''}>
       <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
       <td class="cell-name">
         <div class="model-name-wrap">
@@ -813,29 +805,165 @@ function renderTable() {
           <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
         ` : ""}
       </td>
-    </tr>
-  `;
-  }).join("");
+    `;
+  }
 
+  // Get existing rows in the DOM to reconcile
+  const existingRows = new Map();
   tbody.querySelectorAll("tr.row").forEach((tr) => {
-    tr.addEventListener("click", (e) => {
-      if (e.target.closest(".info-btn")) return;
-      if (e.target.closest(".delete-btn")) return;
-      showChatViewWithModel(tr.dataset.name);
-    });
+    const name = tr.dataset.name;
+    if (name) existingRows.set(name, tr);
   });
-  tbody.querySelectorAll(".info-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openDetail(btn.dataset.name);
-    });
+
+  // Remove empty row if we have actual models to render
+  const emptyRow = tbody.querySelector("tr.empty");
+  if (emptyRow) {
+    emptyRow.remove();
+  }
+
+  allToRender.forEach((m, idx) => {
+    const capsHtml = renderCapabilityPills(m.capabilities);
+    const job = m.job || runningJobByName.get(m.name);
+    const pct = job && job.status === "running" ? Math.max(0, Math.min(100, job.percent || 0)) : 0;
+    const progressHtml = job && job.status === "running"
+      ? `<div class="model-progress"><div class="model-progress-bar" style="width:${pct.toFixed(1)}%"></div></div>`
+      : "";
+    const isActive = (m.name === activeName);
+    const capsStr = JSON.stringify(m.capabilities || []);
+
+    let tr = existingRows.get(m.name);
+    let needUpdate = false;
+
+    if (tr) {
+      // Check if structural fields changed
+      if (
+        tr._m_isPending !== !!m.isPending ||
+        tr._m_caps !== capsStr ||
+        tr._m_size !== m.size ||
+        tr._m_modified !== m.modified_at ||
+        tr._m_ctx !== m.context_length ||
+        tr._m_family !== m.family ||
+        tr._m_param !== m.parameter_size ||
+        tr._m_quant !== m.quantization
+      ) {
+        needUpdate = true;
+      }
+    }
+
+    if (!tr || needUpdate) {
+      const newTr = document.createElement("tr");
+      newTr.dataset.name = m.name;
+      
+      const rowClass = m.isPending ? "row pending" : `row${isActive ? " active" : ""}`;
+      newTr.className = rowClass;
+      if (m.isPending) {
+        newTr.title = "Downloading...";
+        newTr.style.pointerEvents = "none";
+      }
+
+      newTr.innerHTML = getRowInnerHtml(m, capsHtml, progressHtml);
+
+      // Event listeners
+      newTr.addEventListener("click", (e) => {
+        if (e.target.closest(".info-btn")) return;
+        if (e.target.closest(".delete-btn")) return;
+        showChatViewWithModel(newTr.dataset.name);
+      });
+
+      const infoBtn = newTr.querySelector(".info-btn");
+      if (infoBtn) {
+        infoBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openDetail(infoBtn.dataset.name);
+        });
+      }
+
+      const deleteBtn = newTr.querySelector(".delete-btn");
+      if (deleteBtn) {
+        deleteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          confirmDelete(deleteBtn.dataset.name);
+        });
+      }
+
+      // Save properties to track state
+      newTr._m_isPending = !!m.isPending;
+      newTr._m_loaded = !!m.loaded;
+      newTr._m_active = isActive;
+      newTr._m_pct = pct;
+      newTr._m_caps = capsStr;
+      newTr._m_size = m.size;
+      newTr._m_modified = m.modified_at;
+      newTr._m_ctx = m.context_length;
+      newTr._m_family = m.family;
+      newTr._m_param = m.parameter_size;
+      newTr._m_quant = m.quantization;
+
+      if (tr) {
+        tr.replaceWith(newTr);
+      }
+      tr = newTr;
+    } else {
+      // Re-use and patch in-place
+      // 1. Loaded status
+      if (tr._m_loaded !== !!m.loaded) {
+        tr._m_loaded = !!m.loaded;
+        const dot = tr.querySelector(".state-dot");
+        if (dot) {
+          dot.className = `state-dot${m.loaded ? " loaded" : ""}`;
+          dot.title = m.loaded ? dotLoadedTxt : dotNotLoadedTxt;
+        }
+      }
+
+      // 2. Active class
+      if (tr._m_active !== isActive) {
+        tr._m_active = isActive;
+        tr.classList.toggle("active", isActive);
+      }
+
+      // 3. Progress bar
+      if (tr._m_pct !== pct) {
+        tr._m_pct = pct;
+        const nameBlock = tr.querySelector(".model-name-block");
+        if (nameBlock) {
+          let progressContainer = nameBlock.querySelector(".model-progress");
+          if (pct > 0) {
+            if (!progressContainer) {
+              const tempDiv = document.createElement("div");
+              tempDiv.innerHTML = `<div class="model-progress"><div class="model-progress-bar" style="width:${pct.toFixed(1)}%"></div></div>`;
+              progressContainer = tempDiv.firstElementChild;
+              const modelNameEl = nameBlock.querySelector(".model-name");
+              if (modelNameEl) {
+                modelNameEl.after(progressContainer);
+              } else {
+                nameBlock.prepend(progressContainer);
+              }
+            } else {
+              const bar = progressContainer.querySelector(".model-progress-bar");
+              if (bar) {
+                bar.style.width = `${pct.toFixed(1)}%`;
+              }
+            }
+          } else {
+            if (progressContainer) {
+              progressContainer.remove();
+            }
+          }
+        }
+      }
+    }
+
+    // Move to correct index position
+    const currentChild = tbody.children[idx];
+    if (currentChild !== tr) {
+      tbody.insertBefore(tr, currentChild || null);
+    }
   });
-  tbody.querySelectorAll(".delete-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      confirmDelete(btn.dataset.name);
-    });
-  });
+
+  // Remove any remaining rows
+  while (tbody.children.length > allToRender.length) {
+    tbody.removeChild(tbody.lastChild);
+  }
 }
 
 function updateSortIndicators() {

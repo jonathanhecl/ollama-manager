@@ -50,3 +50,5 @@ ollama-manager.exe
 
 # Built distribution packages
 dist/
+download_history.json
+uninstall_history.json

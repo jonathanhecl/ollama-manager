@@ -239,6 +239,8 @@ let chatAudioSampleRate = 0;
 let speakingMsgId = "";
 let activeStreamMessage = null;
 let activeArtifactTimestamp = null;
+let chatEditingMessageId = "";
+let chatEditingDraft = "";
 const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
 const STATUS_REFRESH_MS = 1000;
 const chatModelDefaultsCache = new Map();
@@ -1615,6 +1617,8 @@ function resetChatState() {
   chatAttachments = [];
   chatPendingQueue = [];
   chatLastUsedTokens = 0;
+  chatEditingMessageId = "";
+  chatEditingDraft = "";
   chatDndDepth = 0;
   stopThinkTicker();
   updateStreamBar();
@@ -2856,14 +2860,25 @@ function renderChatMessages() {
       } else {
         bodyHTML = renderMarkdownSafe(m.content || "");
       }
-    } else {
+    }
+    const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
+    const canEditUser = m.role === "user" && !chatStreamLock && i === chatMessages.length - 2 && chatMessages[i + 1]?.role === "assistant" && chatMessages[i + 1]?.stopped && !chatMessages[i + 1]?.streaming && !chatMessages[i + 1]?.isError;
+    if (isEditingUser) {
+      bodyHTML = `<div class="chat-edit-box">
+  <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(chatEditingDraft)}</textarea>
+  <div class="chat-edit-actions">
+    <button type="button" class="chat-edit-save primary" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(t("chat.edit_save"))}</button>
+    <button type="button" class="chat-edit-cancel ghost">${escapeHtml(t("chat.edit_cancel"))}</button>
+  </div>
+</div>`;
+    } else if (m.role === "user") {
       bodyHTML = `<p>${escapeHtml(m.content || "")}</p>`;
     }
     const roleLabel = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
     const modelLabel = m.role === "assistant" && m.model
       ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
       : "";
-    const hideActions = (m.role === "assistant" && m.streaming) || isImageModel;
+    const hideActions = (m.role === "assistant" && m.streaming) || isImageModel || isEditingUser;
     const ttsPlaying = m.id === speakingMsgId;
     const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
     const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
@@ -2878,6 +2893,13 @@ function renderChatMessages() {
 <rect x="9" y="9" width="11" height="11" rx="2"/>
 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
 </svg></button>`;
+    const editBtn = !hideActions && canEditUser
+      ? `<button type="button" class="btn-icon chat-edit-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.edit_title"))}" aria-label="${escapeHtml(t("chat.edit"))}">
+<svg class="chat-edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M12 20h9"/>
+  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+</svg></button>`
+      : "";
     const isLast = i === chatMessages.length - 1;
     const canRegen = m.role === "assistant" && isLast && !m.streaming;
     const regenBtn = canRegen
@@ -2887,7 +2909,7 @@ function renderChatMessages() {
 </svg></button>`
       : "";
 
-    const footActions = `${regenBtn}${ttsBtn}${copyBtn}`;
+    const footActions = `${editBtn}${regenBtn}${ttsBtn}${copyBtn}`;
     const finalMetrics = m.role === "assistant" && !m.streaming ? assistantMetricText(m) : "";
     const footBlock = footActions || finalMetrics
       ? `<div class="chat-msg-foot">
@@ -4197,6 +4219,8 @@ async function runChatRequest(assistantMsg) {
 }
 
 async function runOneChatTurn(text, attachments) {
+  chatEditingMessageId = "";
+  chatEditingDraft = "";
   const userMsg = {
     id: nanoid(),
     role: "user",
@@ -4236,6 +4260,38 @@ async function regenerateLastAssistantMessage(clickedId) {
   const assistantMsg = newAssistantMessage();
   assistantMsg.model = $("chat-model").value;
   chatMessages.push(assistantMsg);
+  renderChatMessages();
+  scrollChatToBottom(true);
+  await runChatRequest(assistantMsg);
+}
+
+async function editAndResendUserMessage(userId, newText) {
+  if (chatStreamLock) {
+    toast(t("chat.edit_busy"), "error");
+    return;
+  }
+  const idx = chatMessages.findIndex((m) => m.id === userId && m.role === "user");
+  if (idx < 0 || idx !== chatMessages.length - 2) return;
+  const assistant = chatMessages[idx + 1];
+  if (!assistant || assistant.role !== "assistant" || assistant.streaming || !assistant.stopped || assistant.isError) return;
+  if ($("chat-send-btn")?.disabled) {
+    const why = $("chat-send-btn")?.title || t("status.unreachable");
+    toast(why, "error");
+    return;
+  }
+  if (!models.length) {
+    toast(t("chat.no_models"), "error");
+    return;
+  }
+  const trimmed = newText.trim();
+  if (!trimmed && !(chatMessages[idx].attachments || []).length) return;
+  chatMessages[idx].content = trimmed;
+  chatMessages.pop();
+  const assistantMsg = newAssistantMessage();
+  assistantMsg.model = $("chat-model").value;
+  chatMessages.push(assistantMsg);
+  chatEditingMessageId = "";
+  chatEditingDraft = "";
   renderChatMessages();
   scrollChatToBottom(true);
   await runChatRequest(assistantMsg);
@@ -4448,6 +4504,38 @@ function bindChatEvents() {
       speakMessage(msg);
       return;
     }
+    const editB = e.target.closest(".chat-edit-btn");
+    if (editB) {
+      e.preventDefault();
+      const id = editB.getAttribute("data-msg-id");
+      if (!id) return;
+      const msg = chatMessages.find((x) => x.id === id);
+      if (!msg) return;
+      chatEditingMessageId = msg.id;
+      chatEditingDraft = String(msg.content || "");
+      renderChatMessages();
+      const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(id)}"]`);
+      if (ta) {
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      }
+      return;
+    }
+    const saveB = e.target.closest(".chat-edit-save");
+    if (saveB) {
+      e.preventDefault();
+      const id = saveB.getAttribute("data-msg-id");
+      if (id) await editAndResendUserMessage(id, chatEditingDraft);
+      return;
+    }
+    const cancelB = e.target.closest(".chat-edit-cancel");
+    if (cancelB) {
+      e.preventDefault();
+      chatEditingMessageId = "";
+      chatEditingDraft = "";
+      renderChatMessages();
+      return;
+    }
     const btn = e.target.closest(".chat-copy-btn");
     if (!btn) {
       const codeBtn = e.target.closest(".chat-code-copy-btn");
@@ -4467,6 +4555,25 @@ function bindChatEvents() {
     const text = String(msg.content || "");
     const ok = await copyTextToClipboard(text);
     toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
+  });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("input", (e) => {
+    const ta = e.target.closest(".chat-edit-textarea");
+    if (ta) {
+      chatEditingDraft = ta.value;
+    }
+  });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && e.target.closest(".chat-edit-textarea")) {
+      e.preventDefault();
+      const id = e.target.getAttribute("data-msg-id");
+      if (id) void editAndResendUserMessage(id, e.target.value);
+    }
+    if (e.key === "Escape" && e.target.closest(".chat-edit-textarea")) {
+      e.preventDefault();
+      chatEditingMessageId = "";
+      chatEditingDraft = "";
+      renderChatMessages();
+    }
   });
   const stopBtn = $("chat-stop-btn");
   if (stopBtn) {

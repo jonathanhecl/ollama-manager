@@ -1605,6 +1605,51 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   width: 16px;
   height: 16px;
 }
+.chat-edit-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px;
+  opacity: 0.75;
+  color: var(--text-dim);
+}
+.chat-edit-btn:hover { opacity: 1; color: var(--text); border-color: transparent; background: transparent; }
+.chat-edit-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.chat-edit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-edit-textarea {
+  width: 100%;
+  min-height: 80px;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  background: #0e0e12;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 8px 10px;
+  resize: vertical;
+  outline: none;
+}
+.chat-edit-textarea:focus {
+  border-color: var(--accent);
+}
+.chat-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.chat-edit-actions button {
+  padding: 5px 12px;
+  font-size: 13px;
+}
 .chat-role {
   font-size: 11px;
   text-transform: uppercase;

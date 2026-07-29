@@ -171,8 +171,23 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	}
 
 	stops := repairStops(templatePreset)
+	baseStops := extractModelfileStops(show.Modelfile)
+	markdownStops, keptBaseStops := splitMarkdownStops(baseStops)
 	if len(stops) > 0 {
 		parameters["stop"] = stops
+		if len(markdownStops) > 0 {
+			warnings = append(warnings, fmt.Sprintf("The base model declares stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. The stops declared by the selected template preset replace them.", strings.Join(markdownStops, ", ")))
+		}
+	} else if len(markdownStops) > 0 {
+		if len(keptBaseStops) > 0 {
+			// Re-declaring stops in the child model replaces the base list entirely,
+			// which drops the Markdown punctuation stops inherited from the base.
+			stops = keptBaseStops
+			parameters["stop"] = stops
+			warnings = append(warnings, fmt.Sprintf("The base model declares stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. The fixed model re-declares the stop list without them.", strings.Join(markdownStops, ", ")))
+		} else {
+			warnings = append(warnings, fmt.Sprintf("The base model declares only stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. They cannot be removed automatically; edit the preview manually to declare replacement stops.", strings.Join(markdownStops, ", ")))
+		}
 	}
 	for _, stop := range stops {
 		fmt.Fprintf(&b, "PARAMETER stop %q\n", stop)
@@ -744,6 +759,58 @@ func extractArchitecture(show *ollama.ShowResponse) string {
 		}
 	}
 	return ""
+}
+
+// extractModelfileStops parses PARAMETER stop lines from a Modelfile.
+func extractModelfileStops(modelfile string) []string {
+	var stops []string
+	for _, line := range strings.Split(modelfile, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, rest, ok := strings.Cut(line, " ")
+		if !ok || !strings.EqualFold(key, "PARAMETER") {
+			continue
+		}
+		name, value, ok := strings.Cut(strings.TrimSpace(rest), " ")
+		if !ok || !strings.EqualFold(strings.TrimSpace(name), "stop") {
+			continue
+		}
+		parsed := parseRepairParameterValue(strings.TrimSpace(value))
+		stops = append(stops, fmt.Sprint(parsed))
+	}
+	return stops
+}
+
+// isMarkdownPunctuationStop reports whether a stop sequence is made solely of
+// Markdown punctuation characters (e.g. "###", "---", "***", "___"). Such stops
+// truncate responses that contain horizontal rules or headings. Stops with any
+// other content ("### Response:", "<user>") are considered legitimate.
+func isMarkdownPunctuationStop(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch r {
+		case '#', '-', '*', '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// splitMarkdownStops partitions stops into Markdown-punctuation stops and the rest.
+func splitMarkdownStops(stops []string) (markdown []string, kept []string) {
+	for _, s := range stops {
+		if isMarkdownPunctuationStop(s) {
+			markdown = append(markdown, s)
+		} else {
+			kept = append(kept, s)
+		}
+	}
+	return markdown, kept
 }
 
 func extractBlobs(modelfile string) []string {

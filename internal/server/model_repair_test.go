@@ -440,6 +440,142 @@ func TestDeleteModelStoresUninstallReason(t *testing.T) {
 	}
 }
 
+func TestBuildModelRepairPreviewFiltersMarkdownStops(t *testing.T) {
+	show := &ollama.ShowResponse{
+		Capabilities: []string{"completion"},
+		Modelfile: `FROM hf.co/bartowski/Laguna-XS-2.1-GGUF:Q2_K_L
+TEMPLATE "{{ if .Prompt }}<user>{{ .Prompt }}</user>\n{{ end }}<assistant></think>{{ .Response }}</assistant>\n"
+PARAMETER stop <system>
+PARAMETER stop <user>
+PARAMETER stop <assistant>
+PARAMETER stop ###
+`,
+		ModelInfo: map[string]json.RawMessage{
+			"general.architecture": json.RawMessage(`"laguna"`),
+		},
+	}
+	preview, err := buildModelRepairPreview("laguna:latest", show, modelRepairRequest{
+		Capabilities:      []string{"completion"},
+		TemplatePreset:    "keep",
+		ContextPreset:     "safe",
+		TemperaturePreset: "keep",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(preview.Modelfile, `PARAMETER stop "###"`) {
+		t.Fatalf("Modelfile should not re-declare the Markdown stop:\n%s", preview.Modelfile)
+	}
+	for _, want := range []string{
+		`PARAMETER stop "<system>"`,
+		`PARAMETER stop "<user>"`,
+		`PARAMETER stop "<assistant>"`,
+	} {
+		if !strings.Contains(preview.Modelfile, want) {
+			t.Fatalf("Modelfile missing %q:\n%s", want, preview.Modelfile)
+		}
+	}
+	stops, ok := preview.Parameters["stop"].([]string)
+	if !ok || strings.Join(stops, ",") != "<system>,<user>,<assistant>" {
+		t.Fatalf("stops = %#v", preview.Parameters["stop"])
+	}
+	foundWarning := false
+	for _, w := range preview.Warnings {
+		if strings.Contains(w, "Markdown punctuation") && strings.Contains(w, "###") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("missing Markdown stop warning: %#v", preview.Warnings)
+	}
+}
+
+func TestBuildModelRepairPreviewKeepsTextualStops(t *testing.T) {
+	show := &ollama.ShowResponse{
+		Capabilities: []string{"completion"},
+		Modelfile: `FROM some-model:latest
+PARAMETER stop "### Response:"
+PARAMETER stop ###
+`,
+	}
+	preview, err := buildModelRepairPreview("some-model:latest", show, modelRepairRequest{
+		Capabilities:      []string{"completion"},
+		TemplatePreset:    "keep",
+		ContextPreset:     "safe",
+		TemperaturePreset: "keep",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stops, _ := preview.Parameters["stop"].([]string)
+	if strings.Join(stops, ",") != "### Response:" {
+		t.Fatalf("stops = %#v", preview.Parameters["stop"])
+	}
+	if strings.Contains(preview.Modelfile, `PARAMETER stop "###"`) {
+		t.Fatalf("Modelfile should not contain bare ### stop:\n%s", preview.Modelfile)
+	}
+	if !strings.Contains(preview.Modelfile, `PARAMETER stop "### Response:"`) {
+		t.Fatalf("Modelfile should keep textual stop:\n%s", preview.Modelfile)
+	}
+}
+
+func TestBuildModelRepairPreviewPresetStopsReplaceBaseMarkdownStops(t *testing.T) {
+	show := &ollama.ShowResponse{
+		Capabilities: []string{"completion"},
+		Modelfile: `FROM qwen3:latest
+PARAMETER stop ###
+PARAMETER stop ---
+`,
+		ModelInfo: map[string]json.RawMessage{
+			"general.architecture": json.RawMessage(`"qwen3"`),
+		},
+	}
+	preview, err := buildModelRepairPreview("qwen3:latest", show, modelRepairRequest{
+		Capabilities:      []string{"completion"},
+		TemplatePreset:    "qwen35",
+		ContextPreset:     "safe",
+		TemperaturePreset: "keep",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stops, _ := preview.Parameters["stop"].([]string)
+	if strings.Join(stops, ",") != "<|im_end|>" {
+		t.Fatalf("stops = %#v", preview.Parameters["stop"])
+	}
+	if strings.Contains(preview.Modelfile, `PARAMETER stop "###"`) || strings.Contains(preview.Modelfile, `PARAMETER stop "---"`) {
+		t.Fatalf("Modelfile should not re-declare base Markdown stops:\n%s", preview.Modelfile)
+	}
+	foundWarning := false
+	for _, w := range preview.Warnings {
+		if strings.Contains(w, "Markdown punctuation") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("missing Markdown stop warning: %#v", preview.Warnings)
+	}
+}
+
+func TestIsMarkdownPunctuationStop(t *testing.T) {
+	for s, want := range map[string]bool{
+		"###":           true,
+		"---":           true,
+		"***":           true,
+		"___":           true,
+		"#-":            true,
+		"":              false,
+		"### Response:": false,
+		"<user>":        false,
+		"<|im_end|>":    false,
+		"-- text":       false,
+	} {
+		if got := isMarkdownPunctuationStop(s); got != want {
+			t.Fatalf("isMarkdownPunctuationStop(%q) = %v, want %v", s, got, want)
+		}
+	}
+}
+
 func newTestServer(t *testing.T, ollamaURL string) *Server {
 	t.Helper()
 	cfgPath := filepath.Join(t.TempDir(), "config.json")

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -39,6 +40,31 @@ func artifactOperationalToolDefinitions() []any {
 						"content": map[string]any{
 							"type":        "string",
 							"description": "Full file content",
+						},
+					},
+				},
+			},
+		},
+		map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "replace_in_file",
+				"description": "Replace a specific text snippet or code block in an existing file. Use this for targeted edits instead of overwriting the whole file.",
+				"parameters": map[string]any{
+					"type":     "object",
+					"required": []string{"path", "old_string", "new_string"},
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Relative path inside the project (e.g. index.html, styles.css, js/app.js)",
+						},
+						"old_string": map[string]any{
+							"type":        "string",
+							"description": "Exact text or code block to search for and replace",
+						},
+						"new_string": map[string]any{
+							"type":        "string",
+							"description": "New text or code block to insert in place of old_string",
 						},
 					},
 				},
@@ -130,6 +156,10 @@ You must use the following tools to inspect, edit, and build the project:
 - 'write_file': Create or overwrite a file in the project. Arguments:
   * 'path': Relative path inside the project (e.g. index.html, styles.css, js/app.js)
   * 'content': Full file content
+- 'replace_in_file': Replace a specific text snippet or code block in an existing file. Arguments:
+  * 'path': Relative path inside the project
+  * 'old_string': Exact text or code block to search for
+  * 'new_string': Replacement text or code block
 - 'read_file': Read the contents of an existing file. Arguments:
   * 'path': Relative path inside the project
 - 'list_dir': List files and folders in a directory. Arguments:
@@ -182,7 +212,7 @@ func artifactToolStartPayload(name string, args json.RawMessage) map[string]any 
 	p := map[string]any{"phase": "start", "name": name}
 	m := parseToolArgs(args)
 	switch name {
-	case "write_file":
+	case "write_file", "replace_in_file":
 		if path, _ := m["path"].(string); strings.TrimSpace(path) != "" {
 			p["path"] = path
 		}
@@ -236,6 +266,38 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 			return "", err
 		}
 		return fmt.Sprintf("wrote %s (%d bytes)", path, len(content)), nil
+
+	case "replace_in_file":
+		path, _ := m["path"].(string)
+		oldStr, _ := m["old_string"].(string)
+		newStr, _ := m["new_string"].(string)
+		if strings.TrimSpace(path) == "" {
+			return "Error: missing path for replace_in_file", nil
+		}
+		if oldStr == "" {
+			return "Error: missing old_string for replace_in_file", nil
+		}
+		full := filepath.Join(artifactDir, path)
+		if !isPathSafe(artifactDir, full) {
+			return "Error: path escapes project directory", nil
+		}
+		b, err := os.ReadFile(full)
+		if err != nil {
+			return "", err
+		}
+		content := string(b)
+		if !strings.Contains(content, oldStr) {
+			return fmt.Sprintf("Error: old_string not found in %s", path), nil
+		}
+		count := strings.Count(content, oldStr)
+		if count > 1 {
+			return fmt.Sprintf("Error: old_string matches %d occurrences in %s. Provide more surrounding context to uniquely identify the block.", count, path), nil
+		}
+		updated := strings.Replace(content, oldStr, newStr, 1)
+		if err := os.WriteFile(full, []byte(updated), 0o644); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("replaced text in %s (%d bytes)", path, len(updated)), nil
 
 	case "read_file":
 		path, _ := m["path"].(string)
@@ -324,10 +386,10 @@ func isPathSafe(base, target string) bool {
 	return cleanTarget == cleanBase || strings.HasPrefix(cleanTarget, cleanBase+string(os.PathSeparator))
 }
 
-// execInDir runs a shell command in dir with a 30-second timeout.
+// execInDir runs a shell command in dir with a 120-second timeout.
 // parentCtx allows cancellation to propagate from the request context.
 func execInDir(parentCtx context.Context, dir, command string) (string, error) {
-	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 120*time.Second)
 	defer cancel()
 
 	var cmd *exec.Cmd
@@ -343,26 +405,55 @@ func execInDir(parentCtx context.Context, dir, command string) (string, error) {
 	cmd.Stderr = &errBuf
 
 	log.Printf("[artifact] exec: %q in %s", command, dir)
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return outBuf.String(), fmt.Errorf("exec timed out after 30s")
-		}
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			output := outBuf.String()
-			if errBuf.String() != "" {
-				output += "\n[stderr]\n" + errBuf.String()
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case <-ctx.Done():
+		killProcessTree(cmd)
+		<-done
+		return outBuf.String(), fmt.Errorf("exec timed out or was cancelled after 120s")
+	case err := <-done:
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				output := outBuf.String()
+				if errBuf.String() != "" {
+					output += "\n[stderr]\n" + errBuf.String()
+				}
+				output += fmt.Sprintf("\n[exit:%d]", exitErr.ExitCode())
+				return output, nil
 			}
-			output += fmt.Sprintf("\n[exit:%d]", exitErr.ExitCode())
-			return output, nil
+			return outBuf.String(), err
 		}
-		return outBuf.String(), err
+		output := outBuf.String()
+		if errBuf.String() != "" {
+			output += "\n[stderr]\n" + errBuf.String()
+		}
+		output += "\n[exit:0]"
+		return output, nil
 	}
-	output := outBuf.String()
-	if errBuf.String() != "" {
-		output += "\n[stderr]\n" + errBuf.String()
+}
+
+func killProcessTree(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
 	}
-	output += "\n[exit:0]"
-	return output, nil
+	pid := cmd.Process.Pid
+	if pid <= 0 {
+		return
+	}
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid)).Run()
+	} else {
+		_ = exec.Command("kill", "-9", fmt.Sprintf("-%d", pid)).Run()
+		_ = cmd.Process.Kill()
+	}
 }
 
 // runArtifactAgentLoop is the main agent loop for artifact creation.
@@ -622,7 +713,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			} else {
 				// Only create the artifacts directory when the agent is actually
 				// about to write or run a command in the project.
-				if n == "write_file" || n == "exec" {
+				if n == "write_file" || n == "replace_in_file" || n == "exec" {
 					if err := ensureArtifactDir(); err != nil {
 						toolErr = err
 					}
@@ -680,10 +771,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 				}
 				out = fmt.Sprintf("Artifact project created at absolute path '%s'. You now have access to the project tools: write_file, read_file, list_dir, exec, and get_artifact_console.", absPath)
 			}
-			// After write_file on an artifact, send the appropriate event:
+			// After write_file or replace_in_file on an artifact, send the appropriate event:
 			// - loaded: first time index.html is written (transition from loading screen)
 			// - reload: subsequent writes (refresh the live preview)
-			if n == "write_file" && toolErr == nil {
+			if (n == "write_file" || n == "replace_in_file") && toolErr == nil {
 				writePath, _ := parseToolArgs(tc.Function.Arguments)["path"].(string)
 				normalizedPath := strings.TrimPrefix(strings.ToLower(writePath), "./")
 				previewURL := fmt.Sprintf("/api/artifacts/%s/", ts)
@@ -741,6 +832,13 @@ func toolUsageGuide(name string) string {
 			"- Required Arguments:\n" +
 			"  * 'path': string (relative path inside the project, e.g. 'index.html', 'js/app.js')\n" +
 			"  * 'content': string (complete file content)"
+	case "replace_in_file":
+		return "\n\nCorrect usage of 'replace_in_file':\n" +
+			"- Description: Replace a specific text snippet or code block in a file.\n" +
+			"- Required Arguments:\n" +
+			"  * 'path': string (relative path, e.g. 'index.html')\n" +
+			"  * 'old_string': string (exact text/code block to find)\n" +
+			"  * 'new_string': string (replacement text/code block)"
 	case "read_file":
 		return "\n\nCorrect usage of 'read_file':\n" +
 			"- Description: Read the contents of a file.\n" +

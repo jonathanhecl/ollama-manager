@@ -1339,11 +1339,13 @@ func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 	// Split into timestamp and subpath
 	slashIdx := strings.IndexByte(rest, '/')
 	var cleanPath string
+	var ts string
 	if slashIdx < 0 {
 		// Just timestamp — serve index.html
-		cleanPath = filepath.Join("artifacts", rest, "index.html")
+		ts = rest
+		cleanPath = filepath.Join("artifacts", ts, "index.html")
 	} else {
-		ts := rest[:slashIdx]
+		ts = rest[:slashIdx]
 		subpath := rest[slashIdx+1:]
 		cleanPath = filepath.Clean(filepath.Join("artifacts", ts, subpath))
 		// Prevent path traversal
@@ -1352,6 +1354,24 @@ func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+	}
+
+	// Check if requested cleanPath exists as a regular file
+	info, err := os.Stat(cleanPath)
+	if err != nil || info.IsDir() {
+		// SPA Fallback: if requesting a client-side route (e.g. /dashboard) that isn't a file on disk,
+		// serve index.html if it exists.
+		indexPath := filepath.Join("artifacts", ts, "index.html")
+		if indexContent, indexErr := os.ReadFile(indexPath); indexErr == nil {
+			injected := injectConsoleCaptureScript(indexContent)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(injected)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(injected)
+			return
+		}
+		http.NotFound(w, r)
+		return
 	}
 
 	// Serve the file, inject script if it's index.html or ends with .html

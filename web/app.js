@@ -215,6 +215,7 @@ let activeName = null;
 let jobs = new Map();   // id -> job
 let jobsStream = null;  // EventSource for /api/jobs/events
 let jobsBackoffMs = 1000;
+let jobsHydrated = false; // true once the first jobs snapshot has arrived
 let queuePaused = false;
 let currentView = "models";
 let showArchivedOnly = false;
@@ -1641,6 +1642,7 @@ function showModelsView() {
   const chatView = $("chat-view");
   const modelsView = $("models-view");
   chatView?.classList.remove("chat-options-open");
+  syncChatPanels(chatView);
   stopSpeechPlayback();
   currentView = "models";
   if (modelsView) modelsView.hidden = false;
@@ -1690,6 +1692,7 @@ function showChatView() {
   }
   currentView = "chat";
   chatView.classList.remove("chat-options-open");
+  syncChatPanels(chatView);
   modelsView.hidden = true;
   chatView.hidden = false;
   $("chat-btn")?.classList.add("active");
@@ -3988,6 +3991,7 @@ async function runChatRequest(assistantMsg) {
           }
           // Close options panel so artifact is visible on mobile
           $("chat-view")?.classList.remove("chat-options-open");
+          syncChatPanels($("chat-view"));
           scheduleRenderChatMessages();
         } else if (data?.reload) {
           // Reload the iframe if the artifact panel is already visible.
@@ -4412,6 +4416,7 @@ function showArtifactPanel(url, name, generating) {
     chatArtifactWidthSet = true;
     splitter.hidden = false;
   }
+  syncChatPanels(chatView);
 }
 
 function hideArtifactPanel() {
@@ -4429,6 +4434,7 @@ function hideArtifactPanel() {
   }
   chatArtifactVisibleBeforeOptions = false;
   activeArtifactTimestamp = null;
+  syncChatPanels(chatView);
 }
 
 function swapToOptions(cv) {
@@ -4442,6 +4448,7 @@ function swapToOptions(cv) {
   if (splitter) splitter.hidden = true;
   cv.style.setProperty("--chat-right-width", "300px");
   if (backBtn) backBtn.hidden = !artifactVisible;
+  syncChatPanels(cv);
 }
 
 function swapToArtifact(cv) {
@@ -4458,6 +4465,20 @@ function swapToArtifact(cv) {
     cv.style.setProperty("--chat-right-width", "300px");
   }
   if (backBtn) backBtn.hidden = true;
+  syncChatPanels(cv);
+}
+
+// Keeps the .artifact-open class (used by CSS instead of :has()) in sync with
+// the real visibility of the artifact panel, and mirrors options state into
+// the toggle's aria-expanded attribute.
+function syncChatPanels(cv) {
+  if (!cv) cv = $("chat-view");
+  if (!cv) return;
+  const panel = $("chat-artifact-panel");
+  const artifactOpen = !!(panel && !panel.hidden);
+  cv.classList.toggle("artifact-open", artifactOpen);
+  const toggle = $("chat-options-toggle");
+  if (toggle) toggle.setAttribute("aria-expanded", cv.classList.contains("chat-options-open") ? "true" : "false");
 }
 
 function bindChatEvents() {
@@ -4470,7 +4491,12 @@ function bindChatEvents() {
     await handleRouting();
   });
   window.addEventListener("resize", () => {
-    if (window.innerWidth > 900) $("chat-view")?.classList.remove("chat-options-open");
+    // 1135px matches the CSS breakpoint where the options become an overlay.
+    if (window.innerWidth > 1135) {
+      const cv = $("chat-view");
+      cv?.classList.remove("chat-options-open");
+      syncChatPanels(cv);
+    }
   });
   $("chat-btn")?.addEventListener("click", showChatView);
   $("chat-back-btn")?.addEventListener("click", () => {
@@ -4630,6 +4656,7 @@ function bindChatEvents() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && $("chat-view")?.classList.contains("chat-options-open")) {
       $("chat-view")?.classList.remove("chat-options-open");
+      syncChatPanels($("chat-view"));
       return;
     }
     if (e.code !== "Backspace" || !e.ctrlKey || !e.shiftKey) return;
@@ -4792,7 +4819,7 @@ function bindChatEvents() {
     let dragging = false;
     let overlay = null;
     splitter.addEventListener("mousedown", (e) => {
-      if (window.innerWidth <= 900) return;
+      if (window.innerWidth <= 1135) return;
       dragging = true;
       splitter.classList.add("dragging");
       document.body.style.cursor = "col-resize";
@@ -4960,6 +4987,7 @@ function connectJobsStream() {
     try {
       const data = JSON.parse(ev.data);
       jobs = new Map((data.jobs || []).map((j) => [j.id, j]));
+      jobsHydrated = true;
       queuePaused = !!data.queue_paused;
       onJobsChanged();
     } catch { }
@@ -4968,6 +4996,7 @@ function connectJobsStream() {
   jobsStream.addEventListener("update", (ev) => {
     try {
       const data = JSON.parse(ev.data);
+      jobsHydrated = true;
       if ("queue_paused" in data) queuePaused = !!data.queue_paused;
       const j = data.job;
       if (!j || !j.id) return;
@@ -4987,6 +5016,7 @@ function connectJobsStream() {
   jobsStream.addEventListener("remove", (ev) => {
     try {
       const data = JSON.parse(ev.data);
+      jobsHydrated = true;
       if ("queue_paused" in data) queuePaused = !!data.queue_paused;
       if (!data.id) return;
       jobs.delete(data.id);
@@ -5011,10 +5041,30 @@ function isTerminal(status) {
   return status === "done" || status === "error" || status === "cancelled";
 }
 
+// renderTable is cheap enough to run on its own, but the jobs SSE stream can
+// emit ~4 events/second during a download. Throttle the table refresh so the
+// main thread stays responsive (drops clicks/jank elsewhere in the UI).
+let renderTableThrottled = false;
+let renderTablePending = false;
+function throttleRenderTable() {
+  renderTablePending = true;
+  if (renderTableThrottled) return;
+  renderTableThrottled = true;
+  renderTablePending = false;
+  renderTable();
+  setTimeout(() => {
+    renderTableThrottled = false;
+    if (renderTablePending) {
+      renderTablePending = false;
+      renderTable();
+    }
+  }, 300);
+}
+
 function onJobsChanged() {
   updateDownloadsBadge();
   if (!$("downloads-modal").hidden) renderDownloads();
-  renderTable(); // Update main model list to show/hide pending downloads
+  throttleRenderTable(); // Update main model list to show/hide pending downloads
 }
 
 function jobsByStatus() {
@@ -5065,7 +5115,7 @@ function renderDownloads() {
   if (hasAny) {
     $("dl-total-badge").textContent = t("downloads.jobs_count", { n: jobs.size });
   }
-  $("dl-clear-btn").disabled = buckets.finished.length === 0;
+  $("dl-clear-btn").disabled = !jobsHydrated || buckets.finished.length === 0;
 
   // Section-level pause button (queued -> paused)
   const pauseBtn = $("dl-pause-btn");
@@ -5349,10 +5399,26 @@ $("dl-add-form").addEventListener("submit", async (e) => {
 });
 
 $("dl-clear-btn").addEventListener("click", async () => {
+  const btn = $("dl-clear-btn");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = t("downloads.clearing");
   try {
-    await api("/api/jobs/clear", { method: "POST" });
+    const res = await api("/api/jobs/clear", { method: "POST" });
+    // Optimistically drop terminal jobs locally so the UI updates instantly,
+    // without waiting for the SSE "remove" events.
+    for (const [id, j] of jobs) {
+      if (isTerminal(j.status)) jobs.delete(id);
+    }
+    onJobsChanged();
+    const removed = (res && typeof res.removed === "number") ? res.removed : 0;
+    if (removed > 0) toast(t("downloads.cleared", { n: removed }), "success");
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
+  } finally {
+    btn.textContent = originalLabel;
+    renderDownloads(); // recompute the correct disabled state (no finished left)
   }
 });
 

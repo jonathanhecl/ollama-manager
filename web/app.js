@@ -219,6 +219,7 @@ let jobsHydrated = false; // true once the first jobs snapshot has arrived
 let queuePaused = false;
 let currentView = "models";
 let showArchivedOnly = false;
+let modelSearchQuery = "";
 let chatMessages = [];
 let chatAttachments = [];
 let chatStreamLock = false;
@@ -731,25 +732,88 @@ function applySort(arr) {
   });
 }
 
+function updateModelsCount(renderedCount, totalCount, query) {
+  const countEl = $("models-count");
+  if (!countEl) return;
+  if (!totalCount && !renderedCount) {
+    countEl.textContent = "";
+    return;
+  }
+  if (query) {
+    countEl.textContent = t("models.count_filtered", { count: renderedCount, total: totalCount });
+  } else {
+    countEl.textContent = t("models.count_total", { count: totalCount });
+  }
+}
+
+function bindModelsSearchEvents() {
+  const searchInput = $("models-search");
+  const clearBtn = $("models-search-clear");
+  if (!searchInput) return;
+
+  searchInput.addEventListener("input", () => {
+    modelSearchQuery = searchInput.value;
+    if (clearBtn) {
+      clearBtn.hidden = !modelSearchQuery;
+    }
+    renderTable();
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      modelSearchQuery = "";
+      searchInput.value = "";
+      clearBtn.hidden = true;
+      renderTable();
+      searchInput.focus();
+    });
+  }
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (searchInput.value) {
+        e.preventDefault();
+        modelSearchQuery = "";
+        searchInput.value = "";
+        if (clearBtn) clearBtn.hidden = true;
+        renderTable();
+      } else {
+        searchInput.blur();
+      }
+    }
+  });
+}
+
 function renderTable() {
   updateSortIndicators();
   const tbody = $("models-tbody");
+  if (!tbody) return;
+
+  const q = (modelSearchQuery || "").trim().toLowerCase();
 
   // Filter models based on archived state
-  const filteredModels = models.filter(m => !!m.archived === showArchivedOnly).map(m => ({ ...m }));
+  const activeModels = models.filter(m => !!m.archived === showArchivedOnly).map(m => ({ ...m }));
+  const totalCount = activeModels.length;
 
-  if (!filteredModels.length && showArchivedOnly) {
-    tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
-    return;
+  let filteredModels = activeModels;
+  if (q) {
+    filteredModels = activeModels.filter(m => {
+      return (
+        (m.name && m.name.toLowerCase().includes(q)) ||
+        (m.family && m.family.toLowerCase().includes(q)) ||
+        ((m.families || []).some(f => f && f.toLowerCase().includes(q))) ||
+        (m.parameter_size && m.parameter_size.toLowerCase().includes(q)) ||
+        (m.quantization && m.quantization.toLowerCase().includes(q)) ||
+        ((m.capabilities || []).some(c => c && c.toLowerCase().includes(q))) ||
+        (m.digest && m.digest.toLowerCase().includes(q))
+      );
+    });
   }
-  if (!filteredModels.length && !showArchivedOnly) {
-    tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
-    return;
-  }
+
   // Attach active jobs to installed models so they participate in sorting and display.
   // Only queued and running jobs appear in the main list; paused ones stay in the downloads modal.
   const installedNames = new Set(models.map(m => m.name));
-  const pendingModels = [];
+  let pendingModels = [];
   const runningJobByName = new Map();
   if (!showArchivedOnly) {
     for (const j of jobs.values()) {
@@ -758,7 +822,7 @@ function renderTable() {
         const model = filteredModels.find(m => m.name === j.name);
         if (model) {
           model.job = j;
-        } else {
+        } else if (!installedNames.has(j.name)) {
           pendingModels.push({
             name: j.name,
             isPending: true,
@@ -774,9 +838,26 @@ function renderTable() {
         }
       }
     }
+    if (q) {
+      pendingModels = pendingModels.filter(p => p.name.toLowerCase().includes(q));
+    }
   }
 
   const allToRender = applySort([...filteredModels, ...pendingModels]);
+
+  updateModelsCount(allToRender.length, totalCount, q);
+
+  if (!allToRender.length) {
+    tbody.innerHTML = "";
+    if (q) {
+      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.no_search_results", { query: modelSearchQuery.trim() }))}</td></tr>`;
+    } else if (showArchivedOnly) {
+      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
+    } else {
+      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
+    }
+    return;
+  }
 
   const dotLoadedTxt = t("detail.dot_loaded");
   const dotNotLoadedTxt = t("detail.dot_not_loaded");
@@ -7033,6 +7114,7 @@ $("agent-feedback-send")?.addEventListener("click", () => {
 });
 
 window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
+bindModelsSearchEvents();
 refreshStatus();
 refreshModels();
 connectJobsStream();

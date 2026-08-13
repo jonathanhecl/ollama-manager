@@ -90,7 +90,13 @@ const I18N = {
 
     "state.loading": "Loading…",
     "state.empty_models": "No models installed. Click Downloads to pull one.",
+    "state.no_search_results": "No models match \"{query}\"",
     "state.error_prefix": "Error: ",
+
+    "models.search_placeholder": "Search models (name, family, size…)",
+    "models.search_clear": "Clear search",
+    "models.count_total": "{count} models",
+    "models.count_filtered": "{count} of {total} models",
 
     "detail.empty": "Select a model.",
     "detail.family": "Family",
@@ -544,7 +550,13 @@ const I18N = {
 
     "state.loading": "Cargando…",
     "state.empty_models": "No hay modelos instalados. Tocá Descargas para instalar uno.",
+    "state.no_search_results": "Ningún modelo coincide con \"{query}\"",
     "state.error_prefix": "Error: ",
+
+    "models.search_placeholder": "Buscar modelos (nombre, familia, tamaño…)",
+    "models.search_clear": "Limpiar búsqueda",
+    "models.count_total": "{count} modelos",
+    "models.count_filtered": "{count} de {total} modelos",
 
     "detail.empty": "Selecciona un modelo.",
     "detail.family": "Familia",

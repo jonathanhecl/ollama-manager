@@ -239,6 +239,35 @@ func (c *Client) Unload(ctx context.Context, name string) error {
 	return checkStatus(resp)
 }
 
+// HeadBlob checks whether a blob already exists in the Ollama store.
+// It returns (true, nil) for 200 OK and (false, nil) for 404 Not Found.
+func (c *Client) HeadBlob(ctx context.Context, digest string) (bool, error) {
+	resp, err := c.do(ctx, http.MethodHead, "/api/blobs/"+digest, nil, "")
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, checkStatus(resp)
+	}
+}
+
+// CreateBlob uploads a blob (e.g. an mmproj/projector GGUF) to the Ollama
+// store under the given digest.
+func (c *Client) CreateBlob(ctx context.Context, digest string, r io.Reader) error {
+	resp, err := c.do(ctx, http.MethodPost, "/api/blobs/"+digest, r, "application/octet-stream")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return checkStatus(resp)
+}
+
 // Create calls POST /api/create with stream:false.
 func (c *Client) Create(ctx context.Context, req CreateRequest) error {
 	req.Stream = false

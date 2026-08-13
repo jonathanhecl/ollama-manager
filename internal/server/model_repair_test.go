@@ -2,7 +2,10 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +17,10 @@ import (
 	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/ollama"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestBuildModelRepairPreviewQwenToolsThinking(t *testing.T) {
 	show := &ollama.ShowResponse{
@@ -573,6 +580,138 @@ func TestIsMarkdownPunctuationStop(t *testing.T) {
 		if got := isMarkdownPunctuationStop(s); got != want {
 			t.Fatalf("isMarkdownPunctuationStop(%q) = %v, want %v", s, got, want)
 		}
+	}
+}
+
+func TestBuildModelRepairPreviewCustomStops(t *testing.T) {
+	show := &ollama.ShowResponse{
+		Capabilities: []string{"completion"},
+		Modelfile:    "FROM base:latest\nPARAMETER stop \"<|bad|>\"\n",
+	}
+	preview, err := buildModelRepairPreview("base:latest", show, modelRepairRequest{
+		Capabilities:   []string{"completion"},
+		TemplatePreset: "keep",
+		Stops:          []string{"<|im_end|>", "<|eot|>"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`PARAMETER stop "<|im_end|>"`, `PARAMETER stop "<|eot|>"`} {
+		if !strings.Contains(preview.Modelfile, want) {
+			t.Fatalf("missing %q:\n%s", want, preview.Modelfile)
+		}
+	}
+	if strings.Contains(preview.Modelfile, `"<|bad|>"`) {
+		t.Fatalf("base stop should be replaced by custom stops:\n%s", preview.Modelfile)
+	}
+	stops, ok := preview.Parameters["stop"].([]string)
+	if !ok || strings.Join(stops, ",") != "<|im_end|>,<|eot|>" {
+		t.Fatalf("stops = %#v", preview.Parameters["stop"])
+	}
+	if strings.Join(preview.BaseStops, ",") != "<|bad|>" {
+		t.Fatalf("base stops = %#v", preview.BaseStops)
+	}
+}
+
+func TestBuildModelRepairPreviewContextDefaultsToKeep(t *testing.T) {
+	show := &ollama.ShowResponse{Capabilities: []string{"completion"}}
+	preview, err := buildModelRepairPreview("base:latest", show, modelRepairRequest{
+		Capabilities: []string{"completion"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(preview.Modelfile, "PARAMETER num_ctx") {
+		t.Fatalf("expected no num_ctx when context preset is omitted, got:\n%s", preview.Modelfile)
+	}
+}
+
+func TestResolveProjectorURL(t *testing.T) {
+	cases := map[string]string{
+		"https://huggingface.co/u/r/resolve/main/mm.gguf": "https://huggingface.co/u/r/resolve/main/mm.gguf",
+		"https://huggingface.co/u/r/blob/main/mm.gguf":    "https://huggingface.co/u/r/resolve/main/mm.gguf",
+		"hf.co/u/r/mm.gguf":                               "https://huggingface.co/u/r/resolve/main/mm.gguf",
+		"u/r/mm.gguf":                                     "https://huggingface.co/u/r/resolve/main/mm.gguf",
+	}
+	for in, want := range cases {
+		got, err := resolveProjectorURL(in)
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if got != want {
+			t.Fatalf("%q: got %q want %q", in, got, want)
+		}
+	}
+	if _, err := resolveProjectorURL("https://evil.com/u/r/resolve/main/mm.gguf"); err == nil {
+		t.Fatal("expected non-HuggingFace host to be rejected")
+	}
+	if _, err := resolveProjectorURL("just-one-token"); err == nil {
+		t.Fatal("expected malformed shorthand to be rejected")
+	}
+}
+
+func TestRepairApplyWithProjectorUsesFiles(t *testing.T) {
+	mmprojBytes := []byte("fake mmproj gguf data")
+	mmprojHex := hex.EncodeToString(func() []byte { s := sha256.Sum256(mmprojBytes); return s[:] }())
+
+	prev := projectorHTTPClient
+	projectorHTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(mmprojBytes)),
+			Header:     http.Header{},
+		}, nil
+	})}
+	defer func() { projectorHTTPClient = prev }()
+
+	var created struct {
+		Model string            `json:"model"`
+		From  string            `json:"from"`
+		Files map[string]string `json:"files"`
+	}
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/show":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"modelfile":    "FROM /x/blobs/sha256-abc123\n",
+				"capabilities": []string{"completion"},
+				"model_info":   map[string]any{"general.architecture": "qwen3"},
+			})
+		case r.URL.Path == "/api/tags":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{{"name": "qwen3:latest"}}})
+		case r.URL.Path == "/api/create":
+			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
+				t.Fatal(err)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
+		case strings.HasPrefix(r.URL.Path, "/api/blobs/"):
+			if r.Method == http.MethodHead {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	body := bytes.NewBufferString(`{"model":"qwen3:latest","capabilities":["completion"],"template_preset":"keep","context_preset":"keep","temperature_preset":"keep","projector":"https://huggingface.co/u/r/resolve/main/mmproj.gguf","modelfile":"FROM /x/blobs/sha256-abc123\n","confirm":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/model-repair/apply", body)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if created.From != "" {
+		t.Fatalf("created from = %q, want empty", created.From)
+	}
+	if got := created.Files["model.gguf"]; got != "sha256:abc123" {
+		t.Fatalf("files[model.gguf] = %q", got)
+	}
+	if got := created.Files["mmproj.gguf"]; got != "sha256:"+mmprojHex {
+		t.Fatalf("files[mmproj.gguf] = %q, want %q", got, "sha256:"+mmprojHex)
 	}
 }
 

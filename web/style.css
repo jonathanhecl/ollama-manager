@@ -529,6 +529,53 @@ tbody tr.row.active .btn-icon.info-btn:hover {
 .repair-form-grid select {
   width: 100%;
 }
+.repair-stops-row {
+  margin-top: 6px;
+}
+.repair-stops-row select {
+  width: 100%;
+}
+.repair-stops {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  margin-top: 6px;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.repair-stops:disabled {
+  opacity: .5;
+}
+.repair-stops-warn {
+  margin-top: 6px;
+  border-left: 2px solid #d9a441;
+  color: var(--text-dim);
+  background: rgba(217, 164, 65, .08);
+  padding: 7px 9px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.repair-projector-field {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+.repair-projector-field > span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+}
+.repair-projector-field input {
+  width: 100%;
+}
 .repair-target {
   margin: 11px 0;
   font-family: var(--mono);

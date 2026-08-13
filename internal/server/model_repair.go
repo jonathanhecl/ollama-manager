@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ type modelRepairRequest struct {
 	TemplatePreset    string   `json:"template_preset"`
 	ContextPreset     string   `json:"context_preset"`
 	TemperaturePreset string   `json:"temperature_preset"`
+	Stops             []string `json:"stops"`
+	Projector         string   `json:"projector"`
 	FixLoad           bool     `json:"fix_load"`
 	Modelfile         string   `json:"modelfile"`
 	Confirm           bool     `json:"confirm"`
@@ -32,6 +35,8 @@ type modelRepairPreview struct {
 	Modelfile            string         `json:"modelfile"`
 	Warnings             []string       `json:"warnings,omitempty"`
 	DetectedCapabilities []string       `json:"detected_capabilities,omitempty"`
+	BaseStops            []string       `json:"base_stops,omitempty"`
+	Projector            string         `json:"projector,omitempty"`
 	RequiresConfirmation bool           `json:"requires_confirmation"`
 	System               string         `json:"-"`
 	Template             string         `json:"-"`
@@ -59,21 +64,25 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		templateFallback = "keep"
 	}
 	templatePreset := normalizeRepairPreset(req.TemplatePreset, templateFallback)
-	contextPreset := normalizeRepairPreset(req.ContextPreset, "safe")
+	contextPreset := normalizeRepairPreset(req.ContextPreset, "keep")
 	tempPreset := normalizeRepairPreset(req.TemperaturePreset, "keep")
 
 	var b strings.Builder
 
 	originalBlobs := extractBlobs(show.Modelfile)
-	useBlobFrom := false
-	if req.FixLoad && len(originalBlobs) > 0 {
-		useBlobFrom = true
+	projector := strings.TrimSpace(req.Projector)
+	if projector != "" && len(originalBlobs) == 0 {
+		return nil, errors.New("cannot attach a vision projector: the base model Modelfile has no GGUF blob to build from")
 	}
+	useBlobFrom := (req.FixLoad && len(originalBlobs) > 0) || projector != ""
 
 	if useBlobFrom {
 		fmt.Fprintf(&b, "FROM %s\n", originalBlobs[0])
 		for i := 1; i < len(originalBlobs); i++ {
 			fmt.Fprintf(&b, "# FROM %s (stripped to fix load error)\n", originalBlobs[i])
+		}
+		if projector != "" {
+			fmt.Fprintf(&b, "# PROJECTOR %s\n", projector)
 		}
 		b.WriteString("\n")
 	} else {
@@ -95,6 +104,9 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 	}
 	if hasRepairCap(caps, "vision") {
 		warnings = append(warnings, "Vision fixes do not add ADAPTER/mmproj automatically. Use a GGUF with embedded vision tensors or an official multimodal Ollama model.")
+	}
+	if projector != "" {
+		warnings = append(warnings, "A vision projector (mmproj) will be downloaded from Hugging Face and attached to this model. Make sure the file matches this model's architecture.")
 	}
 	if hasRepairCap(caps, "audio") {
 		warnings = append(warnings, "Audio support depends on model/runtime support; this fix only changes the Modelfile metadata and chat template.")
@@ -170,24 +182,10 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		return nil, fmt.Errorf("unknown temperature preset %q", req.TemperaturePreset)
 	}
 
-	stops := repairStops(templatePreset)
-	baseStops := extractModelfileStops(show.Modelfile)
-	markdownStops, keptBaseStops := splitMarkdownStops(baseStops)
-	if len(stops) > 0 {
+	stops, stopWarnings := resolveRepairStops(req.Stops, templatePreset, show.Modelfile)
+	warnings = append(warnings, stopWarnings...)
+	if stops != nil {
 		parameters["stop"] = stops
-		if len(markdownStops) > 0 {
-			warnings = append(warnings, fmt.Sprintf("The base model declares stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. The stops declared by the selected template preset replace them.", strings.Join(markdownStops, ", ")))
-		}
-	} else if len(markdownStops) > 0 {
-		if len(keptBaseStops) > 0 {
-			// Re-declaring stops in the child model replaces the base list entirely,
-			// which drops the Markdown punctuation stops inherited from the base.
-			stops = keptBaseStops
-			parameters["stop"] = stops
-			warnings = append(warnings, fmt.Sprintf("The base model declares stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. The fixed model re-declares the stop list without them.", strings.Join(markdownStops, ", ")))
-		} else {
-			warnings = append(warnings, fmt.Sprintf("The base model declares only stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. They cannot be removed automatically; edit the preview manually to declare replacement stops.", strings.Join(markdownStops, ", ")))
-		}
 	}
 	for _, stop := range stops {
 		fmt.Fprintf(&b, "PARAMETER stop %q\n", stop)
@@ -204,6 +202,8 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		Modelfile:            modelfile,
 		Warnings:             warnings,
 		DetectedCapabilities: append([]string(nil), show.Capabilities...),
+		BaseStops:            append([]string(nil), extractModelfileStops(show.Modelfile)...),
+		Projector:            projector,
 		RequiresConfirmation: true,
 		System:               system,
 		Template:             template,
@@ -227,6 +227,15 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 
 	useModernTemplate := hasRepairCap(caps, "tools")
 
+	projector := strings.TrimSpace(req.Projector)
+	originalBlobs := extractBlobs(show.Modelfile)
+	if projector != "" && len(originalBlobs) == 0 {
+		return nil, errors.New("cannot attach a vision projector: the base model Modelfile has no GGUF blob to build from")
+	}
+	if projector != "" {
+		warnings = append(warnings, "A vision projector (mmproj) will be downloaded from Hugging Face and attached to this model. Make sure the file matches this model's architecture.")
+	}
+
 	var b strings.Builder
 	var lines []string
 	var addedParser bool
@@ -235,7 +244,13 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		// Use the same approach as the official lfm2.5-thinking model:
 		// TEMPLATE {{ .Prompt }} + RENDERER/PARSER so the built-in renderer handles
 		// all formatting including tool injection natively.
-		fmt.Fprintf(&b, "FROM %s\n\n", base)
+		if projector != "" {
+			fmt.Fprintf(&b, "FROM %s\n", originalBlobs[0])
+			fmt.Fprintf(&b, "# PROJECTOR %s\n", projector)
+			b.WriteString("\n")
+		} else {
+			fmt.Fprintf(&b, "FROM %s\n\n", base)
+		}
 		b.WriteString("RENDERER " + parser + "\n")
 		b.WriteString("PARSER " + parser + "\n\n")
 		b.WriteString("TEMPLATE {{ .Prompt }}\n")
@@ -252,6 +267,11 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 			}
 			upper := strings.ToUpper(trimmed)
 			if strings.HasPrefix(upper, "PARSER ") || strings.HasPrefix(upper, "RENDERER ") {
+				continue
+			}
+			// When the user supplies a custom stop list, drop the original stop
+			// lines so the fixed model re-declares them from scratch.
+			if req.Stops != nil && strings.HasPrefix(upper, "PARAMETER STOP ") {
 				continue
 			}
 			lines = append(lines, line)
@@ -297,6 +317,20 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		parameters["temperature"] = 0.1
 	}
 
+	// Custom stops are emitted generically, regardless of the LFM2 special path.
+	if req.Stops != nil {
+		var stops []string
+		for _, s := range req.Stops {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			stops = append(stops, s)
+			fmt.Fprintf(&b, "PARAMETER stop %q\n", s)
+		}
+		parameters["stop"] = stops
+	}
+
 	modelfile := strings.TrimSpace(b.String()) + "\n"
 	if len(modelfile) > 64*1024 {
 		return nil, errors.New("generated Modelfile is too large")
@@ -308,6 +342,8 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		Modelfile:            modelfile,
 		Warnings:             warnings,
 		DetectedCapabilities: append([]string(nil), show.Capabilities...),
+		BaseStops:            append([]string(nil), extractModelfileStops(show.Modelfile)...),
+		Projector:            projector,
 		RequiresConfirmation: true,
 		System:               system,
 		Template:             show.Template,
@@ -668,6 +704,44 @@ func repairStops(preset string) []string {
 	}
 }
 
+// resolveRepairStops returns the stop sequences to declare in the fixed model.
+// When the user supplied a custom list (non-nil) it is used verbatim — this is
+// fully generic and independent of the model architecture or template preset.
+// Otherwise the existing heuristic applies: preset stops first, then the base
+// model's stops with Markdown-punctuation sequences filtered out.
+func resolveRepairStops(custom []string, templatePreset, modelfile string) (stops []string, warnings []string) {
+	if custom != nil {
+		for _, s := range custom {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				stops = append(stops, s)
+			}
+		}
+		if markdown, _ := splitMarkdownStops(stops); len(markdown) > 0 {
+			warnings = append(warnings, fmt.Sprintf("The custom stop list contains plain Markdown punctuation (%s) that can cut off responses containing horizontal rules or headings.", strings.Join(markdown, ", ")))
+		}
+		return stops, warnings
+	}
+
+	stops = repairStops(templatePreset)
+	markdownStops, keptBaseStops := splitMarkdownStops(extractModelfileStops(modelfile))
+	if len(stops) > 0 {
+		if len(markdownStops) > 0 {
+			warnings = append(warnings, fmt.Sprintf("The base model declares stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. The stops declared by the selected template preset replace them.", strings.Join(markdownStops, ", ")))
+		}
+		return stops, warnings
+	}
+	if len(markdownStops) > 0 {
+		if len(keptBaseStops) > 0 {
+			warnings = append(warnings, fmt.Sprintf("The base model declares stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. The fixed model re-declares the stop list without them.", strings.Join(markdownStops, ", ")))
+			return keptBaseStops, warnings
+		}
+		warnings = append(warnings, fmt.Sprintf("The base model declares only stop sequences made of plain Markdown punctuation (%s) that cut off responses containing horizontal rules or headings. They cannot be removed automatically; edit the preview manually to declare replacement stops.", strings.Join(markdownStops, ", ")))
+		return nil, warnings
+	}
+	return nil, warnings
+}
+
 // repairRenderer returns the RENDERER/PARSER value for a given template preset.
 func repairRenderer(preset, arch string) string {
 	switch preset {
@@ -833,4 +907,49 @@ func extractBlobs(modelfile string) []string {
 		}
 	}
 	return blobs
+}
+
+// resolveProjectorURL normalizes a user-provided vision projector reference into
+// a direct Hugging Face download URL. Accepted forms:
+//   - full URL:  https://huggingface.co/<user>/<repo>/resolve/<rev>/<file>.gguf
+//   - blob URL:  https://huggingface.co/<user>/<repo>/blob/<rev>/<file>.gguf
+//   - shorthand: hf.co/<user>/<repo>/<file>
+//   - shorthand: <user>/<repo>/<file>
+func resolveProjectorURL(ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", errors.New("empty projector reference")
+	}
+	if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
+		u, err := url.Parse(ref)
+		if err != nil {
+			return "", fmt.Errorf("invalid projector URL: %w", err)
+		}
+		if !isHuggingFaceHost(u.Host) {
+			return "", errors.New("projector URL must point to huggingface.co or hf.co")
+		}
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		for i, p := range parts {
+			if p == "blob" || p == "resolve" {
+				parts[i] = "resolve"
+				break
+			}
+		}
+		u.Path = "/" + strings.Join(parts, "/")
+		u.RawQuery = ""
+		u.Fragment = ""
+		return u.String(), nil
+	}
+
+	ref = strings.TrimPrefix(ref, "hf.co/")
+	parts := strings.SplitN(ref, "/", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", errors.New("projector reference must be a URL or <user>/<repo>/<file>")
+	}
+	return "https://huggingface.co/" + parts[0] + "/" + parts[1] + "/resolve/main/" + parts[2], nil
+}
+
+func isHuggingFaceHost(host string) bool {
+	host = strings.ToLower(host)
+	return host == "huggingface.co" || host == "www.huggingface.co" || host == "hf.co" || strings.HasSuffix(host, ".huggingface.co")
 }

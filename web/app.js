@@ -1184,6 +1184,22 @@ function repairDefaultTemplate(d) {
   return "generic";
 }
 
+function extractStopTokens(modelfile) {
+  const out = [];
+  for (const line of String(modelfile || "").split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const m = t.match(/^PARAMETER\s+stop\s+(.+)$/i);
+    if (!m) continue;
+    let v = m[1].trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      try { v = JSON.parse(v); } catch { v = v.slice(1, -1); }
+    }
+    out.push(v);
+  }
+  return out;
+}
+
 function renderRepairEntry(d) {
   if (isFixedModelName(d.name)) {
     const base = fixedBaseName(d.name);
@@ -1226,6 +1242,8 @@ function renderRepairModalContent(d) {
   }).join("");
   const target = fixedModelName(d.name);
   const template = repairDefaultTemplate(d);
+  const baseStops = extractStopTokens(d.modelfile);
+  const stopsValue = escapeHtml(baseStops.join("\n"));
   return `<div class="repair-card">
     <label class="repair-check repair-fix-load">
       <input type="checkbox" id="repair-fix-load">
@@ -1253,9 +1271,9 @@ function renderRepairModalContent(d) {
       <label>
         <span>${escapeHtml(t("repair.context"))}</span>
         <select id="repair-context">
+          <option value="keep" selected>${escapeHtml(t("repair.keep"))}</option>
           <option value="safe">${escapeHtml(t("repair.context_safe"))}</option>
           <option value="thinking">${escapeHtml(t("repair.context_thinking"))}</option>
-          <option value="keep">${escapeHtml(t("repair.keep"))}</option>
         </select>
       </label>
       <label>
@@ -1267,6 +1285,19 @@ function renderRepairModalContent(d) {
         </select>
       </label>
     </div>
+    <div class="repair-subtitle">${escapeHtml(t("repair.stops"))}</div>
+    <div class="repair-stops-row">
+      <select id="repair-stops-mode">
+        <option value="auto" selected>${escapeHtml(t("repair.stops_auto"))}</option>
+        <option value="custom">${escapeHtml(t("repair.stops_custom"))}</option>
+      </select>
+    </div>
+    <textarea id="repair-stops" class="repair-stops" spellcheck="false" placeholder="${escapeHtml(t("repair.stops_placeholder"))}" disabled>${stopsValue}</textarea>
+    <div class="repair-stops-warn">${escapeHtml(t("repair.stops_warning"))}</div>
+    <label class="repair-projector-field">
+      <span>${escapeHtml(t("repair.projector"))}</span>
+      <input id="repair-projector" type="text" placeholder="${escapeHtml(t("repair.projector_placeholder"))}" autocomplete="off" spellcheck="false">
+    </label>
     <div class="repair-target">${escapeHtml(t("repair.target", { name: target }))}</div>
     <label class="repair-confirm">
       <input id="repair-confirm" type="checkbox">
@@ -1350,6 +1381,17 @@ function bindRepairControls(d) {
   });
   $("repair-fix-load")?.addEventListener("change", resetPreview);
 
+  const stopsMode = $("repair-stops-mode");
+  const stopsArea = $("repair-stops");
+  const syncStopsArea = () => {
+    if (!stopsArea || !stopsMode) return;
+    stopsArea.disabled = stopsMode.value !== "custom";
+  };
+  stopsMode?.addEventListener("change", syncStopsArea);
+  syncStopsArea();
+  stopsArea?.addEventListener("input", resetPreview);
+  $("repair-projector")?.addEventListener("input", resetPreview);
+
   previewBtn.addEventListener("click", async () => {
     try {
       previewBtn.disabled = true;
@@ -1409,12 +1451,18 @@ function collectRepairRequest(d, confirmed) {
     .filter((el) => el.checked)
     .map((el) => el.value);
   const modelfile = $("repair-preview")?.value || "";
+  const stopsMode = $("repair-stops-mode")?.value || "auto";
+  const stops = stopsMode === "custom"
+    ? ($("repair-stops")?.value || "").split("\n").map((s) => s.replace(/\r$/, "")).filter((s) => s.length > 0)
+    : null;
   return {
     model: d.name,
     capabilities,
     template_preset: $("repair-template")?.value || "generic",
-    context_preset: $("repair-context")?.value || "safe",
+    context_preset: $("repair-context")?.value || "keep",
     temperature_preset: $("repair-temperature")?.value || "keep",
+    stops,
+    projector: $("repair-projector")?.value?.trim() || "",
     fix_load: $("repair-fix-load")?.checked || false,
     modelfile: confirmed ? modelfile : "",
     confirm: !!confirmed,

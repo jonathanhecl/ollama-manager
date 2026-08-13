@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -827,6 +829,24 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		createReq.From = ""
 		createReq.Files = map[string]string{"model.gguf": digest}
 	}
+	projector := strings.TrimSpace(body.Projector)
+	if projector != "" {
+		modelDigest := blobDigest(from)
+		if modelDigest == "" {
+			writeError(w, http.StatusBadRequest, errors.New("cannot attach a vision projector without a GGUF model blob"))
+			return
+		}
+		projHex, err := s.downloadProjector(r.Context(), projector)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err)
+			return
+		}
+		createReq.From = ""
+		createReq.Files = map[string]string{
+			"model.gguf":  modelDigest,
+			"mmproj.gguf": "sha256:" + projHex,
+		}
+	}
 	replacing := s.modelExists(r.Context(), preview.TargetName)
 	err = s.ollama.Create(r.Context(), createReq)
 	if err != nil {
@@ -839,6 +859,77 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		"replaced":    replacing,
 		"warnings":    preview.Warnings,
 	})
+}
+
+// maxProjectorBytes caps the size of a downloaded mmproj file (8 GiB) to avoid
+// pathological downloads from a user-provided URL.
+const maxProjectorBytes = 8 << 30
+
+// projectorHTTPClient is the HTTP client used to download mmproj files. It is a
+// package variable so tests can replace it with a stub transport.
+var projectorHTTPClient = http.DefaultClient
+
+// downloadProjector downloads a vision projector (mmproj) GGUF from Hugging Face,
+// computes its SHA-256 digest and pushes the blob into Ollama's store if it is
+// not already present. It returns the hex digest (without the "sha256:" prefix).
+func (s *Server) downloadProjector(ctx context.Context, ref string) (string, error) {
+	u, err := resolveProjectorURL(ref)
+	if err != nil {
+		return "", err
+	}
+	return s.downloadBlob(ctx, u)
+}
+
+// downloadBlob fetches a blob from u, hashes it and ensures it is stored in
+// Ollama under its content digest.
+func (s *Server) downloadBlob(ctx context.Context, u string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "ollama-manager")
+	resp, err := projectorHTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("downloading projector failed: %s", resp.Status)
+	}
+
+	tmp, err := os.CreateTemp("", "ollama-manager-mmproj-*")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	defer tmp.Close()
+
+	h := sha256.New()
+	n, err := io.Copy(tmp, io.TeeReader(io.LimitReader(resp.Body, maxProjectorBytes+1), h))
+	if err != nil {
+		return "", err
+	}
+	if n > maxProjectorBytes {
+		return "", errors.New("projector file is too large")
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+
+	hexSum := hex.EncodeToString(h.Sum(nil))
+	digest := "sha256:" + hexSum
+
+	exists, err := s.ollama.HeadBlob(ctx, digest)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		if err := s.ollama.CreateBlob(ctx, digest, tmp); err != nil {
+			return "", err
+		}
+	}
+	return hexSum, nil
 }
 
 func (s *Server) modelExists(ctx context.Context, name string) bool {

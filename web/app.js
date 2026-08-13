@@ -3277,40 +3277,33 @@ function stopStreamTicker() {
 
 function startStreamTicker(msg, turnStartedAt) {
   stopStreamTicker();
-  msg._lastChunkAt = Date.now();
-  msg._accumulatedPauseMs = 0;
+  msg.turnStartedAt = turnStartedAt;
+  msg.elapsedMs = 0;
+  msg.completionTokens = 0;
+  msg.tokens = 0;
+  msg.tps = null;
+  msg._firstTokenAt = null;
+  msg._chunkCount = 0;
+  msg._charCount = 0;
+
   chatStreamTicker = setInterval(() => {
     if (!msg) return;
-    const isToolActive = !!msg._toolActiveStart;
-    const timeSinceLastChunk = Date.now() - (msg._lastChunkAt || Date.now());
-    const isStreamIdle = timeSinceLastChunk > 1000;
-    if (isToolActive || isStreamIdle) {
-      msg._accumulatedPauseMs = (msg._accumulatedPauseMs || 0) + 250;
-    }
-    const totalElapsed = Date.now() - turnStartedAt;
-    msg.elapsedMs = Math.max(0, totalElapsed - (msg._accumulatedPauseMs || 0));
-    updateLiveAssistantMetrics(msg, "");
+    // Total processed time: complete time from beginning to now
+    msg.elapsedMs = Math.max(0, Date.now() - turnStartedAt);
+    updateLiveAssistantTPS(msg);
     updateStreamBar();
-  }, 250);
+  }, 100);
 }
 
-function updateLiveAssistantMetrics(msg, deltaText) {
-  if (!msg) return;
-  const chunkEval = Number(msg.lastChunkEvalCount);
-  if (Number.isFinite(chunkEval) && chunkEval > msg.completionTokens) {
-    msg.completionTokens = chunkEval;
-  } else if (deltaText) {
-    msg.completionTokens += Math.max(1, Math.round(String(deltaText).length / 4));
-  } else {
-    const visibleText = `${msg.thinkContent || ""}${msg.content || ""}`;
-    const estimate = Math.max(0, Math.round(visibleText.length / 4));
-    if (estimate > msg.completionTokens) {
-      msg.completionTokens = estimate;
-    }
+function updateLiveAssistantTPS(msg) {
+  if (!msg || !msg._firstTokenAt) {
+    msg.tps = null;
+    return;
   }
-  msg.tokens = msg.completionTokens;
-  if (msg.elapsedMs > 0) {
-    msg.tps = msg.completionTokens / (msg.elapsedMs / 1000);
+  const genDurationMs = Date.now() - msg._firstTokenAt;
+  const tokens = Number(msg.completionTokens || msg.tokens) || 0;
+  if (tokens > 0 && genDurationMs >= 150) {
+    msg.tps = tokens / (genDurationMs / 1000);
   }
 }
 
@@ -4234,6 +4227,16 @@ async function runChatRequest(assistantMsg) {
         const contentDelta = data?.message?.content || "";
         if (thinkDelta || contentDelta) {
           assistantMsg._lastChunkAt = Date.now();
+          if (!assistantMsg._firstTokenAt) {
+            assistantMsg._firstTokenAt = Date.now();
+          }
+          const chunkChars = (thinkDelta ? thinkDelta.length : 0) + (contentDelta ? contentDelta.length : 0);
+          assistantMsg._charCount = (assistantMsg._charCount || 0) + chunkChars;
+          assistantMsg._chunkCount = (assistantMsg._chunkCount || 0) + 1;
+
+          const tokenEst = Math.max(assistantMsg._chunkCount, Math.round(assistantMsg._charCount / 3.8));
+          assistantMsg.completionTokens = tokenEst;
+          assistantMsg.tokens = tokenEst;
         }
         if (data?.completed != null) {
           assistantMsg.completedSteps = data.completed;
@@ -4264,10 +4267,11 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.inThink = parts.inThink;
         assistantMsg.elapsedMs = Date.now() - turnStartedAt;
         const chunkEval = Number(data?.eval_count);
-        if (Number.isFinite(chunkEval) && chunkEval >= 0) {
-          assistantMsg.lastChunkEvalCount = chunkEval;
+        if (Number.isFinite(chunkEval) && chunkEval > (assistantMsg.completionTokens || 0)) {
+          assistantMsg.completionTokens = chunkEval;
+          assistantMsg.tokens = chunkEval;
         }
-        updateLiveAssistantMetrics(assistantMsg, thinkDelta || contentDelta);
+        updateLiveAssistantTPS(assistantMsg);
         if (parts.inThink && !assistantMsg.thinkStartedAt) {
           assistantMsg.thinkStartedAt = Date.now();
           startThinkTicker(assistantMsg);
@@ -4282,6 +4286,7 @@ async function runChatRequest(assistantMsg) {
       } else if (event === "error") {
         throw new Error(data?.error || "stream error");
       } else if (event === "done") {
+        stopStreamTicker();
         console.log("[chat] done event", {
           toolLog: assistantMsg.toolLog || [],
           artifactUrl: assistantMsg.artifactUrl || null,
@@ -4324,16 +4329,19 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.streaming = false;
         assistantMsg.inThink = false;
         assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - turnStartedAt);
-        assistantMsg.tokens = Number(data.total_tokens) || 0;
         assistantMsg.promptTokens = Number(data.prompt_tokens) || 0;
-        assistantMsg.completionTokens = Number(data.completion_tokens) || 0;
+        assistantMsg.completionTokens = Number(data.completion_tokens) || (assistantMsg.completionTokens || 0);
+        assistantMsg.tokens = Number(data.total_tokens) || (assistantMsg.promptTokens + assistantMsg.completionTokens);
         assistantMsg.evalDurationNs = Number(data.eval_duration_ns) || 0;
         const mdl = modelByName(assistantMsg.model || modelName);
         assistantMsg.contextMax = Number(mdl?.context_length) || 0;
         const evNs = assistantMsg.evalDurationNs;
         const comp = assistantMsg.completionTokens;
-        if (evNs > 0 && comp >= 0) {
+        if (evNs > 0 && comp > 0) {
           assistantMsg.tps = comp / (evNs / 1e9);
+        } else if (assistantMsg._firstTokenAt && comp > 0) {
+          const genSec = (Date.now() - assistantMsg._firstTokenAt) / 1000;
+          assistantMsg.tps = genSec > 0.1 ? (comp / genSec) : (comp / Math.max(0.001, assistantMsg.elapsedMs / 1000));
         } else if (comp > 0 && assistantMsg.elapsedMs > 0) {
           assistantMsg.tps = comp / (assistantMsg.elapsedMs / 1000);
         } else {

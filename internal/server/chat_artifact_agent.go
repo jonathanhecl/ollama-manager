@@ -133,50 +133,44 @@ func artifactOperationalToolDefinitions() []any {
 	}
 }
 
-// artifactSystemPrompt returns the system prompt injected when artifacts mode is on.
+// artifactSystemPrompt returns the system prompt injected when artifacts mode is on for a new project.
 func artifactSystemPrompt() string {
-	return `You are a helpful assistant. If the user wants you to create a web project, display a web page, design a window interface and show it, or explain/visualize something using a website, you MUST call the tool 'create_artifact' with a name and description to initialize the project space.
-You must be highly proactive: when the user asks you to build, showcase, explain, or design something, do not just describe it or write code snippets in chat. Directly initialize the workspace via 'create_artifact' and implement the code files immediately.
-Do not attempt to write files or execute commands before calling 'create_artifact'.
-When building a web project, write the files starting with index.html as the entry point.
-Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
-IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.
+	return `You are a helpful coding and web assistant. You have access to artifact tools to create and build interactive web applications and projects.
+To start building a project or web application, you MUST first call the tool 'create_artifact' with 'name' and 'description'.
+Calling 'create_artifact' initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', and 'get_artifact_console') for you to use in the subsequent steps.
+
+WORKFLOW:
+1. Call 'create_artifact' with the project name.
+2. In the next turn, create 'index.html' (and any CSS/JS files) using 'write_file'. The preview runs live in a sandboxed iframe.
+3. Keep projects self-contained (inline CSS/JS or use CDN links for libraries like React, Tailwind, Lucide, KaTeX, Three.js, etc.).
+4. All file paths are relative to the project root (e.g. 'index.html', 'style.css', 'app.js'). Do NOT use absolute paths.
 
 UI/CONVERSATION RULES:
-1. Do NOT write, repeat, or output code blocks in your chat response when you are writing/editing them using the file tools. The user will see the code and run it in the preview panel automatically.
-2. Be extremely concise in your chat messages. Do NOT explain how you are going to do it or what code you are writing in excessive detail. Keep conversational text to 1-2 brief sentences max, prioritizing tool calls.
-3. Your primary goal is to build and implement the artifact in the workspace. Conversational text is secondary and should be kept minimal.`
+1. Do NOT repeat or dump code blocks in your chat response when you write or edit them using the tools. The user sees the code and live preview in the preview panel automatically.
+2. Keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.
+3. Your primary goal is to build and implement the artifact in the workspace.`
 }
 
-// artifactExistingSystemPrompt returns the system prompt injected when modifying an existing project.
+// artifactExistingSystemPrompt returns the system prompt injected when modifying an active existing project.
 func artifactExistingSystemPrompt() string {
-	return `You are a helpful assistant. You are working on an EXISTING project workspace.
-You must be highly proactive: when the user asks for changes, updates, additions, or bug fixes, directly apply those changes to the project files using the filesystem tools. Do not just describe the changes in conversation; implement them immediately in the workspace so the user can see the updated preview.
-You must use the following tools to inspect, edit, and build the project:
-- 'write_file': Create or overwrite a file in the project. Arguments:
-  * 'path': Relative path inside the project (e.g. index.html, styles.css, js/app.js)
-  * 'content': Full file content
-- 'replace_in_file': Replace a specific text snippet or code block in an existing file. Arguments:
-  * 'path': Relative path inside the project
-  * 'old_string': Exact text or code block to search for
-  * 'new_string': Replacement text or code block
-- 'read_file': Read the contents of an existing file. Arguments:
-  * 'path': Relative path inside the project
-- 'list_dir': List files and folders in a directory. Arguments:
-  * 'path': Relative path inside the project (default '.')
-- 'exec': Run a shell command in the project directory (e.g., to install npm packages, compile code, etc.). Arguments:
-  * 'command': The shell command to run
-- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors captured from the active artifact preview. Arguments: none.
+	return `You are a helpful coding and web assistant working on an ACTIVE artifact project workspace.
+The artifact session is ALREADY ACTIVE and initialized. You do NOT need to call 'create_artifact' — all project tools are ALREADY AVAILABLE for you to use:
+- 'write_file': Create or overwrite a file in the project. Required arguments: 'path' (relative, e.g. 'index.html'), 'content' (full file content).
+- 'replace_in_file': Replace a specific text snippet or code block in an existing file. Required arguments: 'path', 'old_string', 'new_string'.
+- 'read_file': Read the contents of an existing file. Required arguments: 'path'.
+- 'list_dir': List files and folders in a directory. Optional argument: 'path' (default '.').
+- 'exec': Run a shell command in the project directory. Required argument: 'command'.
+- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.
 
-When building or updating a web project, write the files starting with index.html as the entry point.
-Keep projects self-contained (inline CSS/JS or use CDN links). The preview runs in a sandboxed iframe.
-IMPORTANT: All file paths are relative to the project root. Do not use absolute paths.
+WORKFLOW:
+1. When asked to modify, update, add features, or fix the project, directly use 'write_file', 'replace_in_file', or 'read_file'.
+2. The user will see your changes instantly reflected in the live preview.
+3. If the user reports a bug, error, blank screen, or unexpected behavior, call 'get_artifact_console' or 'read_file' to diagnose and fix it.
+4. Keep all file paths relative to the project root.
 
 UI/CONVERSATION RULES:
-1. Do NOT write, repeat, or output code blocks in your chat response when you are writing/editing them using the file tools. The user will see the code and run it in the preview panel automatically.
-2. Be extremely concise in your chat messages. Do NOT explain how you are going to do it or what code you are writing in excessive detail. Keep conversational text to 1-2 brief sentences max, prioritizing tool calls.
-3. Your primary goal is to build and implement the artifact in the workspace. Conversational text is secondary and should be kept minimal.
-4. When the user reports an issue, bug, error, blank screen, or unexpected behavior in the preview, or when you finish implementing/updating the project and want to verify it works, you MUST call 'get_artifact_console' to check for any runtime errors or warning logs before concluding.`
+1. Do NOT repeat or dump code blocks in your chat response when writing/editing with tools.
+2. Keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.`
 }
 
 // buildArtifactSystemPrompt returns the system prompt, including a listing of
@@ -186,8 +180,8 @@ func buildArtifactSystemPrompt(artifactDir string) string {
 		return artifactSystemPrompt()
 	}
 	entries, err := os.ReadDir(artifactDir)
-	if err != nil || len(entries) == 0 {
-		return artifactSystemPrompt()
+	if err != nil {
+		return artifactExistingSystemPrompt()
 	}
 	var files []string
 	for _, e := range entries {
@@ -200,10 +194,12 @@ func buildArtifactSystemPrompt(artifactDir string) string {
 			files = append(files, e.Name())
 		}
 	}
+	if len(files) == 0 {
+		return artifactExistingSystemPrompt()
+	}
 	return artifactExistingSystemPrompt() + "\n\n" + fmt.Sprintf(
-		"The following files are already present in the workspace:\n  %s\n"+
-			"Use read_file to inspect current files before making changes. Edit files with write_file to update them. "+
-			"Only recreate files that need changes — do not rewrite the entire project unless necessary.",
+		"The following files are already present in the active workspace:\n  %s\n"+
+			"Use read_file to inspect current files before making changes, or write_file / replace_in_file to update them.",
 		strings.Join(files, "\n  "))
 }
 
@@ -355,10 +351,10 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 
 	case "create_artifact":
 		if artifactDir != "" {
-			return "Error: an artifact is already active in this session. Do NOT call create_artifact again. You must modify files in the existing project workspace using write_file instead.", nil
+			return "Error: an artifact workspace is already active in this session. Do NOT call create_artifact again. You already have full access to write_file, replace_in_file, read_file, list_dir, exec, and get_artifact_console.", nil
 		}
 		// No I/O — the loop handles sending the SSE artifact event.
-		return "artifact ready", nil
+		return "Artifact workspace initialized successfully. Operational tools (write_file, replace_in_file, read_file, list_dir, exec, get_artifact_console) are now available.", nil
 
 	case "get_artifact_console":
 		ts := filepath.Base(artifactDir)
@@ -519,13 +515,33 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		return nil
 	}
 
-	// Inject system prompt for artifacts (with existing file listing if iterating).
-	msgs := make([]ollama.ChatMessage, 0, len(body.Messages)+1)
+	// Prepare system prompt and messages cleanly
+	var customSystem string
+	filteredMessages := make([]ollama.ChatMessage, 0, len(body.Messages))
+	for _, m := range body.Messages {
+		if m.Role == "system" {
+			if strings.TrimSpace(m.Content) != "" {
+				if customSystem != "" {
+					customSystem += "\n\n"
+				}
+				customSystem += m.Content
+			}
+		} else {
+			filteredMessages = append(filteredMessages, m)
+		}
+	}
+
+	sysPrompt := buildArtifactSystemPrompt(artifactDir)
+	if customSystem != "" {
+		sysPrompt += "\n\nAdditional User System Instructions:\n" + customSystem
+	}
+
+	msgs := make([]ollama.ChatMessage, 0, len(filteredMessages)+1)
 	msgs = append(msgs, ollama.ChatMessage{
 		Role:    "system",
-		Content: buildArtifactSystemPrompt(artifactDir),
+		Content: sysPrompt,
 	})
-	msgs = append(msgs, body.Messages...)
+	msgs = append(msgs, filteredMessages...)
 
 	accComp := 0
 	var accEvalNS int64

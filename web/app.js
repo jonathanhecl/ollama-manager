@@ -3575,7 +3575,18 @@ function buildOutboundMessages() {
   if (systemPrompt) out.push({ role: "system", content: systemPrompt });
   for (const m of chatMessages) {
     if (m.role !== "user" && m.role !== "assistant") continue;
-    if (m.role === "assistant" && (m.streaming || !String(m.content || "").trim())) continue;
+    if (m.role === "assistant") {
+      if (m.streaming) continue;
+      const text = String(m.content || "").trim();
+      if (!text) {
+        if (m.artifactUrl || m.artifactName || (m.toolLog && m.toolLog.length)) {
+          out.push({ role: "assistant", content: `I have updated the artifact ${m.artifactName || "project"}.` });
+        }
+        continue;
+      }
+      out.push({ role: "assistant", content: text });
+      continue;
+    }
     const payload = { role: m.role, content: m.content || "" };
     if (m.role === "user" && m.attachments?.length) {
       const imgs = m.attachments.filter((a) => a.kind === "image").map((a) => a.data);
@@ -4010,9 +4021,13 @@ async function runChatRequest(assistantMsg) {
     if (activeArtifactTimestamp) {
       payload.artifact_dir = activeArtifactTimestamp;
     } else {
-      // Find the most recent artifact URL in chat history to iterate on it.
+      // Find the most recent artifact in chat history to iterate on it.
       for (let i = chatMessages.length - 1; i >= 0; i--) {
         const msg = chatMessages[i];
+        if (msg.artifactTimestamp) {
+          payload.artifact_dir = msg.artifactTimestamp;
+          break;
+        }
         if (msg.artifactUrl) {
           const match = String(msg.artifactUrl).match(/\/api\/artifacts\/([^\/]+)\//);
           if (match) {

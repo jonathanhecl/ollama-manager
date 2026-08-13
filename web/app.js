@@ -2792,6 +2792,13 @@ function renderChatMessages() {
     host.innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
     return;
   }
+  let lastUserMsgIdx = -1;
+  for (let k = chatMessages.length - 1; k >= 0; k--) {
+    if (chatMessages[k].role === "user") {
+      lastUserMsgIdx = k;
+      break;
+    }
+  }
   host.innerHTML = chatMessages.map((m, i) => {
     const meta = [];
     if (m.role === "assistant" && !m.streaming && m.stopped) {
@@ -2913,7 +2920,7 @@ function renderChatMessages() {
       }
     }
     const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
-    const canEditUser = m.role === "user" && !chatStreamLock && i === chatMessages.length - 2 && chatMessages[i + 1]?.role === "assistant" && chatMessages[i + 1]?.stopped && !chatMessages[i + 1]?.streaming && !chatMessages[i + 1]?.isError;
+    const canEditUser = m.role === "user" && !chatStreamLock && i === lastUserMsgIdx;
     if (isEditingUser) {
       bodyHTML = `<div class="chat-edit-box">
   <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(chatEditingDraft)}</textarea>
@@ -2929,7 +2936,7 @@ function renderChatMessages() {
     const modelLabel = m.role === "assistant" && m.model
       ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
       : "";
-    const hideActions = (m.role === "assistant" && m.streaming) || isImageModel || isEditingUser;
+    const hideActions = (m.role === "assistant" && m.streaming) || (m.role === "assistant" && isImageModel) || isEditingUser;
     const ttsPlaying = m.id === speakingMsgId;
     const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
     const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
@@ -3133,6 +3140,23 @@ function renderChatQueue() {
   host.querySelectorAll(".chat-queue-x").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
+      const item = chatPendingQueue.find((q) => q.id === btn.dataset.id);
+      if (item) {
+        const inputEl = $("chat-input");
+        if (inputEl) {
+          const currentVal = inputEl.value;
+          if (!currentVal.trim()) {
+            inputEl.value = item.text || "";
+          } else if (item.text) {
+            inputEl.value = currentVal + "\n" + item.text;
+          }
+          inputEl.focus();
+        }
+        if (item.attachments && item.attachments.length) {
+          chatAttachments = [...chatAttachments, ...item.attachments];
+          renderAttachments();
+        }
+      }
       chatPendingQueue = chatPendingQueue.filter((q) => q.id !== btn.dataset.id);
       renderChatQueue();
     });
@@ -4323,9 +4347,17 @@ async function editAndResendUserMessage(userId, newText) {
     return;
   }
   const idx = chatMessages.findIndex((m) => m.id === userId && m.role === "user");
-  if (idx < 0 || idx !== chatMessages.length - 2) return;
-  const assistant = chatMessages[idx + 1];
-  if (!assistant || assistant.role !== "assistant" || assistant.streaming || !assistant.stopped || assistant.isError) return;
+  if (idx < 0) return;
+
+  let lastUserIdx = -1;
+  for (let k = chatMessages.length - 1; k >= 0; k--) {
+    if (chatMessages[k].role === "user") {
+      lastUserIdx = k;
+      break;
+    }
+  }
+  if (idx !== lastUserIdx) return;
+
   if ($("chat-send-btn")?.disabled) {
     const why = $("chat-send-btn")?.title || t("status.unreachable");
     toast(why, "error");
@@ -4338,7 +4370,7 @@ async function editAndResendUserMessage(userId, newText) {
   const trimmed = newText.trim();
   if (!trimmed && !(chatMessages[idx].attachments || []).length) return;
   chatMessages[idx].content = trimmed;
-  chatMessages.pop();
+  chatMessages = chatMessages.slice(0, idx + 1);
   const assistantMsg = newAssistantMessage();
   assistantMsg.model = $("chat-model").value;
   chatMessages.push(assistantMsg);

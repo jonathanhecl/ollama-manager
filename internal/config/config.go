@@ -104,6 +104,23 @@ func Load(path string) (*Config, error) {
 		cfg.OllamaURL = Defaults().OllamaURL
 	}
 
+	def := Defaults().ChatDefaults
+	if cfg.ChatDefaults.Temperature == nil {
+		cfg.ChatDefaults.Temperature = def.Temperature
+	}
+	if cfg.ChatDefaults.TopK == nil {
+		cfg.ChatDefaults.TopK = def.TopK
+	}
+	if cfg.ChatDefaults.TopP == nil {
+		cfg.ChatDefaults.TopP = def.TopP
+	}
+	if cfg.ChatDefaults.WebTools == nil {
+		cfg.ChatDefaults.WebTools = def.WebTools
+	}
+	if cfg.ChatDefaults.Artifacts == nil {
+		cfg.ChatDefaults.Artifacts = def.Artifacts
+	}
+
 	dirty := false
 	if cfg.SessionSecret == "" {
 		if err := cfg.ensureSecret(); err != nil {

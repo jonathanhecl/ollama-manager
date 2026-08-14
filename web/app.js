@@ -5822,9 +5822,9 @@ async function openSettings() {
 
   const globalDefaults = getGlobalChatDefaults();
   if ($("set-default-system")) $("set-default-system").value = globalDefaults.system || "";
-  if ($("set-default-temp")) $("set-default-temp").value = globalDefaults.temperature != null ? globalDefaults.temperature : "0.7";
-  if ($("set-default-top-k")) $("set-default-top-k").value = globalDefaults.top_k != null ? globalDefaults.top_k : "40";
-  if ($("set-default-top-p")) $("set-default-top-p").value = globalDefaults.top_p != null ? globalDefaults.top_p : "0.9";
+  if ($("set-default-temp")) $("set-default-temp").value = String(globalDefaults.temperature != null && globalDefaults.temperature !== "" ? globalDefaults.temperature : "0.7");
+  if ($("set-default-top-k")) $("set-default-top-k").value = String(globalDefaults.top_k != null && globalDefaults.top_k !== "" ? globalDefaults.top_k : "40");
+  if ($("set-default-top-p")) $("set-default-top-p").value = String(globalDefaults.top_p != null && globalDefaults.top_p !== "" ? globalDefaults.top_p : "0.9");
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
 

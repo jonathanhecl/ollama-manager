@@ -225,9 +225,9 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		parser = "lfm2-thinking"
 	}
 
-	useModernTemplate := hasRepairCap(caps, "tools")
-
 	projector := strings.TrimSpace(req.Projector)
+	useModernTemplate := hasRepairCap(caps, "tools") || projector != "" || req.FixLoad || strings.Contains(show.Modelfile, "bos_token") || strings.Contains(show.Template, "bos_token")
+
 	originalBlobs := extractBlobs(show.Modelfile)
 	if projector != "" && len(originalBlobs) == 0 {
 		return nil, errors.New("cannot attach a vision projector: the base model Modelfile has no GGUF blob to build from")
@@ -241,19 +241,33 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 	var addedParser bool
 
 	if useModernTemplate {
-		// Use the same approach as the official lfm2.5-thinking model:
-		// TEMPLATE {{ .Prompt }} + RENDERER/PARSER so the built-in renderer handles
-		// all formatting including tool injection natively.
-		if projector != "" {
+		// Use the clean approach for LFM2 models:
+		// RENDERER/PARSER with TEMPLATE {{ .Prompt }} (or preset template) so the engine
+		// handles formatting natively without broken HuggingFace Jinja template tokens.
+		if (projector != "" || req.FixLoad) && len(originalBlobs) > 0 {
 			fmt.Fprintf(&b, "FROM %s\n", originalBlobs[0])
-			fmt.Fprintf(&b, "# PROJECTOR %s\n", projector)
+			for i := 1; i < len(originalBlobs); i++ {
+				fmt.Fprintf(&b, "# FROM %s (stripped to fix load error)\n", originalBlobs[i])
+			}
+			if projector != "" {
+				fmt.Fprintf(&b, "# PROJECTOR %s\n", projector)
+			}
 			b.WriteString("\n")
 		} else {
 			fmt.Fprintf(&b, "FROM %s\n\n", base)
 		}
 		b.WriteString("RENDERER " + parser + "\n")
 		b.WriteString("PARSER " + parser + "\n\n")
-		b.WriteString("TEMPLATE {{ .Prompt }}\n")
+		if templatePreset != "keep" {
+			tmpl := repairTemplate(templatePreset, hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
+			if tmpl != "" {
+				b.WriteString("TEMPLATE \"\"\"" + tmpl + "\"\"\"\n\n")
+			} else {
+				b.WriteString("TEMPLATE {{ .Prompt }}\n\n")
+			}
+		} else {
+			b.WriteString("TEMPLATE {{ .Prompt }}\n\n")
+		}
 	} else {
 		// Preserve exact original Modelfile (critical for invisible token characters)
 		original := strings.TrimSpace(show.Modelfile)
@@ -274,7 +288,7 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 			if req.Stops != nil && strings.HasPrefix(upper, "PARAMETER STOP ") {
 				continue
 			}
-			lines = append(lines, line)
+			lines = append(lines, sanitizeOllamaTemplate(line))
 			if !addedParser && strings.HasPrefix(upper, "FROM ") {
 				lines = append(lines, "PARSER "+parser)
 				addedParser = true
@@ -412,9 +426,14 @@ func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairP
 	if err != nil {
 		return "", "", "", nil, err
 	}
+	if template == "" {
+		template = extractLineDirective(modelfile, "TEMPLATE")
+	}
 	if template == "" && fallback != nil {
 		template = fallback.Template
 	}
+	template = sanitizeOllamaTemplate(template)
+	system = sanitizeOllamaTemplate(system)
 
 	parameters := make(map[string]any)
 	for _, line := range strings.Split(modelfile, "\n") {
@@ -448,6 +467,32 @@ func parseRepairModelfile(modelfile, expectedBase string, fallback *modelRepairP
 		}
 	}
 	return from, system, template, parameters, nil
+}
+
+func sanitizeOllamaTemplate(tmpl string) string {
+	if tmpl == "" {
+		return ""
+	}
+	replaces := []string{
+		"{{- bos_token -}}", "",
+		"{{- bos_token }}", "",
+		"{{ bos_token -}}", "",
+		"{{ bos_token }}", "",
+		"{{- eos_token -}}", "",
+		"{{- eos_token }}", "",
+		"{{ eos_token -}}", "",
+		"{{ eos_token }}", "",
+	}
+	res := tmpl
+	for i := 0; i < len(replaces); i += 2 {
+		res = strings.ReplaceAll(res, replaces[i], replaces[i+1])
+	}
+	// If template contains raw Python Jinja control flow {% ... %} that Go text/template cannot parse,
+	// replace with a clean fallback {{ .Prompt }}
+	if strings.Contains(res, "{%") || strings.Contains(res, "loop.") || strings.Contains(res, "raise_exception") {
+		return "{{ .Prompt }}"
+	}
+	return res
 }
 
 func extractTripleQuotedDirective(modelfile, directive string) (string, error) {

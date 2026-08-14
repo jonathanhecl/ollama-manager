@@ -1472,7 +1472,22 @@ function bindRepairControls(d) {
   stopsMode?.addEventListener("change", syncStopsArea);
   syncStopsArea();
   stopsArea?.addEventListener("input", resetPreview);
-  $("repair-projector")?.addEventListener("input", resetPreview);
+
+  const projInput = $("repair-projector");
+  const visionCapChk = root?.querySelector("input[name='repair-cap'][value='vision']");
+  const syncVisionCap = () => {
+    if (!projInput || !visionCapChk) return;
+    const val = projInput.value.trim();
+    if (val) {
+      visionCapChk.checked = true;
+    }
+  };
+  projInput?.addEventListener("input", () => {
+    syncVisionCap();
+    resetPreview();
+  });
+  projInput?.addEventListener("change", syncVisionCap);
+  projInput?.addEventListener("paste", () => setTimeout(syncVisionCap, 10));
 
   previewBtn.addEventListener("click", async () => {
     try {
@@ -1508,22 +1523,109 @@ function bindRepairControls(d) {
       mono: target,
     });
     if (!ok) return;
+
+    const setRepairProgress = (pct, text) => {
+      const clamped = Math.max(0, Math.min(100, pct || 0));
+      $("repair-status").innerHTML = `<div class="repair-progress-wrap">
+        <div class="repair-progress-track"><div class="repair-progress-fill" style="width: ${clamped.toFixed(1)}%"></div></div>
+        <div class="repair-progress-text">${escapeHtml(text)}</div>
+      </div>`;
+    };
+
     try {
       applyBtn.disabled = true;
-      $("repair-status").textContent = t("repair.applying");
-      const out = await api("/api/model-repair/apply", {
+      previewBtn.disabled = true;
+      setRepairProgress(0, t("repair.applying"));
+
+      const res = await fetch("/api/model-repair/apply", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
         body: JSON.stringify(collectRepairRequest(d, true)),
       });
-      toast(t(out.replaced ? "repair.replaced" : "repair.created", { name: out.target_name }), "success");
-      await refreshModels();
-      closeRepairModal();
-      openDetail(out.target_name);
+
+      if (!res.ok) {
+        const txt = await res.text();
+        let errMsg = txt;
+        try {
+          const errObj = JSON.parse(txt);
+          if (errObj.error) errMsg = errObj.error;
+        } catch (_) {}
+        throw new Error(errMsg || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResult = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        let currentEvent = "message";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith("event:")) {
+            currentEvent = trimmed.slice(6).trim();
+            continue;
+          }
+          if (trimmed.startsWith("data:")) {
+            const dataStr = trimmed.slice(5).trim();
+            try {
+              const data = JSON.parse(dataStr);
+              if (currentEvent === "progress") {
+                if (data.stage === "downloading_projector") {
+                  const completed = data.completed || 0;
+                  const total = data.total || 0;
+                  const pct = data.percent || 0;
+                  let text = t("repair.downloading_projector");
+                  if (total > 0) {
+                    text += ` ${formatBytes(completed)} / ${formatBytes(total)} (${pct.toFixed(1)}%)`;
+                  } else if (completed > 0) {
+                    text += ` ${formatBytes(completed)}`;
+                  }
+                  setRepairProgress(pct, text);
+                } else if (data.stage === "creating_model") {
+                  setRepairProgress(100, t("repair.creating_model"));
+                }
+              } else if (currentEvent === "done") {
+                finalResult = data;
+              } else if (currentEvent === "error") {
+                throw new Error(data.error || "Repair failed");
+              }
+            } catch (err) {
+              if (currentEvent === "error" || err.message !== "Unexpected end of JSON input") {
+                throw err;
+              }
+            }
+          }
+        }
+      }
+
+      if (finalResult) {
+        toast(t(finalResult.replaced ? "repair.replaced" : "repair.created", { name: finalResult.target_name }), "success");
+        await refreshModels();
+        closeRepairModal();
+        openDetail(finalResult.target_name);
+      } else {
+        toast(t("repair.created", { name: target }), "success");
+        await refreshModels();
+        closeRepairModal();
+        openDetail(target);
+      }
     } catch (e) {
       toast(t("toast.error", { msg: e.message }), "error");
       $("repair-status").textContent = t("state.error_prefix") + e.message;
       updateApply();
+    } finally {
+      previewBtn.disabled = false;
     }
   });
 }

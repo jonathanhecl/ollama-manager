@@ -161,6 +161,8 @@ const I18N = {
     "repair.stops_warning": "Wrong stop tokens can make the model return blank responses or cut off before it starts answering.",
     "repair.projector": "Vision projector (mmproj)",
     "repair.projector_placeholder": "HuggingFace URL or user/repo/file of the mmproj GGUF",
+    "repair.downloading_projector": "Downloading vision projector (mmproj)…",
+    "repair.creating_model": "Creating fixed model in Ollama…",
 
     "confirm.title": "Confirm",
     "confirm.delete_text": "{name} will be uninstalled from the system. This action cannot be undone.",
@@ -632,6 +634,8 @@ const I18N = {
     "repair.stops_warning": "Una configuración incorrecta de los stop tokens puede hacer que el modelo responda en blanco o se corte antes de empezar a responder.",
     "repair.projector": "Proyector de visión (mmproj)",
     "repair.projector_placeholder": "URL de HuggingFace o usuario/repo/archivo del mmproj GGUF",
+    "repair.downloading_projector": "Descargando proyector de visión (mmproj)…",
+    "repair.creating_model": "Creando modelo corregido en Ollama…",
 
     "confirm.title": "Confirmar",
     "confirm.delete_text": "Se desinstalará {name} del sistema. Esta acción no se puede deshacer.",

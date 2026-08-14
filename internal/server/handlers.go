@@ -838,16 +838,67 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		createReq.From = ""
 		createReq.Files = map[string]string{"model.gguf": digest}
 	}
+	isStream := strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+	var flusher http.Flusher
+	if isStream {
+		if f, ok := w.(http.Flusher); ok {
+			flusher = f
+		} else {
+			isStream = false
+		}
+	}
+	if isStream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+	}
+
+	sendSSE := func(event string, payload any) {
+		if !isStream {
+			return
+		}
+		buf, _ := json.Marshal(payload)
+		if event != "" {
+			fmt.Fprintf(w, "event: %s\n", event)
+		}
+		fmt.Fprintf(w, "data: %s\n\n", buf)
+		flusher.Flush()
+	}
+
 	projector := strings.TrimSpace(body.Projector)
 	if projector != "" {
 		modelDigest := blobDigest(from)
 		if modelDigest == "" {
-			writeError(w, http.StatusBadRequest, errors.New("cannot attach a vision projector without a GGUF model blob"))
+			if isStream {
+				sendSSE("error", map[string]any{"error": "cannot attach a vision projector without a GGUF model blob"})
+			} else {
+				writeError(w, http.StatusBadRequest, errors.New("cannot attach a vision projector without a GGUF model blob"))
+			}
 			return
 		}
-		projHex, err := s.downloadProjector(r.Context(), projector)
+		sendSSE("progress", map[string]any{
+			"stage":   "downloading_projector",
+			"percent": 0,
+		})
+		projHex, err := s.downloadProjector(r.Context(), projector, func(completed, total int64) {
+			pct := float64(0)
+			if total > 0 {
+				pct = float64(completed) / float64(total) * 100
+			}
+			sendSSE("progress", map[string]any{
+				"stage":     "downloading_projector",
+				"completed": completed,
+				"total":     total,
+				"percent":   pct,
+			})
+		})
 		if err != nil {
-			writeError(w, http.StatusBadGateway, err)
+			if isStream {
+				sendSSE("error", map[string]any{"error": err.Error()})
+			} else {
+				writeError(w, http.StatusBadGateway, err)
+			}
 			return
 		}
 		createReq.From = ""
@@ -856,18 +907,31 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 			"mmproj.gguf": "sha256:" + projHex,
 		}
 	}
+	sendSSE("progress", map[string]any{
+		"stage":   "creating_model",
+		"percent": 100,
+	})
 	replacing := s.modelExists(r.Context(), preview.TargetName)
 	err = s.ollama.Create(r.Context(), createReq)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		if isStream {
+			sendSSE("error", map[string]any{"error": err.Error()})
+		} else {
+			writeError(w, http.StatusBadGateway, err)
+		}
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resPayload := map[string]any{
 		"base_name":   preview.BaseName,
 		"target_name": preview.TargetName,
 		"replaced":    replacing,
 		"warnings":    preview.Warnings,
-	})
+	}
+	if isStream {
+		sendSSE("done", resPayload)
+	} else {
+		writeJSON(w, http.StatusOK, resPayload)
+	}
 }
 
 // maxProjectorBytes caps the size of a downloaded mmproj file (8 GiB) to avoid
@@ -878,20 +942,40 @@ const maxProjectorBytes = 8 << 30
 // package variable so tests can replace it with a stub transport.
 var projectorHTTPClient = http.DefaultClient
 
+type progressReader struct {
+	r         io.Reader
+	total     int64
+	completed int64
+	onProg    func(completed, total int64)
+	lastTime  time.Time
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
+	if n > 0 {
+		pr.completed += int64(n)
+		if pr.onProg != nil && (time.Since(pr.lastTime) > 100*time.Millisecond || err != nil) {
+			pr.lastTime = time.Now()
+			pr.onProg(pr.completed, pr.total)
+		}
+	}
+	return n, err
+}
+
 // downloadProjector downloads a vision projector (mmproj) GGUF from Hugging Face,
 // computes its SHA-256 digest and pushes the blob into Ollama's store if it is
 // not already present. It returns the hex digest (without the "sha256:" prefix).
-func (s *Server) downloadProjector(ctx context.Context, ref string) (string, error) {
+func (s *Server) downloadProjector(ctx context.Context, ref string, onProgress func(completed, total int64)) (string, error) {
 	u, err := resolveProjectorURL(ref)
 	if err != nil {
 		return "", err
 	}
-	return s.downloadBlob(ctx, u)
+	return s.downloadBlob(ctx, u, onProgress)
 }
 
 // downloadBlob fetches a blob from u, hashes it and ensures it is stored in
 // Ollama under its content digest.
-func (s *Server) downloadBlob(ctx context.Context, u string) (string, error) {
+func (s *Server) downloadBlob(ctx context.Context, u string, onProgress func(completed, total int64)) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", err
@@ -906,6 +990,11 @@ func (s *Server) downloadBlob(ctx context.Context, u string) (string, error) {
 		return "", fmt.Errorf("downloading projector failed: %s", resp.Status)
 	}
 
+	contentLength := resp.ContentLength
+	if onProgress != nil && contentLength > 0 {
+		onProgress(0, contentLength)
+	}
+
 	tmp, err := os.CreateTemp("", "ollama-manager-mmproj-*")
 	if err != nil {
 		return "", err
@@ -915,12 +1004,24 @@ func (s *Server) downloadBlob(ctx context.Context, u string) (string, error) {
 	defer tmp.Close()
 
 	h := sha256.New()
-	n, err := io.Copy(tmp, io.TeeReader(io.LimitReader(resp.Body, maxProjectorBytes+1), h))
+	var pr io.Reader = resp.Body
+	if onProgress != nil {
+		pr = &progressReader{
+			r:        resp.Body,
+			total:    contentLength,
+			onProg:   onProgress,
+			lastTime: time.Now(),
+		}
+	}
+	n, err := io.Copy(tmp, io.TeeReader(io.LimitReader(pr, maxProjectorBytes+1), h))
 	if err != nil {
 		return "", err
 	}
 	if n > maxProjectorBytes {
 		return "", errors.New("projector file is too large")
+	}
+	if onProgress != nil && contentLength > 0 {
+		onProgress(n, contentLength)
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return "", err

@@ -226,6 +226,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 				"prompt_duration_ns": last.PromptEvalDuration,
 				"eval_duration_ns":   accEvalNS,
 				"total_duration_ns":  last.TotalDuration,
+				"done_reason":        last.DoneReason,
 			})
 			return
 		}

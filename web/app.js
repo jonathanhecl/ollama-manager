@@ -2677,6 +2677,17 @@ function thinkLabel(ms, streaming) {
   return t("chat.think_done", { t: dur });
 }
 
+function formatDoneReason(reason) {
+  if (!reason) return "";
+  const r = String(reason).toLowerCase().trim();
+  if (r === "stop") return t("chat.done_reason.stop") || "stop";
+  if (r === "length") return t("chat.done_reason.length") || "length limit";
+  if (r === "abort" || r === "aborted" || r === "stopped") return t("chat.done_reason.aborted") || "stopped";
+  if (r === "tool_limit" || r === "tools_limit") return t("chat.done_reason.tool_limit") || "tool limit";
+  if (r === "error") return t("chat.done_reason.error") || "error";
+  return r;
+}
+
 function assistantMetricParts(m, opts = {}) {
   if (!m || m.role !== "assistant") return [];
   const parts = [];
@@ -2687,6 +2698,11 @@ function assistantMetricParts(m, opts = {}) {
   if (tokens > 0 || opts.showZero) parts.push(t("chat.meta_tokens", { n: tokens }));
   if ((Number.isFinite(tps) && tps > 0) || opts.showZero) {
     parts.push(t("chat.meta_tps", { rate: (Number.isFinite(tps) && tps > 0 ? tps : 0).toFixed(2) }));
+  }
+  if (!m.streaming && (m.doneReason || m.stopped)) {
+    const reason = m.stopped ? "aborted" : m.doneReason;
+    const label = formatDoneReason(reason);
+    if (label) parts.push(label);
   }
   if (opts.streaming) parts.push(t("chat.streaming"));
   return parts;
@@ -4431,6 +4447,7 @@ async function runChatRequest(assistantMsg) {
         assistantMsg.completionTokens = Number(data.completion_tokens) || (assistantMsg.completionTokens || 0);
         assistantMsg.tokens = Number(data.total_tokens) || (assistantMsg.promptTokens + assistantMsg.completionTokens);
         assistantMsg.evalDurationNs = Number(data.eval_duration_ns) || 0;
+        assistantMsg.doneReason = data?.done_reason || assistantMsg.doneReason || "stop";
         const mdl = modelByName(assistantMsg.model || modelName);
         assistantMsg.contextMax = Number(mdl?.context_length) || 0;
         const evNs = assistantMsg.evalDurationNs;
@@ -4461,6 +4478,7 @@ async function runChatRequest(assistantMsg) {
     assistantMsg.inThink = false;
     if (isAbortError(e)) {
       assistantMsg.stopped = true;
+      assistantMsg.doneReason = "aborted";
       const hasAnswer = String(assistantMsg.content || "").trim().length > 0;
       const hasThink = String(assistantMsg.thinkContent || "").trim().length > 0;
       if (!hasAnswer && !hasThink) {

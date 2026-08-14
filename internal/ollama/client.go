@@ -501,6 +501,7 @@ type GenerateChunk struct {
 	Image              string    `json:"image,omitempty"`
 	Error              string    `json:"error,omitempty"`
 	Done               bool      `json:"done"`
+	DoneReason         string    `json:"done_reason,omitempty"`
 	Completed          int       `json:"completed,omitempty"`
 	Total              int       `json:"total,omitempty"`
 	PromptEvalCount    int       `json:"prompt_eval_count,omitempty"`

@@ -1181,6 +1181,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			"prompt_duration_ns": final.PromptEvalDuration,
 			"eval_duration_ns":   final.EvalDuration,
 			"total_duration_ns":  final.TotalDuration,
+			"done_reason":        final.DoneReason,
 		})
 		return
 	}
@@ -1242,6 +1243,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		"prompt_duration_ns": final.PromptEvalDuration,
 		"eval_duration_ns":   final.EvalDuration,
 		"total_duration_ns":  final.TotalDuration,
+		"done_reason":        final.DoneReason,
 	})
 }
 

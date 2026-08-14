@@ -2614,6 +2614,27 @@ button.chat-send:disabled:hover {
     background: var(--panel-2);
     border: 1px solid var(--border);
   }
+}
+
+.chat-side-card .field#chat-system-field,
+#chat-system-field {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 6px !important;
+}
+#chat-system-field > label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+#chat-system {
+  width: 100%;
+  min-height: 80px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
 .chat-options-reset-link {
   background: none;
   border: none;

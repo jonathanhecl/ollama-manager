@@ -2634,6 +2634,7 @@ button.chat-send:disabled:hover {
   padding: 0;
   line-height: 1;
   border-radius: 8px;
+  margin-left: auto;
 }
 .chat-artifact-back {
   width: 32px;

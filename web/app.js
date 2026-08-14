@@ -1260,6 +1260,8 @@ function fixedModelName(name) {
 function repairDefaultTemplate(d) {
   if (String(d?.template || "").trim()) return "keep";
   const arch = String(d?.architecture || d?.details?.family || "").toLowerCase();
+  const name = String(d?.name || "").toLowerCase();
+  if (arch.includes("glimmer") || arch.includes("muse") || name.includes("glimmer") || name.includes("muse")) return "muse_glimmer";
   if (arch.includes("qwen")) return "qwen35";
   if (arch.includes("llama")) return "llama3";
   if (arch.includes("gemma4") || arch.includes("gemma-4")) return "gemma4";
@@ -1347,6 +1349,7 @@ function renderRepairModalContent(d) {
           <option value="gemma"${template === "gemma" ? " selected" : ""}>Gemma</option>
           <option value="gemma4"${template === "gemma4" ? " selected" : ""}>Gemma 4</option>
           <option value="gemma2_unsloth"${template === "gemma2_unsloth" ? " selected" : ""}>Gemma 2 / 4 (Unsloth)</option>
+          <option value="muse_glimmer"${template === "muse_glimmer" ? " selected" : ""}>Muse Glimmer</option>
           <option value="hf_generic"${template === "hf_generic" ? " selected" : ""}>HuggingFace / GGUF</option>
           <option value="generic"${template === "generic" ? " selected" : ""}>ChatML</option>
         </select>

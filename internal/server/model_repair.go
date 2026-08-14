@@ -226,7 +226,8 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 	}
 
 	projector := strings.TrimSpace(req.Projector)
-	useModernTemplate := hasRepairCap(caps, "tools") || projector != "" || req.FixLoad || strings.Contains(show.Modelfile, "bos_token") || strings.Contains(show.Template, "bos_token")
+	hasVision := hasRepairCap(caps, "vision") || projector != ""
+	useModernTemplate := hasRepairCap(caps, "tools") || hasVision || req.FixLoad || strings.Contains(show.Modelfile, "bos_token") || strings.Contains(show.Template, "bos_token")
 
 	originalBlobs := extractBlobs(show.Modelfile)
 	if projector != "" && len(originalBlobs) == 0 {
@@ -242,8 +243,8 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 
 	if useModernTemplate {
 		// Use the clean approach for LFM2 models:
-		// RENDERER/PARSER with TEMPLATE {{ .Prompt }} (or preset template) so the engine
-		// handles formatting natively without broken HuggingFace Jinja template tokens.
+		// For text models: RENDERER/PARSER with TEMPLATE {{ .Prompt }}
+		// For vision models: PARSER with full ChatML TEMPLATE so Ollama passes image attachments per turn
 		if (projector != "" || req.FixLoad) && len(originalBlobs) > 0 {
 			fmt.Fprintf(&b, "FROM %s\n", originalBlobs[0])
 			for i := 1; i < len(originalBlobs); i++ {
@@ -256,15 +257,18 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		} else {
 			fmt.Fprintf(&b, "FROM %s\n\n", base)
 		}
-		b.WriteString("RENDERER " + parser + "\n")
+
+		if !hasVision {
+			b.WriteString("RENDERER " + parser + "\n")
+		}
 		b.WriteString("PARSER " + parser + "\n\n")
-		if templatePreset != "keep" {
+
+		if hasVision || templatePreset != "keep" {
 			tmpl := repairTemplate(templatePreset, hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
-			if tmpl != "" {
-				b.WriteString("TEMPLATE \"\"\"" + tmpl + "\"\"\"\n\n")
-			} else {
-				b.WriteString("TEMPLATE {{ .Prompt }}\n\n")
+			if tmpl == "" {
+				tmpl = repairTemplate("lfm2", hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
 			}
+			b.WriteString("TEMPLATE \"\"\"" + tmpl + "\"\"\"\n\n")
 		} else {
 			b.WriteString("TEMPLATE {{ .Prompt }}\n\n")
 		}
@@ -331,7 +335,7 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		parameters["temperature"] = 0.1
 	}
 
-	// Custom stops are emitted generically, regardless of the LFM2 special path.
+	// Stop tokens: custom list if specified, otherwise declare standard ChatML stops
 	if req.Stops != nil {
 		var stops []string
 		for _, s := range req.Stops {
@@ -340,6 +344,12 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 				continue
 			}
 			stops = append(stops, s)
+			fmt.Fprintf(&b, "PARAMETER stop %q\n", s)
+		}
+		parameters["stop"] = stops
+	} else if useModernTemplate {
+		stops := []string{"<|im_end|>", "<|endoftext|>"}
+		for _, s := range stops {
 			fmt.Fprintf(&b, "PARAMETER stop %q\n", s)
 		}
 		parameters["stop"] = stops
@@ -692,7 +702,7 @@ You may call tools. Available tools:
 `
 	case "lfm2":
 		var b strings.Builder
-		b.WriteString(`{{- if .System }}<|startoftext|><|im_start|>system
+		b.WriteString(`{{- if .System }}<|im_start|>system
 {{ .System }}<|im_end|>
 {{ end -}}`)
 		if tools {
@@ -714,6 +724,14 @@ List of tools: [{{ range $i, $t := .Tools }}{{ if $i }}, {{ end }}{{ $t }}{{ end
 {{- range .Messages }}<|im_start|>{{ .Role }}
 {{ .Content }}<|im_end|>
 {{ end -}}<|im_start|>assistant
+`
+	case "muse_glimmer", "muse-glimmer", "glimmer", "muse":
+		return `{{- if .System }}<|start|>system<|message|>
+{{ .System }}<|eot|>
+{{ end -}}
+{{- range .Messages }}<|start|>{{ .Role }}<|message|>
+{{ .Content }}<|eot|>
+{{ end -}}<|start|>assistant<|message|>
 `
 	case "generic", "chatml", "":
 		return `{{- if .System }}<|im_start|>system
@@ -739,7 +757,9 @@ func repairStops(preset string) []string {
 	case "gemma2_unsloth":
 		return []string{"<bos>", "<|turn|>", "<turn|>", "<|turn|>user"}
 	case "lfm2":
-		return []string{"<|startoftext|>", "<|im_start|>", "<|im_end|>"}
+		return []string{"<|im_end|>", "<|endoftext|>"}
+	case "muse_glimmer", "muse-glimmer", "glimmer", "muse":
+		return []string{"<|eot|>", "<|start|>user<|message|>"}
 	case "hf_generic":
 		return []string{"<|im_end|>", "<|endoftext|>", "<|file_separator|>"}
 	case "qwen35", "qwen", "generic", "chatml", "":

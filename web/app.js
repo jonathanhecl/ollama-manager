@@ -11,6 +11,7 @@ const fmtBytes = (n) => {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return `${n.toFixed(n < 10 && i > 0 ? 2 : 1)} ${u[i]}`;
 };
+const formatBytes = fmtBytes;
 const fmtDate = (s) => {
   if (!s) return "—";
   const d = new Date(s);

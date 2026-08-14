@@ -4,5 +4,13 @@
   "password_hash": "",
   "session_secret": "",
   "ollama_url": "http://localhost:11434",
-  "language": "en"
+  "language": "en",
+  "chat_defaults": {
+    "system_prompt": "",
+    "temperature": 0.7,
+    "top_k": 40,
+    "top_p": 0.9,
+    "web_tools": false,
+    "artifacts": false
+  }
 }

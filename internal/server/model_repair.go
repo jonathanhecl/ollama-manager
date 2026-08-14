@@ -258,19 +258,22 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 			fmt.Fprintf(&b, "FROM %s\n\n", base)
 		}
 
-		if !hasVision {
+		if !hasVision && hasRepairCap(caps, "tools") {
 			b.WriteString("RENDERER " + parser + "\n")
+			b.WriteString("PARSER " + parser + "\n\n")
 		}
-		b.WriteString("PARSER " + parser + "\n\n")
 
-		if hasVision || templatePreset != "keep" {
+		if templatePreset != "keep" {
 			tmpl := repairTemplate(templatePreset, hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
-			if tmpl == "" {
-				tmpl = repairTemplate("lfm2", hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
+			if tmpl != "" {
+				b.WriteString("TEMPLATE \"\"\"" + tmpl + "\"\"\"\n\n")
+			} else {
+				b.WriteString("TEMPLATE \"\"\"" + repairTemplate("lfm2", false, false) + "\"\"\"\n\n")
 			}
-			b.WriteString("TEMPLATE \"\"\"" + tmpl + "\"\"\"\n\n")
-		} else {
+		} else if !hasVision && hasRepairCap(caps, "tools") {
 			b.WriteString("TEMPLATE {{ .Prompt }}\n\n")
+		} else {
+			b.WriteString("TEMPLATE \"\"\"" + repairTemplate("lfm2", false, false) + "\"\"\"\n\n")
 		}
 	} else {
 		// Preserve exact original Modelfile (critical for invisible token characters)
@@ -348,7 +351,7 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		}
 		parameters["stop"] = stops
 	} else if useModernTemplate {
-		stops := []string{"<|im_end|>", "<|endoftext|>"}
+		stops := []string{"<|startoftext|>", "<|im_start|>", "<|im_end|>", "<|im_start|>user"}
 		for _, s := range stops {
 			fmt.Fprintf(&b, "PARAMETER stop %q\n", s)
 		}
@@ -701,22 +704,13 @@ You may call tools. Available tools:
 {{ end }}<|turn>model
 `
 	case "lfm2":
-		var b strings.Builder
-		b.WriteString(`{{- if .System }}<|im_start|>system
+		return `{{ if .System }}<|startoftext|><|im_start|>system
 {{ .System }}<|im_end|>
-{{ end -}}`)
-		if tools {
-			b.WriteString(`
-{{- if .Tools }}<|im_start|>system
-List of tools: [{{ range $i, $t := .Tools }}{{ if $i }}, {{ end }}{{ $t }}{{ end }}]<|im_end|>
-{{ end -}}`)
-		}
-		b.WriteString(`
-{{- range .Messages }}<|im_start|>{{ .Role }}
-{{ .Content }}<|im_end|>
-{{ end -}}<|im_start|>assistant
-`)
-		return b.String()
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ .Response }}<|im_end|>
+`
 	case "hf_generic":
 		return `{{- if .System }}<|im_start|>system
 {{ .System }}<|im_end|>
@@ -757,7 +751,7 @@ func repairStops(preset string) []string {
 	case "gemma2_unsloth":
 		return []string{"<bos>", "<|turn|>", "<turn|>", "<|turn|>user"}
 	case "lfm2":
-		return []string{"<|im_end|>", "<|endoftext|>"}
+		return []string{"<|startoftext|>", "<|im_start|>", "<|im_end|>", "<|im_start|>user"}
 	case "muse_glimmer", "muse-glimmer", "glimmer", "muse":
 		return []string{"<|eot|>", "<|start|>user<|message|>"}
 	case "hf_generic":

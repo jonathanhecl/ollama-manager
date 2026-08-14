@@ -1674,10 +1674,9 @@ function updateChatCapabilityUI() {
     stopAudioRecording(true);
   }
   const webW = $("chat-web-tools");
-  if (webW) webW.checked = !isImageModel && !!canTools;
+  if (webW && !getModelChatOptions(model)) webW.checked = !isImageModel && !!canTools;
   const artChk = $("chat-artifacts");
-  if (artChk) artChk.checked = false;
-  restoreChatOptionsFromSession();
+  if (artChk && !getModelChatOptions(model)) artChk.checked = false;
 
   const m = modelByName(model);
   const capsHtml = renderCapabilityPills(m?.capabilities);
@@ -3634,70 +3633,144 @@ function extractModelChatDefaults(detail) {
   return { ...fromParams, ...fromModelfile };
 }
 
-function setChatOptionsValues(opts) {
-  if (opts.temperature != null) $("chat-temperature").value = String(opts.temperature);
-  if (opts.top_k != null) $("chat-top-k").value = String(Math.round(opts.top_k));
-  if (opts.top_p != null) $("chat-top-p").value = String(opts.top_p);
-}
+const GLOBAL_CHAT_DEFAULTS_KEY = "ollama_manager_global_chat_defaults";
+const MODEL_CHAT_OPTIONS_KEY = "ollama_manager_model_chat_options";
 
-function saveChatOptionsToSession() {
-  const opts = {
-    system: $("chat-system")?.value,
-    temperature: $("chat-temperature")?.value,
-    top_k: $("chat-top-k")?.value,
-    top_p: $("chat-top-p")?.value,
-    no_think: $("chat-no-think")?.checked,
-    web_tools: $("chat-web-tools")?.checked,
-    artifacts: $("chat-artifacts")?.checked,
-    image_width: $("chat-image-width")?.value,
-    image_height: $("chat-image-height")?.value,
-    image_steps: $("chat-image-steps")?.value,
-    image_seed: $("chat-image-seed")?.value
+function getGlobalChatDefaults() {
+  const serverDefaults = currentConfig?.chat_defaults;
+  const fallback = {
+    system: serverDefaults?.system_prompt ?? "",
+    temperature: serverDefaults?.temperature ?? 0.7,
+    top_k: serverDefaults?.top_k ?? 40,
+    top_p: serverDefaults?.top_p ?? 0.9,
+    web_tools: serverDefaults?.web_tools ?? false,
+    artifacts: serverDefaults?.artifacts ?? false,
   };
-  localStorage.setItem("ollama_manager_chat_options", JSON.stringify(opts));
-}
-
-function restoreChatOptionsFromSession() {
-  const raw = localStorage.getItem("ollama_manager_chat_options");
-  if (!raw) return;
   try {
-    const opts = JSON.parse(raw);
-    if (!opts) return;
-    if (opts.system !== undefined && $("chat-system")) {
-      $("chat-system").value = opts.system;
-    }
-    if (opts.temperature !== undefined && $("chat-temperature")) {
-      $("chat-temperature").value = opts.temperature;
-    }
-    if (opts.top_k !== undefined && $("chat-top-k")) {
-      $("chat-top-k").value = opts.top_k;
-    }
-    if (opts.top_p !== undefined && $("chat-top-p")) {
-      $("chat-top-p").value = opts.top_p;
-    }
-    if (opts.no_think !== undefined && $("chat-no-think")) {
-      $("chat-no-think").checked = opts.no_think;
-    }
-    if (opts.web_tools !== undefined && $("chat-web-tools")) {
-      $("chat-web-tools").checked = opts.web_tools;
-    }
-    if (opts.artifacts !== undefined && $("chat-artifacts")) {
-      $("chat-artifacts").checked = opts.artifacts;
-    }
-    if (opts.image_width !== undefined && $("chat-image-width")) {
-      $("chat-image-width").value = opts.image_width;
-    }
-    if (opts.image_height !== undefined && $("chat-image-height")) {
-      $("chat-image-height").value = opts.image_height;
-    }
-    if (opts.image_steps !== undefined && $("chat-image-steps")) {
-      $("chat-image-steps").value = opts.image_steps;
-    }
-    if (opts.image_seed !== undefined && $("chat-image-seed")) {
-      $("chat-image-seed").value = opts.image_seed;
+    const raw = localStorage.getItem(GLOBAL_CHAT_DEFAULTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...fallback, ...parsed };
     }
   } catch (e) {
-    console.error("Error restoring chat options", e);
+    console.error("Error reading global chat defaults", e);
+  }
+  return fallback;
+}
+
+function saveGlobalChatDefaults(defaults) {
+  try {
+    localStorage.setItem(GLOBAL_CHAT_DEFAULTS_KEY, JSON.stringify(defaults));
+  } catch (e) {
+    console.error("Error saving global chat defaults", e);
+  }
+}
+
+function getAllModelChatOptions() {
+  try {
+    const raw = localStorage.getItem(MODEL_CHAT_OPTIONS_KEY);
+    if (raw) return JSON.parse(raw) || {};
+  } catch (e) {
+    console.error("Error reading model chat options", e);
+  }
+  return {};
+}
+
+function getModelChatOptions(modelName) {
+  if (!modelName) return null;
+  const all = getAllModelChatOptions();
+  return all[modelName] || null;
+}
+
+function updateChatCustomOptionsBadge() {
+  const modelName = $("chat-model")?.value;
+  const resetBtn = $("chat-options-reset-btn");
+  if (!resetBtn) return;
+  const hasCustom = !!(modelName && getModelChatOptions(modelName));
+  resetBtn.hidden = !hasCustom;
+}
+
+function saveChatOptionsForCurrentModel() {
+  const modelName = $("chat-model")?.value;
+  if (!modelName) return;
+
+  const currentOpts = {
+    system: $("chat-system")?.value ?? "",
+    temperature: $("chat-temperature")?.value ?? "0.7",
+    top_k: $("chat-top-k")?.value ?? "40",
+    top_p: $("chat-top-p")?.value ?? "0.9",
+    no_think: $("chat-no-think")?.checked ?? false,
+    web_tools: $("chat-web-tools")?.checked ?? false,
+    artifacts: $("chat-artifacts")?.checked ?? false,
+    image_width: $("chat-image-width")?.value ?? "512",
+    image_height: $("chat-image-height")?.value ?? "512",
+    image_steps: $("chat-image-steps")?.value ?? "4",
+    image_seed: $("chat-image-seed")?.value ?? "0",
+  };
+
+  const all = getAllModelChatOptions();
+  all[modelName] = currentOpts;
+  try {
+    localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
+  } catch (e) {
+    console.error("Error saving model chat options", e);
+  }
+  updateChatCustomOptionsBadge();
+}
+
+function resetModelChatOptionsToDefaults() {
+  const modelName = $("chat-model")?.value;
+  if (!modelName) return;
+
+  const all = getAllModelChatOptions();
+  if (all[modelName]) {
+    delete all[modelName];
+    try {
+      localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
+    } catch (e) {
+      console.error("Error resetting model chat options", e);
+    }
+  }
+
+  void applyChatDefaultsForModel(modelName, true);
+  updateChatCustomOptionsBadge();
+  toast(t("chat.reset_to_defaults_done"), "success");
+}
+
+function setChatOptionsValues(opts) {
+  if (!opts) return;
+  if (opts.system !== undefined && $("chat-system")) {
+    $("chat-system").value = opts.system || "";
+  }
+  if (opts.temperature != null && $("chat-temperature")) {
+    $("chat-temperature").value = String(opts.temperature);
+  }
+  if (opts.top_k != null && $("chat-top-k")) {
+    $("chat-top-k").value = String(Math.round(Number(opts.top_k)));
+  }
+  if (opts.top_p != null && $("chat-top-p")) {
+    $("chat-top-p").value = String(opts.top_p);
+  }
+  if (opts.no_think !== undefined && $("chat-no-think")) {
+    $("chat-no-think").checked = !!opts.no_think;
+  }
+  if (opts.web_tools !== undefined && $("chat-web-tools")) {
+    $("chat-web-tools").checked = !!opts.web_tools;
+  }
+  if (opts.artifacts !== undefined && $("chat-artifacts")) {
+    $("chat-artifacts").checked = !!opts.artifacts;
+  }
+  if (opts.image_width !== undefined && $("chat-image-width")) {
+    $("chat-image-width").value = opts.image_width;
+  }
+  if (opts.image_height !== undefined && $("chat-image-height")) {
+    $("chat-image-height").value = opts.image_height;
+  }
+  if (opts.image_steps !== undefined && $("chat-image-steps")) {
+    $("chat-image-steps").value = opts.image_steps;
+  }
+  if (opts.image_seed !== undefined && $("chat-image-seed")) {
+    $("chat-image-seed").value = opts.image_seed;
   }
 }
 
@@ -3707,23 +3780,48 @@ async function applyChatDefaultsForModel(name, force = false) {
   if (!force && lastChatDefaultsModel === model) return;
 
   const reqSeq = ++chatDefaultsReqSeq;
-  let defaults = chatModelDefaultsCache.get(model);
-  if (!defaults) {
+  let modelfileDefaults = chatModelDefaultsCache.get(model);
+  if (!modelfileDefaults) {
     try {
       const detail = await api(`/api/models/${encodeURIComponent(model)}`);
-      defaults = extractModelChatDefaults(detail);
-      chatModelDefaultsCache.set(model, defaults);
+      modelfileDefaults = extractModelChatDefaults(detail);
+      chatModelDefaultsCache.set(model, modelfileDefaults);
     } catch {
-      defaults = {};
+      modelfileDefaults = {};
     }
   }
 
   if (reqSeq !== chatDefaultsReqSeq) return;
   if ($("chat-model").value !== model) return;
 
-  setChatOptionsValues({ ...CHAT_OPTION_FALLBACKS, ...defaults });
   lastChatDefaultsModel = model;
-  restoreChatOptionsFromSession();
+
+  // Check if this model has custom saved options in localStorage:
+  const modelSavedOpts = getModelChatOptions(model);
+  if (modelSavedOpts) {
+    setChatOptionsValues(modelSavedOpts);
+    updateChatCustomOptionsBadge();
+    return;
+  }
+
+  // Model does not have custom options -> use Global Chat Defaults + Modelfile parameters
+  const globalDefaults = getGlobalChatDefaults();
+  const effectiveDefaults = {
+    ...CHAT_OPTION_FALLBACKS,
+    ...modelfileDefaults,
+    ...globalDefaults,
+  };
+
+  if (globalDefaults.system) {
+    effectiveDefaults.system = globalDefaults.system;
+  } else if (modelfileDefaults.system) {
+    effectiveDefaults.system = modelfileDefaults.system;
+  } else {
+    effectiveDefaults.system = "";
+  }
+
+  setChatOptionsValues(effectiveDefaults);
+  updateChatCustomOptionsBadge();
 }
 
 function isEmbeddingOnlyModel(modelName) {
@@ -4925,9 +5023,10 @@ function bindChatEvents() {
     const el = $(id);
     if (el) {
       const eventName = el.type === "checkbox" ? "change" : "input";
-      el.addEventListener(eventName, saveChatOptionsToSession);
+      el.addEventListener(eventName, saveChatOptionsForCurrentModel);
     }
   }
+  $("chat-options-reset-btn")?.addEventListener("click", resetModelChatOptionsToDefaults);
 
   // Artifact panel controls
   $("chat-artifact-close")?.addEventListener("click", hideArtifactPanel);
@@ -5702,6 +5801,15 @@ async function openSettings() {
   $("set-port").value = currentConfig.port;
   $("set-expose").checked = !!currentConfig.expose_network;
   $("set-password").value = "";
+
+  const globalDefaults = getGlobalChatDefaults();
+  if ($("set-default-system")) $("set-default-system").value = globalDefaults.system || "";
+  if ($("set-default-temp")) $("set-default-temp").value = globalDefaults.temperature != null ? globalDefaults.temperature : "0.7";
+  if ($("set-default-top-k")) $("set-default-top-k").value = globalDefaults.top_k != null ? globalDefaults.top_k : "40";
+  if ($("set-default-top-p")) $("set-default-top-p").value = globalDefaults.top_p != null ? globalDefaults.top_p : "0.9";
+  if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
+  if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
+
   updatePasswordSection();
   updateExposeWarning();
   updateBindPreview();
@@ -5776,10 +5884,19 @@ $("settings-save").addEventListener("click", async () => {
     toast(t("toast.error", { msg: "port 1..65535" }), "error");
     return;
   }
+  const chatDefaults = {
+    system_prompt: $("set-default-system")?.value ?? "",
+    temperature: parseFloat($("set-default-temp")?.value) || 0.7,
+    top_k: parseInt($("set-default-top-k")?.value, 10) || 40,
+    top_p: parseFloat($("set-default-top-p")?.value) || 0.9,
+    web_tools: $("set-default-web-tools")?.checked ?? false,
+    artifacts: $("set-default-artifacts")?.checked ?? false,
+  };
   const body = {
     language: $("set-language").value,
     port,
     expose_network: $("set-expose").checked,
+    chat_defaults: chatDefaults,
   };
   try {
     const res = await api("/api/config", {
@@ -5789,6 +5906,21 @@ $("settings-save").addEventListener("click", async () => {
     });
     currentConfig = { ...currentConfig, ...res };
     window.I18n.setLang(res.language);
+
+    saveGlobalChatDefaults({
+      system: chatDefaults.system_prompt,
+      temperature: chatDefaults.temperature,
+      top_k: chatDefaults.top_k,
+      top_p: chatDefaults.top_p,
+      web_tools: chatDefaults.web_tools,
+      artifacts: chatDefaults.artifacts,
+    });
+
+    const activeChatModel = $("chat-model")?.value;
+    if (activeChatModel && !getModelChatOptions(activeChatModel)) {
+      void applyChatDefaultsForModel(activeChatModel, true);
+    }
+
     toast(res.needs_restart ? t("settings.saved_restart") : t("settings.saved"), "success");
     $("settings-modal").hidden = true;
     refreshStatus();
@@ -7147,7 +7279,6 @@ syncChatModelOptions();
 updateChatCapabilityUI();
 updateChatContextMeter();
 updateChatSendEnabled();
-restoreChatOptionsFromSession();
 setInterval(refreshStatus, STATUS_REFRESH_MS);
 setInterval(refreshLoadedState, 1000);
 setInterval(() => {

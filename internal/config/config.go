@@ -10,20 +10,37 @@ import (
 	"path/filepath"
 )
 
+// ChatDefaults defines global fallback parameters for chat sessions.
+type ChatDefaults struct {
+	SystemPrompt string   `json:"system_prompt"`
+	Temperature  *float64 `json:"temperature,omitempty"`
+	TopK         *int     `json:"top_k,omitempty"`
+	TopP         *float64 `json:"top_p,omitempty"`
+	WebTools     *bool    `json:"web_tools,omitempty"`
+	Artifacts    *bool    `json:"artifacts,omitempty"`
+}
+
 // Config holds the runtime configuration for ollama-manager.
 type Config struct {
-	Port          int    `json:"port"`
-	ExposeNetwork bool   `json:"expose_network"`
-	PasswordHash  string `json:"password_hash"`
-	SessionSecret string `json:"session_secret"`
-	OllamaURL     string `json:"ollama_url"`
-	Language      string `json:"language"`
+	Port          int          `json:"port"`
+	ExposeNetwork bool         `json:"expose_network"`
+	PasswordHash  string       `json:"password_hash"`
+	SessionSecret string       `json:"session_secret"`
+	OllamaURL     string       `json:"ollama_url"`
+	Language      string       `json:"language"`
+	ChatDefaults  ChatDefaults `json:"chat_defaults"`
 
 	path string `json:"-"`
 }
 
 // Defaults returns a Config populated with sensible default values.
 func Defaults() *Config {
+	defaultTemp := 0.7
+	defaultTopK := 40
+	defaultTopP := 0.9
+	defaultWebTools := false
+	defaultArtifacts := false
+
 	return &Config{
 		Port:          7860,
 		ExposeNetwork: false,
@@ -31,6 +48,14 @@ func Defaults() *Config {
 		SessionSecret: "",
 		OllamaURL:     "http://localhost:11434",
 		Language:      "en",
+		ChatDefaults: ChatDefaults{
+			SystemPrompt: "",
+			Temperature:  &defaultTemp,
+			TopK:         &defaultTopK,
+			TopP:         &defaultTopP,
+			WebTools:     &defaultWebTools,
+			Artifacts:    &defaultArtifacts,
+		},
 	}
 }
 

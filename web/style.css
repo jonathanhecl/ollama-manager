@@ -2614,6 +2614,20 @@ button.chat-send:disabled:hover {
     background: var(--panel-2);
     border: 1px solid var(--border);
   }
+.chat-options-reset-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  transition: opacity 0.15s ease;
+}
+.chat-options-reset-link:hover {
+  opacity: 0.75;
+  text-decoration: underline;
 }
 .chat-cap-block { margin: 0 0 2px; }
 .chat-cap-heading {

@@ -226,16 +226,18 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"ollama_url":     s.cfg.OllamaURL,
 		"has_password":   s.cfg.HasPassword(),
 		"bind_address":   s.cfg.BindAddress(),
+		"chat_defaults":  s.cfg.ChatDefaults,
 	})
 }
 
 // patchConfigBody uses pointers so callers can update only the fields they
 // care about (PATCH semantics).
 type patchConfigBody struct {
-	Port          *int    `json:"port"`
-	ExposeNetwork *bool   `json:"expose_network"`
-	Language      *string `json:"language"`
-	OllamaURL     *string `json:"ollama_url"`
+	Port          *int                 `json:"port"`
+	ExposeNetwork *bool                `json:"expose_network"`
+	Language      *string              `json:"language"`
+	OllamaURL     *string              `json:"ollama_url"`
+	ChatDefaults  *config.ChatDefaults `json:"chat_defaults"`
 }
 
 func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
@@ -280,6 +282,9 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		// Note: this won't change the running client; takes effect on restart.
 		needsRestart = true
 	}
+	if body.ChatDefaults != nil {
+		s.cfg.ChatDefaults = *body.ChatDefaults
+	}
 
 	if err := s.cfg.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -292,6 +297,7 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"expose_network": s.cfg.ExposeNetwork,
 		"language":       s.cfg.Language,
 		"ollama_url":     s.cfg.OllamaURL,
+		"chat_defaults":  s.cfg.ChatDefaults,
 	})
 }
 

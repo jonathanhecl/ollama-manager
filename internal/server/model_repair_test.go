@@ -108,17 +108,6 @@ PARAMETER stop  ""
 	if !strings.Contains(preview.Modelfile, "PARAMETER num_ctx 2048") {
 		t.Fatalf("missing num_ctx override:\n%s", preview.Modelfile)
 	}
-	// SYSTEM should be injected because capabilities are set
-	if !strings.Contains(preview.Modelfile, "SYSTEM") {
-		t.Fatalf("missing SYSTEM overlay:\n%s", preview.Modelfile)
-	}
-	// SYSTEM must contain LFM2 native tool format instructions
-	if !strings.Contains(preview.Modelfile, "<|tool_call_start|>") {
-		t.Fatalf("missing LFM2 tool format in SYSTEM:\n%s", preview.Modelfile)
-	}
-	if !strings.Contains(preview.Modelfile, "List of tools:") {
-		t.Fatalf("missing LFM2 tool definitions hint in SYSTEM:\n%s", preview.Modelfile)
-	}
 }
 
 func TestBuildModelRepairPreviewLFM2WithoutToolsPreservesOriginal(t *testing.T) {
@@ -212,14 +201,8 @@ func TestBuildModelRepairPreviewKeepsExistingTemplateByDefault(t *testing.T) {
 	if strings.Contains(preview.Modelfile, "TEMPLATE") {
 		t.Fatalf("expected inherited template, got:\n%s", preview.Modelfile)
 	}
-	if !strings.Contains(preview.Modelfile, "SYSTEM") {
-		t.Fatalf("expected system overlay, got:\n%s", preview.Modelfile)
-	}
 	if preview.Template != "" {
 		t.Fatalf("template = %q", preview.Template)
-	}
-	if preview.System == "" {
-		t.Fatal("expected system overlay")
 	}
 }
 

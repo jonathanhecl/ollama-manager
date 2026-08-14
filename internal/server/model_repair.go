@@ -112,8 +112,9 @@ func buildModelRepairPreview(base string, show *ollama.ShowResponse, req modelRe
 		warnings = append(warnings, "Audio support depends on model/runtime support; this fix only changes the Modelfile metadata and chat template.")
 	}
 
-	system := repairSystem(caps)
+	system := strings.TrimSpace(extractModelfileSystem(show.Modelfile))
 	if system != "" {
+		system = sanitizeOllamaTemplate(system)
 		b.WriteString("SYSTEM \"\"\"")
 		b.WriteString(system)
 		b.WriteString("\"\"\"\n\n")
@@ -310,10 +311,9 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		}
 	}
 
-	// Inject SYSTEM if capabilities require it
-	// For LFM2, use a specialized system prompt that teaches the native tool format
-	system := repairLFM2System(caps)
+	system := strings.TrimSpace(extractModelfileSystem(show.Modelfile))
 	if system != "" {
+		system = sanitizeOllamaTemplate(system)
 		b.WriteString("SYSTEM \"\"\"")
 		b.WriteString(system)
 		b.WriteString("\"\"\"\n")
@@ -521,6 +521,14 @@ func extractTripleQuotedDirective(modelfile, directive string) (string, error) {
 	return "", nil
 }
 
+func extractModelfileSystem(modelfile string) string {
+	s, _ := extractTripleQuotedDirective(modelfile, "SYSTEM")
+	if s != "" {
+		return s
+	}
+	return extractLineDirective(modelfile, "SYSTEM")
+}
+
 func extractLineDirective(modelfile, directive string) string {
 	for _, line := range strings.Split(modelfile, "\n") {
 		line = strings.TrimSpace(line)
@@ -578,70 +586,6 @@ func normalizeRepairPreset(value, fallback string) string {
 
 func hasRepairCap(caps []string, cap string) bool {
 	return slices.Contains(caps, cap)
-}
-
-// repairLFM2System generates a specialized system prompt for LFM2 models.
-// It teaches the model how to use tools in the native LFM2 format:
-//
-//	<|tool_call_start|>[function_name(arg1="value1", arg2="value2")]
-//
-// Tool definitions are expected to be provided dynamically in the system prompt
-// as a JSON array under "List of tools:".
-func repairLFM2System(caps []string) string {
-	if len(caps) == 0 {
-		return ""
-	}
-	var parts []string
-	if hasRepairCap(caps, "tools") {
-		parts = append(parts, "You are a helpful assistant. You have access to tools that can help answer user questions.")
-		parts = append(parts, "")
-		parts = append(parts, "When you need to use a tool, output your call in this exact format:")
-		parts = append(parts, "<|tool_call_start|>[function_name(arg1=\"value1\", arg2=\"value2\")]")
-		parts = append(parts, "")
-		parts = append(parts, "Tool definitions will be provided in the system prompt as a JSON array under \"List of tools:\". Use the available tools whenever they can help answer the user's question.")
-	}
-	if hasRepairCap(caps, "thinking") {
-		if len(parts) > 0 {
-			parts = append(parts, "")
-		}
-		parts = append(parts, "This model supports structured reasoning. When thinking is enabled, reasoning traces will be separated from the final answer.")
-	}
-	if hasRepairCap(caps, "completion") && len(parts) == 0 {
-		parts = append(parts, "You are a helpful assistant trained by Liquid AI.")
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, "\n")
-}
-
-func repairSystem(caps []string) string {
-	if len(caps) == 0 {
-		return ""
-	}
-	var parts []string
-	if hasRepairCap(caps, "tools") {
-		parts = append(parts, "This model is expected to support tool use when the runtime provides tools. Use valid tool-call JSON only when a tool is required.")
-	}
-	if hasRepairCap(caps, "thinking") {
-		parts = append(parts, "This model is expected to support structured reasoning traces when the runtime enables thinking.")
-	}
-	if hasRepairCap(caps, "vision") {
-		parts = append(parts, "This model is expected to process image inputs when the runtime and model file support vision.")
-	}
-	if hasRepairCap(caps, "audio") {
-		parts = append(parts, "This model is expected to process audio inputs when the runtime and model file support audio.")
-	}
-	if hasRepairCap(caps, "embedding") {
-		parts = append(parts, "This model is expected to produce embeddings when called through embedding endpoints.")
-	}
-	if hasRepairCap(caps, "completion") {
-		parts = append(parts, "This model is expected to support text completion/chat responses.")
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, "\n")
 }
 
 func repairTemplate(preset string, tools, thinking bool) string {

@@ -617,51 +617,13 @@
         <section class="settings-section">
           <div class="section-head">
             <h3 data-i18n="settings.opencode_section">OpenCode</h3>
-            <span class="badge" id="opencode-badge"></span>
+            <span class="badge" id="settings-opencode-badge"></span>
           </div>
 
-          <p id="opencode-status" class="form-hint"></p>
-
-          <div id="opencode-noprovider" class="callout callout-warn" hidden>
-            <span class="callout-icon">!</span>
-            <span data-i18n="settings.opencode_no_provider">No local Ollama provider configured in OpenCode. Create one to save the model selection.</span>
-          </div>
+          <p id="settings-opencode-status" class="form-hint"></p>
 
           <div class="opencode-actions">
-            <button id="opencode-create-btn" class="primary" hidden data-i18n="settings.opencode_create">Create Ollama (local) provider in OpenCode</button>
-          </div>
-
-          <div class="field field-vertical">
-            <label data-i18n="settings.opencode_models_title">Local models visible in OpenCode</label>
-            <div id="opencode-models" class="opencode-models"></div>
-            <button id="opencode-save-btn" class="primary" data-i18n="settings.opencode_save" style="margin-top: 10px;">Save in OpenCode</button>
-          </div>
-
-          <hr class="settings-sep">
-
-          <div class="field field-vertical">
-            <label data-i18n="settings.opencode_export_title">Export for another computer</label>
-            <p class="form-hint" data-i18n="settings.opencode_export_hint">Generate the provider block with the selected models to paste into OpenCode on another machine.</p>
-
-            <div class="settings-param-row">
-              <div class="field-compact">
-                <label for="oc-export-key" data-i18n="settings.opencode_export_key">Provider key</label>
-                <input id="oc-export-key" type="text" value="ollama-remote" autocomplete="off">
-              </div>
-              <div class="field-compact">
-                <label for="oc-export-name" data-i18n="settings.opencode_export_name">Name</label>
-                <input id="oc-export-name" type="text" value="Ollama (remoto)" autocomplete="off">
-              </div>
-            </div>
-            <div class="field">
-              <label for="oc-export-baseurl" data-i18n="settings.opencode_export_baseurl">Base URL</label>
-              <input id="oc-export-baseurl" type="text" autocomplete="off">
-            </div>
-
-            <div class="opencode-actions">
-              <button id="opencode-copy-btn" class="ghost" data-i18n="settings.opencode_copy">Copy JSON block</button>
-            </div>
-            <textarea id="opencode-export-out" rows="10" class="mono" hidden readonly spellcheck="false"></textarea>
+            <button id="settings-opencode-btn" class="primary" data-i18n="settings.opencode_manage">Manage OpenCode models</button>
           </div>
         </section>
 
@@ -956,6 +918,73 @@
       </header>
       <div id="battery-history-body" class="battery-history-body"></div>
     </div>
+  </main>
+
+  <main id="opencode-view" class="opencode-view" hidden>
+    <header class="opencode-head">
+      <button id="opencode-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+      <h2>
+        <span class="gear">🧩</span>
+        <span data-i18n="settings.opencode_section">OpenCode</span>
+      </h2>
+      <span class="badge" id="opencode-badge"></span>
+    </header>
+
+    <section class="opencode-card">
+      <div class="section-head">
+        <h3 data-i18n="opencode.provider_section">Local Ollama provider</h3>
+      </div>
+      <p id="opencode-status" class="form-hint"></p>
+
+      <div id="opencode-noprovider" class="callout callout-warn" hidden>
+        <span class="callout-icon">!</span>
+        <span data-i18n="settings.opencode_no_provider">No local Ollama provider configured in OpenCode. Create one to save the model selection.</span>
+      </div>
+
+      <div class="opencode-actions">
+        <button id="opencode-create-btn" class="primary" hidden data-i18n="settings.opencode_create">Create Ollama (local) provider in OpenCode</button>
+      </div>
+    </section>
+
+    <section class="opencode-card">
+      <div class="section-head">
+        <h3 data-i18n="settings.opencode_models_title">Local models visible in OpenCode</h3>
+      </div>
+      <p class="form-hint" data-i18n="settings.opencode_models_hint">Select which models appear in OpenCode and set a custom name for each.</p>
+
+      <div id="opencode-models" class="opencode-models"></div>
+
+      <div class="opencode-actions">
+        <button id="opencode-save-btn" class="primary" data-i18n="settings.opencode_save">Save in OpenCode</button>
+      </div>
+    </section>
+
+    <section class="opencode-card">
+      <div class="section-head">
+        <h3 data-i18n="settings.opencode_export_title">Export for another computer</h3>
+      </div>
+      <p class="form-hint" data-i18n="settings.opencode_export_hint">Generate the provider block with the selected models to paste into OpenCode on another machine.</p>
+
+      <div class="settings-param-row">
+        <div class="field-compact">
+          <label for="oc-export-key" data-i18n="settings.opencode_export_key">Provider key</label>
+          <input id="oc-export-key" type="text" value="ollama-remote" autocomplete="off">
+        </div>
+        <div class="field-compact">
+          <label for="oc-export-name" data-i18n="settings.opencode_export_name">Name</label>
+          <input id="oc-export-name" type="text" value="Ollama (remoto)" autocomplete="off">
+        </div>
+      </div>
+      <div class="field">
+        <label for="oc-export-baseurl" data-i18n="settings.opencode_export_baseurl">Base URL</label>
+        <input id="oc-export-baseurl" type="text" autocomplete="off">
+      </div>
+
+      <div class="opencode-actions">
+        <button id="opencode-copy-btn" class="ghost" data-i18n="settings.opencode_copy">Copy JSON block</button>
+      </div>
+      <textarea id="opencode-export-out" rows="10" class="mono" hidden readonly spellcheck="false"></textarea>
+    </section>
   </main>
 
   <div id="toast"></div>

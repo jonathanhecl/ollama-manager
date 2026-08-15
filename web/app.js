@@ -1835,6 +1835,7 @@ function showModelsView() {
   if (chatView) chatView.hidden = true;
   $("tests-view") && ($("tests-view").hidden = true);
   $("test-editor-view") && ($("test-editor-view").hidden = true);
+  $("opencode-view") && ($("opencode-view").hidden = true);
   $("chat-btn")?.classList.remove("active");
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
@@ -1906,7 +1907,15 @@ function hideAllMainViews() {
   $("battery-progress-view").hidden = true;
   $("battery-results-view").hidden = true;
   $("battery-history-view").hidden = true;
+  $("opencode-view").hidden = true;
   $("detail-panel").hidden = true;
+}
+
+function showOpenCodeView() {
+  hideAllMainViews();
+  currentView = "opencode";
+  $("opencode-view").hidden = false;
+  refreshOpenCodeUI();
 }
 
 function showTestsView() {
@@ -5937,7 +5946,7 @@ async function openSettings() {
   updatePasswordSection();
   updateExposeWarning();
   updateBindPreview();
-  loadOpenCodeSection();
+  refreshOpenCodeUI();
   $("settings-modal").hidden = false;
 }
 
@@ -5978,26 +5987,70 @@ function updateExposeWarning() {
 // ---------- OpenCode integration ----------
 let openCodeState = null;
 
-async function loadOpenCodeSection() {
+async function refreshOpenCodeUI() {
+  try {
+    openCodeState = await api("/api/opencode");
+  } catch (e) {
+    openCodeState = null;
+    renderOpenCodeError(e.message);
+    return;
+  }
+  renderOpenCodeSettingsSummary();
+  renderOpenCodeView();
+}
+
+function renderOpenCodeError(msg) {
+  const sBadge = $("settings-opencode-badge");
+  const sStatus = $("settings-opencode-status");
+  if (sBadge) {
+    sBadge.textContent = t("settings.opencode_not_configured");
+    sBadge.className = "badge badge-bad";
+  }
+  if (sStatus) sStatus.textContent = msg;
+
+  const badge = $("opencode-badge");
+  const status = $("opencode-status");
+  if (badge) {
+    badge.textContent = t("settings.opencode_not_configured");
+    badge.className = "badge badge-bad";
+  }
+  if (status) status.textContent = msg;
+  const noProvider = $("opencode-noprovider");
+  const createBtn = $("opencode-create-btn");
+  const saveBtn = $("opencode-save-btn");
+  if (noProvider) noProvider.hidden = true;
+  if (createBtn) createBtn.hidden = true;
+  if (saveBtn) saveBtn.disabled = true;
+  const box = $("opencode-models");
+  if (box) box.innerHTML = `<div class="muted">${escapeHtml(msg)}</div>`;
+}
+
+function renderOpenCodeSettingsSummary() {
+  const st = openCodeState;
+  const badge = $("settings-opencode-badge");
+  const status = $("settings-opencode-status");
+  if (!badge) return;
+  if (st.provider) {
+    badge.textContent = t("settings.opencode_configured");
+    badge.className = "badge badge-good";
+    status.textContent = `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}`;
+  } else {
+    badge.textContent = t("settings.opencode_not_configured");
+    badge.className = "badge badge-warn";
+    status.textContent = st.exists
+      ? t("settings.opencode_no_provider_status")
+      : t("settings.opencode_no_file_status");
+  }
+}
+
+function renderOpenCodeView() {
+  const st = openCodeState;
+  if (!$("opencode-view") || $("opencode-view").hidden) return;
   const badge = $("opencode-badge");
   const status = $("opencode-status");
   const noProvider = $("opencode-noprovider");
   const createBtn = $("opencode-create-btn");
   const saveBtn = $("opencode-save-btn");
-  try {
-    openCodeState = await api("/api/opencode");
-  } catch (e) {
-    openCodeState = null;
-    badge.textContent = t("settings.opencode_not_configured");
-    badge.className = "badge badge-bad";
-    status.textContent = e.message;
-    noProvider.hidden = true;
-    createBtn.hidden = true;
-    saveBtn.disabled = true;
-    $("opencode-models").innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
-    return;
-  }
-  const st = openCodeState;
   if (st.provider) {
     badge.textContent = t("settings.opencode_configured");
     badge.className = "badge badge-good";
@@ -6032,14 +6085,21 @@ function renderOpenCodeModels(st) {
     cb.checked = m.enabled;
     cb.disabled = !st.provider;
     cb.dataset.tag = m.name;
-    const label = document.createElement("span");
-    label.className = "opencode-model-label";
-    label.textContent = m.display_name;
+    const name = document.createElement("input");
+    name.type = "text";
+    name.className = "opencode-model-name";
+    name.value = m.display_name;
+    name.disabled = !st.provider;
+    name.dataset.tag = m.name;
+    name.title = m.name;
+    name.placeholder = m.name;
+    name.autocomplete = "off";
+    name.spellcheck = false;
     const tag = document.createElement("span");
     tag.className = "opencode-model-tag mono muted";
     tag.textContent = m.name;
     row.appendChild(cb);
-    row.appendChild(label);
+    row.appendChild(name);
     row.appendChild(tag);
     list.appendChild(row);
   }
@@ -6051,6 +6111,13 @@ function openCodeEnabledTags() {
   const boxes = $("opencode-models").querySelectorAll('input[type="checkbox"]:checked');
   for (const cb of boxes) tags.push(cb.dataset.tag);
   return tags;
+}
+
+function openCodeNamesMap() {
+  const names = {};
+  const inputs = $("opencode-models").querySelectorAll(".opencode-model-name");
+  for (const inp of inputs) names[inp.dataset.tag] = inp.value.trim();
+  return names;
 }
 
 $("settings-btn").addEventListener("click", openSettings);
@@ -6076,7 +6143,7 @@ $("set-language").addEventListener("change", () => {
   updateChatCapabilityUI();
   updateChatSendEnabled();
   updatePasswordSection();
-  loadOpenCodeSection();
+  refreshOpenCodeUI();
 });
 
 $("set-expose").addEventListener("change", updateExposeWarning);
@@ -6189,23 +6256,22 @@ $("btn-back-active")?.addEventListener("click", () => {
 });
 
 // ---------- OpenCode actions ----------
+$("settings-opencode-btn").addEventListener("click", () => {
+  closeSettings();
+  showOpenCodeView();
+});
+
+$("opencode-back-btn").addEventListener("click", showModelsView);
+
 $("opencode-create-btn").addEventListener("click", async () => {
   try {
-    const res = await api("/api/opencode/provider", {
+    await api("/api/opencode/provider", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    openCodeState = res.state;
     toast(t("settings.opencode_created"), "success");
-    renderOpenCodeModels(openCodeState);
-    const st = openCodeState;
-    $("opencode-badge").textContent = t("settings.opencode_configured");
-    $("opencode-badge").className = "badge badge-good";
-    $("opencode-status").textContent = st.provider ? `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}` : "";
-    $("opencode-noprovider").hidden = true;
-    $("opencode-create-btn").hidden = true;
-    $("opencode-save-btn").disabled = false;
+    await refreshOpenCodeUI();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
   }
@@ -6216,11 +6282,15 @@ $("opencode-save-btn").addEventListener("click", async () => {
     const res = await api("/api/opencode/models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: openCodeEnabledTags() }),
+      body: JSON.stringify({
+        enabled: openCodeEnabledTags(),
+        names: openCodeNamesMap(),
+      }),
     });
     openCodeState = res.state;
     toast(t("settings.opencode_saved"), "success");
-    renderOpenCodeModels(openCodeState);
+    renderOpenCodeSettingsSummary();
+    renderOpenCodeView();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
   }
@@ -6232,6 +6302,7 @@ $("opencode-copy-btn").addEventListener("click", async () => {
     toast(t("settings.opencode_empty_selection"), "error");
     return;
   }
+  const names = openCodeNamesMap();
   const key = $("oc-export-key").value.trim() || "ollama-remote";
   const name = $("oc-export-name").value.trim() || "Ollama (remoto)";
   const baseURL = $("oc-export-baseurl").value.trim();
@@ -6240,7 +6311,7 @@ $("opencode-copy-btn").addEventListener("click", async () => {
     return;
   }
   const models = {};
-  for (const tag of enabled) models[tag] = { name: tag };
+  for (const tag of enabled) models[tag] = { name: (names[tag] || tag) };
   const block = JSON.stringify(
     { [key]: { npm: "@ai-sdk/openai-compatible", name, options: { baseURL }, models } },
     null,

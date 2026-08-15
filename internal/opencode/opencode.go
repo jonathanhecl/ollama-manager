@@ -192,8 +192,9 @@ func (d *Document) EnsureLocalProvider(baseURL string) (string, bool) {
 
 // SetEnabledModels replaces the models map of the given provider with exactly
 // the enabled tags. Metadata of entries that stay enabled (display name,
-// limits, modalities) is preserved; newly enabled tags get {name: tag}.
-func (d *Document) SetEnabledModels(providerKey string, enabled []string) {
+// limits, modalities) is preserved. names maps a tag to a custom display name:
+// a non-empty value overrides it, an empty value resets it to the tag.
+func (d *Document) SetEnabledModels(providerKey string, enabled []string, names map[string]string) {
 	providers, _ := d.Raw["provider"].(map[string]any)
 	entry, ok := providers[providerKey].(map[string]any)
 	if !ok {
@@ -202,11 +203,21 @@ func (d *Document) SetEnabledModels(providerKey string, enabled []string) {
 	old, _ := entry["models"].(map[string]any)
 	models := make(map[string]any, len(enabled))
 	for _, tag := range enabled {
-		if existing, ok := old[tag].(map[string]any); ok {
-			models[tag] = existing
-		} else {
-			models[tag] = map[string]any{"name": tag}
+		model, _ := old[tag].(map[string]any)
+		if model == nil {
+			model = map[string]any{}
 		}
+		if name, ok := names[tag]; ok {
+			if name = strings.TrimSpace(name); name != "" {
+				model["name"] = name
+			} else {
+				delete(model, "name")
+			}
+		}
+		if _, has := model["name"]; !has {
+			model["name"] = tag
+		}
+		models[tag] = model
 	}
 	entry["models"] = models
 	providers[providerKey] = entry

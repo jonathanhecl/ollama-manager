@@ -190,7 +190,10 @@ func TestSetEnabledModels(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doc.SetEnabledModels("ollama-local", []string{"tag-a", "tag-c"})
+	doc.SetEnabledModels("ollama-local", []string{"tag-a", "tag-c"}, map[string]string{
+		"tag-a": "Renamed A",
+		"tag-b": "", // not enabled anyway
+	})
 	models, _ := doc.Raw["provider"].(map[string]any)["ollama-local"].(map[string]any)["models"].(map[string]any)
 	if len(models) != 2 {
 		t.Fatalf("models len = %d; want 2", len(models))
@@ -199,12 +202,20 @@ func TestSetEnabledModels(t *testing.T) {
 		t.Fatal("unchecked tag-ghost should have been removed")
 	}
 	a, _ := models["tag-a"].(map[string]any)
-	if a["name"] != "Friendly A" {
-		t.Fatalf("preserved name lost: %v", a["name"])
+	if a["name"] != "Renamed A" {
+		t.Fatalf("custom name not applied: %v", a["name"])
 	}
 	c, _ := models["tag-c"].(map[string]any)
 	if c["name"] != "tag-c" {
 		t.Fatalf("new tag default name = %v", c["name"])
+	}
+
+	// An empty name resets the entry back to the tag.
+	doc.SetEnabledModels("ollama-local", []string{"tag-a"}, map[string]string{"tag-a": ""})
+	models, _ = doc.Raw["provider"].(map[string]any)["ollama-local"].(map[string]any)["models"].(map[string]any)
+	a, _ = models["tag-a"].(map[string]any)
+	if a["name"] != "tag-a" {
+		t.Fatalf("empty name should reset to tag, got %v", a["name"])
 	}
 
 	// Unrelated provider untouched.
@@ -227,7 +238,7 @@ func TestSaveRoundTrip(t *testing.T) {
 	if !created {
 		t.Fatal("expected creation")
 	}
-	doc.SetEnabledModels(key, []string{"m1", "m2"})
+	doc.SetEnabledModels(key, []string{"m1", "m2"}, nil)
 	if err := doc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +340,7 @@ func containsAny(s string, subs []string) bool {
 
 func TestSurgicalSaveModelsPreservesEverythingElse(t *testing.T) {
 	doc, path := mustLoadSurgical(t, richConfig)
-	doc.SetEnabledModels("ollama-local", []string{"tag-a", "tag-c"})
+	doc.SetEnabledModels("ollama-local", []string{"tag-a", "tag-c"}, nil)
 	if err := doc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +385,7 @@ func TestSurgicalSaveInsertModelsWhenMissing(t *testing.T) {
 		t.Fatal("fixture failed to strip models block")
 	}
 	doc, path := mustLoadSurgical(t, config)
-	doc.SetEnabledModels("ollama-local", []string{"tag-z"})
+	doc.SetEnabledModels("ollama-local", []string{"tag-z"}, nil)
 	if err := doc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +481,7 @@ func TestSurgicalSaveJSONCPreservesComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc.SetEnabledModels("ollama-local", []string{"new"})
+	doc.SetEnabledModels("ollama-local", []string{"new"}, nil)
 	if err := doc.Save(); err != nil {
 		t.Fatal(err)
 	}

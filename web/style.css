@@ -1085,8 +1085,25 @@ select:focus { border-color: var(--accent); }
 .danger-text:hover { background: #1f1212; border-color: #5a2a2a; }
 
 /* ---------- OpenCode settings section ---------- */
+.opencode-view { max-width: 760px; margin: 0 auto; padding: 20px 16px 40px; }
+.opencode-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.opencode-head h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.opencode-head .badge { margin-left: auto; }
+.opencode-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.opencode-card h3 { margin: 0 0 8px; font-size: 14px; }
 .opencode-models {
-  max-height: 260px;
+  max-height: 320px;
   overflow-y: auto;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
@@ -1102,9 +1119,23 @@ select:focus { border-color: var(--accent); }
 .opencode-model-row + .opencode-model-row { border-top: 1px solid var(--border); }
 .opencode-model-row.disabled { opacity: .55; cursor: not-allowed; }
 .opencode-model-row.disabled input { cursor: not-allowed; }
-.opencode-model-label { flex: 0 0 auto; font-size: 13px; }
-.opencode-model-tag { margin-left: auto; font-size: 11px; }
-.opencode-actions { margin-top: 10px; }
+.opencode-model-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+.opencode-model-name:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--panel);
+}
+.opencode-model-tag { flex: 0 0 auto; font-size: 11px; }
+.opencode-actions { margin-top: 12px; }
 .opencode-actions button { width: 100%; }
 .settings-sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 #opencode-export-out { width: 100%; margin-top: 10px; font-size: 11px; line-height: 1.5; }

@@ -156,7 +156,29 @@ func TestOpenCodeEndToEnd(t *testing.T) {
 		t.Fatal("tag-a missing on disk")
 	}
 
-	// 5. Saving again with an empty selection clears the map.
+	// 5. Custom display names are persisted with the selection.
+	w = s.doOpenCode(t, http.MethodPost, "/api/opencode/models", map[string]any{
+		"enabled": []string{"tag-a"},
+		"names":   map[string]string{"tag-a": "Custom Name A"},
+	})
+	state = decodeOpenCodeState(t, w)
+	for _, m := range state.Models {
+		if m.Name == "tag-a" && m.DisplayName != "Custom Name A" {
+			t.Fatalf("custom name not applied: %+v", m)
+		}
+	}
+	data, err = os.ReadFile(ocPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"name": "Custom Name A"`) {
+		t.Fatalf("custom name missing on disk:\n%s", data)
+	}
+	if strings.Contains(string(data), `"tag-b"`) || strings.Contains(string(data), `"tag-c"`) {
+		t.Fatalf("disabled models left on disk:\n%s", data)
+	}
+
+	// 6. Saving again with an empty selection clears the map.
 	w = s.doOpenCode(t, http.MethodPost, "/api/opencode/models", map[string]any{"enabled": []string{}})
 	state = decodeOpenCodeState(t, w)
 	for _, m := range state.Models {

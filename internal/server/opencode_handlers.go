@@ -82,10 +82,12 @@ func (s *Server) handleOpenCodeEnsureProvider(w http.ResponseWriter, r *http.Req
 }
 
 // handleOpenCodeSetModels stores the exact set of models to expose in the
-// local Ollama provider. Requires a local provider to already exist.
+// local Ollama provider, along with optional custom display names.
+// Requires a local provider to already exist.
 func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Enabled []string `json:"enabled"`
+		Enabled []string          `json:"enabled"`
+		Names   map[string]string `json:"names"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
@@ -100,7 +102,7 @@ func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request)
 		if provider == nil {
 			err = errors.New("no local Ollama provider configured in opencode; create one first")
 		} else {
-			doc.SetEnabledModels(provider.Key, sanitizeTags(body.Enabled))
+			doc.SetEnabledModels(provider.Key, sanitizeTags(body.Enabled), body.Names)
 			err = doc.Save()
 		}
 	}

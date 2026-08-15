@@ -16,6 +16,7 @@ type ChatDefaults struct {
 	Temperature  *float64 `json:"temperature,omitempty"`
 	TopK         *int     `json:"top_k,omitempty"`
 	TopP         *float64 `json:"top_p,omitempty"`
+	NoThink      *bool    `json:"no_think,omitempty"`
 	WebTools     *bool    `json:"web_tools,omitempty"`
 	Artifacts    *bool    `json:"artifacts,omitempty"`
 }
@@ -38,6 +39,7 @@ func Defaults() *Config {
 	defaultTemp := 0.7
 	defaultTopK := 40
 	defaultTopP := 0.9
+	defaultNoThink := false
 	defaultWebTools := false
 	defaultArtifacts := false
 
@@ -53,6 +55,7 @@ func Defaults() *Config {
 			Temperature:  &defaultTemp,
 			TopK:         &defaultTopK,
 			TopP:         &defaultTopP,
+			NoThink:      &defaultNoThink,
 			WebTools:     &defaultWebTools,
 			Artifacts:    &defaultArtifacts,
 		},
@@ -113,6 +116,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.ChatDefaults.TopP == nil {
 		cfg.ChatDefaults.TopP = def.TopP
+	}
+	if cfg.ChatDefaults.NoThink == nil {
+		cfg.ChatDefaults.NoThink = def.NoThink
 	}
 	if cfg.ChatDefaults.WebTools == nil {
 		cfg.ChatDefaults.WebTools = def.WebTools

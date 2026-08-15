@@ -271,7 +271,15 @@ let activeStreamMessage = null;
 let activeArtifactTimestamp = null;
 let chatEditingMessageId = "";
 let chatEditingDraft = "";
-const CHAT_OPTION_FALLBACKS = { temperature: 0.7, top_k: 40, top_p: 0.9 };
+const CHAT_OPTION_FALLBACKS = {
+  system: "",
+  temperature: 0.7,
+  top_k: 40,
+  top_p: 0.9,
+  no_think: false,
+  web_tools: false,
+  artifacts: false,
+};
 const STATUS_REFRESH_MS = 1000;
 const chatModelDefaultsCache = new Map();
 let chatDefaultsReqSeq = 0;
@@ -1806,10 +1814,7 @@ function updateChatCapabilityUI() {
   if (!canAudio && chatIsRecording) {
     stopAudioRecording(true);
   }
-  const webW = $("chat-web-tools");
-  if (webW && !getModelChatOptions(model)) webW.checked = !isImageModel && !!canTools;
-  const artChk = $("chat-artifacts");
-  if (artChk && !getModelChatOptions(model)) artChk.checked = false;
+
 
   const m = modelByName(model);
   const capsHtml = renderCapabilityPills(m?.capabilities);
@@ -3830,6 +3835,7 @@ function getGlobalChatDefaults() {
     temperature: serverDefaults?.temperature ?? 0.7,
     top_k: serverDefaults?.top_k ?? 40,
     top_p: serverDefaults?.top_p ?? 0.9,
+    no_think: serverDefaults?.no_think ?? false,
     web_tools: serverDefaults?.web_tools ?? false,
     artifacts: serverDefaults?.artifacts ?? false,
   };
@@ -6004,6 +6010,7 @@ async function openSettings() {
   if ($("set-default-temp")) $("set-default-temp").value = String(globalDefaults.temperature != null && globalDefaults.temperature !== "" ? globalDefaults.temperature : "0.7");
   if ($("set-default-top-k")) $("set-default-top-k").value = String(globalDefaults.top_k != null && globalDefaults.top_k !== "" ? globalDefaults.top_k : "40");
   if ($("set-default-top-p")) $("set-default-top-p").value = String(globalDefaults.top_p != null && globalDefaults.top_p !== "" ? globalDefaults.top_p : "0.9");
+  if ($("set-default-no-think")) $("set-default-no-think").checked = !!globalDefaults.no_think;
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
 
@@ -6249,6 +6256,7 @@ $("settings-save").addEventListener("click", async () => {
     temperature: parseFloat($("set-default-temp")?.value) || 0.7,
     top_k: parseInt($("set-default-top-k")?.value, 10) || 40,
     top_p: parseFloat($("set-default-top-p")?.value) || 0.9,
+    no_think: $("set-default-no-think")?.checked ?? false,
     web_tools: $("set-default-web-tools")?.checked ?? false,
     artifacts: $("set-default-artifacts")?.checked ?? false,
   };
@@ -6272,6 +6280,7 @@ $("settings-save").addEventListener("click", async () => {
       temperature: chatDefaults.temperature,
       top_k: chatDefaults.top_k,
       top_p: chatDefaults.top_p,
+      no_think: chatDefaults.no_think,
       web_tools: chatDefaults.web_tools,
       artifacts: chatDefaults.artifacts,
     });

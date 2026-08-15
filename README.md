@@ -112,6 +112,7 @@ On first launch, `config.json` is generated automatically:
     "temperature": 0.7,
     "top_k": 40,
     "top_p": 0.9,
+    "no_think": false,
     "web_tools": false,
     "artifacts": false
   }

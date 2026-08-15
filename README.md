@@ -12,6 +12,7 @@ Tiny, fast, and feature-packed Go web server to manage and interact with [Ollama
   - **Full Model Inspector**: view modelfiles, Jinja/Go templates, license, parameters, and architecture details.
   - **Model Repair & Patch**: inspect, test, and automatically patch missing tool templates or invalid stop tokens for community models.
   - **Uninstall History & Archiving**: keep track of uninstalled models with optional deletion reason notes.
+- **OpenCode Integration** (⚙ Settings → OpenCode): manage which installed models appear in your local [OpenCode](https://opencode.ai) config (`~/.config/opencode/opencode.json`). Detect or create the local Ollama provider, toggle models with custom display names, save surgically without touching the rest of the file, and generate a ready-to-paste provider block (or just the model list) for OpenCode on another machine.
 
 - **System Diagnostics**:
   - Live system meters in the top header: CPU load, RAM usage (including memory used by currently loaded models), and disk storage (used/free).

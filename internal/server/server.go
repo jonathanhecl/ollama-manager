@@ -42,6 +42,9 @@ type Server struct {
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
 
+	// Serializes read-modify-write cycles against the opencode config file.
+	opencodeMu sync.Mutex
+
 	// Cache of context_length keyed by model digest. Model info doesn't
 	// change unless the model is reinstalled (digest changes), so we never
 	// need to invalidate by name.
@@ -168,6 +171,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))
 	mux.Handle("POST /api/config/password", s.requireAuth(s.handleSetPassword))
+
+	mux.Handle("GET /api/opencode", s.requireAuth(s.handleOpenCodeGet))
+	mux.Handle("POST /api/opencode/provider", s.requireAuth(s.handleOpenCodeEnsureProvider))
+	mux.Handle("POST /api/opencode/models", s.requireAuth(s.handleOpenCodeSetModels))
 
 	mux.Handle("GET /api/tests", s.requireAuth(s.handleTestsList))
 	mux.Handle("POST /api/tests", s.requireAuth(s.handleTestsCreate))

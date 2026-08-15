@@ -1,0 +1,201 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/gense/ollama-manager/internal/opencode"
+)
+
+// opencodeProviderView is the local Ollama provider summary sent to the UI.
+type opencodeProviderView struct {
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+}
+
+// opencodeModelView is one installed model with its opencode visibility state.
+type opencodeModelView struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Enabled     bool   `json:"enabled"`
+	Size        int64  `json:"size"`
+}
+
+// opencodeStateView is the full state of the OpenCode settings section.
+type opencodeStateView struct {
+	ConfigPath     string                `json:"config_path"`
+	Exists         bool                  `json:"exists"`
+	DefaultBaseURL string                `json:"default_base_url"`
+	Provider       *opencodeProviderView `json:"provider"`
+	Models         []opencodeModelView   `json:"models"`
+}
+
+// handleOpenCodeGet reports the opencode integration state: config path,
+// detected local provider and every installed model's visibility flag.
+func (s *Server) handleOpenCodeGet(w http.ResponseWriter, r *http.Request) {
+	view, err := s.buildOpenCodeView(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// handleOpenCodeEnsureProvider creates the local Ollama provider in the
+// opencode config when none exists. Idempotent.
+func (s *Server) handleOpenCodeEnsureProvider(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		BaseURL string `json:"base_url"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+
+	s.opencodeMu.Lock()
+	path := opencode.Resolve()
+	doc, err := opencode.Load(path)
+	if err == nil {
+		baseURL := strings.TrimSpace(body.BaseURL)
+		if baseURL == "" {
+			baseURL = s.ollamaOpenAIBaseURL()
+		}
+		doc.EnsureLocalProvider(baseURL)
+		err = doc.Save()
+	}
+	s.opencodeMu.Unlock()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	view, err := s.buildOpenCodeView(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": view})
+}
+
+// handleOpenCodeSetModels stores the exact set of models to expose in the
+// local Ollama provider. Requires a local provider to already exist.
+func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled []string `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
+		return
+	}
+
+	s.opencodeMu.Lock()
+	path := opencode.Resolve()
+	doc, err := opencode.Load(path)
+	if err == nil {
+		provider := doc.LocalOllamaProvider()
+		if provider == nil {
+			err = errors.New("no local Ollama provider configured in opencode; create one first")
+		} else {
+			doc.SetEnabledModels(provider.Key, sanitizeTags(body.Enabled))
+			err = doc.Save()
+		}
+	}
+	s.opencodeMu.Unlock()
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "no local Ollama provider") {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+
+	view, err := s.buildOpenCodeView(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": view})
+}
+
+func sanitizeTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	seen := make(map[string]bool, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" || seen[tag] {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, tag)
+	}
+	return out
+}
+
+func (s *Server) buildOpenCodeView(ctx context.Context) (opencodeStateView, error) {
+	path := opencode.Resolve()
+	doc, err := opencode.Load(path)
+	if err != nil {
+		return opencodeStateView{}, err
+	}
+	view := opencodeStateView{
+		ConfigPath: path,
+		Exists:     configFileExists(path),
+	}
+	if p := doc.LocalOllamaProvider(); p != nil {
+		view.Provider = &opencodeProviderView{Key: p.Key, Name: p.Name, BaseURL: p.BaseURL}
+		view.DefaultBaseURL = p.BaseURL
+	} else {
+		view.DefaultBaseURL = s.ollamaOpenAIBaseURL()
+	}
+
+	providerKey := ""
+	if view.Provider != nil {
+		providerKey = view.Provider.Key
+	}
+	enabled := doc.EnabledModels(providerKey)
+
+	models, err := s.ollama.List(ctx)
+	if err != nil {
+		// Ollama unreachable: still report provider status with an empty list.
+		models = nil
+	}
+	view.Models = make([]opencodeModelView, 0, len(models))
+	for _, m := range models {
+		tag := m.Name
+		if tag == "" {
+			tag = m.Model
+		}
+		view.Models = append(view.Models, opencodeModelView{
+			Name:        tag,
+			DisplayName: doc.ModelDisplayName(providerKey, tag),
+			Enabled:     enabled[tag],
+			Size:        m.Size,
+		})
+	}
+	return view, nil
+}
+
+func configFileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// ollamaOpenAIBaseURL returns the Ollama OpenAI-compatible base URL (with a
+// /v1 suffix) derived from the manager's configured Ollama URL.
+func (s *Server) ollamaOpenAIBaseURL() string {
+	s.cfgMu.RLock()
+	base := strings.TrimSpace(s.cfg.OllamaURL)
+	s.cfgMu.RUnlock()
+	if base == "" {
+		return "http://localhost:11434/v1"
+	}
+	if strings.HasSuffix(base, "/v1") {
+		return base
+	}
+	return strings.TrimSuffix(base, "/") + "/v1"
+}

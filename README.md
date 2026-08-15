@@ -171,6 +171,9 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `GET` | `/api/config` | Read current configuration |
 | `PATCH` | `/api/config` | Update settings (port, language, expose, chat defaults) |
 | `POST` | `/api/config/password` | Set or clear password protection |
+| `GET` | `/api/opencode` | OpenCode integration state (config path, local Ollama provider, per-model visibility) |
+| `POST` | `/api/opencode/provider` | Create the local Ollama provider in the OpenCode config if missing |
+| `POST` | `/api/opencode/models` | Set exactly which models are exposed in the local OpenCode provider (`{"enabled":["tag",…]}`) |
 
 ---
 

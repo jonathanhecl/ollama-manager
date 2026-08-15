@@ -1,0 +1,491 @@
+package opencode
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestStripJSONC(t *testing.T) {
+	in := []byte(`{
+  // line comment
+  "a": "http://localhost/x", // trailing
+  "b": "// not a comment",
+  "c": "/* nor this */",
+  "d": [1, /* block */ 2],
+}`)
+	got := string(StripJSONC(in))
+	for _, want := range []string{
+		`"a": "http://localhost/x"`,
+		`"b": "// not a comment"`,
+		`"c": "/* nor this */"`,
+		`"d": [1,`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("StripJSONC lost %q; got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "line comment") {
+		t.Errorf("StripJSONC left a line comment behind:\n%s", got)
+	}
+}
+
+func TestResolve(t *testing.T) {
+	t.Run("OPENCODE_CONFIG overrides", func(t *testing.T) {
+		want := filepath.Join(t.TempDir(), "custom.json")
+		t.Setenv("OPENCODE_CONFIG", want)
+		if got := Resolve(); got != want {
+			t.Fatalf("Resolve() = %q; want %q", got, want)
+		}
+	})
+	t.Run("falls back to home", func(t *testing.T) {
+		t.Setenv("OPENCODE_CONFIG", "")
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		want := filepath.Join(home, ".config", "opencode", "opencode.json")
+		if got := Resolve(); got != want {
+			t.Fatalf("Resolve() = %q; want %q", got, want)
+		}
+	})
+}
+
+func TestLoadMissingFile(t *testing.T) {
+	doc, err := Load(filepath.Join(t.TempDir(), "nope.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.LocalOllamaProvider() != nil {
+		t.Fatal("expected no provider for empty document")
+	}
+}
+
+func TestLocalOllamaProvider(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string // expected provider key, "" = none
+	}{
+		{
+			name: "localhost",
+			raw:  `{"provider":{"ollama-local":{"options":{"baseURL":"http://localhost:11434/v1"}}}}`,
+			want: "ollama-local",
+		},
+		{
+			name: "127.0.0.1 uppercase",
+			raw:  `{"provider":{"x":{"options":{"baseURL":"HTTP://127.0.0.1:11434"}}}}`,
+			want: "x",
+		},
+		{
+			name: "remote host not local",
+			raw:  `{"provider":{"ollama-remote":{"options":{"baseURL":"http://192.168.0.121:11434/v1"}}}}`,
+			want: "",
+		},
+		{
+			name: "hostname not local",
+			raw:  `{"provider":{"o":{"options":{"baseURL":"http://mac-mini.local:11434/v1"}}}}`,
+			want: "",
+		},
+		{
+			name: "no baseURL",
+			raw:  `{"provider":{"o":{"options":{"temperature":0.7}}}}`,
+			want: "",
+		},
+		{
+			name: "empty provider",
+			raw:  `{}`,
+			want: "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, err := Load(filepath.Join(t.TempDir(), "c.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(doc.Path, []byte(c.raw), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			doc, err = Load(doc.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := doc.LocalOllamaProvider()
+			if c.want == "" {
+				if p != nil {
+					t.Fatalf("expected no provider, got %+v", p)
+				}
+				return
+			}
+			if p == nil {
+				t.Fatal("expected a provider")
+			}
+			if p.Key != c.want {
+				t.Fatalf("provider key = %q; want %q", p.Key, c.want)
+			}
+		})
+	}
+}
+
+func TestEnsureLocalProvider(t *testing.T) {
+	doc := &Document{Path: filepath.Join(t.TempDir(), "c.json"), Raw: map[string]any{}}
+
+	key, created := doc.EnsureLocalProvider("")
+	if !created || key != "ollama-local" {
+		t.Fatalf("first ensure: created=%v key=%q", created, key)
+	}
+	p := doc.LocalOllamaProvider()
+	if p == nil {
+		t.Fatal("provider missing after ensure")
+	}
+	if p.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("default baseURL = %q", p.BaseURL)
+	}
+
+	key2, created2 := doc.EnsureLocalProvider("http://localhost:1234/v1")
+	if created2 || key2 != key {
+		t.Fatalf("second ensure: created=%v key=%q", created2, key2)
+	}
+	if doc.LocalOllamaProvider().BaseURL != "http://localhost:11434/v1" {
+		t.Fatal("idempotent ensure must not overwrite the existing provider")
+	}
+}
+
+func TestEnsureLocalProviderCustomBaseURL(t *testing.T) {
+	doc := &Document{Path: filepath.Join(t.TempDir(), "c.json"), Raw: map[string]any{}}
+	_, created := doc.EnsureLocalProvider("http://localhost:9999/v1")
+	if !created {
+		t.Fatal("expected creation")
+	}
+	if got := doc.LocalOllamaProvider().BaseURL; got != "http://localhost:9999/v1" {
+		t.Fatalf("custom baseURL = %q", got)
+	}
+}
+
+func TestSetEnabledModels(t *testing.T) {
+	raw := `{
+  "provider": {
+    "ollama-local": {
+      "options": {"baseURL": "http://localhost:11434/v1"},
+      "models": {
+        "tag-a": {"name": "Friendly A"},
+        "tag-b": {"name": "B", "limit": {"context": 1000}},
+        "tag-ghost": {"name": "Ghost"}
+      }
+    },
+    "ollama-remote": {"models": {"tag-r": {"name": "R"}}}
+  }
+}`
+	doc, err := Load(filepath.Join(t.TempDir(), "c.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(doc.Path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err = Load(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc.SetEnabledModels("ollama-local", []string{"tag-a", "tag-c"})
+	models, _ := doc.Raw["provider"].(map[string]any)["ollama-local"].(map[string]any)["models"].(map[string]any)
+	if len(models) != 2 {
+		t.Fatalf("models len = %d; want 2", len(models))
+	}
+	if _, ok := models["tag-ghost"]; ok {
+		t.Fatal("unchecked tag-ghost should have been removed")
+	}
+	a, _ := models["tag-a"].(map[string]any)
+	if a["name"] != "Friendly A" {
+		t.Fatalf("preserved name lost: %v", a["name"])
+	}
+	c, _ := models["tag-c"].(map[string]any)
+	if c["name"] != "tag-c" {
+		t.Fatalf("new tag default name = %v", c["name"])
+	}
+
+	// Unrelated provider untouched.
+	remote, _ := doc.Raw["provider"].(map[string]any)["ollama-remote"].(map[string]any)["models"].(map[string]any)
+	if remote["tag-r"] == nil {
+		t.Fatal("unrelated provider was modified")
+	}
+}
+
+func TestSaveRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sub", "opencode.json")
+	doc, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed an unrelated top-level key to ensure it survives the round trip.
+	doc.Raw["mcp"] = map[string]any{"foo": map[string]any{"enabled": true}}
+
+	key, created := doc.EnsureLocalProvider("http://localhost:11434/v1")
+	if !created {
+		t.Fatal("expected creation")
+	}
+	doc.SetEnabledModels(key, []string{"m1", "m2"})
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := reloaded.LocalOllamaProvider()
+	if p == nil || p.Key != key {
+		t.Fatalf("provider lost on reload: %+v", p)
+	}
+	if !reloaded.EnabledModels(key)["m2"] {
+		t.Fatal("enabled model lost on reload")
+	}
+	if _, ok := reloaded.Raw["mcp"]; !ok {
+		t.Fatal("unrelated top-level section lost on reload")
+	}
+	if doc.ModelDisplayName(key, "m1") != "m1" {
+		t.Fatal("default display name wrong")
+	}
+}
+
+// richConfig mirrors a realistic opencode.json (tabs, several sections).
+const richConfig = `{
+	"$schema": "https://opencode.ai/config.json",
+	"plugin": [
+		"opencode-antigravity-auth@latest"
+	],
+	"provider": {
+		"google": {
+			"models": {
+				"gemini-2.5-flash": {
+					"name": "Gemini 2.5 Flash"
+				}
+			}
+		},
+		"ollama-local": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "Ollama (local)",
+			"options": {
+				"baseURL": "http://localhost:11434/v1"
+			},
+			"models": {
+				"tag-a": {"name": "Friendly A"},
+				"tag-b": {"name": "B"}
+			}
+		},
+		"ollama-remote": {
+			"options": {"baseURL": "http://192.168.0.121:11434/v1"},
+			"models": {"tag-r": {"name": "R"}}
+		}
+	},
+	"mcp": {
+		"foo": {"enabled": true}
+	}
+}
+`
+
+func mustLoadSurgical(t *testing.T, raw string) (*Document, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc, path
+}
+
+// assertLinesPreserved verifies that every non-empty line of before (except
+// the given skip substrings) still appears verbatim in after.
+func assertLinesPreserved(t *testing.T, before, after string, skip []string) {
+	t.Helper()
+	for _, line := range strings.Split(before, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" {
+			continue
+		}
+		if containsAny(trim, skip) {
+			continue
+		}
+		if !strings.Contains(after, line) {
+			t.Fatalf("line not preserved byte-for-byte:\n  %q\n--- after ---\n%s", line, after)
+		}
+	}
+}
+
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSurgicalSaveModelsPreservesEverythingElse(t *testing.T) {
+	doc, path := mustLoadSurgical(t, richConfig)
+	doc.SetEnabledModels("ollama-local", []string{"tag-a", "tag-c"})
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unrelated sections and lines must be byte-identical.
+	assertLinesPreserved(t, richConfig, string(after), []string{"tag-a", "tag-b"})
+
+	// The models block must now contain exactly the enabled set, keeping the
+	// preserved display name for tag-a.
+	var raw map[string]any
+	if err := json.Unmarshal(after, &raw); err != nil {
+		t.Fatalf("result no longer parses: %v\n%s", err, after)
+	}
+	models, _ := raw["provider"].(map[string]any)["ollama-local"].(map[string]any)["models"].(map[string]any)
+	if len(models) != 2 {
+		t.Fatalf("models len = %d; want 2\n%s", len(models), after)
+	}
+	if _, ok := models["tag-b"]; ok {
+		t.Fatal("tag-b should be removed")
+	}
+	if a, _ := models["tag-a"].(map[string]any); a["name"] != "Friendly A" {
+		t.Fatalf("display name lost: %v", a["name"])
+	}
+	if _, ok := models["tag-c"]; !ok {
+		t.Fatal("tag-c should be added")
+	}
+}
+
+func TestSurgicalSaveInsertModelsWhenMissing(t *testing.T) {
+	config := strings.Replace(richConfig,
+		`			},
+			"models": {
+				"tag-a": {"name": "Friendly A"},
+				"tag-b": {"name": "B"}
+			}
+`, `			}
+`, 1)
+	if config == richConfig {
+		t.Fatal("fixture failed to strip models block")
+	}
+	doc, path := mustLoadSurgical(t, config)
+	doc.SetEnabledModels("ollama-local", []string{"tag-z"})
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLinesPreserved(t, config, string(after), []string{"ollama-local"})
+	if !strings.Contains(string(after), `"models": {`) || !strings.Contains(string(after), `"tag-z": {"name": "tag-z"}`) {
+		t.Fatalf("models block not inserted:\n%s", after)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(after, &raw); err != nil {
+		t.Fatalf("result no longer parses: %v\n%s", err, after)
+	}
+}
+
+func TestSurgicalSaveCreateProviderPreservesOthers(t *testing.T) {
+	// No local provider in the fixture.
+	config := strings.Replace(richConfig, `		"ollama-local": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "Ollama (local)",
+			"options": {
+				"baseURL": "http://localhost:11434/v1"
+			},
+			"models": {
+				"tag-a": {"name": "Friendly A"},
+				"tag-b": {"name": "B"}
+			}
+		},
+`, "", 1)
+	if config == richConfig {
+		t.Fatal("fixture failed to strip local provider")
+	}
+	doc, path := mustLoadSurgical(t, config)
+	if _, created := doc.EnsureLocalProvider("http://localhost:11434/v1"); !created {
+		t.Fatal("expected creation")
+	}
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLinesPreserved(t, config, string(after), []string{"ollama-remote"})
+	if !strings.Contains(string(after), `"ollama-local": {`) ||
+		!strings.Contains(string(after), `"baseURL": "http://localhost:11434/v1"`) {
+		t.Fatalf("local provider not created:\n%s", after)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(after, &raw); err != nil {
+		t.Fatalf("result no longer parses: %v\n%s", err, after)
+	}
+	if _, ok := raw["provider"].(map[string]any)["ollama-local"]; !ok {
+		t.Fatal("ollama-local missing after reload")
+	}
+}
+
+func TestSurgicalSaveNoOpWritesNothing(t *testing.T) {
+	doc, path := mustLoadSurgical(t, richConfig)
+	before, _ := os.ReadFile(path)
+	// Provider already exists: ensure is a no-op, so Save must not rewrite.
+	if _, created := doc.EnsureLocalProvider("http://localhost:11434/v1"); created {
+		t.Fatal("expected no-op")
+	}
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatalf("no-op Save modified the file:\n%s", after)
+	}
+}
+
+func TestSurgicalSaveJSONCPreservesComments(t *testing.T) {
+	jsonc := `{
+	// local ollama models
+	"provider": {
+		"ollama-local": {
+			"options": {"baseURL": "http://localhost:11434/v1"},
+			"models": {"old": {"name": "Old"}}
+		},
+		"other": {"options": {"baseURL": "http://x/y"}}
+	}
+}
+`
+	path := filepath.Join(t.TempDir(), "opencode.jsonc")
+	if err := os.WriteFile(path, []byte(jsonc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.SetEnabledModels("ollama-local", []string{"new"})
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	got := string(after)
+	if !strings.Contains(got, "// local ollama models") {
+		t.Fatalf("comment not preserved:\n%s", got)
+	}
+	if !strings.Contains(got, `"new": {"name": "new"}`) {
+		t.Fatalf("models not updated:\n%s", got)
+	}
+	if strings.Contains(got, `"Old"`) {
+		t.Fatalf("old model not removed:\n%s", got)
+	}
+	if !strings.Contains(got, `"baseURL": "http://x/y"`) {
+		t.Fatalf("other provider changed:\n%s", got)
+	}
+}

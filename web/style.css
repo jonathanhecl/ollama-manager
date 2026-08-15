@@ -1084,6 +1084,32 @@ select:focus { border-color: var(--accent); }
 .danger-text { color: var(--bad); }
 .danger-text:hover { background: #1f1212; border-color: #5a2a2a; }
 
+/* ---------- OpenCode settings section ---------- */
+.opencode-models {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.opencode-model-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.opencode-model-row + .opencode-model-row { border-top: 1px solid var(--border); }
+.opencode-model-row.disabled { opacity: .55; cursor: not-allowed; }
+.opencode-model-row.disabled input { cursor: not-allowed; }
+.opencode-model-label { flex: 0 0 auto; font-size: 13px; }
+.opencode-model-tag { margin-left: auto; font-size: 11px; }
+.opencode-actions { margin-top: 10px; }
+.opencode-actions button { width: 100%; }
+.settings-sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+#opencode-export-out { width: 100%; margin-top: 10px; font-size: 11px; line-height: 1.5; }
+.badge.badge-bad { color: var(--bad); border-color: #5a2a2a; }
+
 .settings-foot {
   display: flex;
   justify-content: flex-end;

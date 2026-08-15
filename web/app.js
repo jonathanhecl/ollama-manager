@@ -5937,6 +5937,7 @@ async function openSettings() {
   updatePasswordSection();
   updateExposeWarning();
   updateBindPreview();
+  loadOpenCodeSection();
   $("settings-modal").hidden = false;
 }
 
@@ -5974,6 +5975,84 @@ function updateExposeWarning() {
   updateBindPreview();
 }
 
+// ---------- OpenCode integration ----------
+let openCodeState = null;
+
+async function loadOpenCodeSection() {
+  const badge = $("opencode-badge");
+  const status = $("opencode-status");
+  const noProvider = $("opencode-noprovider");
+  const createBtn = $("opencode-create-btn");
+  const saveBtn = $("opencode-save-btn");
+  try {
+    openCodeState = await api("/api/opencode");
+  } catch (e) {
+    openCodeState = null;
+    badge.textContent = t("settings.opencode_not_configured");
+    badge.className = "badge badge-bad";
+    status.textContent = e.message;
+    noProvider.hidden = true;
+    createBtn.hidden = true;
+    saveBtn.disabled = true;
+    $("opencode-models").innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  const st = openCodeState;
+  if (st.provider) {
+    badge.textContent = t("settings.opencode_configured");
+    badge.className = "badge badge-good";
+    status.textContent = `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}`;
+  } else {
+    badge.textContent = t("settings.opencode_not_configured");
+    badge.className = "badge badge-warn";
+    status.textContent = st.exists
+      ? t("settings.opencode_no_provider_status")
+      : t("settings.opencode_no_file_status");
+  }
+  noProvider.hidden = !!st.provider;
+  createBtn.hidden = !!st.provider;
+  saveBtn.disabled = !st.provider;
+  $("oc-export-baseurl").value = st.default_base_url || "";
+  renderOpenCodeModels(st);
+}
+
+function renderOpenCodeModels(st) {
+  const box = $("opencode-models");
+  if (!st.models || st.models.length === 0) {
+    box.innerHTML = `<div class="muted">${escapeHtml(t("settings.opencode_empty"))}</div>`;
+    return;
+  }
+  box.innerHTML = "";
+  const list = document.createElement("div");
+  for (const m of st.models) {
+    const row = document.createElement("label");
+    row.className = "opencode-model-row" + (st.provider ? "" : " disabled");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = m.enabled;
+    cb.disabled = !st.provider;
+    cb.dataset.tag = m.name;
+    const label = document.createElement("span");
+    label.className = "opencode-model-label";
+    label.textContent = m.display_name;
+    const tag = document.createElement("span");
+    tag.className = "opencode-model-tag mono muted";
+    tag.textContent = m.name;
+    row.appendChild(cb);
+    row.appendChild(label);
+    row.appendChild(tag);
+    list.appendChild(row);
+  }
+  box.appendChild(list);
+}
+
+function openCodeEnabledTags() {
+  const tags = [];
+  const boxes = $("opencode-models").querySelectorAll('input[type="checkbox"]:checked');
+  for (const cb of boxes) tags.push(cb.dataset.tag);
+  return tags;
+}
+
 $("settings-btn").addEventListener("click", openSettings);
 $("settings-close").addEventListener("click", closeSettings);
 $("settings-x").addEventListener("click", closeSettings);
@@ -5997,6 +6076,7 @@ $("set-language").addEventListener("change", () => {
   updateChatCapabilityUI();
   updateChatSendEnabled();
   updatePasswordSection();
+  loadOpenCodeSection();
 });
 
 $("set-expose").addEventListener("change", updateExposeWarning);
@@ -6106,6 +6186,78 @@ $("btn-back-active")?.addEventListener("click", () => {
   showArchivedOnly = false;
   $("archived-banner").hidden = true;
   renderTable();
+});
+
+// ---------- OpenCode actions ----------
+$("opencode-create-btn").addEventListener("click", async () => {
+  try {
+    const res = await api("/api/opencode/provider", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    openCodeState = res.state;
+    toast(t("settings.opencode_created"), "success");
+    renderOpenCodeModels(openCodeState);
+    const st = openCodeState;
+    $("opencode-badge").textContent = t("settings.opencode_configured");
+    $("opencode-badge").className = "badge badge-good";
+    $("opencode-status").textContent = st.provider ? `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}` : "";
+    $("opencode-noprovider").hidden = true;
+    $("opencode-create-btn").hidden = true;
+    $("opencode-save-btn").disabled = false;
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+});
+
+$("opencode-save-btn").addEventListener("click", async () => {
+  try {
+    const res = await api("/api/opencode/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: openCodeEnabledTags() }),
+    });
+    openCodeState = res.state;
+    toast(t("settings.opencode_saved"), "success");
+    renderOpenCodeModels(openCodeState);
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+});
+
+$("opencode-copy-btn").addEventListener("click", async () => {
+  const enabled = openCodeEnabledTags();
+  if (enabled.length === 0) {
+    toast(t("settings.opencode_empty_selection"), "error");
+    return;
+  }
+  const key = $("oc-export-key").value.trim() || "ollama-remote";
+  const name = $("oc-export-name").value.trim() || "Ollama (remoto)";
+  const baseURL = $("oc-export-baseurl").value.trim();
+  if (!baseURL) {
+    toast(t("settings.opencode_export_baseurl_required"), "error");
+    return;
+  }
+  const models = {};
+  for (const tag of enabled) models[tag] = { name: tag };
+  const block = JSON.stringify(
+    { [key]: { npm: "@ai-sdk/openai-compatible", name, options: { baseURL }, models } },
+    null,
+    "\t"
+  );
+  const out = $("opencode-export-out");
+  out.value = block;
+  try {
+    await navigator.clipboard.writeText(block);
+    out.hidden = true;
+    toast(t("settings.opencode_copied"), "success");
+  } catch (e) {
+    out.hidden = false;
+    out.select();
+    out.focus();
+    toast(t("settings.opencode_copy_manual"));
+  }
 });
 
 // ---------- init ----------

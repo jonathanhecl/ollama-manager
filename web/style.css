@@ -1118,7 +1118,7 @@ select:focus { border-color: var(--accent); }
 .danger-text:hover { background: #1f1212; border-color: #5a2a2a; }
 
 /* ---------- OpenCode settings section ---------- */
-.opencode-view { max-width: 760px; margin: 0 auto; padding: 20px 16px 40px; }
+.opencode-view { padding: 18px; }
 .opencode-head {
   display: flex;
   align-items: center;
@@ -3033,6 +3033,7 @@ button.chat-send:disabled:hover {
   padding: 4px 10px;
   font-size: 12px;
 }
+.archived-banner .archived-back-btn { padding: 4px 8px; font-size: 14px; line-height: 1; }
 .btn-icon.archive-btn:hover {
   color: var(--accent);
   border-color: var(--border-strong);

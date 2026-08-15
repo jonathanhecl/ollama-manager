@@ -6280,6 +6280,12 @@ $("btn-back-active")?.addEventListener("click", () => {
   renderTable();
 });
 
+$("archived-back-btn")?.addEventListener("click", () => {
+  showArchivedOnly = false;
+  $("archived-banner").hidden = true;
+  renderTable();
+});
+
 // ---------- OpenCode actions ----------
 $("settings-opencode-btn").addEventListener("click", () => {
   closeSettings();

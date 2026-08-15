@@ -225,6 +225,38 @@ func TestSetEnabledModels(t *testing.T) {
 	}
 }
 
+func TestShortName(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"smtek/Qwen3.8-27B:Q3_K_M", "Qwen3.8-27B:Q3_K_M"},
+		{"hf.co/bartowski/Laguna-XS-2.1-GGUF:Q2_K_L", "Laguna-XS-2.1-GGUF:Q2_K_L"},
+		{"plain", "plain"},
+		{"name:quant", "name:quant"},
+	}
+	for _, c := range cases {
+		if got := shortName(c.in); got != c.want {
+			t.Errorf("shortName(%q) = %q; want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestModelDisplayNameFallsBackToShort(t *testing.T) {
+	doc := &Document{Path: filepath.Join(t.TempDir(), "c.json"), Raw: map[string]any{
+		"provider": map[string]any{
+			"ollama-local": map[string]any{
+				"models": map[string]any{
+					"hf.co/x/Name-One:Q4": map[string]any{"name": "Custom"},
+				},
+			},
+		},
+	}}
+	if got := doc.ModelDisplayName("ollama-local", "hf.co/x/Name-One:Q4"); got != "Custom" {
+		t.Fatalf("custom name lost: %q", got)
+	}
+	if got := doc.ModelDisplayName("ollama-local", "smtek/Qwen:Q3_K_M"); got != "Qwen:Q3_K_M" {
+		t.Fatalf("expected short fallback, got %q", got)
+	}
+}
+
 func TestSaveRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "opencode.json")
 	doc, err := Load(path)

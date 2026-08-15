@@ -6065,8 +6065,8 @@ function renderOpenCodeView() {
   noProvider.hidden = !!st.provider;
   createBtn.hidden = !!st.provider;
   saveBtn.disabled = !st.provider;
-  $("oc-export-baseurl").value = st.default_base_url || "";
   renderOpenCodeModels(st);
+  renderOpenCodePreview();
 }
 
 function renderOpenCodeModels(st) {
@@ -6118,6 +6118,59 @@ function openCodeNamesMap() {
   const inputs = $("opencode-models").querySelectorAll(".opencode-model-name");
   for (const inp of inputs) names[inp.dataset.tag] = inp.value.trim();
   return names;
+}
+
+function openCodeShortName(tag) {
+  const i = tag.lastIndexOf("/");
+  return i >= 0 ? tag.slice(i + 1) : tag;
+}
+
+function buildOpenCodeExport() {
+  const tags = openCodeEnabledTags();
+  const names = openCodeNamesMap();
+  const models = {};
+  for (const tag of tags) models[tag] = { name: (names[tag] || openCodeShortName(tag)) };
+  const provider = {
+    ollama: {
+      npm: "@ai-sdk/openai-compatible",
+      name: "Ollama",
+      options: { baseURL: "http://localhost:11434/v1" },
+      models,
+    },
+  };
+  return {
+    count: tags.length,
+    provider: JSON.stringify(provider, null, "\t"),
+    models: JSON.stringify({ models }, null, "\t"),
+  };
+}
+
+function renderOpenCodePreview() {
+  const pre = $("opencode-preview");
+  const count = $("opencode-preview-count");
+  if (!pre) return;
+  const ex = buildOpenCodeExport();
+  pre.textContent = ex.provider;
+  if (count) {
+    count.textContent = ex.count > 0 ? String(ex.count) : "0";
+  }
+}
+
+async function copyOpenCodeText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t("settings.opencode_copied"), "success");
+  } catch (e) {
+    const pre = $("opencode-preview");
+    if (pre) {
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    toast(t("settings.opencode_copy_manual"));
+  }
 }
 
 $("settings-btn").addEventListener("click", openSettings);
@@ -6296,39 +6349,25 @@ $("opencode-save-btn").addEventListener("click", async () => {
   }
 });
 
-$("opencode-copy-btn").addEventListener("click", async () => {
-  const enabled = openCodeEnabledTags();
-  if (enabled.length === 0) {
+$("opencode-models").addEventListener("change", renderOpenCodePreview);
+$("opencode-models").addEventListener("input", renderOpenCodePreview);
+
+$("opencode-copy-all-btn").addEventListener("click", () => {
+  const ex = buildOpenCodeExport();
+  if (ex.count === 0) {
     toast(t("settings.opencode_empty_selection"), "error");
     return;
   }
-  const names = openCodeNamesMap();
-  const key = $("oc-export-key").value.trim() || "ollama-remote";
-  const name = $("oc-export-name").value.trim() || "Ollama (remoto)";
-  const baseURL = $("oc-export-baseurl").value.trim();
-  if (!baseURL) {
-    toast(t("settings.opencode_export_baseurl_required"), "error");
+  copyOpenCodeText(ex.provider);
+});
+
+$("opencode-copy-models-btn").addEventListener("click", () => {
+  const ex = buildOpenCodeExport();
+  if (ex.count === 0) {
+    toast(t("settings.opencode_empty_selection"), "error");
     return;
   }
-  const models = {};
-  for (const tag of enabled) models[tag] = { name: (names[tag] || tag) };
-  const block = JSON.stringify(
-    { [key]: { npm: "@ai-sdk/openai-compatible", name, options: { baseURL }, models } },
-    null,
-    "\t"
-  );
-  const out = $("opencode-export-out");
-  out.value = block;
-  try {
-    await navigator.clipboard.writeText(block);
-    out.hidden = true;
-    toast(t("settings.opencode_copied"), "success");
-  } catch (e) {
-    out.hidden = false;
-    out.select();
-    out.focus();
-    toast(t("settings.opencode_copy_manual"));
-  }
+  copyOpenCodeText(ex.models);
 });
 
 // ---------- init ----------

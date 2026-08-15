@@ -1137,8 +1137,26 @@ select:focus { border-color: var(--accent); }
 .opencode-model-tag { flex: 0 0 auto; font-size: 11px; }
 .opencode-actions { margin-top: 12px; }
 .opencode-actions button { width: 100%; }
+.opencode-preview {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.opencode-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
 .settings-sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
-#opencode-export-out { width: 100%; margin-top: 10px; font-size: 11px; line-height: 1.5; }
 .badge.badge-bad { color: var(--bad); border-color: #5a2a2a; }
 
 .settings-foot {

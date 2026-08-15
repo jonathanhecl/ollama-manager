@@ -961,29 +961,17 @@
 
     <section class="opencode-card">
       <div class="section-head">
-        <h3 data-i18n="settings.opencode_export_title">Export for another computer</h3>
+        <h3 data-i18n="settings.opencode_export_title">Generated OpenCode config</h3>
+        <span id="opencode-preview-count" class="badge badge-muted"></span>
       </div>
-      <p class="form-hint" data-i18n="settings.opencode_export_hint">Generate the provider block with the selected models to paste into OpenCode on another machine.</p>
+      <p class="form-hint" data-i18n="settings.opencode_export_hint">Live preview with the selected models. Copy the whole provider or just the model list into any opencode.json.</p>
 
-      <div class="settings-param-row">
-        <div class="field-compact">
-          <label for="oc-export-key" data-i18n="settings.opencode_export_key">Provider key</label>
-          <input id="oc-export-key" type="text" value="ollama-remote" autocomplete="off">
-        </div>
-        <div class="field-compact">
-          <label for="oc-export-name" data-i18n="settings.opencode_export_name">Name</label>
-          <input id="oc-export-name" type="text" value="Ollama (remoto)" autocomplete="off">
-        </div>
-      </div>
-      <div class="field">
-        <label for="oc-export-baseurl" data-i18n="settings.opencode_export_baseurl">Base URL</label>
-        <input id="oc-export-baseurl" type="text" autocomplete="off">
-      </div>
+      <pre id="opencode-preview" class="opencode-preview mono"></pre>
 
-      <div class="opencode-actions">
-        <button id="opencode-copy-btn" class="ghost" data-i18n="settings.opencode_copy">Copy JSON block</button>
+      <div class="opencode-preview-actions">
+        <button id="opencode-copy-models-btn" class="ghost" data-i18n="settings.opencode_copy_models">Copy models</button>
+        <button id="opencode-copy-all-btn" class="primary" data-i18n="settings.opencode_copy_all">Copy provider</button>
       </div>
-      <textarea id="opencode-export-out" rows="10" class="mono" hidden readonly spellcheck="false"></textarea>
     </section>
   </main>
 

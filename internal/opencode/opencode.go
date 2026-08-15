@@ -238,7 +238,8 @@ func (d *Document) EnabledModels(providerKey string) map[string]bool {
 }
 
 // ModelDisplayName returns the friendly name stored for a tag, falling back
-// to the tag itself.
+// to the tag with its namespace prefix stripped (e.g. hf.co/x/name:quant →
+// name:quant).
 func (d *Document) ModelDisplayName(providerKey, tag string) string {
 	providers, _ := d.Raw["provider"].(map[string]any)
 	entry, _ := providers[providerKey].(map[string]any)
@@ -246,6 +247,15 @@ func (d *Document) ModelDisplayName(providerKey, tag string) string {
 	m, _ := models[tag].(map[string]any)
 	if name, _ := m["name"].(string); strings.TrimSpace(name) != "" {
 		return name
+	}
+	return shortName(tag)
+}
+
+// shortName strips the namespace prefix from an Ollama tag, leaving just
+// name:quant (e.g. hf.co/bartowski/Laguna-XS-2.1-GGUF:Q2_K_L → "Laguna-XS-2.1-GGUF:Q2_K_L").
+func shortName(tag string) string {
+	if i := strings.LastIndexByte(tag, '/'); i >= 0 && i+1 < len(tag) {
+		return tag[i+1:]
 	}
 	return tag
 }

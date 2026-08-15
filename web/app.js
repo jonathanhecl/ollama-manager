@@ -5946,7 +5946,6 @@ async function openSettings() {
   updatePasswordSection();
   updateExposeWarning();
   updateBindPreview();
-  refreshOpenCodeUI();
   $("settings-modal").hidden = false;
 }
 
@@ -5995,19 +5994,10 @@ async function refreshOpenCodeUI() {
     renderOpenCodeError(e.message);
     return;
   }
-  renderOpenCodeSettingsSummary();
   renderOpenCodeView();
 }
 
 function renderOpenCodeError(msg) {
-  const sBadge = $("settings-opencode-badge");
-  const sStatus = $("settings-opencode-status");
-  if (sBadge) {
-    sBadge.textContent = t("settings.opencode_not_configured");
-    sBadge.className = "badge badge-bad";
-  }
-  if (sStatus) sStatus.textContent = msg;
-
   const badge = $("opencode-badge");
   const status = $("opencode-status");
   if (badge) {
@@ -6023,24 +6013,6 @@ function renderOpenCodeError(msg) {
   if (saveBtn) saveBtn.disabled = true;
   const box = $("opencode-models");
   if (box) box.innerHTML = `<div class="muted">${escapeHtml(msg)}</div>`;
-}
-
-function renderOpenCodeSettingsSummary() {
-  const st = openCodeState;
-  const badge = $("settings-opencode-badge");
-  const status = $("settings-opencode-status");
-  if (!badge) return;
-  if (st.provider) {
-    badge.textContent = t("settings.opencode_configured");
-    badge.className = "badge badge-good";
-    status.textContent = `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}`;
-  } else {
-    badge.textContent = t("settings.opencode_not_configured");
-    badge.className = "badge badge-warn";
-    status.textContent = st.exists
-      ? t("settings.opencode_no_provider_status")
-      : t("settings.opencode_no_file_status");
-  }
 }
 
 function renderOpenCodeView() {
@@ -6342,7 +6314,6 @@ $("opencode-save-btn").addEventListener("click", async () => {
     });
     openCodeState = res.state;
     toast(t("settings.opencode_saved"), "success");
-    renderOpenCodeSettingsSummary();
     renderOpenCodeView();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");

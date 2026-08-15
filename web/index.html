@@ -614,63 +614,105 @@
           </div>
         </section>
 
-        <section class="settings-section">
-          <div class="section-head">
-            <h3 data-i18n="settings.opencode_section">OpenCode</h3>
-            <span class="badge" id="settings-opencode-badge"></span>
-          </div>
+        <details class="settings-section settings-collapse">
+          <summary class="settings-collapse-head">
+            <span data-i18n="settings.chat_defaults_section">Default Chat Configuration</span>
+          </summary>
 
-          <p id="settings-opencode-status" class="form-hint"></p>
+          <div class="settings-collapse-body">
+            <p class="form-hint" data-i18n="settings.chat_defaults_hint">Default parameters and system prompt applied to all models unless customized per model.</p>
 
-          <div class="opencode-actions">
-            <button id="settings-opencode-btn" class="primary" data-i18n="settings.opencode_manage">Manage OpenCode models</button>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <h3 data-i18n="settings.chat_defaults_section">Default Chat Configuration</h3>
-          <p class="form-hint" data-i18n="settings.chat_defaults_hint">Default parameters and system prompt applied to all models unless customized per model.</p>
-
-          <div class="field field-vertical">
-            <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
-            <textarea id="set-default-system" rows="3" data-i18n-attr="placeholder" data-i18n="settings.default_system_placeholder" placeholder="Default system instruction for all models..." autocomplete="off"></textarea>
-          </div>
-
-          <div class="settings-param-row">
-            <div class="field-compact">
-              <label for="set-default-temp" data-i18n="chat.temperature">Temperature</label>
-              <input id="set-default-temp" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
+            <div class="field field-vertical">
+              <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
+              <textarea id="set-default-system" rows="3" data-i18n-attr="placeholder" data-i18n="settings.default_system_placeholder" placeholder="Default system instruction for all models..." autocomplete="off"></textarea>
             </div>
-            <div class="field-compact">
-              <label for="set-default-top-k" data-i18n="chat.top_k">Top-k</label>
-              <input id="set-default-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
-            </div>
-            <div class="field-compact">
-              <label for="set-default-top-p" data-i18n="chat.top_p">Top-p</label>
-              <input id="set-default-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off">
-            </div>
-          </div>
 
-          <div class="field switch-field">
-            <div class="switch-label">
-              <span data-i18n="chat.web_tools">Internet (web search &amp; fetch)</span>
+            <div class="settings-param-row">
+              <div class="field-compact">
+                <label for="set-default-temp" data-i18n="chat.temperature">Temperature</label>
+                <input id="set-default-temp" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
+              </div>
+              <div class="field-compact">
+                <label for="set-default-top-k" data-i18n="chat.top_k">Top-k</label>
+                <input id="set-default-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
+              </div>
+              <div class="field-compact">
+                <label for="set-default-top-p" data-i18n="chat.top_p">Top-p</label>
+                <input id="set-default-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off">
+              </div>
             </div>
-            <label class="switch">
-              <input id="set-default-web-tools" type="checkbox" autocomplete="off">
-              <span class="switch-slider"></span>
-            </label>
-          </div>
 
-          <div class="field switch-field">
-            <div class="switch-label">
-              <span data-i18n="chat.artifacts">Artifacts</span>
+            <div class="field switch-field">
+              <div class="switch-label">
+                <span data-i18n="chat.web_tools">Internet (web search &amp; fetch)</span>
+              </div>
+              <label class="switch">
+                <input id="set-default-web-tools" type="checkbox" autocomplete="off">
+                <span class="switch-slider"></span>
+              </label>
             </div>
-            <label class="switch">
-              <input id="set-default-artifacts" type="checkbox" autocomplete="off">
-              <span class="switch-slider"></span>
-            </label>
+
+            <div class="field switch-field">
+              <div class="switch-label">
+                <span data-i18n="chat.artifacts">Artifacts</span>
+              </div>
+              <label class="switch">
+                <input id="set-default-artifacts" type="checkbox" autocomplete="off">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
           </div>
-        </section>
+        </details>
+
+        <details class="settings-section settings-collapse">
+          <summary class="settings-collapse-head">
+            <span data-i18n="settings.network">Network</span>
+            <span class="badge" id="bind-preview"></span>
+          </summary>
+
+          <div class="settings-collapse-body">
+            <div class="field">
+              <label for="set-port" data-i18n="settings.port">HTTP port</label>
+              <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
+            </div>
+
+            <div class="field switch-field">
+              <div class="switch-label">
+                <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
+                <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
+              </div>
+              <label class="switch">
+                <input id="set-expose" type="checkbox" autocomplete="off">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div id="expose-warning" class="callout callout-warn" hidden>
+              <span class="callout-icon">!</span>
+              <span data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</span>
+            </div>
+
+            <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
+
+            <hr class="settings-sep">
+
+            <div class="section-head">
+              <h3 data-i18n="settings.password_section">Password</h3>
+              <span class="badge" id="pwd-badge"></span>
+            </div>
+
+            <div class="field pwd-field">
+              <label for="set-password" data-i18n="settings.new_password">New password</label>
+              <div class="input-with-action">
+                <input id="set-password" type="password" autocomplete="new-password" spellcheck="false">
+                <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save</button>
+              </div>
+            </div>
+
+            <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
+            <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
+          </div>
+        </details>
 
         <section class="settings-section">
           <h3 data-i18n="settings.archived_section">Archived Models</h3>
@@ -678,51 +720,8 @@
         </section>
 
         <section class="settings-section">
-          <div class="section-head">
-            <h3 data-i18n="settings.network">Network</h3>
-            <span class="badge" id="bind-preview"></span>
-          </div>
-
-          <div class="field">
-            <label for="set-port" data-i18n="settings.port">HTTP port</label>
-            <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
-          </div>
-
-          <div class="field switch-field">
-            <div class="switch-label">
-              <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
-              <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
-            </div>
-            <label class="switch">
-              <input id="set-expose" type="checkbox" autocomplete="off">
-              <span class="switch-slider"></span>
-            </label>
-          </div>
-
-          <div id="expose-warning" class="callout callout-warn" hidden>
-            <span class="callout-icon">!</span>
-            <span data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</span>
-          </div>
-
-          <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
-        </section>
-
-        <section class="settings-section">
-          <div class="section-head">
-            <h3 data-i18n="settings.password_section">Password</h3>
-            <span class="badge" id="pwd-badge"></span>
-          </div>
-
-          <div class="field pwd-field">
-            <label for="set-password" data-i18n="settings.new_password">New password</label>
-            <div class="input-with-action">
-              <input id="set-password" type="password" autocomplete="new-password" spellcheck="false">
-              <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save</button>
-            </div>
-          </div>
-
-          <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
-          <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
+          <h3 data-i18n="settings.opencode_section">OpenCode</h3>
+          <button id="settings-opencode-btn" class="primary" data-i18n="settings.opencode_manage">Manage OpenCode models</button>
         </section>
 
       </div>

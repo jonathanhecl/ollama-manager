@@ -913,6 +913,37 @@ select:focus { border-color: var(--accent); }
 .badge.badge-warn { color: var(--warn); border-color: #5a4326; }
 .badge.badge-muted { color: var(--muted); }
 
+/* Collapsible settings sections */
+.settings-collapse { padding: 0; }
+.settings-collapse-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.settings-collapse-head::-webkit-details-marker { display: none; }
+.settings-collapse-head > span:first-child {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.settings-collapse-head::after {
+  content: "▸";
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: transform .15s ease;
+}
+.settings-collapse[open] .settings-collapse-head::after {
+  transform: rotate(90deg);
+}
+.settings-collapse-body { padding-bottom: 16px; }
+
 /* Fields */
 .field {
   display: grid;

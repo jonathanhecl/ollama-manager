@@ -84,6 +84,18 @@ const fmtCtx = (n) => {
   return String(n);
 };
 
+function formatMetaElapsedSecondsTitle(ms) {
+  const n = Math.max(0, Number(ms) || 0);
+  if (n < 1000) {
+    return `${Math.round(n)}ms`;
+  }
+  const sec = n / 1000;
+  if (sec < 10) {
+    return `${sec.toFixed(1)}s`;
+  }
+  return `${Math.floor(sec)}s`;
+}
+
 function formatMetaElapsed(ms) {
   const n = Math.max(0, Number(ms) || 0);
   if (n < 1000) {
@@ -93,7 +105,22 @@ function formatMetaElapsed(ms) {
   if (sec < 10) {
     return t("chat.meta_time_s_dec", { s: sec.toFixed(1) });
   }
-  return t("chat.meta_time", { s: Math.round(sec) });
+  if (sec < 60) {
+    return t("chat.meta_time", { s: Math.floor(sec) });
+  }
+  const totalSec = Math.floor(sec);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+
+  if (days > 0) {
+    return `${days}d${hours}h${mins}m${secs}s`;
+  }
+  if (hours > 0) {
+    return `${hours}h${mins}m${secs}s`;
+  }
+  return `${mins}m${secs}s`;
 }
 function fmtETA(totalSeconds) {
   if (!isFinite(totalSeconds) || totalSeconds <= 0) return "";
@@ -2827,6 +2854,32 @@ function assistantMetricText(m, opts = {}) {
   return assistantMetricParts(m, opts).join(" · ");
 }
 
+function assistantMetricHTML(m, opts = {}) {
+  if (!m || m.role !== "assistant") return "";
+  const parts = [];
+  const elapsed = Math.max(0, Number(m.elapsedMs) || 0);
+  const tokens = Math.max(0, Math.round(Number(m.completionTokens || m.tokens || 0)));
+  const tps = Number(m.tps);
+  if (elapsed > 0 || opts.showZero) {
+    const timeText = formatMetaElapsed(elapsed);
+    const timeTitle = formatMetaElapsedSecondsTitle(elapsed);
+    parts.push(`<span class="chat-meta-time" title="${escapeHtml(timeTitle)}">${escapeHtml(timeText)}</span>`);
+  }
+  if (tokens > 0 || opts.showZero) {
+    parts.push(`<span>${escapeHtml(t("chat.meta_tokens", { n: tokens }))}</span>`);
+  }
+  if ((Number.isFinite(tps) && tps > 0) || opts.showZero) {
+    parts.push(`<span>${escapeHtml(t("chat.meta_tps", { rate: (Number.isFinite(tps) && tps > 0 ? tps : 0).toFixed(2) }))}</span>`);
+  }
+  if (!m.streaming && (m.doneReason || m.stopped)) {
+    const reason = m.stopped ? "aborted" : m.doneReason;
+    const label = formatDoneReason(reason);
+    if (label) parts.push(`<span>${escapeHtml(label)}</span>`);
+  }
+  if (opts.streaming) parts.push(`<span>${escapeHtml(t("chat.streaming"))}</span>`);
+  return parts.join(" · ");
+}
+
 /**
  * Añade al timeline el texto desde segmentFlushIndex hasta ahora, como think (y opcional bloque md).
  * @param {object} assistantMsg
@@ -3057,10 +3110,11 @@ function renderChatMessages() {
     const showTailThink = hasTl && (Boolean((tailParts.think || "").trim()) || (m.streaming && tailParts.inThink));
     const showTailMd = hasTl && m.streaming && Boolean((tailParts.answer || "").trim());
 
+    const thinkSecTitle = formatMetaElapsedSecondsTitle(m.thinkMs || 0);
     const thinkBlock = hasTl || !m.thinkContent
       ? ""
       : `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
-          <summary>${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && !!m.inThink))}</summary>
+          <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && !!m.inThink))}</summary>
           <pre>${escapeHtml(m.thinkContent)}</pre>
         </details>`;
 
@@ -3072,7 +3126,7 @@ function renderChatMessages() {
       : "";
     const tailThinkBlock = showTailThink
       ? `<details class="chat-think" ${m.tailThinkOpen !== false ? "open" : ""} data-id="${escapeHtml(m.id)}" data-tail="1">
-          <summary>${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && tailParts.inThink))}</summary>
+          <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && tailParts.inThink))}</summary>
           <pre>${escapeHtml(tailParts.think || "")}</pre>
         </details>`
       : "";
@@ -3179,10 +3233,11 @@ function renderChatMessages() {
       : "";
 
     const footActions = `${editBtn}${regenBtn}${ttsBtn}${copyBtn}`;
-    const finalMetrics = m.role === "assistant" && !m.streaming ? assistantMetricText(m) : "";
-    const footBlock = footActions || finalMetrics
+    const finalMetricsHTML = m.role === "assistant" && !m.streaming ? assistantMetricHTML(m) : "";
+    const finalMetricsTitle = m.role === "assistant" && !m.streaming && m.elapsedMs ? formatMetaElapsedSecondsTitle(m.elapsedMs) : "";
+    const footBlock = footActions || finalMetricsHTML
       ? `<div class="chat-msg-foot">
-          ${finalMetrics ? `<span class="chat-msg-final-meta mono">${escapeHtml(finalMetrics)}</span>` : ""}
+          ${finalMetricsHTML ? `<span class="chat-msg-final-meta mono"${finalMetricsTitle ? ` title="${escapeHtml(finalMetricsTitle)}"` : ""}>${finalMetricsHTML}</span>` : ""}
           <div class="chat-msg-foot-actions">
             ${footActions}
           </div>
@@ -3394,6 +3449,7 @@ function startThinkTicker(msg) {
         const tailParts = splitThink(tailStr);
         const inThink = isTail ? tailParts.inThink : msg.inThink;
         summary.textContent = thinkLabel(msg.thinkMs, inThink);
+        summary.title = formatMetaElapsedSecondsTitle(msg.thinkMs || 0);
       }
     });
   }, 250);
@@ -4072,6 +4128,14 @@ function updateStreamBar() {
   if (label) {
     const metrics = activeStreamMessage ? assistantMetricText(activeStreamMessage, { showZero: true }) : "";
     label.textContent = metrics ? `${t("chat.generating")} ${metrics}` : t("chat.generating");
+    if (activeStreamMessage && activeStreamMessage.elapsedMs != null) {
+      const timeTitle = formatMetaElapsedSecondsTitle(activeStreamMessage.elapsedMs || 0);
+      label.title = timeTitle;
+      if (bar) bar.title = timeTitle;
+    } else {
+      label.title = "";
+      if (bar) bar.title = "";
+    }
   }
   if (btn) {
     btn.disabled = !chatStreamLock;

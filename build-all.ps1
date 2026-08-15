@@ -55,7 +55,14 @@ foreach ($target in $targets) {
     if (-not [string]::IsNullOrEmpty($Version)) {
         $packBase += "-$Version"
     }
-    $packName = "$packBase-$os-$arch"
+    # macOS packages are labelled "apple" and distinguish Silicon from Intel.
+    $packOS = $os
+    $packArch = $arch
+    if ($os -eq "darwin") {
+        $packOS = "apple"
+        $packArch = if ($arch -eq "arm64") { "silicon" } else { "intel" }
+    }
+    $packName = "$packBase-$packOS-$packArch"
     if ($format -eq "zip") {
         $packName += ".zip"
     } else {

@@ -943,6 +943,8 @@ select:focus { border-color: var(--accent); }
   transform: rotate(90deg);
 }
 .settings-collapse-body { padding-bottom: 16px; }
+.settings-stack { display: flex; flex-direction: column; gap: 10px; }
+.settings-wide-btn { width: 100%; text-align: center; }
 
 /* Fields */
 .field {

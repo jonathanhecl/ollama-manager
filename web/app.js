@@ -4333,7 +4333,7 @@ async function runChatRequest(assistantMsg) {
           break;
         }
         if (msg.artifactUrl) {
-          const match = String(msg.artifactUrl).match(/\/api\/artifacts\/([^\/]+)\//);
+          const match = String(msg.artifactUrl).match(/\/api\/artifacts\/(.+)\//);
           if (match) {
             payload.artifact_dir = match[1];
             break;
@@ -4408,7 +4408,7 @@ async function runChatRequest(assistantMsg) {
           if (frame && url) {
             frame.removeAttribute("srcdoc");
             frame.src = url;
-            const match = String(url).match(/\/api\/artifacts\/([^\/]+)\//);
+            const match = String(url).match(/\/api\/artifacts\/(.+)\//);
             if (match) {
               activeArtifactTimestamp = match[1];
             }
@@ -4834,7 +4834,7 @@ function showArtifactPanel(url, name, generating) {
   console.log("[artifact] showArtifactPanel", { url, name, generating, panelHidden: panel.hidden, frameSrc: frame.src, frameSrcdoc: frame.srcdoc ? "(set)" : "(none)" });
 
   if (url) {
-    const match = String(url).match(/\/api\/artifacts\/([^\/]+)\//);
+    const match = String(url).match(/\/api\/artifacts\/(.+)\//);
     if (match) {
       activeArtifactTimestamp = match[1];
     }

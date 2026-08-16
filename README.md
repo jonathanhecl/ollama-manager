@@ -159,7 +159,7 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `GET` | `/api/models/{name}` | Detailed model info, modelfile, parameters, and template |
 | `DELETE` | `/api/models/{name}` | Uninstall model (with optional deletion reason tracking) |
 | `POST` | `/api/chat` | SSE chat stream (`chunk`, `tool`, `done`, `error`) supporting Web Tools & Artifacts |
-| `GET` | `/api/artifacts/{timestamp}/{path}` | Serve sandboxed artifact files for live preview |
+| `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed artifact files for live preview. Artifacts are stored under `artifacts/<model-digest>/<timestamp>/` |
 | `POST` | `/api/model-repair/preview` | Generate patched Modelfile preview (tools/templates/stops) |
 | `POST` | `/api/model-repair/apply` | Apply repair and build fixed model |
 | `GET` | `/api/tests` | List benchmark test cases and prompt suites |

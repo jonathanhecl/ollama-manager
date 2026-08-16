@@ -357,7 +357,7 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		return "Artifact workspace initialized successfully. Operational tools (write_file, replace_in_file, read_file, list_dir, exec, get_artifact_console) are now available.", nil
 
 	case "get_artifact_console":
-		ts := filepath.Base(artifactDir)
+		ts := artifactRelID(artifactDir)
 		s.artifactConsoleMu.RLock()
 		logs := s.artifactConsoleLogs[ts]
 		s.artifactConsoleMu.RUnlock()
@@ -477,18 +477,24 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		candidate := filepath.Join("artifacts", filepath.Clean(body.ArtifactDir))
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			artifactDir = candidate
-			ts = filepath.Base(artifactDir)
+			ts = artifactRelID(artifactDir)
 			log.Printf("[artifact] reusing existing dir: %s", artifactDir)
 		}
 	}
 
-	// Lazy directory creation helper: only makes the artifacts/<ts>/ folder when
-	// the agent is about to write something for the first time.
+	// Lazy directory creation helper: only makes the artifacts/<digest>/<ts>/
+	// folder when the agent is about to write something for the first time.
+	// The digest uniquely identifies the model, so artifacts are grouped per
+	// model; the timestamp identifies each artifact.
 	ensureArtifactDir := func() error {
 		if artifactDir != "" {
 			return nil
 		}
-		ts = fmt.Sprintf("%s %s", time.Now().Format("2006-01-02 15-04-05"), cleanModelName(body.Model))
+		digest := s.artifactModelDigest(ctx, body.Model)
+		if digest == "" {
+			digest = cleanModelName(body.Model)
+		}
+		ts = filepath.Join(digest, time.Now().Format("2006-01-02_15-04-05"))
 		artifactDir = filepath.Join("artifacts", ts)
 		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 			return fmt.Errorf("create artifact dir: %w", err)
@@ -900,6 +906,32 @@ type toolSentState struct {
 	path         string
 	command      string
 	artifactName string
+}
+
+// artifactRelID returns the artifact folder's identifier relative to the
+// artifacts/ directory, e.g. "<digest>/<timestamp>". This is the value sent
+// to the browser as the artifact timestamp and used as the console-log key.
+func artifactRelID(artifactDir string) string {
+	if rel, err := filepath.Rel("artifacts", artifactDir); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	return filepath.Base(artifactDir)
+}
+
+// artifactModelDigest returns the unique digest of modelName (without the
+// "sha256:" prefix), or "" if it cannot be resolved. Artifact folders are
+// grouped under this digest because it uniquely identifies the model.
+func (s *Server) artifactModelDigest(ctx context.Context, modelName string) string {
+	models, err := s.ollama.List(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, m := range models {
+		if m.Name == modelName || m.Model == modelName {
+			return strings.TrimPrefix(m.Digest, "sha256:")
+		}
+	}
+	return ""
 }
 
 func cleanModelName(model string) string {

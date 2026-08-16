@@ -102,3 +102,76 @@ func TestHandleArtifactFilesSPAFallback(t *testing.T) {
 		t.Errorf("expected body to contain injected console script, got: %s", body)
 	}
 }
+
+func TestHandleArtifactFilesNestedDigestLayout(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "artifact_nested_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	digest := "9b60184f8688036b4813f05ed0debae7ba9f3a94f44bd26fddafc6116967bef6"
+	date := "2026-08-15_20-15-00"
+	artifactDir := filepath.Join("artifacts", digest, date)
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("failed to create artifact dir: %v", err)
+	}
+	defer os.RemoveAll("artifacts")
+
+	indexPath := filepath.Join(artifactDir, "index.html")
+	if err := os.WriteFile(indexPath, []byte("<html><body>Nested Artifact</body></html>"), 0o644); err != nil {
+		t.Fatalf("failed to write index.html: %v", err)
+	}
+	subFile := filepath.Join(artifactDir, "app.js")
+	if err := os.WriteFile(subFile, []byte("console.log('hi');"), 0o644); err != nil {
+		t.Fatalf("failed to write app.js: %v", err)
+	}
+
+	s := &Server{}
+	path := digest + "/" + date
+
+	// Root of the nested artifact serves index.html via SPA fallback.
+	req := httptest.NewRequest("GET", "/api/artifacts/"+path+"/", nil)
+	req.SetPathValue("rest", path+"/")
+	rr := httptest.NewRecorder()
+	s.handleArtifactFiles(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("nested root: expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "Nested Artifact") {
+		t.Errorf("nested root: expected index.html content, got: %s", rr.Body.String())
+	}
+
+	// A real file inside the nested artifact is served directly.
+	req2 := httptest.NewRequest("GET", "/api/artifacts/"+path+"/app.js", nil)
+	req2.SetPathValue("rest", path+"/app.js")
+	rr2 := httptest.NewRecorder()
+	s.handleArtifactFiles(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("nested file: expected 200, got %d", rr2.Code)
+	}
+	if !strings.Contains(rr2.Body.String(), "console.log('hi')") {
+		t.Errorf("nested file: expected app.js content, got: %s", rr2.Body.String())
+	}
+
+	// SPA fallback for a client-side route inside the nested artifact.
+	req3 := httptest.NewRequest("GET", "/api/artifacts/"+path+"/dashboard", nil)
+	req3.SetPathValue("rest", path+"/dashboard")
+	rr3 := httptest.NewRecorder()
+	s.handleArtifactFiles(rr3, req3)
+	if rr3.Code != http.StatusOK {
+		t.Fatalf("nested route: expected 200, got %d", rr3.Code)
+	}
+	if !strings.Contains(rr3.Body.String(), "Nested Artifact") {
+		t.Errorf("nested route: expected index.html content, got: %s", rr3.Body.String())
+	}
+
+	// Path traversal is still blocked.
+	req4 := httptest.NewRequest("GET", "/api/artifacts/"+path+"/../../secret.txt", nil)
+	req4.SetPathValue("rest", path+"/../../secret.txt")
+	rr4 := httptest.NewRecorder()
+	s.handleArtifactFiles(rr4, req4)
+	if rr4.Code == http.StatusOK {
+		t.Errorf("traversal: expected non-200, got %d", rr4.Code)
+	}
+}

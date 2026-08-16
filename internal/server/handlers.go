@@ -1541,27 +1541,45 @@ func (s *Server) handleJobsResumeQueue(w http.ResponseWriter, r *http.Request) {
 // ---------- artifact files ----------
 
 func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
-	// Path: /api/artifacts/{timestamp}/{rest...}
+	// Path: /api/artifacts/{rest...}
+	// Current layout: artifacts/<model-digest>/<timestamp>/<files...>
+	// Legacy layout:  artifacts/<timestamp>/<files...>
 	rest := r.PathValue("rest")
 	if rest == "" {
 		http.NotFound(w, r)
 		return
 	}
-	// Split into timestamp and subpath
-	slashIdx := strings.IndexByte(rest, '/')
-	var cleanPath string
-	var ts string
-	if slashIdx < 0 {
-		// Just timestamp — serve index.html
-		ts = rest
-		cleanPath = filepath.Join("artifacts", ts, "index.html")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Resolve the artifact folder (2-segment <digest>/<date> when present,
+	// otherwise the legacy single-segment folder) and the remaining subpath.
+	var baseDir string
+	subpathStart := 1
+	if len(parts) >= 2 {
+		nested := filepath.Join("artifacts", parts[0], parts[1])
+		if info, err := os.Stat(nested); err == nil && info.IsDir() {
+			baseDir = nested
+			subpathStart = 2
+		} else {
+			baseDir = filepath.Join("artifacts", parts[0])
+		}
 	} else {
-		ts = rest[:slashIdx]
-		subpath := rest[slashIdx+1:]
-		cleanPath = filepath.Clean(filepath.Join("artifacts", ts, subpath))
-		// Prevent path traversal
-		if !strings.HasPrefix(cleanPath, filepath.Join("artifacts", ts)+string(filepath.Separator)) &&
-			cleanPath != filepath.Join("artifacts", ts) {
+		baseDir = filepath.Join("artifacts", parts[0])
+	}
+	indexPath := filepath.Join(baseDir, "index.html")
+
+	subpath := strings.Join(parts[subpathStart:], "/")
+	var cleanPath string
+	if subpath == "" {
+		cleanPath = indexPath
+	} else {
+		cleanPath = filepath.Clean(filepath.Join(baseDir, subpath))
+		// Prevent path traversal outside the artifact folder.
+		if !strings.HasPrefix(cleanPath, baseDir+string(filepath.Separator)) && cleanPath != baseDir {
 			http.NotFound(w, r)
 			return
 		}
@@ -1572,7 +1590,6 @@ func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 	if err != nil || info.IsDir() {
 		// SPA Fallback: if requesting a client-side route (e.g. /dashboard) that isn't a file on disk,
 		// serve index.html if it exists.
-		indexPath := filepath.Join("artifacts", ts, "index.html")
 		if indexContent, indexErr := os.ReadFile(indexPath); indexErr == nil {
 			injected := injectConsoleCaptureScript(indexContent)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")

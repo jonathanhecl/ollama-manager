@@ -1159,6 +1159,10 @@ function renderDetail(d) {
     [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
     [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false],
   ];
+  if (d.artifact_count > 0) {
+    const artSize = d.artifact_bytes ? ` · ${fmtBytes(d.artifact_bytes)}` : "";
+    rows.push([t("detail.artifacts"), `${d.artifact_count}${artSize}`, false]);
+  }
   const grid = rows.map(([k, v, isState]) =>
     `<div class="k">${escapeHtml(k)}</div><div class="v"${isState ? " id=\"detail-state-value\"" : ""}>${isState ? escapeHtml(v) : v}</div>`).join("");
 
@@ -5364,10 +5368,25 @@ function askConfirm({ title, text, okText, okClass = "primary", mono = "", showD
   return new Promise((resolve) => { pendingConfirmResolve = resolve; });
 }
 
-function confirmDelete(name) {
+async function confirmDelete(name) {
   pendingDelete = name;
+  // Let the user know how many artifacts this model generated; they will be
+  // removed together with the model so no remnants are left behind.
+  let artifactNote = "";
+  try {
+    const d = await api("/api/models/" + encodeURIComponent(name));
+    if (d && d.artifact_count > 0) {
+      const label = d.artifact_count === 1
+        ? t("confirm.delete_artifacts_one")
+        : t("confirm.delete_artifacts_other", { count: d.artifact_count });
+      artifactNote = `\n\n${label}`;
+      if (d.artifact_bytes > 0) artifactNote += ` (${fmtBytes(d.artifact_bytes)})`;
+    }
+  } catch (e) {
+    // Artifact info is best-effort; the delete still works without it.
+  }
   // Substitute {name} ourselves so we can wrap it in a mono span.
-  const text = t("confirm.delete_text", { name: "{__NAME__}" });
+  const text = t("confirm.delete_text", { name: "{__NAME__}" }) + artifactNote;
   askConfirm({
     title: t("detail.delete_title"),
     text: text.replace("{__NAME__}", name),
@@ -5380,12 +5399,15 @@ function confirmDelete(name) {
     pendingDelete = null;
     if (!ok || !delName) return;
     try {
-      await api("/api/models/" + encodeURIComponent(delName), {
+      const res = await api("/api/models/" + encodeURIComponent(delName), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: reason || "" }),
       });
-      toast(t("toast.deleted", { name: delName }), "success");
+      const extra = (res && res.deleted_artifacts > 0)
+        ? ` · ${t("toast.deleted_artifacts", { count: res.deleted_artifacts })}`
+        : "";
+      toast(t("toast.deleted", { name: delName }) + extra, "success");
       if (activeName === delName) { $("detail-panel").hidden = true; activeName = null; }
       refreshModels();
     } catch (e) {

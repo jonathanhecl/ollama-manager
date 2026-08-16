@@ -110,6 +110,7 @@ const I18N = {
     "detail.state": "State",
     "detail.modified": "Modified",
     "detail.digest": "Digest",
+    "detail.artifacts": "Artifacts",
     "detail.loaded_vram": "loaded · VRAM {size}",
     "detail.not_loaded": "not loaded",
     "detail.capabilities": "Capabilities",
@@ -167,6 +168,8 @@ const I18N = {
 
     "confirm.title": "Confirm",
     "confirm.delete_text": "{name} will be uninstalled from the system. This action cannot be undone.",
+    "confirm.delete_artifacts_one": "This will also delete the 1 artifact project created by this model.",
+    "confirm.delete_artifacts_other": "This will also delete the {count} artifact projects created by this model.",
     "confirm.delete_reason_title": "Reason (optional)",
     "confirm.delete_reason_load_failed": "Could not load / did not work",
     "confirm.delete_reason_missing_capabilities": "Did not have the expected capabilities",
@@ -337,6 +340,7 @@ const I18N = {
     "chat.send_disabled_ollama": "Ollama is offline — check status in the bar",
 
     "toast.deleted": "{name} deleted",
+    "toast.deleted_artifacts": "{count} artifacts removed",
     "toast.delete_error": "Error deleting: {msg}",
     "toast.error": "Error: {msg}",
     "settings.archived_section": "Archived Models",
@@ -613,6 +617,7 @@ const I18N = {
     "detail.state": "Estado",
     "detail.modified": "Modificado",
     "detail.digest": "Digest",
+    "detail.artifacts": "Artifacts",
     "detail.loaded_vram": "cargado · VRAM {size}",
     "detail.not_loaded": "no cargado",
     "detail.capabilities": "Capacidades",
@@ -670,6 +675,8 @@ const I18N = {
 
     "confirm.title": "Confirmar",
     "confirm.delete_text": "Se desinstalará {name} del sistema. Esta acción no se puede deshacer.",
+    "confirm.delete_artifacts_one": "Esto también eliminará el proyecto de artifact creado por este modelo.",
+    "confirm.delete_artifacts_other": "Esto también eliminará los {count} proyectos de artifact creados por este modelo.",
     "confirm.delete_reason_title": "Motivo (opcional)",
     "confirm.delete_reason_load_failed": "No se pudo cargar / no funcionó",
     "confirm.delete_reason_missing_capabilities": "No tenía las capacidades esperadas",
@@ -840,6 +847,7 @@ const I18N = {
     "chat.send_disabled_ollama": "Ollama desconectado — mirá el estado en la barra",
 
     "toast.deleted": "Eliminado {name}",
+    "toast.deleted_artifacts": "{count} artifacts eliminados",
     "toast.delete_error": "Error eliminando: {msg}",
     "toast.error": "Error: {msg}",
     "settings.archived_section": "Modelos Archivados",

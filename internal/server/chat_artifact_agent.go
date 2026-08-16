@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -932,6 +933,67 @@ func (s *Server) artifactModelDigest(ctx context.Context, modelName string) stri
 		}
 	}
 	return ""
+}
+
+// artifactInfoForModel reports how many artifact projects belong to modelName
+// and their total size on disk, using the model's unique digest as the key.
+func (s *Server) artifactInfoForModel(ctx context.Context, modelName string) (count int, totalBytes int64) {
+	digest := s.artifactModelDigest(ctx, modelName)
+	if digest == "" {
+		return 0, 0
+	}
+	entries, err := os.ReadDir(filepath.Join("artifacts", digest))
+	if err != nil {
+		return 0, 0
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		count++
+		totalBytes += dirSize(filepath.Join("artifacts", digest, e.Name()))
+	}
+	return count, totalBytes
+}
+
+// deleteArtifactsForModel removes every artifact project created by modelName
+// (folders under artifacts/<digest>/) and returns how many were deleted.
+func (s *Server) deleteArtifactsForModel(ctx context.Context, modelName string) int {
+	digest := s.artifactModelDigest(ctx, modelName)
+	if digest == "" {
+		return 0
+	}
+	root := filepath.Join("artifacts", digest)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return 0
+	}
+	deleted := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, e.Name())); err == nil {
+			deleted++
+		}
+	}
+	os.Remove(root) // drop the now-empty digest folder
+	return deleted
+}
+
+// dirSize sums the byte size of every regular file inside dir (recursively).
+func dirSize(dir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
 }
 
 func cleanModelName(model string) string {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,5 +174,98 @@ func TestHandleArtifactFilesNestedDigestLayout(t *testing.T) {
 	s.handleArtifactFiles(rr4, req4)
 	if rr4.Code == http.StatusOK {
 		t.Errorf("traversal: expected non-200, got %d", rr4.Code)
+	}
+}
+
+func TestDeleteModelRemovesArtifacts(t *testing.T) {
+	digest := "dd3be4e31ad39f4762067b6ca2139b0977250d1413d2dcb65e4e21e52086bca7"
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/delete":
+			writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
+		case "/api/tags":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{
+				{"name": "qwen3:latest", "model": "qwen3:latest", "digest": "sha256:" + digest},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaSrv.Close()
+
+	artifactDir := filepath.Join("artifacts", digest, "2026-08-15_20-15-00")
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("create artifact dir: %v", err)
+	}
+	defer os.RemoveAll("artifacts")
+	if err := os.WriteFile(filepath.Join(artifactDir, "index.html"), []byte("<html>hi</html>"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	req := httptest.NewRequest(http.MethodDelete, "/api/models/"+url.PathEscape("qwen3:latest"), nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		DeletedArtifacts int `json:"deleted_artifacts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.DeletedArtifacts != 1 {
+		t.Fatalf("deleted_artifacts = %d, want 1", resp.DeletedArtifacts)
+	}
+	if _, err := os.Stat(artifactDir); !os.IsNotExist(err) {
+		t.Fatalf("artifact folder should have been removed, stat err = %v", err)
+	}
+}
+
+func TestModelDetailReportsArtifactCount(t *testing.T) {
+	digest := "9b60184f8688036b4813f05ed0debae7ba9f3a94f44bd26fddafc6116967bef6"
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/show":
+			writeJSON(w, http.StatusOK, map[string]any{"license": "MIT"})
+		case "/api/tags":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{
+				{"name": "cap:latest", "model": "cap:latest", "digest": "sha256:" + digest},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaSrv.Close()
+
+	artifactDir := filepath.Join("artifacts", digest, "2026-08-15_20-15-00")
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("create artifact dir: %v", err)
+	}
+	defer os.RemoveAll("artifacts")
+	if err := os.WriteFile(filepath.Join(artifactDir, "index.html"), []byte("<html>hi</html>"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	req := httptest.NewRequest(http.MethodGet, "/api/models/"+url.PathEscape("cap:latest"), nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var detail struct {
+		ArtifactCount int   `json:"artifact_count"`
+		ArtifactBytes int64 `json:"artifact_bytes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if detail.ArtifactCount != 1 {
+		t.Fatalf("artifact_count = %d, want 1", detail.ArtifactCount)
+	}
+	if detail.ArtifactBytes <= 0 {
+		t.Fatalf("artifact_bytes = %d, want > 0", detail.ArtifactBytes)
 	}
 }

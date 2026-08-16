@@ -157,7 +157,7 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `GET` | `/api/models` | List installed models with loaded status and context lengths |
 | `GET` | `/api/running` | Models currently loaded in VRAM/RAM (`/api/ps`) |
 | `GET` | `/api/models/{name}` | Detailed model info, modelfile, parameters, and template |
-| `DELETE` | `/api/models/{name}` | Uninstall model (with optional deletion reason tracking) |
+| `DELETE` | `/api/models/{name}` | Uninstall model (with optional deletion reason tracking). Also removes the artifacts it generated (`artifact_count`/`deleted_artifacts` in the response) |
 | `POST` | `/api/chat` | SSE chat stream (`chunk`, `tool`, `done`, `error`) supporting Web Tools & Artifacts |
 | `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed artifact files for live preview. Artifacts are stored under `artifacts/<model-digest>/<timestamp>/` |
 | `POST` | `/api/model-repair/preview` | Generate patched Modelfile preview (tools/templates/stops) |

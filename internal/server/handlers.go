@@ -660,6 +660,8 @@ type modelDetail struct {
 	Architecture   string              `json:"architecture,omitempty"`
 	ParameterCount int64               `json:"parameter_count,omitempty"`
 	ModelInfo      map[string]any      `json:"model_info,omitempty"`
+	ArtifactCount  int                 `json:"artifact_count,omitempty"`
+	ArtifactBytes  int64               `json:"artifact_bytes,omitempty"`
 	ModifiedAt     time.Time           `json:"modified_at"`
 }
 
@@ -685,6 +687,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		Capabilities: show.Capabilities,
 		ModifiedAt:   show.ModifiedAt,
 	}
+	detail.ArtifactCount, detail.ArtifactBytes = s.artifactInfoForModel(r.Context(), name)
 	flat := make(map[string]any, len(show.ModelInfo))
 	for k, raw := range show.ModelInfo {
 		var v any
@@ -749,6 +752,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	resp := map[string]any{"deleted": name}
+	deletedArtifacts := s.deleteArtifactsForModel(r.Context(), name)
 	if !isFixedModelName(name) {
 		fixed := fixedModelName(name)
 		if s.modelExists(r.Context(), fixed) {
@@ -758,6 +762,10 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 				resp["deleted_fixed"] = fixed
 			}
 		}
+		deletedArtifacts += s.deleteArtifactsForModel(r.Context(), fixed)
+	}
+	if deletedArtifacts > 0 {
+		resp["deleted_artifacts"] = deletedArtifacts
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

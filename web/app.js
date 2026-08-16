@@ -4837,18 +4837,28 @@ async function refreshModelArtifactCount() {
   const wrap = $("chat-model-artifacts-wrap");
   const model = $("chat-model")?.value;
   if (!btn || !wrap) return;
+  // Only models that can create artifacts (tools capability) show the link.
   if (!model || !modelCaps(model).has("tools")) {
     wrap.hidden = true;
+    btn.hidden = true;
     return;
   }
   try {
     const data = await api("/api/models/" + encodeURIComponent(model) + "/artifacts");
     const n = (data && Array.isArray(data.artifacts)) ? data.artifacts.length : 0;
+    if (n === 0) {
+      wrap.hidden = true;
+      btn.hidden = true;
+      return;
+    }
+    btn.textContent = n === 1
+      ? t("chat.model_artifacts_link_one")
+      : t("chat.model_artifacts_link_other", { count: n });
     wrap.hidden = false;
-    btn.disabled = n === 0;
-    btn.textContent = n > 0 ? t("chat.model_artifacts_btn", { count: n }) : "0";
+    btn.hidden = false;
   } catch (e) {
     wrap.hidden = true;
+    btn.hidden = true;
   }
 }
 

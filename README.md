@@ -28,7 +28,7 @@ Tiny, fast, and feature-packed Go web server to manage and interact with [Ollama
 
 - **Web Tools & Live Artifacts Agent**:
   - **Internet Access (Web Tools)**: server-side bounded web agent utilizing DuckDuckGo (`web_search`) and direct HTTP (`web_fetch`) with a structured timeline (think → tool execution → answer).
-  - **Artifacts Workspace**: interactive sandbox allowing the model to create and modify web apps/HTML/JS/Python files (`create_artifact`, `write_file`, `replace_in_file`, `exec`) with a live side-by-side draggable splitter and live preview.
+  - **Artifacts Workspace**: interactive sandbox allowing the model to create and modify web apps/HTML/JS/Python files (`create_artifact`, `write_file`, `replace_in_file`, `exec`) with a live side-by-side draggable splitter and live preview. Each model's artifacts are grouped by its digest under `artifacts/<digest>/<date>/`, can be re-loaded from the chat options to keep working on them, and are removed together with the model when uninstalling.
 
 - **Tests & Benchmark Suite**:
   - Built-in benchmark and evaluation runner to test models against standardized prompts and compare speed, context processing, and accuracy.
@@ -160,6 +160,7 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `DELETE` | `/api/models/{name}` | Uninstall model (with optional deletion reason tracking). Also removes the artifacts it generated (`artifact_count`/`deleted_artifacts` in the response) |
 | `POST` | `/api/chat` | SSE chat stream (`chunk`, `tool`, `done`, `error`) supporting Web Tools & Artifacts |
 | `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed artifact files for live preview. Artifacts are stored under `artifacts/<model-digest>/<timestamp>/` |
+| `GET` | `/api/models/{name}/artifacts` | List the artifact projects a model has created (id, date, file count, size) |
 | `POST` | `/api/model-repair/preview` | Generate patched Modelfile preview (tools/templates/stops) |
 | `POST` | `/api/model-repair/apply` | Apply repair and build fixed model |
 | `GET` | `/api/tests` | List benchmark test cases and prompt suites |

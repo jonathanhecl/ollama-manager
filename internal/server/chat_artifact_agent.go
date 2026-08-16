@@ -983,17 +983,24 @@ func (s *Server) deleteArtifactsForModel(ctx context.Context, modelName string) 
 
 // dirSize sums the byte size of every regular file inside dir (recursively).
 func dirSize(dir string) int64 {
-	var total int64
+	_, size := dirInfo(dir)
+	return size
+}
+
+// dirInfo returns the number of regular files and the total byte size inside
+// dir (recursively).
+func dirInfo(dir string) (count int, size int64) {
 	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
+		count++
 		if info, err := d.Info(); err == nil {
-			total += info.Size()
+			size += info.Size()
 		}
 		return nil
 	})
-	return total
+	return count, size
 }
 
 func cleanModelName(model string) string {

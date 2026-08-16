@@ -143,6 +143,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /", s.handleIndex)
 
 	mux.Handle("GET /api/models", s.requireAuth(s.handleListModels))
+	mux.Handle("GET /api/models/{name}/artifacts", s.requireAuth(s.handleListModelArtifacts))
 	mux.Handle("GET /api/running", s.requireAuth(s.handleListRunning))
 	mux.Handle("POST /api/running/unload-all", s.requireAuth(s.handleUnloadAllRunning))
 	mux.Handle("POST /api/model-repair/preview", s.requireAuth(s.handleRepairPreview))

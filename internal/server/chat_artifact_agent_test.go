@@ -269,3 +269,57 @@ func TestModelDetailReportsArtifactCount(t *testing.T) {
 		t.Fatalf("artifact_bytes = %d, want > 0", detail.ArtifactBytes)
 	}
 }
+
+func TestListModelArtifacts(t *testing.T) {
+	digest := "9b60184f8688036b4813f05ed0debae7ba9f3a94f44bd26fddafc6116967bef6"
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{
+				{"name": "cap:latest", "model": "cap:latest", "digest": "sha256:" + digest},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaSrv.Close()
+
+	artifactDir := filepath.Join("artifacts", digest, "2026-08-15_20-15-00")
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("create artifact dir: %v", err)
+	}
+	defer os.RemoveAll("artifacts")
+	if err := os.WriteFile(filepath.Join(artifactDir, "index.html"), []byte("<html>hi</html>"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	req := httptest.NewRequest(http.MethodGet, "/api/models/"+url.PathEscape("cap:latest")+"/artifacts", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Artifacts []artifactEntry `json:"artifacts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Artifacts) != 1 {
+		t.Fatalf("artifacts = %d, want 1", len(resp.Artifacts))
+	}
+	a := resp.Artifacts[0]
+	if a.ID != digest+"/2026-08-15_20-15-00" {
+		t.Errorf("artifact id = %q, want nested digest/date id", a.ID)
+	}
+	if a.Date != "2026-08-15_20-15-00" {
+		t.Errorf("artifact date = %q", a.Date)
+	}
+	if a.FileCount != 1 {
+		t.Errorf("file_count = %d, want 1", a.FileCount)
+	}
+	if a.Size <= 0 {
+		t.Errorf("size = %d, want > 0", a.Size)
+	}
+}

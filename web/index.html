@@ -257,6 +257,10 @@
             <span class="switch-slider"></span>
           </label>
         </div>
+        <div id="chat-model-artifacts-wrap" class="field" hidden>
+          <label for="chat-model-artifacts-btn" data-i18n="chat.model_artifacts">Model artifacts</label>
+          <button id="chat-model-artifacts-btn" type="button" class="ghost chat-artifacts-list-btn" disabled>0</button>
+        </div>
         <div id="chat-image-options-wrap" class="chat-image-options-wrap" hidden>
           <h4 data-i18n="chat.image_generation_options">Image Generation Options</h4>
           <div class="field">
@@ -577,6 +581,27 @@
         <button id="confirm-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
         <button id="confirm-ok" class="danger" data-i18n="action.delete">Delete</button>
       </div>
+    </div>
+  </div>
+
+  <div id="load-artifact-modal" class="modal" hidden>
+    <div class="modal-card running-card">
+      <header class="running-head">
+        <h2>
+          <span class="gear">✦</span>
+          <span data-i18n="chat.load_artifact_title">Load artifact</span>
+          <span id="load-artifact-model" class="badge badge-muted"></span>
+        </h2>
+        <button id="load-artifact-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+      </header>
+      <div class="running-body">
+        <p class="muted" data-i18n="chat.load_artifact_hint">Load a previously created artifact to work on it. Artifact mode turns on automatically.</p>
+        <div id="load-artifact-list" class="running-list"></div>
+        <div id="load-artifact-empty" class="running-empty muted" data-i18n="chat.load_artifact_none">No artifacts created by this model yet.</div>
+      </div>
+      <footer class="running-foot">
+        <button id="load-artifact-close" class="primary" data-i18n="action.close">Close</button>
+      </footer>
     </div>
   </div>
 

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1547,6 +1548,43 @@ func (s *Server) handleJobsResumeQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------- artifact files ----------
+
+// artifactEntry describes one saved artifact project for a model.
+type artifactEntry struct {
+	ID        string `json:"id"` // "<digest>/<date>", used as artifact_dir
+	Digest    string `json:"digest"`
+	Date      string `json:"date"`
+	FileCount int    `json:"file_count"`
+	Size      int64  `json:"size"`
+}
+
+// handleListModelArtifacts lists every artifact project a model has created.
+// Path: GET /api/models/{name}/artifacts
+func (s *Server) handleListModelArtifacts(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.PathValue("name"))
+	artifacts := []artifactEntry{}
+	if digest := s.artifactModelDigest(r.Context(), name); digest != "" {
+		root := filepath.Join("artifacts", digest)
+		if entries, err := os.ReadDir(root); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				dir := filepath.Join(root, e.Name())
+				fileCount, size := dirInfo(dir)
+				artifacts = append(artifacts, artifactEntry{
+					ID:        filepath.Join(digest, e.Name()),
+					Digest:    digest,
+					Date:      e.Name(),
+					FileCount: fileCount,
+					Size:      size,
+				})
+			}
+			sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Date > artifacts[j].Date })
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"model": name, "artifacts": artifacts})
+}
 
 func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 	// Path: /api/artifacts/{rest...}

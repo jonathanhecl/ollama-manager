@@ -2823,6 +2823,15 @@ button.chat-send:disabled:hover {
   opacity: 0.75;
   text-decoration: underline;
 }
+.chat-artifacts-list-btn {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+.chat-artifacts-list-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 .chat-cap-block { margin: 0 0 2px; }
 .chat-cap-heading {
   margin: 0 0 6px;

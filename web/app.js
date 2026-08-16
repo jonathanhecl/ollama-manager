@@ -1796,6 +1796,7 @@ function updateChatCapabilityUI() {
   $("chat-think-wrap").hidden = !canThink;
   $("chat-web-tools-wrap").hidden = !canTools;
   $("chat-artifacts-wrap").hidden = !canTools;
+  void refreshModelArtifactCount();
 
   const imgOpts = $("chat-image-options-wrap");
   if (imgOpts) imgOpts.hidden = !isImageModel;
@@ -4705,6 +4706,7 @@ async function runChatRequest(assistantMsg) {
     activeStreamMessage = null;
     updateStreamBar();
     flushChatRender();
+    void refreshModelArtifactCount();
     if (chatPendingQueue.length > 0) {
       const next = chatPendingQueue.shift();
       renderChatQueue();
@@ -4827,6 +4829,78 @@ async function sendChatMessage() {
 }
 
 let chatArtifactWidthSet = false;
+
+// ---------- model artifact list / load ----------
+
+async function refreshModelArtifactCount() {
+  const btn = $("chat-model-artifacts-btn");
+  const wrap = $("chat-model-artifacts-wrap");
+  const model = $("chat-model")?.value;
+  if (!btn || !wrap) return;
+  if (!model || !modelCaps(model).has("tools")) {
+    wrap.hidden = true;
+    return;
+  }
+  try {
+    const data = await api("/api/models/" + encodeURIComponent(model) + "/artifacts");
+    const n = (data && Array.isArray(data.artifacts)) ? data.artifacts.length : 0;
+    wrap.hidden = false;
+    btn.disabled = n === 0;
+    btn.textContent = n > 0 ? t("chat.model_artifacts_btn", { count: n }) : "0";
+  } catch (e) {
+    wrap.hidden = true;
+  }
+}
+
+function openLoadArtifactModal() {
+  const model = $("chat-model")?.value;
+  if (!model) return;
+  $("load-artifact-model").textContent = model;
+  const list = $("load-artifact-list");
+  const empty = $("load-artifact-empty");
+  list.innerHTML = "";
+  empty.hidden = true;
+  empty.textContent = t("chat.load_artifact_none");
+  $("load-artifact-modal").hidden = false;
+  api("/api/models/" + encodeURIComponent(model) + "/artifacts").then((data) => {
+    const arts = (data && Array.isArray(data.artifacts)) ? data.artifacts : [];
+    if (arts.length === 0) {
+      empty.hidden = false;
+      return;
+    }
+    for (const a of arts) {
+      const meta = [escapeHtml(a.date)];
+      if (a.file_count != null) {
+        meta.push(a.file_count === 1 ? t("chat.load_artifact_file_one") : t("chat.load_artifact_files", { count: a.file_count }));
+      }
+      if (a.size) meta.push(fmtBytes(a.size));
+      const row = document.createElement("div");
+      row.className = "running-item";
+      row.innerHTML = `
+        <div class="running-main">
+          <div class="running-name">${escapeHtml(a.date)}</div>
+          <div class="running-meta">${meta.join(" · ")}</div>
+        </div>
+        <button type="button" class="primary" data-load="${escapeHtml(a.id)}">${escapeHtml(t("chat.load_artifact"))}</button>`;
+      row.querySelector("button").addEventListener("click", () => loadExistingArtifact(a.id, a.date));
+      list.appendChild(row);
+    }
+  }).catch((e) => {
+    empty.hidden = false;
+    empty.textContent = t("state.error_prefix") + e.message;
+  });
+}
+
+function loadExistingArtifact(id, label) {
+  const cb = $("chat-artifacts");
+  if (cb) cb.checked = true;
+  saveChatOptionsForCurrentModel();
+  activeArtifactTimestamp = id;
+  $("load-artifact-modal").hidden = true;
+  showArtifactPanel("/api/artifacts/" + id + "/", label || "Artifact", false);
+  toast(t("chat.load_artifact_loaded"), "success");
+  void refreshModelArtifactCount();
+}
 
 function showArtifactPanel(url, name, generating) {
   const panel = $("chat-artifact-panel");
@@ -4963,6 +5037,7 @@ function bindChatEvents() {
       swapToArtifact(cv);
     } else {
       swapToOptions(cv);
+      void refreshModelArtifactCount();
     }
   });
   $("chat-options-close")?.addEventListener("click", () => {
@@ -5246,6 +5321,14 @@ function bindChatEvents() {
     }
   }
   $("chat-options-reset-btn")?.addEventListener("click", resetModelChatOptionsToDefaults);
+
+  // Model artifacts list / load modal
+  $("chat-model-artifacts-btn")?.addEventListener("click", openLoadArtifactModal);
+  $("load-artifact-x")?.addEventListener("click", () => { $("load-artifact-modal").hidden = true; });
+  $("load-artifact-close")?.addEventListener("click", () => { $("load-artifact-modal").hidden = true; });
+  $("load-artifact-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("load-artifact-modal")) $("load-artifact-modal").hidden = true;
+  });
 
   // Artifact panel controls
   $("chat-artifact-close")?.addEventListener("click", hideArtifactPanel);

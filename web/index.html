@@ -212,17 +212,17 @@
         </div>
         <div class="field" id="chat-temperature-field">
           <label for="chat-temperature" data-i18n="chat.temperature">Temperature</label>
-          <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
+          <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off" data-i18n-attr="title" data-i18n="chat.temperature_hint" title="Higher = more random and creative; lower = more focused and predictable.">
           <small class="muted chat-opt-hint" data-i18n="chat.temperature_hint">—</small>
         </div>
         <div class="field" id="chat-top-k-field">
           <label for="chat-top-k" data-i18n="chat.top_k">Top-k</label>
-          <input id="chat-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
+          <input id="chat-top-k" type="number" min="0" step="1" value="40" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_k_hint" title="Only the K most likely next tokens are considered; lower = narrower choice.">
           <small class="muted chat-opt-hint" data-i18n="chat.top_k_hint">—</small>
         </div>
         <div class="field" id="chat-top-p-field">
           <label for="chat-top-p" data-i18n="chat.top_p">Top-p</label>
-          <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off">
+          <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
           <small class="muted chat-opt-hint" data-i18n="chat.top_p_hint">—</small>
         </div>
         <div id="chat-think-wrap" class="field" hidden>
@@ -657,15 +657,15 @@
             <div class="settings-param-row">
               <div class="field-compact">
                 <label for="set-default-temp" data-i18n="chat.temperature">Temperature</label>
-                <input id="set-default-temp" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
+                <input id="set-default-temp" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off" data-i18n-attr="title" data-i18n="chat.temperature_hint" title="Higher = more random and creative; lower = more focused and predictable.">
               </div>
               <div class="field-compact">
                 <label for="set-default-top-k" data-i18n="chat.top_k">Top-k</label>
-                <input id="set-default-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
+                <input id="set-default-top-k" type="number" min="0" step="1" value="40" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_k_hint" title="Only the K most likely next tokens are considered; lower = narrower choice.">
               </div>
               <div class="field-compact">
                 <label for="set-default-top-p" data-i18n="chat.top_p">Top-p</label>
-                <input id="set-default-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off">
+                <input id="set-default-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
               </div>
             </div>
 

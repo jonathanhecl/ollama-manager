@@ -286,6 +286,10 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		needsRestart = true
 	}
 	if body.ChatDefaults != nil {
+		if !config.IsValidThinkLevel(body.ChatDefaults.ThinkLevel) {
+			writeError(w, http.StatusBadRequest, errors.New("invalid think_level (use auto, off, low, medium, high or max)"))
+			return
+		}
 		s.cfg.ChatDefaults = *body.ChatDefaults
 	}
 
@@ -1060,7 +1064,7 @@ func (s *Server) modelExists(ctx context.Context, name string) bool {
 type chatRequestBody struct {
 	Model       string               `json:"model"`
 	Messages    []ollama.ChatMessage `json:"messages"`
-	Think       *bool                `json:"think,omitempty"`
+	Think       *ollama.ThinkLevel   `json:"think,omitempty"`
 	Options     map[string]any       `json:"options,omitempty"`
 	WebTools    *bool                `json:"web_tools,omitempty"`
 	Artifacts   *bool                `json:"artifacts,omitempty"`
@@ -1127,7 +1131,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	for _, m := range body.Messages {
 		imageCount += len(m.Images)
 	}
-	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v think=%v", body.Model, len(body.Messages), imageCount, body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, body.Think)
+	thinkVal := "auto"
+	if body.Think != nil {
+		thinkVal = string(*body.Think)
+	}
+	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v think=%s", body.Model, len(body.Messages), imageCount, body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, thinkVal)
 
 	if body.Artifacts != nil && *body.Artifacts {
 		w.Header().Set("Content-Type", "text/event-stream")

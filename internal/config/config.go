@@ -16,9 +16,13 @@ type ChatDefaults struct {
 	Temperature  *float64 `json:"temperature,omitempty"`
 	TopK         *int     `json:"top_k,omitempty"`
 	TopP         *float64 `json:"top_p,omitempty"`
-	NoThink      *bool    `json:"no_think,omitempty"`
-	WebTools     *bool    `json:"web_tools,omitempty"`
-	Artifacts    *bool    `json:"artifacts,omitempty"`
+	// ThinkLevel is the default reasoning effort: "auto", "off", "low",
+	// "medium", "high" or "max". It replaces the old no_think boolean.
+	ThinkLevel string `json:"think_level,omitempty"`
+	// NoThink is deprecated and kept only to read older config files.
+	NoThink   *bool `json:"no_think,omitempty"`
+	WebTools  *bool `json:"web_tools,omitempty"`
+	Artifacts *bool `json:"artifacts,omitempty"`
 }
 
 // Config holds the runtime configuration for ollama-manager.
@@ -39,7 +43,6 @@ func Defaults() *Config {
 	defaultTemp := 0.7
 	defaultTopK := 40
 	defaultTopP := 0.9
-	defaultNoThink := false
 	defaultWebTools := false
 	defaultArtifacts := false
 
@@ -55,7 +58,7 @@ func Defaults() *Config {
 			Temperature:  &defaultTemp,
 			TopK:         &defaultTopK,
 			TopP:         &defaultTopP,
-			NoThink:      &defaultNoThink,
+			ThinkLevel:   "auto",
 			WebTools:     &defaultWebTools,
 			Artifacts:    &defaultArtifacts,
 		},
@@ -64,6 +67,22 @@ func Defaults() *Config {
 
 // validLanguages is the set of supported UI languages.
 var validLanguages = map[string]bool{"en": true, "es": true}
+
+// validThinkLevels is the set of supported default reasoning levels.
+var validThinkLevels = map[string]bool{
+	"auto": true, "off": true, "low": true, "medium": true, "high": true, "max": true,
+}
+
+// IsValidThinkLevel reports whether lvl is a supported thinking level.
+func IsValidThinkLevel(lvl string) bool { return validThinkLevels[lvl] }
+
+// NormalizeThinkLevel returns lvl if valid, otherwise "auto".
+func NormalizeThinkLevel(lvl string) string {
+	if IsValidThinkLevel(lvl) {
+		return lvl
+	}
+	return "auto"
+}
 
 // IsValidLanguage reports whether lang is a supported UI language.
 func IsValidLanguage(lang string) bool { return validLanguages[lang] }
@@ -117,9 +136,12 @@ func Load(path string) (*Config, error) {
 	if cfg.ChatDefaults.TopP == nil {
 		cfg.ChatDefaults.TopP = def.TopP
 	}
-	if cfg.ChatDefaults.NoThink == nil {
-		cfg.ChatDefaults.NoThink = def.NoThink
+	// Migrate the legacy no_think boolean into think_level.
+	cfg.ChatDefaults.ThinkLevel = NormalizeThinkLevel(cfg.ChatDefaults.ThinkLevel)
+	if cfg.ChatDefaults.NoThink != nil && *cfg.ChatDefaults.NoThink {
+		cfg.ChatDefaults.ThinkLevel = "off"
 	}
+	cfg.ChatDefaults.NoThink = nil
 	if cfg.ChatDefaults.WebTools == nil {
 		cfg.ChatDefaults.WebTools = def.WebTools
 	}

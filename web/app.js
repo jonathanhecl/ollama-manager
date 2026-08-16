@@ -276,7 +276,7 @@ const CHAT_OPTION_FALLBACKS = {
   temperature: 0.7,
   top_k: 40,
   top_p: 0.9,
-  no_think: false,
+  think_level: "auto",
   web_tools: false,
   artifacts: false,
 };
@@ -1784,12 +1784,12 @@ function updateChatCapabilityUI() {
   const isImageModel = isImageGenerationOnlyCaps(caps);
   const canVision = caps.has("vision");
   const canAudio = caps.has("audio");
-  const canThinkToggle = caps.has("thinking");
+  const canThink = caps.has("thinking");
   const canTools = caps.has("tools");
   $("chat-image-btn").hidden = !canVision;
   $("chat-audio-btn").hidden = !canAudio;
   $("chat-record-btn").hidden = !canAudio;
-  $("chat-think-wrap").hidden = !canThinkToggle;
+  $("chat-think-wrap").hidden = !canThink;
   $("chat-web-tools-wrap").hidden = !canTools;
   $("chat-artifacts-wrap").hidden = !canTools;
 
@@ -3835,7 +3835,7 @@ function getGlobalChatDefaults() {
     temperature: serverDefaults?.temperature ?? 0.7,
     top_k: serverDefaults?.top_k ?? 40,
     top_p: serverDefaults?.top_p ?? 0.9,
-    no_think: serverDefaults?.no_think ?? false,
+    think_level: serverDefaults?.think_level ?? "auto",
     web_tools: serverDefaults?.web_tools ?? false,
     artifacts: serverDefaults?.artifacts ?? false,
   };
@@ -3843,7 +3843,12 @@ function getGlobalChatDefaults() {
     const raw = localStorage.getItem(GLOBAL_CHAT_DEFAULTS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...fallback, ...parsed };
+      const merged = { ...fallback, ...parsed };
+      // Migrate the legacy no_think flag into think_level.
+      if (parsed.no_think !== undefined && merged.think_level === "auto") {
+        merged.think_level = parsed.no_think ? "off" : "auto";
+      }
+      return merged;
     }
   } catch (e) {
     console.error("Error reading global chat defaults", e);
@@ -3892,7 +3897,7 @@ function saveChatOptionsForCurrentModel() {
     temperature: $("chat-temperature")?.value ?? "0.7",
     top_k: $("chat-top-k")?.value ?? "40",
     top_p: $("chat-top-p")?.value ?? "0.9",
-    no_think: $("chat-no-think")?.checked ?? false,
+    think_level: $("chat-think-level")?.value ?? "auto",
     web_tools: $("chat-web-tools")?.checked ?? false,
     artifacts: $("chat-artifacts")?.checked ?? false,
     image_width: $("chat-image-width")?.value ?? "512",
@@ -3944,8 +3949,10 @@ function setChatOptionsValues(opts) {
   if (opts.top_p != null && $("chat-top-p")) {
     $("chat-top-p").value = String(opts.top_p);
   }
-  if (opts.no_think !== undefined && $("chat-no-think")) {
-    $("chat-no-think").checked = !!opts.no_think;
+  if (opts.think_level !== undefined && $("chat-think-level")) {
+    $("chat-think-level").value = opts.think_level;
+  } else if (opts.no_think !== undefined && $("chat-think-level")) {
+    $("chat-think-level").value = opts.no_think ? "off" : "auto";
   }
   if (opts.web_tools !== undefined && $("chat-web-tools")) {
     $("chat-web-tools").checked = !!opts.web_tools;
@@ -4278,8 +4285,7 @@ async function runChatRequest(assistantMsg) {
 
   const caps = modelCaps(modelName);
   const isImageModel = isImageGenerationOnlyCaps(caps);
-  const canThinkToggle = caps.has("thinking");
-  const noThink = canThinkToggle ? $("chat-no-think").checked : false;
+  const canThink = caps.has("thinking");
   const canTools = caps.has("tools");
   const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
   const artifactsOn = !isImageModel && canTools && $("chat-artifacts").checked;
@@ -4300,9 +4306,15 @@ async function runChatRequest(assistantMsg) {
     options.top_p = readOptionNumber("chat-top-p", CHAT_OPTION_FALLBACKS.top_p);
   }
 
+  const thinkLevel = canThink ? ($("chat-think-level")?.value || "auto") : "auto";
+  let think;
+  if (canThink && thinkLevel !== "auto") {
+    think = thinkLevel === "off" ? false : thinkLevel;
+  }
+
   const payload = {
     model: modelName,
-    think: canThinkToggle ? !noThink : undefined,
+    think,
     options,
     messages: buildOutboundMessages(),
     ...imageParams,
@@ -5214,7 +5226,7 @@ function bindChatEvents() {
     "chat-temperature",
     "chat-top-k",
     "chat-top-p",
-    "chat-no-think",
+    "chat-think-level",
     "chat-web-tools",
     "chat-artifacts",
     "chat-image-width",
@@ -6010,7 +6022,7 @@ async function openSettings() {
   if ($("set-default-temp")) $("set-default-temp").value = String(globalDefaults.temperature != null && globalDefaults.temperature !== "" ? globalDefaults.temperature : "0.7");
   if ($("set-default-top-k")) $("set-default-top-k").value = String(globalDefaults.top_k != null && globalDefaults.top_k !== "" ? globalDefaults.top_k : "40");
   if ($("set-default-top-p")) $("set-default-top-p").value = String(globalDefaults.top_p != null && globalDefaults.top_p !== "" ? globalDefaults.top_p : "0.9");
-  if ($("set-default-no-think")) $("set-default-no-think").checked = !!globalDefaults.no_think;
+  if ($("set-default-think-level")) $("set-default-think-level").value = globalDefaults.think_level || "auto";
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
 
@@ -6256,7 +6268,7 @@ $("settings-save").addEventListener("click", async () => {
     temperature: parseFloat($("set-default-temp")?.value) || 0.7,
     top_k: parseInt($("set-default-top-k")?.value, 10) || 40,
     top_p: parseFloat($("set-default-top-p")?.value) || 0.9,
-    no_think: $("set-default-no-think")?.checked ?? false,
+    think_level: $("set-default-think-level")?.value ?? "auto",
     web_tools: $("set-default-web-tools")?.checked ?? false,
     artifacts: $("set-default-artifacts")?.checked ?? false,
   };
@@ -6280,7 +6292,7 @@ $("settings-save").addEventListener("click", async () => {
       temperature: chatDefaults.temperature,
       top_k: chatDefaults.top_k,
       top_p: chatDefaults.top_p,
-      no_think: chatDefaults.no_think,
+      think_level: chatDefaults.think_level,
       web_tools: chatDefaults.web_tools,
       artifacts: chatDefaults.artifacts,
     });

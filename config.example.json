@@ -10,7 +10,7 @@
     "temperature": 0.7,
     "top_k": 40,
     "top_p": 0.9,
-    "no_think": false,
+    "think_level": "auto",
     "web_tools": false,
     "artifacts": false
   }

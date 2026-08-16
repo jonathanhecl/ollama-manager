@@ -113,13 +113,49 @@ type ChatMessage struct {
 	Thinking  string     `json:"thinking,omitempty"`
 }
 
+// ThinkLevel controls how much a reasoning model thinks before answering.
+// Accepted values: "off" (skip thinking), "low", "medium", "high", "max",
+// and "auto"/"on" (let the model use its default). It accepts booleans too:
+// false becomes "off", true becomes "auto".
+type ThinkLevel string
+
+func (t *ThinkLevel) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		lvl := ThinkLevel(strings.ToLower(strings.TrimSpace(s)))
+		*t = lvl
+		return nil
+	}
+	var boolVal bool
+	if err := json.Unmarshal(b, &boolVal); err == nil {
+		if boolVal {
+			*t = "auto"
+		} else {
+			*t = "off"
+		}
+		return nil
+	}
+	return fmt.Errorf("think must be a boolean or a string level")
+}
+
+func (t ThinkLevel) MarshalJSON() ([]byte, error) {
+	switch t {
+	case "off":
+		return []byte("false"), nil
+	case "", "auto", "on":
+		return []byte("true"), nil
+	default:
+		return json.Marshal(string(t))
+	}
+}
+
 // ChatRequest mirrors the subset of /api/chat used by the web UI.
 // Options and Tools are passed through to Ollama as-is.
 type ChatRequest struct {
 	Model    string         `json:"model"`
 	Messages []ChatMessage  `json:"messages"`
 	Stream   bool           `json:"stream"`
-	Think    *bool          `json:"think,omitempty"`
+	Think    *ThinkLevel    `json:"think,omitempty"`
 	Options  map[string]any `json:"options,omitempty"`
 	Tools    any            `json:"tools,omitempty"`
 }

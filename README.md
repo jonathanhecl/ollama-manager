@@ -21,10 +21,10 @@ Tiny, fast, and feature-packed Go web server to manage and interact with [Ollama
   - Real-time streaming via Server-Sent Events (SSE) with smooth live **tokens/second (tok/s)** and total execution time counters.
   - **Message Editing & Regeneration**: edit the last submitted message to resend and regenerate answers; easily cancel queued turns to recover original text and media assets into the input box.
   - **Subtle Finish Reason Indicators**: clearly marks completion states (*stop*, *length limit*, *stopped*, *tool limit*).
-  - **Per-Model System Prompt & Config**: customizations (system prompt, temperature, top-k, top-p, thinking flags) automatically save per model in `localStorage`, with an underlined **Reset to defaults** button.
+  - **Per-Model System Prompt & Config**: customizations (system prompt, temperature, top-k, top-p, thinking level) automatically save per model in `localStorage`, with an underlined **Reset to defaults** button.
   - **Global Chat Defaults**: configure server-wide fallback chat parameters saved directly in `config.json`.
   - **Multimodal Support**: image generation, vision inputs, audio attachments, and browser microphone voice recording.
-  - **Thinking Traces**: collapsible and chronologically structured `<think>` reasoning traces.
+  - **Thinking Traces**: collapsible and chronologically structured `<think>` reasoning traces, with per-chat **thinking level** selection (`off` / `low` / `medium` / `high` / `max`) for reasoning-capable models.
 
 - **Web Tools & Live Artifacts Agent**:
   - **Internet Access (Web Tools)**: server-side bounded web agent utilizing DuckDuckGo (`web_search`) and direct HTTP (`web_fetch`) with a structured timeline (think → tool execution → answer).
@@ -112,7 +112,7 @@ On first launch, `config.json` is generated automatically:
     "temperature": 0.7,
     "top_k": 40,
     "top_p": 0.9,
-    "no_think": false,
+    "think_level": "auto",
     "web_tools": false,
     "artifacts": false
   }
@@ -125,7 +125,7 @@ On first launch, `config.json` is generated automatically:
 - `session_secret`: HMAC secret key used to sign session cookies.
 - `ollama_url`: URL of the Ollama server.
 - `language`: UI language (`en` or `es`).
-- `chat_defaults`: global fallback chat parameters for models without custom overrides.
+- `chat_defaults`: global fallback chat parameters for models without custom overrides. `think_level` accepts `auto`, `off`, `low`, `medium`, `high` or `max`.
 
 All settings can be modified live through the **⚙ Settings** modal in the UI.
 

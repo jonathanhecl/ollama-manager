@@ -225,15 +225,17 @@
           <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off">
           <small class="muted chat-opt-hint" data-i18n="chat.top_p_hint">—</small>
         </div>
-        <div id="chat-think-wrap" class="field switch-field" hidden>
-          <div class="switch-label">
-            <span data-i18n="chat.no_think">No thinking</span>
-            <small class="muted" data-i18n="chat.no_think_hint">Skip think traces for supported models.</small>
-          </div>
-          <label class="switch">
-            <input id="chat-no-think" type="checkbox" autocomplete="off">
-            <span class="switch-slider"></span>
-          </label>
+        <div id="chat-think-wrap" class="field" hidden>
+          <label for="chat-think-level" data-i18n="chat.think_level">Thinking level</label>
+          <select id="chat-think-level" autocomplete="off">
+            <option value="auto" data-i18n="chat.think.auto">Auto (model default)</option>
+            <option value="off" data-i18n="chat.think.off">Off</option>
+            <option value="low" data-i18n="chat.think.low">Low</option>
+            <option value="medium" data-i18n="chat.think.medium">Medium</option>
+            <option value="high" data-i18n="chat.think.high">High</option>
+            <option value="max" data-i18n="chat.think.max">Max</option>
+          </select>
+          <small class="muted chat-opt-hint" data-i18n="chat.think_level_hint">Control how much the model reasons before answering.</small>
         </div>
         <div id="chat-web-tools-wrap" class="field switch-field" hidden>
           <div class="switch-label">
@@ -643,14 +645,17 @@
               </div>
             </div>
 
-            <div class="field switch-field">
-              <div class="switch-label">
-                <span data-i18n="chat.no_think">No thinking</span>
-              </div>
-              <label class="switch">
-                <input id="set-default-no-think" type="checkbox" autocomplete="off">
-                <span class="switch-slider"></span>
-              </label>
+            <div class="field-compact">
+              <label for="set-default-think-level" data-i18n="chat.think_level">Thinking level</label>
+              <select id="set-default-think-level" autocomplete="off">
+                <option value="auto" data-i18n="chat.think.auto">Auto (model default)</option>
+                <option value="off" data-i18n="chat.think.off">Off</option>
+                <option value="low" data-i18n="chat.think.low">Low</option>
+                <option value="medium" data-i18n="chat.think.medium">Medium</option>
+                <option value="high" data-i18n="chat.think.high">High</option>
+                <option value="max" data-i18n="chat.think.max">Max</option>
+              </select>
+              <small class="muted" data-i18n="chat.think_level_global_hint">Only applies to models with the "Thinking" capability.</small>
             </div>
 
             <div class="field switch-field">

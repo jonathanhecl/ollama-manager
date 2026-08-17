@@ -21,10 +21,10 @@ import (
 
 const maxArtifactRounds = 30
 
-// artifactOperationalToolDefinitions returns filesystem and execution tool schemas.
+// artifactOperationalToolDefinitions returns filesystem, execution, and vision tool schemas.
 // These are available once an artifact has been initialized.
-func artifactOperationalToolDefinitions() []any {
-	return []any{
+func artifactOperationalToolDefinitions(hasVision bool) []any {
+	tools := []any{
 		map[string]any{
 			"type": "function",
 			"function": map[string]any{
@@ -132,13 +132,30 @@ func artifactOperationalToolDefinitions() []any {
 			},
 		},
 	}
+	if hasVision {
+		tools = append(tools, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "take_artifact_screenshot",
+				"description": "Capture a visual screenshot of the current rendered artifact web page from the user's live browser preview. Use this to inspect the UI, visual layout, color contrast, styling, element positioning, and see what the user is seeing.",
+				"parameters": map[string]any{
+					"type": "object",
+				},
+			},
+		})
+	}
+	return tools
 }
 
 // artifactSystemPrompt returns the system prompt injected when artifacts mode is on for a new project.
-func artifactSystemPrompt() string {
+func artifactSystemPrompt(hasVision bool) string {
+	visionNote := ""
+	if hasVision {
+		visionNote = "\n- 'take_artifact_screenshot': Capture a visual screenshot of the rendered web page in the user's browser to inspect UI, layout, styling, and visual rendering."
+	}
 	return `You are a helpful coding and web assistant. You have access to artifact tools to create and build interactive web applications and projects.
 To start building a project or web application, you MUST first call the tool 'create_artifact' with 'name' and 'description'.
-Calling 'create_artifact' initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', and 'get_artifact_console') for you to use in the subsequent steps.
+Calling 'create_artifact' initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', 'get_artifact_console'` + visionNote + `) for you to use in the subsequent steps.
 
 WORKFLOW:
 1. Call 'create_artifact' with the project name.
@@ -153,7 +170,11 @@ UI/CONVERSATION RULES:
 }
 
 // artifactExistingSystemPrompt returns the system prompt injected when modifying an active existing project.
-func artifactExistingSystemPrompt() string {
+func artifactExistingSystemPrompt(hasVision bool) string {
+	visionLine := ""
+	if hasVision {
+		visionLine = "\n- 'take_artifact_screenshot': Capture a visual screenshot of the rendered preview in the user's browser to inspect UI, visual layout, styling, and colors."
+	}
 	return `You are a helpful coding and web assistant working on an ACTIVE artifact project workspace.
 The artifact session is ALREADY ACTIVE and initialized. You do NOT need to call 'create_artifact' — all project tools are ALREADY AVAILABLE for you to use:
 - 'write_file': Create or overwrite a file in the project. Required arguments: 'path' (relative, e.g. 'index.html'), 'content' (full file content).
@@ -161,12 +182,12 @@ The artifact session is ALREADY ACTIVE and initialized. You do NOT need to call 
 - 'read_file': Read the contents of an existing file. Required arguments: 'path'.
 - 'list_dir': List files and folders in a directory. Optional argument: 'path' (default '.').
 - 'exec': Run a shell command in the project directory. Required argument: 'command'.
-- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.
+- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.` + visionLine + `
 
 WORKFLOW:
 1. When asked to modify, update, add features, or fix the project, directly use 'write_file', 'replace_in_file', or 'read_file'.
 2. The user will see your changes instantly reflected in the live preview.
-3. If the user reports a bug, error, blank screen, or unexpected behavior, call 'get_artifact_console' or 'read_file' to diagnose and fix it.
+3. If the user reports a bug, error, blank screen, or unexpected behavior, call 'get_artifact_console', 'take_artifact_screenshot', or 'read_file' to diagnose and fix it.
 4. Keep all file paths relative to the project root.
 
 UI/CONVERSATION RULES:
@@ -176,13 +197,13 @@ UI/CONVERSATION RULES:
 
 // buildArtifactSystemPrompt returns the system prompt, including a listing of
 // existing files when iterating on a previously created artifact.
-func buildArtifactSystemPrompt(artifactDir string) string {
+func buildArtifactSystemPrompt(artifactDir string, hasVision bool) string {
 	if artifactDir == "" {
-		return artifactSystemPrompt()
+		return artifactSystemPrompt(hasVision)
 	}
 	entries, err := os.ReadDir(artifactDir)
 	if err != nil {
-		return artifactExistingSystemPrompt()
+		return artifactExistingSystemPrompt(hasVision)
 	}
 	var files []string
 	for _, e := range entries {
@@ -196,9 +217,9 @@ func buildArtifactSystemPrompt(artifactDir string) string {
 		}
 	}
 	if len(files) == 0 {
-		return artifactExistingSystemPrompt()
+		return artifactExistingSystemPrompt(hasVision)
 	}
-	return artifactExistingSystemPrompt() + "\n\n" + fmt.Sprintf(
+	return artifactExistingSystemPrompt(hasVision) + "\n\n" + fmt.Sprintf(
 		"The following files are already present in the active workspace:\n  %s\n"+
 			"Use read_file to inspect current files before making changes, or write_file / replace_in_file to update them.",
 		strings.Join(files, "\n  "))
@@ -538,7 +559,17 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		}
 	}
 
-	sysPrompt := buildArtifactSystemPrompt(artifactDir)
+	hasVision := false
+	if show, err := s.ollama.Show(ctx, body.Model); err == nil && show != nil {
+		for _, c := range show.Capabilities {
+			if c == "vision" {
+				hasVision = true
+				break
+			}
+		}
+	}
+
+	sysPrompt := buildArtifactSystemPrompt(artifactDir, hasVision)
 	if customSystem != "" {
 		sysPrompt += "\n\nAdditional User System Instructions:\n" + customSystem
 	}
@@ -570,7 +601,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 
 		var tools []any
 		if createArtifactCalled {
-			tools = artifactOperationalToolDefinitions()
+			tools = artifactOperationalToolDefinitions(hasVision)
 		} else {
 			// Initially, only expose create_artifact tool.
 			// This forces the agent to call create_artifact first before it gets files tools.
@@ -732,7 +763,44 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 
 			var out string
 			var toolErr error
-			if isWebTool(n) {
+			var toolImageBase64 string
+			if n == "take_artifact_screenshot" {
+				reqID := fmt.Sprintf("ss-%d-%d", time.Now().UnixNano(), round)
+				ch := make(chan artifactScreenshotResponse, 1)
+				s.artifactScreenshotMu.Lock()
+				s.artifactScreenshotCh[reqID] = ch
+				s.artifactScreenshotMu.Unlock()
+
+				defer func(id string) {
+					s.artifactScreenshotMu.Lock()
+					delete(s.artifactScreenshotCh, id)
+					s.artifactScreenshotMu.Unlock()
+				}(reqID)
+
+				send("artifact_screenshot_request", map[string]any{
+					"request_id": reqID,
+					"timestamp":  ts,
+				})
+
+				select {
+				case res := <-ch:
+					if res.Error != "" {
+						out = "Error capturing screenshot: " + res.Error
+					} else if res.Image != "" {
+						imgStr := strings.TrimPrefix(res.Image, "data:image/jpeg;base64,")
+						imgStr = strings.TrimPrefix(imgStr, "data:image/png;base64,")
+						toolImageBase64 = imgStr
+						out = "Artifact screenshot captured successfully. The visual screenshot image of the rendered artifact is attached to this message."
+					} else {
+						out = "Error: empty screenshot data received from preview."
+					}
+				case <-time.After(8 * time.Second):
+					out = "Error: screenshot request timed out. Make sure the artifact preview panel is currently open in your browser."
+				case <-ctx.Done():
+					out = "Error: context cancelled"
+					toolErr = ctx.Err()
+				}
+			} else if isWebTool(n) {
 				out, toolErr = s.runWebTool(ctx, n, tc.Function.Arguments)
 			} else {
 				// Only create the artifacts directory when the agent is actually
@@ -826,11 +894,15 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 				}
 			}
 
-			msgs = append(msgs, ollama.ChatMessage{
+			toolMsg := ollama.ChatMessage{
 				Role:     "tool",
 				ToolName: n,
 				Content:  out,
-			})
+			}
+			if toolImageBase64 != "" {
+				toolMsg.Images = []string{toolImageBase64}
+			}
+			msgs = append(msgs, toolMsg)
 
 			done := map[string]any{"phase": "done", "name": n, "ok": toolErr == nil}
 			if toolErr != nil {

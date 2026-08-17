@@ -4461,6 +4461,8 @@ async function runChatRequest(assistantMsg) {
           updateArtifactResourceBtn();
           scheduleRenderChatMessages();
         }
+      } else if (event === "artifact_screenshot_request") {
+        void handleArtifactScreenshotRequest(data);
       } else if (event === "tool") {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
         if (data?.phase === "generating") {
@@ -5078,6 +5080,108 @@ function syncChatPanels(cv) {
   cv.classList.toggle("artifact-open", artifactOpen);
   const toggle = $("chat-options-toggle");
   if (toggle) toggle.setAttribute("aria-expanded", cv.classList.contains("chat-options-open") ? "true" : "false");
+}
+
+async function handleArtifactScreenshotRequest(data) {
+  const reqID = data?.request_id;
+  if (!reqID) return;
+
+  const panel = $("chat-artifact-panel");
+  const frame = $("chat-artifact-frame");
+  if (!panel || panel.hidden || !frame) {
+    void api("/api/artifacts/screenshot", {
+      method: "POST",
+      body: { request_id: reqID, error: "Artifact preview is currently closed or hidden in the browser." },
+    });
+    return;
+  }
+
+  try {
+    const base64 = await captureIframeContent(frame);
+    if (!base64) {
+      throw new Error("Could not capture preview image");
+    }
+    void api("/api/artifacts/screenshot", {
+      method: "POST",
+      body: { request_id: reqID, image: base64 },
+    });
+  } catch (err) {
+    void api("/api/artifacts/screenshot", {
+      method: "POST",
+      body: { request_id: reqID, error: err.message || "Failed to capture preview image" },
+    });
+  }
+}
+
+async function captureIframeContent(frame) {
+  const doc = frame.contentDocument || frame.contentWindow?.document;
+  if (!doc || !doc.body) throw new Error("Iframe document not loaded");
+
+  const w = Math.max(frame.clientWidth || 800, 400);
+  const h = Math.max(frame.clientHeight || 600, 300);
+
+  // If document contains a standalone single canvas, capture directly
+  const canvases = doc.querySelectorAll("canvas");
+  if (canvases.length === 1 && !doc.body.innerText.trim()) {
+    try {
+      const d = canvases[0].toDataURL("image/jpeg", 0.85);
+      return d.replace(/^data:image\/[a-z]+;base64,/, "");
+    } catch {}
+  }
+
+  const clone = doc.documentElement.cloneNode(true);
+  const baseHref = frame.src || window.location.href;
+  const base = doc.createElement("base");
+  base.href = baseHref;
+  const head = clone.querySelector("head");
+  if (head) {
+    head.insertBefore(base, head.firstChild);
+  }
+
+  const docHtml = new XMLSerializer().serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`
+    + `<foreignObject width="100%" height="100%">`
+    + `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;background:#ffffff;overflow:hidden;">`
+    + docHtml
+    + `</div></foreignObject></svg>`;
+
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const timer = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Capture render timed out"));
+    }, 4000);
+
+    img.onload = () => {
+      clearTimeout(timer);
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(w, 1280);
+        canvas.height = Math.min(h, 1280);
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        resolve(dataUrl.replace(/^data:image\/[a-z]+;base64,/, ""));
+      } catch (e) {
+        URL.revokeObjectURL(url);
+        reject(e);
+      }
+    };
+
+    img.onerror = () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to rasterize preview DOM to image"));
+    };
+
+    img.src = url;
+  });
 }
 
 function bindChatEvents() {

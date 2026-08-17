@@ -1721,6 +1721,40 @@ func (s *Server) handleArtifactConsoleLogs(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+type artifactScreenshotResponse struct {
+	Image string `json:"image"`
+	Error string `json:"error"`
+}
+
+func (s *Server) handleArtifactScreenshot(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RequestID string `json:"request_id"`
+		Image     string `json:"image"`
+		Error     string `json:"error"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if body.RequestID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing request_id"})
+		return
+	}
+
+	s.artifactScreenshotMu.Lock()
+	ch, ok := s.artifactScreenshotCh[body.RequestID]
+	s.artifactScreenshotMu.Unlock()
+
+	if ok && ch != nil {
+		select {
+		case ch <- artifactScreenshotResponse{Image: body.Image, Error: body.Error}:
+		default:
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func injectConsoleCaptureScript(htmlContent []byte) []byte {
 	script := []byte(`
 <script>

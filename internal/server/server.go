@@ -54,6 +54,9 @@ type Server struct {
 
 	artifactConsoleMu   sync.RWMutex
 	artifactConsoleLogs map[string][]string // timestamp -> slice of log lines
+
+	artifactScreenshotMu sync.Mutex
+	artifactScreenshotCh map[string]chan artifactScreenshotResponse
 }
 
 // New builds a Server. webRoot is the embedded "web/" directory.
@@ -112,9 +115,10 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		agentStore:  agentStore,
 		runnerStore: runnerStore,
 		runner:      runner.NewClient(ollamaClient),
-		ctxCache:            make(map[string]int64),
-		capsCache:           make(map[string][]string),
-		artifactConsoleLogs: make(map[string][]string),
+		ctxCache:             make(map[string]int64),
+		capsCache:            make(map[string][]string),
+		artifactConsoleLogs:  make(map[string][]string),
+		artifactScreenshotCh: make(map[string]chan artifactScreenshotResponse),
 	}, nil
 }
 
@@ -206,6 +210,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/runner/test-history/{id}", s.requireAuth(s.handleGetTestHistory))
 	mux.Handle("GET /api/runner/group-history/{id}", s.requireAuth(s.handleGetGroupHistory))
 	mux.Handle("POST /api/artifacts/console", s.requireAuth(s.handleArtifactConsoleLogs))
+	mux.Handle("POST /api/artifacts/screenshot", s.requireAuth(s.handleArtifactScreenshot))
 
 	// Artifact files — public (no auth) so sandboxed iframes can load them.
 	mux.HandleFunc("GET /api/artifacts/{rest...}", s.handleArtifactFiles)

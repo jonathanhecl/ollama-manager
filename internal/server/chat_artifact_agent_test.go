@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestArtifactReplaceInFile(t *testing.T) {
@@ -330,5 +332,68 @@ func TestListModelArtifacts(t *testing.T) {
 	}
 	if a.Size <= 0 {
 		t.Errorf("size = %d, want > 0", a.Size)
+	}
+}
+
+func TestArtifactVisionToolDefinitions(t *testing.T) {
+	toolsNoVision := artifactOperationalToolDefinitions(false)
+	hasScreenshotTool := false
+	for _, raw := range toolsNoVision {
+		if m, ok := raw.(map[string]any); ok {
+			if fn, ok := m["function"].(map[string]any); ok {
+				if fn["name"] == "take_artifact_screenshot" {
+					hasScreenshotTool = true
+				}
+			}
+		}
+	}
+	if hasScreenshotTool {
+		t.Errorf("expected no take_artifact_screenshot when hasVision=false")
+	}
+
+	toolsWithVision := artifactOperationalToolDefinitions(true)
+	hasScreenshotToolVision := false
+	for _, raw := range toolsWithVision {
+		if m, ok := raw.(map[string]any); ok {
+			if fn, ok := m["function"].(map[string]any); ok {
+				if fn["name"] == "take_artifact_screenshot" {
+					hasScreenshotToolVision = true
+				}
+			}
+		}
+	}
+	if !hasScreenshotToolVision {
+		t.Errorf("expected take_artifact_screenshot when hasVision=true")
+	}
+}
+
+func TestArtifactScreenshotHandler(t *testing.T) {
+	srv := newTestServer(t, "http://127.0.0.1:11434")
+	reqID := "test-req-123"
+	ch := make(chan artifactScreenshotResponse, 1)
+
+	srv.artifactScreenshotMu.Lock()
+	srv.artifactScreenshotCh[reqID] = ch
+	srv.artifactScreenshotMu.Unlock()
+
+	bodyBytes, _ := json.Marshal(map[string]string{
+		"request_id": reqID,
+		"image":      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/artifacts/screenshot", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case res := <-ch:
+		if res.Image == "" {
+			t.Errorf("expected non-empty image")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for screenshot channel response")
 	}
 }

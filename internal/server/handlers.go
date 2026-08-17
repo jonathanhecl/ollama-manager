@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -1549,13 +1550,17 @@ func (s *Server) handleJobsResumeQueue(w http.ResponseWriter, r *http.Request) {
 
 // ---------- artifact files ----------
 
+var artifactTitleTagRe = regexp.MustCompile(`(?i)<title[^>]*>([^<]+)</title>`)
+
 // artifactEntry describes one saved artifact project for a model.
 type artifactEntry struct {
-	ID        string `json:"id"` // "<digest>/<date>", used as artifact_dir
-	Digest    string `json:"digest"`
-	Date      string `json:"date"`
-	FileCount int    `json:"file_count"`
-	Size      int64  `json:"size"`
+	ID          string `json:"id"` // "<digest>/<date>", used as artifact_dir
+	Digest      string `json:"digest"`
+	Date        string `json:"date"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	FileCount   int    `json:"file_count"`
+	Size        int64  `json:"size"`
 }
 
 // handleListModelArtifacts lists every artifact project a model has created.
@@ -1572,12 +1577,35 @@ func (s *Server) handleListModelArtifacts(w http.ResponseWriter, r *http.Request
 				}
 				dir := filepath.Join(root, e.Name())
 				fileCount, size := dirInfo(dir)
+				var artName, artDesc string
+				for _, metaFilename := range []string{".artifact.json", "artifact.json"} {
+					if metaBytes, err := os.ReadFile(filepath.Join(dir, metaFilename)); err == nil {
+						var meta struct {
+							Name        string `json:"name"`
+							Description string `json:"description"`
+						}
+						if json.Unmarshal(metaBytes, &meta) == nil {
+							artName = strings.TrimSpace(meta.Name)
+							artDesc = strings.TrimSpace(meta.Description)
+							break
+						}
+					}
+				}
+				if artName == "" {
+					if indexBytes, err := os.ReadFile(filepath.Join(dir, "index.html")); err == nil {
+						if match := artifactTitleTagRe.FindSubmatch(indexBytes); len(match) > 1 {
+							artName = strings.TrimSpace(string(match[1]))
+						}
+					}
+				}
 				artifacts = append(artifacts, artifactEntry{
-					ID:        filepath.Join(digest, e.Name()),
-					Digest:    digest,
-					Date:      e.Name(),
-					FileCount: fileCount,
-					Size:      size,
+					ID:          filepath.Join(digest, e.Name()),
+					Digest:      digest,
+					Date:        e.Name(),
+					Name:        artName,
+					Description: artDesc,
+					FileCount:   fileCount,
+					Size:        size,
 				})
 			}
 			sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Date > artifacts[j].Date })

@@ -292,6 +292,9 @@ func TestListModelArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(artifactDir, "index.html"), []byte("<html>hi</html>"), 0o644); err != nil {
 		t.Fatalf("write index.html: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(artifactDir, ".artifact.json"), []byte(`{"name":"My Dashboard","description":"A sleek dashboard"}`), 0o644); err != nil {
+		t.Fatalf("write .artifact.json: %v", err)
+	}
 
 	srv := newTestServer(t, ollamaSrv.URL)
 	req := httptest.NewRequest(http.MethodGet, "/api/models/"+url.PathEscape("cap:latest")+"/artifacts", nil)
@@ -316,8 +319,14 @@ func TestListModelArtifacts(t *testing.T) {
 	if a.Date != "2026-08-15_20-15-00" {
 		t.Errorf("artifact date = %q", a.Date)
 	}
-	if a.FileCount != 1 {
-		t.Errorf("file_count = %d, want 1", a.FileCount)
+	if a.Name != "My Dashboard" {
+		t.Errorf("artifact name = %q, want %q", a.Name, "My Dashboard")
+	}
+	if a.Description != "A sleek dashboard" {
+		t.Errorf("artifact description = %q, want %q", a.Description, "A sleek dashboard")
+	}
+	if a.FileCount != 2 {
+		t.Errorf("file_count = %d, want 2", a.FileCount)
 	}
 	if a.Size <= 0 {
 		t.Errorf("size = %d, want > 0", a.Size)

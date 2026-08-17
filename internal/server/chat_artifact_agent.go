@@ -771,6 +771,14 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 					artName = "Artifact"
 				}
 				previewURL := fmt.Sprintf("/api/artifacts/%s/", ts)
+				metaFile := filepath.Join(artifactDir, ".artifact.json")
+				metaBytes, _ := json.MarshalIndent(map[string]any{
+					"name":        artName,
+					"description": artDesc,
+					"created_at":  time.Now().UTC().Format(time.RFC3339),
+				}, "", "  ")
+				_ = os.WriteFile(metaFile, metaBytes, 0o644)
+
 				indexPath := filepath.Join(artifactDir, "index.html")
 				hasIndex := false
 				if info, err := os.Stat(indexPath); err == nil && !info.IsDir() {

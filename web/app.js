@@ -269,6 +269,8 @@ let chatAudioSampleRate = 0;
 let speakingMsgId = "";
 let activeStreamMessage = null;
 let activeArtifactTimestamp = null;
+let activeArtifactName = null;
+let activeArtifactUrl = null;
 let chatEditingMessageId = "";
 let chatEditingDraft = "";
 const CHAT_OPTION_FALLBACKS = {
@@ -1899,6 +1901,9 @@ function resetChatState() {
   closeImagePreview();
   hideArtifactPanel();
   activeArtifactTimestamp = null;
+  activeArtifactName = null;
+  activeArtifactUrl = null;
+  updateArtifactResourceBtn();
   $("chat-dropzone").hidden = true;
   $("chat-attachments").hidden = true;
   $("chat-attachments").innerHTML = "";
@@ -4395,18 +4400,30 @@ async function runChatRequest(assistantMsg) {
           assistantMsg.artifactTimestamp = data.timestamp;
           activeArtifactTimestamp = data.timestamp;
         }
+        if (data?.name) {
+          assistantMsg.artifactName = data.name;
+          activeArtifactName = data.name;
+        }
+        if (data?.url) {
+          assistantMsg.artifactUrl = data.url;
+          activeArtifactUrl = data.url;
+        }
         if (data?.generating) {
           // create_artifact was called — show loading screen, don't load URL yet.
           assistantMsg.artifactUrl = data?.url || "";
           assistantMsg.artifactName = data?.name || "Artifact";
           assistantMsg.artifactDescription = data?.description || "";
           assistantMsg.artifactGenerating = true;
+          activeArtifactName = assistantMsg.artifactName;
+          activeArtifactUrl = assistantMsg.artifactUrl;
           showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName, true);
+          updateArtifactResourceBtn();
           scheduleRenderChatMessages();
         } else if (data?.loaded) {
           // index.html was written — transition from loading screen to live preview.
           assistantMsg.artifactGenerating = false;
           const url = data?.url || assistantMsg.artifactUrl || "";
+          activeArtifactUrl = url;
           const panel = $("chat-artifact-panel");
           const frame = $("chat-artifact-frame");
           if (panel) panel.hidden = false;
@@ -4418,6 +4435,7 @@ async function runChatRequest(assistantMsg) {
               activeArtifactTimestamp = match[1];
             }
           }
+          updateArtifactResourceBtn();
           // Close options panel so artifact is visible on mobile
           $("chat-view")?.classList.remove("chat-options-open");
           syncChatPanels($("chat-view"));
@@ -4437,7 +4455,10 @@ async function runChatRequest(assistantMsg) {
           assistantMsg.artifactUrl = data?.url || "";
           assistantMsg.artifactName = data?.name || "Artifact";
           assistantMsg.artifactDescription = data?.description || "";
+          activeArtifactName = assistantMsg.artifactName;
+          activeArtifactUrl = assistantMsg.artifactUrl;
           showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName);
+          updateArtifactResourceBtn();
           scheduleRenderChatMessages();
         }
       } else if (event === "tool") {
@@ -4862,6 +4883,36 @@ async function refreshModelArtifactCount() {
   }
 }
 
+function updateArtifactResourceBtn() {
+  const btn = $("chat-artifact-btn");
+  if (!btn) return;
+  if (activeArtifactTimestamp) {
+    btn.hidden = false;
+    const name = activeArtifactName || "Artifact";
+    const titleText = t("chat.artifact.active_resource", { name });
+    btn.setAttribute("title", titleText);
+    btn.setAttribute("aria-label", titleText);
+  } else {
+    btn.hidden = true;
+  }
+}
+
+function unloadSessionArtifact() {
+  const confirmed = window.confirm(t("chat.artifact.unload_confirm"));
+  if (!confirmed) return;
+  activeArtifactTimestamp = null;
+  activeArtifactName = null;
+  activeArtifactUrl = null;
+  const cb = $("chat-artifacts");
+  if (cb && cb.checked) {
+    cb.checked = false;
+    saveChatOptionsForCurrentModel();
+  }
+  hideArtifactPanel();
+  updateArtifactResourceBtn();
+  toast(t("chat.artifact.unloaded"), "success");
+}
+
 function openLoadArtifactModal() {
   const model = $("chat-model")?.value;
   if (!model) return;
@@ -4879,20 +4930,24 @@ function openLoadArtifactModal() {
       return;
     }
     for (const a of arts) {
-      const meta = [escapeHtml(a.date)];
+      const meta = [];
+      if (a.name && a.name !== a.date) {
+        meta.push(escapeHtml(a.date));
+      }
       if (a.file_count != null) {
         meta.push(a.file_count === 1 ? t("chat.load_artifact_file_one") : t("chat.load_artifact_files", { count: a.file_count }));
       }
       if (a.size) meta.push(fmtBytes(a.size));
+      const displayName = a.name || a.date;
       const row = document.createElement("div");
       row.className = "running-item";
       row.innerHTML = `
         <div class="running-main">
-          <div class="running-name">${escapeHtml(a.date)}</div>
+          <div class="running-name">${escapeHtml(displayName)}</div>
           <div class="running-meta">${meta.join(" · ")}</div>
         </div>
         <button type="button" class="primary" data-load="${escapeHtml(a.id)}">${escapeHtml(t("chat.load_artifact"))}</button>`;
-      row.querySelector("button").addEventListener("click", () => loadExistingArtifact(a.id, a.date));
+      row.querySelector("button").addEventListener("click", () => loadExistingArtifact(a.id, a.date, a.name));
       list.appendChild(row);
     }
   }).catch((e) => {
@@ -4901,13 +4956,16 @@ function openLoadArtifactModal() {
   });
 }
 
-function loadExistingArtifact(id, label) {
+function loadExistingArtifact(id, label, name) {
   const cb = $("chat-artifacts");
   if (cb) cb.checked = true;
   saveChatOptionsForCurrentModel();
   activeArtifactTimestamp = id;
+  activeArtifactName = name || label || "Artifact";
+  activeArtifactUrl = "/api/artifacts/" + id + "/";
+  updateArtifactResourceBtn();
   $("load-artifact-modal").hidden = true;
-  showArtifactPanel("/api/artifacts/" + id + "/", label || "Artifact", false);
+  showArtifactPanel(activeArtifactUrl, activeArtifactName, false);
   toast(t("chat.load_artifact_loaded"), "success");
   void refreshModelArtifactCount();
 }
@@ -4922,11 +4980,16 @@ function showArtifactPanel(url, name, generating) {
   console.log("[artifact] showArtifactPanel", { url, name, generating, panelHidden: panel.hidden, frameSrc: frame.src, frameSrcdoc: frame.srcdoc ? "(set)" : "(none)" });
 
   if (url) {
+    activeArtifactUrl = url;
     const match = String(url).match(/\/api\/artifacts\/(.+)\//);
     if (match) {
       activeArtifactTimestamp = match[1];
     }
   }
+  if (name) {
+    activeArtifactName = name;
+  }
+  updateArtifactResourceBtn();
 
   if (title && name) title.textContent = name;
   if (generating) {
@@ -4939,7 +5002,7 @@ function showArtifactPanel(url, name, generating) {
       + '@keyframes spin{to{transform:rotate(360deg)}}'
       + '</style></head><body><div class="loader"><span class="spinner"></span><span>'
       + loadingText + '</span></div></body></html>';
-  } else {
+  } else if (url) {
     frame.removeAttribute("srcdoc");
     frame.src = url;
   }
@@ -4970,7 +5033,6 @@ function hideArtifactPanel() {
     chatView.style.setProperty("--chat-right-width", "300px");
   }
   chatArtifactVisibleBeforeOptions = false;
-  activeArtifactTimestamp = null;
   syncChatPanels(chatView);
 }
 
@@ -5339,6 +5401,26 @@ function bindChatEvents() {
   $("load-artifact-modal")?.addEventListener("click", (e) => {
     if (e.target === $("load-artifact-modal")) $("load-artifact-modal").hidden = true;
   });
+
+  // Artifact resource button in chat compose bar
+  const chatArtBtn = $("chat-artifact-btn");
+  if (chatArtBtn) {
+    chatArtBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!activeArtifactTimestamp) return;
+      const panel = $("chat-artifact-panel");
+      const isShowing = panel && !panel.hidden;
+      if (!isShowing) {
+        const url = activeArtifactUrl || ("/api/artifacts/" + activeArtifactTimestamp + "/");
+        const name = activeArtifactName || "Artifact";
+        showArtifactPanel(url, name, false);
+      }
+    });
+    chatArtBtn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      unloadSessionArtifact();
+    });
+  }
 
   // Artifact panel controls
   $("chat-artifact-close")?.addEventListener("click", hideArtifactPanel);

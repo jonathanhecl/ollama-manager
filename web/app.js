@@ -3367,7 +3367,6 @@ function renderChatMessages() {
   });
 
   renderChatMath(host);
-  scrollChatToBottom();
 }
 
 function renderAttachments() {
@@ -4280,32 +4279,30 @@ function newAssistantMessage() {
 }
 
 /** Keep the chat pane pinned to the latest content (streaming + layout). */
-let lastScrollTime = 0;
+let chatUserScrolledUp = false;
 function scrollChatToBottom(force = false) {
   const host = $("chat-scroll-shell") || $("chat-messages");
   if (!host) return;
-  const isStreaming = chatStreamLock;
   
-  // If not streaming, only scroll if we were already near bottom, or forced
-  if (!force && !isStreaming) {
-    const isAtBottom = host.scrollHeight - host.clientHeight - host.scrollTop < 120;
-    if (!isAtBottom) return;
-  }
-  
-  if (isStreaming) {
+  if (force) {
+    chatUserScrolledUp = false;
     host.scrollTop = host.scrollHeight;
     return;
   }
-  
-  const last = $("chat-messages")?.lastElementChild;
-  if (last) {
-    last.scrollIntoView({ behavior: "smooth", block: "end" });
-  } else {
-    host.scrollTop = host.scrollHeight;
+
+  // If the user has scrolled up to read previous messages or thinking, do NOT force scroll down!
+  if (chatUserScrolledUp) return;
+
+  const isAtBottom = host.scrollHeight - host.clientHeight - host.scrollTop < 140;
+  if (!isAtBottom) {
+    chatUserScrolledUp = true;
+    return;
   }
+
+  host.scrollTop = host.scrollHeight;
 }
 
-/** Scroll thinking and response blocks of the currently streaming message to bottom. */
+/** Scroll thinking blocks of the currently streaming message to bottom without jumping. */
 function scrollActiveBlocks() {
   const streamingMsg = document.querySelector("article.chat-msg.chat-streaming");
   if (!streamingMsg) return;
@@ -4313,15 +4310,10 @@ function scrollActiveBlocks() {
   streamingMsg.querySelectorAll("details.chat-think").forEach((details) => {
     if (!details.open) details.open = true;
     const pre = details.querySelector("pre");
-    if (pre) {
+    if (pre && !chatUserScrolledUp) {
       pre.scrollTop = pre.scrollHeight;
     }
   });
-
-  const content = streamingMsg.querySelector(".chat-md");
-  if (content) {
-    content.scrollTop = content.scrollHeight;
-  }
 }
 
 async function runChatRequest(assistantMsg) {
@@ -5883,6 +5875,16 @@ function bindChatEvents() {
     const ok = await copyTextToClipboard(text);
     toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
   });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("scroll", (e) => {
+    const host = e.currentTarget;
+    if (!host) return;
+    const distFromBottom = host.scrollHeight - host.clientHeight - host.scrollTop;
+    if (distFromBottom > 140) {
+      chatUserScrolledUp = true;
+    } else {
+      chatUserScrolledUp = false;
+    }
+  }, { passive: true });
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("input", (e) => {
     const ta = e.target.closest(".chat-edit-textarea");
     if (ta) {

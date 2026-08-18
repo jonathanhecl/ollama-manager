@@ -1304,6 +1304,21 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 
+func isComputeOrOOMError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "compute error") ||
+		strings.Contains(s, "out of memory") ||
+		strings.Contains(s, "cuda error") ||
+		strings.Contains(s, "cuda out of memory") ||
+		strings.Contains(s, "metal: command buffer") ||
+		strings.Contains(s, "failed to allocate") ||
+		strings.Contains(s, "not enough memory") ||
+		strings.Contains(s, "llama-server chat error")
+}
+
 		startedAt := time.Now()
 		var firstTokenTime time.Duration
 		var final ollama.GenerateChunk
@@ -1334,6 +1349,45 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			}
 			return nil
 		})
+		if err != nil && isComputeOrOOMError(err) && r.Context().Err() == nil {
+			log.Printf("[image-gen] compute/memory error detected for %s (%v), unloading models to free GPU/RAM and retrying once...", body.Model, err)
+			if running, psErr := s.ollama.PS(r.Context()); psErr == nil {
+				for _, rm := range running {
+					_ = s.ollama.Unload(r.Context(), rm.Name)
+				}
+			}
+			time.Sleep(600 * time.Millisecond)
+
+			firstTokenTime = 0
+			final = ollama.GenerateChunk{}
+			err = s.ollama.Generate(r.Context(), genReq, func(chunk ollama.GenerateChunk) error {
+				if firstTokenTime == 0 && (chunk.Response != "" || chunk.Image != "") {
+					firstTokenTime = time.Since(startedAt)
+				}
+				chatChunk := ollama.ChatChunk{
+					Model:     chunk.Model,
+					CreatedAt: chunk.CreatedAt,
+					Done:      chunk.Done,
+					Completed: chunk.Completed,
+					Total:     chunk.Total,
+				}
+				content := chunk.Response
+				if content == "" && chunk.Image != "" {
+					content = chunk.Image
+				}
+				if content != "" {
+					chatChunk.Message = ollama.ChatMessage{
+						Role:    "assistant",
+						Content: content,
+					}
+				}
+				send("chunk", chatChunk)
+				if chunk.Done {
+					final = chunk
+				}
+				return nil
+			})
+		}
 		if err != nil {
 			if r.Context().Err() != nil {
 				return
@@ -1344,6 +1398,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 					errMsg = "El modelo de generación de imágenes no está soportado en este sistema operativo (Windows/Linux). Los modelos basados en MLX solo funcionan de forma nativa en dispositivos Apple Silicon (macOS)."
 				} else {
 					errMsg = "This image generation model is not supported on this operating system (Windows/Linux). MLX-based models only run natively on Apple Silicon (macOS) devices."
+				}
+			} else if isComputeOrOOMError(err) {
+				if s.cfg.Language == "es" {
+					errMsg = "El modelo se quedó sin memoria suficiente (VRAM / RAM) para procesar esta solicitud. Se intentó liberar memoria descargando procesos de modelos en segundo plano, pero la GPU/sistema no pudo procesar el contexto. Prueba reduciendo el tamaño del contexto (num_ctx), cerrando aplicaciones pesadas o usando una cuantización menor."
+				} else {
+					errMsg = "The model ran out of memory (VRAM / RAM) to process this request. An automatic attempt was made to free memory by unloading running models, but the GPU/system could not allocate sufficient memory. Try reducing the context length (num_ctx), closing heavy applications, or using a smaller quantization."
 				}
 			}
 			send("error", map[string]any{"error": errMsg})
@@ -1412,6 +1472,30 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
+
+	if err != nil && isComputeOrOOMError(err) && r.Context().Err() == nil {
+		log.Printf("[chat] compute/memory error detected for %s (%v), unloading models to free GPU/RAM and retrying once...", body.Model, err)
+		if running, psErr := s.ollama.PS(r.Context()); psErr == nil {
+			for _, rm := range running {
+				_ = s.ollama.Unload(r.Context(), rm.Name)
+			}
+		}
+		time.Sleep(600 * time.Millisecond)
+
+		firstTokenTime = 0
+		final = ollama.ChatChunk{}
+		err = s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
+			if firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
+				firstTokenTime = time.Since(startedAt)
+			}
+			send("chunk", chunk)
+			if chunk.Done {
+				final = chunk
+			}
+			return nil
+		})
+	}
+
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
@@ -1422,6 +1506,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				errMsg = "El modelo de generación de imágenes no está soportado en este sistema operativo (Windows/Linux). Los modelos basados en MLX solo funcionan de forma nativa en dispositivos Apple Silicon (macOS)."
 			} else {
 				errMsg = "This image generation model is not supported on this operating system (Windows/Linux). MLX-based models only run natively on Apple Silicon (macOS) devices."
+			}
+		} else if isComputeOrOOMError(err) {
+			if s.cfg.Language == "es" {
+				errMsg = "El modelo se quedó sin memoria suficiente (VRAM / RAM) para procesar esta solicitud. Se intentó liberar memoria descargando procesos de modelos en segundo plano, pero la GPU/sistema no pudo procesar el contexto. Prueba reduciendo el tamaño del contexto (num_ctx), cerrando aplicaciones pesadas o usando una cuantización menor."
+			} else {
+				errMsg = "The model ran out of memory (VRAM / RAM) to process this request. An automatic attempt was made to free memory by unloading running models, but the GPU/system could not allocate sufficient memory. Try reducing the context length (num_ctx), closing heavy applications, or using a smaller quantization."
 			}
 		}
 		send("error", map[string]any{"error": errMsg})

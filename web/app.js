@@ -4843,10 +4843,17 @@ async function runChatRequest(assistantMsg) {
       if (!hasAnswer && !hasThink) {
         assistantMsg.content = t("chat.stopped_empty");
       }
-    } else {
       let errMsg = e.message || "failed";
       if (errMsg.includes("mlx runner failed") || errMsg.includes("failed to initialize MLX") || errMsg.includes("failed to load MLX")) {
         errMsg = t("chat.error_mlx_unsupported");
+      } else if (
+        errMsg.includes("Compute error") ||
+        errMsg.includes("llama-server chat error") ||
+        errMsg.includes("out of memory") ||
+        errMsg.includes("CUDA error") ||
+        errMsg.includes("metal: command buffer")
+      ) {
+        errMsg = t("chat.error_compute_oom");
       }
       assistantMsg.isError = true;
       const isImg = assistantMsg.model && modelCaps(assistantMsg.model).has("image");

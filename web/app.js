@@ -5274,7 +5274,7 @@ function bindChatEvents() {
   });
   $("chat-reset-btn")?.addEventListener("click", async () => {
     if (chatMessages.length === 0 && !activeArtifactTimestamp && chatAttachments.length === 0 && !$("chat-input")?.value.trim()) {
-      clearChat();
+      resetChatState();
       return;
     }
     const res = await askConfirm({
@@ -5284,7 +5284,7 @@ function bindChatEvents() {
       okClass: "primary",
     });
     if (res && res.ok) {
-      clearChat();
+      resetChatState();
       toast(t("chat.reset_success"), "success");
     }
   });

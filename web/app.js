@@ -5130,7 +5130,8 @@ async function handleArtifactScreenshotRequest(data) {
   if (!panel || panel.hidden || !frame) {
     void api("/api/artifacts/screenshot", {
       method: "POST",
-      body: { request_id: reqID, error: "Artifact preview is currently closed or hidden in the browser." },
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: reqID, error: "Artifact preview is currently closed or hidden in the browser." }),
     });
     return;
   }
@@ -5154,12 +5155,14 @@ async function handleArtifactScreenshotRequest(data) {
     }
     void api("/api/artifacts/screenshot", {
       method: "POST",
-      body: { request_id: reqID, image: base64 },
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: reqID, image: base64 }),
     });
   } catch (err) {
     void api("/api/artifacts/screenshot", {
       method: "POST",
-      body: { request_id: reqID, error: err.message || "Failed to capture preview image" },
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: reqID, error: err.message || "Failed to capture preview image" }),
     });
   }
 }
@@ -5171,16 +5174,38 @@ async function captureIframeContent(frame) {
   const w = Math.max(frame.clientWidth || 800, 400);
   const h = Math.max(frame.clientHeight || 600, 300);
 
-  // If document contains a standalone single canvas, capture directly
-  const canvases = doc.querySelectorAll("canvas");
-  if (canvases.length === 1 && !doc.body.innerText.trim()) {
+  const origCanvases = doc.querySelectorAll("canvas");
+
+  // If document contains a standalone single canvas with no text, capture directly
+  if (origCanvases.length === 1 && !doc.body.innerText.trim()) {
     try {
-      const d = canvases[0].toDataURL("image/jpeg", 0.85);
+      const d = origCanvases[0].toDataURL("image/jpeg", 0.85);
       return d.replace(/^data:image\/[a-z]+;base64,/, "");
     } catch {}
   }
 
   const clone = doc.documentElement.cloneNode(true);
+
+  // Canvas elements in cloneNode don't retain pixel data; convert them to <img> in the clone
+  const cloneCanvases = clone.querySelectorAll("canvas");
+  for (let i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
+    try {
+      const orig = origCanvases[i];
+      const cl = cloneCanvases[i];
+      const dataUrl = orig.toDataURL("image/png");
+      const img = doc.createElement("img");
+      img.src = dataUrl;
+      img.style.cssText = orig.style.cssText;
+      if (orig.width) img.width = orig.width;
+      if (orig.height) img.height = orig.height;
+      if (orig.className) img.className = orig.className;
+      cl.parentNode?.replaceChild(img, cl);
+    } catch {}
+  }
+
+  // Remove script tags from cloned DOM to prevent XMLSerializer or foreignObject issues
+  clone.querySelectorAll("script").forEach((s) => s.remove());
+
   const baseHref = frame.src || window.location.href;
   const base = doc.createElement("base");
   base.href = baseHref;
@@ -5203,6 +5228,13 @@ async function captureIframeContent(frame) {
     const img = new Image();
     const timer = setTimeout(() => {
       URL.revokeObjectURL(url);
+      if (origCanvases.length > 0) {
+        try {
+          const d = origCanvases[0].toDataURL("image/jpeg", 0.85);
+          resolve(d.replace(/^data:image\/[a-z]+;base64,/, ""));
+          return;
+        } catch {}
+      }
       reject(new Error("Capture render timed out"));
     }, 4000);
 
@@ -5221,6 +5253,13 @@ async function captureIframeContent(frame) {
         resolve(dataUrl.replace(/^data:image\/[a-z]+;base64,/, ""));
       } catch (e) {
         URL.revokeObjectURL(url);
+        if (origCanvases.length > 0) {
+          try {
+            const d = origCanvases[0].toDataURL("image/jpeg", 0.85);
+            resolve(d.replace(/^data:image\/[a-z]+;base64,/, ""));
+            return;
+          } catch {}
+        }
         reject(e);
       }
     };
@@ -5228,6 +5267,13 @@ async function captureIframeContent(frame) {
     img.onerror = () => {
       clearTimeout(timer);
       URL.revokeObjectURL(url);
+      if (origCanvases.length > 0) {
+        try {
+          const d = origCanvases[0].toDataURL("image/jpeg", 0.85);
+          resolve(d.replace(/^data:image\/[a-z]+;base64,/, ""));
+          return;
+        } catch {}
+      }
       reject(new Error("Failed to rasterize preview DOM to image"));
     };
 

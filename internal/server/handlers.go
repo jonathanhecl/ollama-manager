@@ -1217,11 +1217,20 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		isImageGenerationModel = hasImage && !hasVision && !hasCompletion
 	}
 
+	isSameModelName := func(a, b string) bool {
+		a = strings.TrimSpace(a)
+		b = strings.TrimSpace(b)
+		if a == b {
+			return true
+		}
+		return strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest")
+	}
+
 	var wasCold bool
 	if running, err := s.ollama.PS(r.Context()); err == nil {
 		wasCold = true
 		for _, rm := range running {
-			if rm.Name == body.Model || rm.Model == body.Model {
+			if isSameModelName(rm.Name, body.Model) || isSameModelName(rm.Model, body.Model) {
 				wasCold = false
 				break
 			}
@@ -1344,16 +1353,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		totalTokens := final.PromptEvalCount + final.EvalCount
 		if s.usage != nil {
 			_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
-			if wasCold {
-				var loadMs int64
-				if firstTokenTime > 0 {
-					loadMs = firstTokenTime.Milliseconds()
-				} else if final.LoadDuration > 0 {
-					loadMs = time.Duration(final.LoadDuration).Milliseconds()
-				}
-				if loadMs > 0 {
-					_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
-				}
+			var loadMs int64
+			if wasCold && firstTokenTime > 0 {
+				loadMs = firstTokenTime.Milliseconds()
+			} else if final.LoadDuration > 50_000_000 {
+				loadMs = time.Duration(final.LoadDuration).Milliseconds()
+			}
+			if loadMs > 0 {
+				_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
 			}
 		}
 		send("done", map[string]any{
@@ -1424,16 +1431,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	totalTokens := final.PromptEvalCount + final.EvalCount
 	if s.usage != nil {
 		_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
-		if wasCold {
-			var loadMs int64
-			if firstTokenTime > 0 {
-				loadMs = firstTokenTime.Milliseconds()
-			} else if final.LoadDuration > 0 {
-				loadMs = time.Duration(final.LoadDuration).Milliseconds()
-			}
-			if loadMs > 0 {
-				_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
-			}
+		var loadMs int64
+		if wasCold && firstTokenTime > 0 {
+			loadMs = firstTokenTime.Milliseconds()
+		} else if final.LoadDuration > 50_000_000 {
+			loadMs = time.Duration(final.LoadDuration).Milliseconds()
+		}
+		if loadMs > 0 {
+			_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
 		}
 	}
 	send("done", map[string]any{

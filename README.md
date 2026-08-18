@@ -93,11 +93,20 @@ $env:CGO_ENABLED = "0"; $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -t
   ./build-mac.ps1
   ```
 - **Build all platforms**:
-  ```powershell
+  ```bash
+  # Bash (macOS / Linux)
+  ./build-all.sh v1.0.0
+
+  # PowerShell (Windows)
   ./build-all.ps1 -Version v1.0.0
   ```
 - **Release to GitHub**:
-  ```powershell
+  ```bash
+  # Bash (macOS / Linux)
+  export GITHUB_TOKEN="your_github_token"   # optional: prompt will ask if omitted
+  ./release.sh v1.0.0
+
+  # PowerShell (Windows)
   $env:GITHUB_TOKEN = "your_github_token"
   ./release.ps1 v1.0.0
   ```

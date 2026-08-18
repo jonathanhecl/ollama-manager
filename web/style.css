@@ -386,6 +386,9 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
   gap: 3px;
   font-family: var(--mono);
 }
+.record-num {
+  font-weight: 600;
+}
 .cell-record-tok .unit {
   font-size: 11px;
   color: var(--text-dim);

@@ -914,6 +914,28 @@ function renderTable() {
     return;
   }
 
+  // Calculate min and max record tokens per second across all models with data
+  let minToks = Infinity;
+  let maxToks = -Infinity;
+  for (const m of activeModels) {
+    const tps = Number(m.record_tokens_per_sec) || 0;
+    if (tps > 0) {
+      if (tps < minToks) minToks = tps;
+      if (tps > maxToks) maxToks = tps;
+    }
+  }
+
+  function getToksRecordColor(tps) {
+    if (!tps || tps <= 0 || !isFinite(minToks) || !isFinite(maxToks)) return "";
+    let ratio = 1.0;
+    if (maxToks > minToks) {
+      ratio = Math.max(0, Math.min(1, (tps - minToks) / (maxToks - minToks)));
+    }
+    // Hue from 0 (red) -> 60 (yellow) -> 120 (green)
+    const hue = Math.round(ratio * 120);
+    return `hsl(${hue}, 85%, 62%)`;
+  }
+
   const dotLoadedTxt = t("detail.dot_loaded");
   const dotNotLoadedTxt = t("detail.dot_not_loaded");
   const deleteTitle = t("detail.delete_title");
@@ -924,8 +946,10 @@ function renderTable() {
     const familyTag = (m.family && m.family !== "—")
       ? `<span class="model-family-tag">(${escapeHtml(m.family)})</span>`
       : "";
+    const tokColor = getToksRecordColor(m.record_tokens_per_sec);
+    const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
-      ? `<span class="cell-record-tok" title="${m.record_tokens_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })) : ""}">${m.record_tokens_per_sec.toFixed(1)} <span class="unit">tok/s</span></span>`
+      ? `<span class="cell-record-tok" title="${m.record_tokens_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })) : ""}"><span class="record-num"${colorStyle}>${m.record_tokens_per_sec.toFixed(1)}</span> <span class="unit">tok/s</span></span>`
       : "—";
     const minLoadHtml = (m.min_cold_load_ms && m.min_cold_load_ms > 0)
       ? `<div class="cell-min-load mono" title="${m.min_cold_load_at ? escapeHtml(t("detail.min_load_at", { date: fmtDateTimeFull(m.min_cold_load_at) })) : ""}">${escapeHtml(t("col.min_load"))}: ${fmtColdLoad(m.min_cold_load_ms)}</div>`
@@ -994,6 +1018,7 @@ function renderTable() {
       : "";
     const isActive = (m.name === activeName);
     const capsStr = JSON.stringify(m.capabilities || []);
+    const tokColor = getToksRecordColor(m.record_tokens_per_sec);
 
     let tr = existingRows.get(m.name);
     let needUpdate = false;
@@ -1007,6 +1032,7 @@ function renderTable() {
         tr._m_modified !== m.modified_at ||
         tr._m_last_used !== m.last_used_at ||
         tr._m_record_tok !== m.record_tokens_per_sec ||
+        tr._m_tok_color !== tokColor ||
         tr._m_min_cold_load !== m.min_cold_load_ms ||
         tr._m_ctx !== m.context_length ||
         tr._m_family !== m.family ||
@@ -1063,6 +1089,7 @@ function renderTable() {
       newTr._m_modified = m.modified_at;
       newTr._m_last_used = m.last_used_at;
       newTr._m_record_tok = m.record_tokens_per_sec;
+      newTr._m_tok_color = tokColor;
       newTr._m_min_cold_load = m.min_cold_load_ms;
       newTr._m_ctx = m.context_length;
       newTr._m_family = m.family;

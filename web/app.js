@@ -3375,6 +3375,8 @@ function renderChatMessages() {
             bodyHTML = `<p class="muted">${escapeHtml(t("state.error_prefix"))} Empty response</p>`;
           }
         }
+      } else if (m.isError) {
+        bodyHTML = `<div class="chat-msg-error"><span class="chat-msg-error-icon">⚠️</span><div class="chat-msg-error-text">${renderMarkdownSafe(m.content || "")}</div></div>`;
       } else {
         bodyHTML = renderMarkdownSafe(m.content || "");
       }
@@ -4894,6 +4896,7 @@ async function runChatRequest(assistantMsg) {
       if (!hasAnswer && !hasThink) {
         assistantMsg.content = t("chat.stopped_empty");
       }
+    } else {
       let errMsg = e.message || "failed";
       if (errMsg.includes("mlx runner failed") || errMsg.includes("failed to initialize MLX") || errMsg.includes("failed to load MLX")) {
         errMsg = t("chat.error_mlx_unsupported");

@@ -2636,6 +2636,26 @@ function extractGFMTables(text, outTables) {
   return out.join("\n");
 }
 
+function addFastTapListener(el, handler) {
+  if (!el) return;
+  let lastTriggerTime = 0;
+  const run = (e) => {
+    const now = Date.now();
+    if (now - lastTriggerTime < 300) return;
+    lastTriggerTime = now;
+    handler(e);
+  };
+  el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.pointerType === "touch" || e.pointerType === "pen") {
+      run(e);
+    }
+  }, { passive: true });
+  el.addEventListener("click", (e) => {
+    run(e);
+  });
+}
+
 function scheduleRenderChatMessages() {
   if (chatRenderRaf != null) return;
   chatRenderRaf = requestAnimationFrame(() => {
@@ -2643,8 +2663,6 @@ function scheduleRenderChatMessages() {
     renderChatMessages();
     scrollChatToBottom();
     scrollActiveBlocks();
-    setTimeout(() => scrollActiveBlocks(), 50);
-    setTimeout(() => scrollActiveBlocks(), 150);
   });
 }
 
@@ -2656,8 +2674,6 @@ function flushChatRender() {
   renderChatMessages();
   scrollChatToBottom();
   scrollActiveBlocks();
-  setTimeout(() => scrollActiveBlocks(), 50);
-  setTimeout(() => scrollActiveBlocks(), 150);
 }
 
 function renderMarkdownSafe(input) {
@@ -3456,8 +3472,8 @@ function renderChatQueue() {
       <div class="chat-queue-list">${rows}</div>
     </details>`;
   host.querySelectorAll(".chat-queue-send-now").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
+    addFastTapListener(btn, (e) => {
+      e?.stopPropagation?.();
       const id = btn.dataset.id;
       const idx = chatPendingQueue.findIndex((q) => q.id === id);
       if (idx < 0) return;
@@ -3474,8 +3490,8 @@ function renderChatQueue() {
     });
   });
   host.querySelectorAll(".chat-queue-x").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
+    addFastTapListener(btn, (e) => {
+      e?.stopPropagation?.();
       const item = chatPendingQueue.find((q) => q.id === btn.dataset.id);
       if (item) {
         const inputEl = $("chat-input");
@@ -4276,26 +4292,17 @@ function scrollChatToBottom(force = false) {
     if (!isAtBottom) return;
   }
   
-  const now = Date.now();
-  if (isStreaming && now - lastScrollTime < 100) {
-    // Instant update to keep scroll at bottom without lagging behind fast text stream
+  if (isStreaming) {
     host.scrollTop = host.scrollHeight;
     return;
   }
-  lastScrollTime = now;
   
-  const go = () => {
-    const last = $("chat-messages")?.lastElementChild;
-    if (last) {
-      last.scrollIntoView({ behavior: "smooth", block: "end" });
-    } else {
-      host.scrollTop = host.scrollHeight;
-    }
-  };
-  go();
-  requestAnimationFrame(() => {
+  const last = $("chat-messages")?.lastElementChild;
+  if (last) {
+    last.scrollIntoView({ behavior: "smooth", block: "end" });
+  } else {
     host.scrollTop = host.scrollHeight;
-  });
+  }
 }
 
 /** Scroll thinking and response blocks of the currently streaming message to bottom. */
@@ -4303,32 +4310,18 @@ function scrollActiveBlocks() {
   const streamingMsg = document.querySelector("article.chat-msg.chat-streaming");
   if (!streamingMsg) return;
 
-  const scrollThinks = () => {
-    streamingMsg.querySelectorAll("details.chat-think").forEach((details) => {
-      if (!details.open) details.open = true;
-      const pre = details.querySelector("pre");
-      if (pre) {
-        const old = pre.style.scrollBehavior;
-        pre.style.scrollBehavior = "auto";
-        pre.scrollTop = pre.scrollHeight;
-        pre.style.scrollBehavior = old;
-      }
-    });
-  };
-  scrollThinks();
-  requestAnimationFrame(() => requestAnimationFrame(scrollThinks));
-
-  const scrollContent = () => {
-    const content = streamingMsg.querySelector(".chat-md");
-    if (content) {
-      const old = content.style.scrollBehavior;
-      content.style.scrollBehavior = "auto";
-      content.scrollTop = content.scrollHeight;
-      content.style.scrollBehavior = old;
+  streamingMsg.querySelectorAll("details.chat-think").forEach((details) => {
+    if (!details.open) details.open = true;
+    const pre = details.querySelector("pre");
+    if (pre) {
+      pre.scrollTop = pre.scrollHeight;
     }
-  };
-  scrollContent();
-  requestAnimationFrame(() => requestAnimationFrame(scrollContent));
+  });
+
+  const content = streamingMsg.querySelector(".chat-md");
+  if (content) {
+    content.scrollTop = content.scrollHeight;
+  }
 }
 
 async function runChatRequest(assistantMsg) {
@@ -5703,11 +5696,11 @@ function bindChatEvents() {
     }
   });
   $("chat-btn")?.addEventListener("click", showChatView);
-  $("chat-back-btn")?.addEventListener("click", () => {
+  addFastTapListener($("chat-back-btn"), () => {
     showModelsView();
     resetChatState();
   });
-  $("chat-options-toggle")?.addEventListener("click", () => {
+  addFastTapListener($("chat-options-toggle"), () => {
     const cv = $("chat-view");
     if (!cv) return;
     if (cv.classList.contains("chat-options-open")) {
@@ -5717,12 +5710,12 @@ function bindChatEvents() {
       void refreshModelArtifactCount();
     }
   });
-  $("chat-options-close")?.addEventListener("click", () => {
+  addFastTapListener($("chat-options-close"), () => {
     const cv = $("chat-view");
     if (!cv) return;
     swapToArtifact(cv);
   });
-  $("chat-artifact-back")?.addEventListener("click", () => {
+  addFastTapListener($("chat-artifact-back"), () => {
     const cv = $("chat-view");
     if (!cv) return;
     swapToArtifact(cv);
@@ -5772,7 +5765,7 @@ function bindChatEvents() {
     const ok = await copyTextToClipboard(val);
     toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
   });
-  $("chat-send-btn")?.addEventListener("click", () => sendChatMessage(false));
+  addFastTapListener($("chat-send-btn"), () => sendChatMessage(false));
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("click", async (e) => {
     const artBtn = e.target.closest(".chat-artifact-open-btn");
     if (artBtn) {
@@ -5907,7 +5900,7 @@ function bindChatEvents() {
   });
   const stopBtn = $("chat-stop-btn");
   if (stopBtn) {
-    stopBtn.addEventListener("click", () => stopChatGeneration());
+    addFastTapListener(stopBtn, () => stopChatGeneration());
   }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && $("chat-view")?.classList.contains("chat-options-open")) {

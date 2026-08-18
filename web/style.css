@@ -2887,20 +2887,31 @@ button.chat-send:disabled:hover {
   opacity: 0.75;
   text-decoration: underline;
 }
+.switch-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chat-artifacts-inline-link,
 .chat-artifacts-link {
   background: none;
   border: none;
   padding: 0;
-  margin: 2px 0 0;
-  color: var(--accent);
+  margin: 0;
+  color: var(--accent, #7aa2ff);
   text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  text-align: left;
+  display: inline-block;
+  transition: opacity 0.15s ease, color 0.15s ease;
 }
+.chat-artifacts-inline-link:hover,
 .chat-artifacts-link:hover {
-  opacity: 0.75;
+  opacity: 0.8;
+  color: #9ec0ff;
 }
 .chat-cap-block { margin: 0 0 2px; }
 .chat-cap-heading {

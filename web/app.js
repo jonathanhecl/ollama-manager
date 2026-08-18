@@ -1800,9 +1800,7 @@ function updateChatCapabilityUI() {
   $("chat-artifacts-wrap").hidden = !canTools;
 
   const artBtn = $("chat-model-artifacts-btn");
-  const artWrap = $("chat-model-artifacts-wrap");
   if (artBtn) artBtn.hidden = true;
-  if (artWrap) artWrap.hidden = true;
 
   void refreshModelArtifactCount();
 
@@ -4877,12 +4875,10 @@ let artifactCountReqSeq = 0;
 
 async function refreshModelArtifactCount() {
   const btn = $("chat-model-artifacts-btn");
-  const wrap = $("chat-model-artifacts-wrap");
   const model = $("chat-model")?.value;
-  if (!btn || !wrap) return;
+  if (!btn) return;
   // Only models that can create artifacts (tools capability) show the link.
   if (!model || !modelCaps(model).has("tools")) {
-    wrap.hidden = true;
     btn.hidden = true;
     btn.textContent = "";
     return;
@@ -4895,7 +4891,6 @@ async function refreshModelArtifactCount() {
     }
     const n = (data && Array.isArray(data.artifacts)) ? data.artifacts.length : 0;
     if (n === 0) {
-      wrap.hidden = true;
       btn.hidden = true;
       btn.textContent = "";
       return;
@@ -4903,11 +4898,9 @@ async function refreshModelArtifactCount() {
     btn.textContent = n === 1
       ? t("chat.model_artifacts_link_one")
       : t("chat.model_artifacts_link_other", { count: n });
-    wrap.hidden = false;
     btn.hidden = false;
   } catch (e) {
     if (seq === artifactCountReqSeq) {
-      wrap.hidden = true;
       btn.hidden = true;
     }
   }
@@ -4965,8 +4958,7 @@ function openLoadArtifactModal() {
       empty.hidden = false;
       empty.textContent = t("chat.load_artifact_none");
       const btn = $("chat-model-artifacts-btn");
-      const wrap = $("chat-model-artifacts-wrap");
-      if (btn && wrap) { wrap.hidden = true; btn.hidden = true; }
+      if (btn) { btn.hidden = true; btn.textContent = ""; }
       return;
     }
     empty.hidden = true;
@@ -4992,12 +4984,10 @@ function openLoadArtifactModal() {
       list.appendChild(row);
     }
     const btn = $("chat-model-artifacts-btn");
-    const wrap = $("chat-model-artifacts-wrap");
-    if (btn && wrap) {
+    if (btn) {
       btn.textContent = arts.length === 1
         ? t("chat.model_artifacts_link_one")
         : t("chat.model_artifacts_link_other", { count: arts.length });
-      wrap.hidden = false;
       btn.hidden = false;
     }
   }).catch((e) => {

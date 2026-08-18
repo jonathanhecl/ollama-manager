@@ -260,16 +260,16 @@
         </div>
         <div id="chat-artifacts-wrap" class="field switch-field" hidden>
           <div class="switch-label">
-            <span data-i18n="chat.artifacts">Artifacts</span>
+            <div class="switch-title-row">
+              <span data-i18n="chat.artifacts">Artifacts</span>
+              <button id="chat-model-artifacts-btn" type="button" class="chat-artifacts-inline-link" hidden></button>
+            </div>
             <small class="muted" data-i18n="chat.artifacts_hint">Agent creates web projects you can preview live.</small>
           </div>
           <label class="switch">
             <input id="chat-artifacts" type="checkbox" autocomplete="off">
             <span class="switch-slider"></span>
           </label>
-        </div>
-        <div id="chat-model-artifacts-wrap" hidden>
-          <button id="chat-model-artifacts-btn" type="button" class="chat-artifacts-link" hidden></button>
         </div>
         <div id="chat-image-options-wrap" class="chat-image-options-wrap" hidden>
           <h4 data-i18n="chat.image_generation_options">Image Generation Options</h4>

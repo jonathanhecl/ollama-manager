@@ -1904,6 +1904,7 @@ function resetChatState() {
   activeArtifactName = null;
   activeArtifactUrl = null;
   updateArtifactResourceBtn();
+  updateChatContextMeter();
   $("chat-dropzone").hidden = true;
   $("chat-attachments").hidden = true;
   $("chat-attachments").innerHTML = "";
@@ -5233,6 +5234,22 @@ function bindChatEvents() {
     if (e.target.closest("#chat-artifact-options")) return;
     if (e.target.closest("#chat-artifact-back")) return;
     swapToArtifact($("chat-view"));
+  });
+  $("chat-reset-btn")?.addEventListener("click", async () => {
+    if (chatMessages.length === 0 && !activeArtifactTimestamp && chatAttachments.length === 0 && !$("chat-input")?.value.trim()) {
+      clearChat();
+      return;
+    }
+    const res = await askConfirm({
+      title: t("chat.reset_confirm_title"),
+      text: t("chat.reset_confirm_text"),
+      okText: t("chat.reset_confirm_ok"),
+      okClass: "primary",
+    });
+    if (res && res.ok) {
+      clearChat();
+      toast(t("chat.reset_success"), "success");
+    }
   });
   $("chat-model")?.addEventListener("change", () => {
     updateChatCapabilityUI();

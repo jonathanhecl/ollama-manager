@@ -1727,6 +1727,27 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border-radius: var(--radius);
   padding: 6px 8px;
 }
+.chat-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius);
+  color: var(--muted);
+  transition: color 0.15s ease, background 0.15s ease, transform 0.18s ease;
+  flex-shrink: 0;
+}
+.chat-reset-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+  transform: rotate(-35deg);
+}
+.chat-reset-btn .chat-header-icon {
+  width: 16px;
+  height: 16px;
+}
 .chat-context {
   font-size: 11px;
   color: var(--muted);

@@ -2024,6 +2024,8 @@ function showModelsView() {
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
   }
+  renderTable();
+  void refreshModels();
 }
 
 function resetChatState() {

@@ -1943,6 +1943,7 @@ function showModelsView() {
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
   }
+  refreshModels();
 }
 
 function resetChatState() {
@@ -4796,6 +4797,7 @@ async function runChatRequest(assistantMsg) {
         chatLastUsedTokens = assistantMsg.tokens || (assistantMsg.promptTokens + assistantMsg.completionTokens);
         updateChatContextMeter();
         flushChatRender();
+        refreshModels().catch(() => {});
       }
     });
     assistantMsg.streaming = false;

@@ -1933,9 +1933,9 @@ function showChatView() {
   }
   currentView = "chat";
   chatView.classList.remove("chat-options-open");
-  syncChatPanels(chatView);
   modelsView.hidden = true;
   chatView.hidden = false;
+  syncChatPanels(chatView);
   $("chat-btn")?.classList.add("active");
   if ($("detail-panel") && !$("detail-panel").hidden) {
     $("detail-panel").hidden = true;
@@ -5090,10 +5090,10 @@ function applyArtifactWidth(cv, desiredWidth) {
   if (!cv) return 300;
   const rect = cv.getBoundingClientRect();
   const totalW = rect.width > 0 ? rect.width : (window.innerWidth - 36);
-  // Chat shell must be at least 35% of horizontal space (and at least 340px)
-  const minChatW = Math.max(340, totalW * 0.35);
-  const maxArtifactW = Math.max(280, totalW - minChatW - 10);
-  const minArtifactW = Math.max(280, totalW * 0.25);
+  // Chat shell can comfortably shrink down to 260px (or 35% on wider screens)
+  const minChatW = Math.max(260, Math.min(380, totalW * 0.35));
+  const maxArtifactW = Math.max(220, totalW - minChatW - 10);
+  const minArtifactW = Math.max(220, totalW * 0.20);
 
   let numW;
   if (typeof desiredWidth === "number" && !isNaN(desiredWidth)) {
@@ -5429,6 +5429,10 @@ function syncChatPanels(cv) {
   const panel = $("chat-artifact-panel");
   const artifactOpen = !!(panel && !panel.hidden);
   cv.classList.toggle("artifact-open", artifactOpen);
+  if (artifactOpen) {
+    const currentW = cv.style.getPropertyValue("--chat-right-width") || localStorage.getItem("ollama_manager_artifact_width") || "50%";
+    applyArtifactWidth(cv, currentW);
+  }
   const toggle = $("chat-options-toggle");
   if (toggle) toggle.setAttribute("aria-expanded", cv.classList.contains("chat-options-open") ? "true" : "false");
 }

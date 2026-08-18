@@ -5461,41 +5461,48 @@ html, body {
   0% { transform: rotateX(65deg) rotateY(15deg) rotateZ(0deg); }
   100% { transform: rotateX(65deg) rotateY(15deg) rotateZ(360deg); }
 }
-  margin-bottom: 6px;
+@keyframes spin-ring-2 {
+  0% { transform: rotateX(-55deg) rotateY(25deg) rotateZ(0deg); }
+  100% { transform: rotateX(-55deg) rotateY(25deg) rotateZ(360deg); }
 }
-.subtitle {
-  font-size: 12px;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+@keyframes spin-ring-3 {
+  0% { transform: rotateX(75deg) rotateY(-10deg) rotateZ(0deg); }
+  100% { transform: rotateX(75deg) rotateY(-10deg) rotateZ(360deg); }
 }
-.dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #a855f7;
-  display: inline-block;
-  animation: blink 1.2s infinite ease-in-out both;
+@keyframes spin-satellite {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes shimmer-text {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
 }
 @keyframes blink {
-  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1.2); }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
 }
 </style>
 </head>
 <body>
   <div class="container">
-    <div class="glow"></div>
-    <div class="spinner-wrap">
-      <div class="spinner-ring"></div>
-      <div class="spinner-ring-2"></div>
-      <div class="sparkle-icon">✦</div>
+    <div class="ambient-glow"></div>
+    <div class="orb-stage">
+      <div class="ring ring-3"></div>
+      <div class="ring ring-2"></div>
+      <div class="ring ring-1"></div>
+      <div class="satellite"></div>
+      <div class="core-sparkle">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z"/>
+        </svg>
+      </div>
     </div>
-    <div class="title">${loadingText}</div>
-    <div class="subtitle">
-      <span class="dot"></span>
-      <span>Synthesizing code & preview</span>
+    <div class="text-box">
+      <div class="title">${loadingText}</div>
+      <div class="sub-pill">
+        <span class="pulsing-dot"></span>
+        <span>Synthesizing code & preview</span>
+      </div>
     </div>
   </div>
 </body>

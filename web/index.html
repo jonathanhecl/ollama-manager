@@ -173,7 +173,13 @@
             <input id="chat-text-input" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple hidden autocomplete="off">
           </div>
           <textarea id="chat-input" rows="3" data-i18n-attr="placeholder" data-i18n="chat.input_placeholder" placeholder="Write your message..." autocomplete="off"></textarea>
-          <button id="chat-send-btn" class="primary chat-send" data-i18n="chat.send">Send</button>
+          <div class="chat-send-actions">
+            <button id="chat-send-now-btn" type="button" class="chat-send-now" data-i18n-attr="title" data-i18n="chat.interrupt_send_hint" title="Interrupt current generation and send now (Ctrl+Enter)" hidden>
+              <span class="chat-send-now-icon" aria-hidden="true">⚡</span>
+              <span data-i18n="chat.interrupt_send">Send now</span>
+            </button>
+            <button id="chat-send-btn" class="primary chat-send" data-i18n="chat.send">Send</button>
+          </div>
         </div>
       </footer>
     </section>

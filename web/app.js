@@ -516,18 +516,26 @@ function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = f
 
 function updateChatSendEnabled() {
   const btn = $("chat-send-btn");
-  if (!btn) return;
+  const sendNowBtn = $("chat-send-now-btn");
   let ok = managerApiOk && ollamaHostOk;
-  if (!ok) {
-    if (!managerApiOk) {
-      btn.title = t("chat.send_disabled_manager");
+  if (btn) {
+    if (!ok) {
+      if (!managerApiOk) {
+        btn.title = t("chat.send_disabled_manager");
+      } else {
+        btn.title = t("chat.send_disabled_ollama");
+      }
     } else {
-      btn.title = t("chat.send_disabled_ollama");
+      btn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
     }
-  } else {
-    btn.title = t("chat.send");
+    btn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    btn.disabled = !ok;
   }
-  btn.disabled = !ok;
+  if (sendNowBtn) {
+    sendNowBtn.disabled = !ok;
+    sendNowBtn.hidden = !chatStreamLock;
+    sendNowBtn.title = t("chat.interrupt_send_hint");
+  }
 }
 
 async function copyTextToClipboard(text) {
@@ -3255,6 +3263,12 @@ function renderChatMessages() {
 <rect x="9" y="9" width="11" height="11" rx="2"/>
 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
 </svg></button>`;
+    const quoteLabel = t("chat.quote");
+    const quoteBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-quote-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(quoteLabel)}" aria-label="${escapeHtml(quoteLabel)}">
+<svg class="chat-quote-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2H4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 1.5 0 2 .5 2 2 0 2-2 3-5 4"/>
+  <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2h-4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 1.5 0 2 .5 2 2 0 2-2 3-5 4"/>
+</svg></button>`;
     const editBtn = !hideActions && canEditUser
       ? `<button type="button" class="btn-icon chat-edit-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.edit_title"))}" aria-label="${escapeHtml(t("chat.edit"))}">
 <svg class="chat-edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -3271,7 +3285,7 @@ function renderChatMessages() {
 </svg></button>`
       : "";
 
-    const footActions = `${editBtn}${regenBtn}${ttsBtn}${copyBtn}`;
+    const footActions = `${editBtn}${regenBtn}${ttsBtn}${quoteBtn}${copyBtn}`;
     const finalMetricsHTML = m.role === "assistant" && !m.streaming ? assistantMetricHTML(m) : "";
     const finalMetricsTitle = m.role === "assistant" && !m.streaming && m.elapsedMs ? formatMetaElapsedSecondsTitle(m.elapsedMs) : "";
     const footBlock = footActions || finalMetricsHTML
@@ -3428,7 +3442,12 @@ function renderChatQueue() {
         <div class="chat-queue-row1">
           <span class="chat-queue-n mono">${i + 1}</span>
           <p class="chat-queue-preview">${escapeHtml(short)}</p>
-          <button type="button" class="btn-icon chat-queue-x" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_remove"))}">×</button>
+          <div class="chat-queue-item-actions">
+            <button type="button" class="btn-icon chat-queue-send-now" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_send_now"))}" aria-label="${escapeHtml(t("chat.queue_send_now"))}">
+              <span aria-hidden="true">⚡</span>
+            </button>
+            <button type="button" class="btn-icon chat-queue-x" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_remove"))}">×</button>
+          </div>
         </div>
         ${fileLine}
       </div>`;
@@ -3442,6 +3461,24 @@ function renderChatQueue() {
       </summary>
       <div class="chat-queue-list">${rows}</div>
     </details>`;
+  host.querySelectorAll(".chat-queue-send-now").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const idx = chatPendingQueue.findIndex((q) => q.id === id);
+      if (idx < 0) return;
+      const [item] = chatPendingQueue.splice(idx, 1);
+      chatPendingQueue.unshift(item);
+      renderChatQueue();
+      if (chatStreamLock) {
+        stopChatGeneration();
+      } else {
+        const next = chatPendingQueue.shift();
+        renderChatQueue();
+        void runOneChatTurn(next.text, next.attachments);
+      }
+    });
+  });
   host.querySelectorAll(".chat-queue-x").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -4188,6 +4225,16 @@ function updateStreamBar() {
     btn.disabled = !chatStreamLock;
     btn.title = t("chat.stop_hint");
   }
+  const sendNowBtn = $("chat-send-now-btn");
+  const sendBtn = $("chat-send-btn");
+  if (sendNowBtn) {
+    sendNowBtn.hidden = !chatStreamLock;
+    sendNowBtn.disabled = !managerApiOk || !ollamaHostOk;
+  }
+  if (sendBtn) {
+    sendBtn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    sendBtn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+  }
 }
 
 function stopChatGeneration() {
@@ -4858,7 +4905,7 @@ async function editAndResendUserMessage(userId, newText) {
   await runChatRequest(assistantMsg);
 }
 
-async function sendChatMessage() {
+async function sendChatMessage(interruptNow = false) {
   if ($("chat-send-btn")?.disabled) return;
   const text = $("chat-input").value.trim();
   if (!text && chatAttachments.length === 0) return;
@@ -4874,6 +4921,12 @@ async function sendChatMessage() {
   renderAttachments();
 
   if (chatStreamLock) {
+    if (interruptNow) {
+      chatPendingQueue.unshift({ id: nanoid(), text: snapText, attachments: snapAtt });
+      renderChatQueue();
+      stopChatGeneration();
+      return;
+    }
     chatPendingQueue.push({ id: nanoid(), text: snapText, attachments: snapAtt });
     renderChatQueue();
     return;
@@ -5710,7 +5763,8 @@ function bindChatEvents() {
     const ok = await copyTextToClipboard(val);
     toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
   });
-  $("chat-send-btn")?.addEventListener("click", sendChatMessage);
+  $("chat-send-now-btn")?.addEventListener("click", () => sendChatMessage(true));
+  $("chat-send-btn")?.addEventListener("click", () => sendChatMessage(false));
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("click", async (e) => {
     const artBtn = e.target.closest(".chat-artifact-open-btn");
     if (artBtn) {
@@ -5718,6 +5772,41 @@ function bindChatEvents() {
       const url = artBtn.getAttribute("data-artifact-url") || "";
       const name = artBtn.getAttribute("data-artifact-name") || "Artifact";
       if (url) showArtifactPanel(url, name);
+      return;
+    }
+    const quoteB = e.target.closest(".chat-quote-btn");
+    if (quoteB) {
+      e.preventDefault();
+      const id = quoteB.getAttribute("data-msg-id");
+      if (!id) return;
+      const msg = chatMessages.find((x) => x.id === id);
+      if (!msg) return;
+      let quoteText = "";
+      const sel = window.getSelection();
+      const selStr = sel ? sel.toString().trim() : "";
+      if (selStr) {
+        const article = quoteB.closest(".chat-msg");
+        if (article && sel.anchorNode && article.contains(sel.anchorNode)) {
+          quoteText = selStr;
+        }
+      }
+      if (!quoteText) {
+        quoteText = String(msg.content || "").trim();
+      }
+      if (quoteText) {
+        const quotedFormatted = quoteText.split("\n").map((l) => `> ${l}`).join("\n") + "\n\n";
+        const ta = $("chat-input");
+        if (ta) {
+          const cur = ta.value;
+          if (!cur.trim()) {
+            ta.value = quotedFormatted;
+          } else {
+            ta.value = cur.trimEnd() + "\n\n" + quotedFormatted;
+          }
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+      }
       return;
     }
     const regenB = e.target.closest(".chat-regenerate-btn");
@@ -5824,10 +5913,16 @@ function bindChatEvents() {
     stopChatGeneration();
   });
   $("chat-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if ($("chat-send-btn")?.disabled) return;
+      sendChatMessage(true);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if ($("chat-send-btn")?.disabled) return;
-      sendChatMessage();
+      sendChatMessage(false);
     }
   });
   $("chat-input")?.addEventListener("paste", async (e) => {

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -108,14 +109,14 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "exec",
-				"description": "Execute a shell command in the artifact project directory. Use for installing dependencies, building, or running the project.",
+				"description": "Execute a shell command inside the isolated project directory. The working directory (CWD) is already set to the project root ('.'). Never use cd or reference absolute host paths.",
 				"parameters": map[string]any{
 					"type":     "object",
 					"required": []string{"command"},
 					"properties": map[string]any{
 						"command": map[string]any{
 							"type":        "string",
-							"description": "Shell command to run",
+							"description": "Shell command to run directly in the project root directory (e.g. 'ls', 'python3 script.py', 'npm test'). Do not use cd.",
 						},
 					},
 				},
@@ -174,11 +175,17 @@ func artifactSystemPrompt(hasVision bool) string {
 To start building a project or web application, you MUST first call the tool 'create_artifact' with 'name' and 'description'.
 Calling 'create_artifact' initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', 'get_artifact_console', 'eval_artifact_js'` + visionNote + `) for you to use in the subsequent steps.
 
+ISOLATED WORKSPACE ENVIRONMENT:
+1. You are operating inside an isolated project directory. Treat this directory as your complete root workspace ('.').
+2. The current working directory (CWD) for all tools and shell commands ('exec') is ALREADY this project directory.
+3. NEVER use 'cd' with absolute host paths and NEVER reference host paths (e.g. /Users/..., /home/..., C:\...).
+4. All file paths MUST be relative to the project root (e.g. 'index.html', 'style.css', 'app.js', 'src/utils.js').
+
 WORKFLOW:
 1. Call 'create_artifact' with the project name.
 2. In the next turn, create 'index.html' (and any CSS/JS files) using 'write_file'. The preview runs live in a sandboxed iframe.
 3. Keep projects self-contained (inline CSS/JS or use CDN links for libraries like React, Tailwind, Lucide, KaTeX, Three.js, etc.).
-4. All file paths are relative to the project root (e.g. 'index.html', 'style.css', 'app.js'). Do NOT use absolute paths.
+4. Use 'eval_artifact_js' and 'take_artifact_screenshot' to interact with and visually inspect the rendered UI.
 
 UI/CONVERSATION RULES:
 1. Do NOT repeat or dump code blocks in your chat response when you write or edit them using the tools. The user sees the code and live preview in the preview panel automatically.
@@ -198,9 +205,15 @@ The artifact session is ALREADY ACTIVE and initialized. You do NOT need to call 
 - 'replace_in_file': Replace a specific text snippet or code block in an existing file. Required arguments: 'path', 'old_string', 'new_string'.
 - 'read_file': Read the contents of an existing file. Required arguments: 'path'.
 - 'list_dir': List files and folders in a directory. Optional argument: 'path' (default '.').
-- 'exec': Run a shell command in the project directory. Required argument: 'command'.
+- 'exec': Run a shell command in the project directory. The CWD is already the project root. Do not use cd or absolute host paths. Required argument: 'command'.
 - 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.
 - 'eval_artifact_js': Execute JavaScript directly in the rendered preview iframe to interact with the UI (click, input, submit) or inspect DOM state.` + visionLine + `
+
+ISOLATED WORKSPACE ENVIRONMENT:
+1. You are operating inside an isolated project directory. Treat this directory as your complete root workspace ('.').
+2. The current working directory (CWD) for all tools and shell commands ('exec') is ALREADY this project directory.
+3. NEVER use 'cd' with absolute host paths and NEVER reference host paths (e.g. /Users/..., /home/..., C:\...).
+4. All file paths MUST be relative to the project root (e.g. 'index.html', 'style.css', 'app.js').
 
 WORKFLOW:
 1. When asked to modify, update, add features, or fix the project, directly use 'write_file', 'replace_in_file', or 'read_file'.
@@ -289,6 +302,20 @@ func artifactToolStartPayload(name string, args json.RawMessage) map[string]any 
 	return p
 }
 
+func resolveArtifactSafePath(artifactDir, userPath string) (string, error) {
+	clean := strings.TrimSpace(userPath)
+	if clean == "" {
+		return "", errors.New("missing path")
+	}
+	clean = strings.TrimPrefix(clean, "/")
+	clean = strings.TrimPrefix(clean, "\\")
+	full := filepath.Join(artifactDir, filepath.Clean(clean))
+	if !isPathSafe(artifactDir, full) {
+		return "", errors.New("path escapes project directory")
+	}
+	return full, nil
+}
+
 // runArtifactTool executes a single tool against the artifact directory.
 func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, args json.RawMessage) (string, error) {
 	m := parseToolArgs(args)
@@ -296,12 +323,9 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 	case "write_file":
 		path, _ := m["path"].(string)
 		content, _ := m["content"].(string)
-		if strings.TrimSpace(path) == "" {
-			return "Error: missing path for write_file", nil
-		}
-		full := filepath.Join(artifactDir, path)
-		if !isPathSafe(artifactDir, full) {
-			return "Error: path escapes project directory", nil
+		full, err := resolveArtifactSafePath(artifactDir, path)
+		if err != nil {
+			return "Error: " + err.Error(), nil
 		}
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			return "", err
@@ -315,15 +339,12 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		path, _ := m["path"].(string)
 		oldStr, _ := m["old_string"].(string)
 		newStr, _ := m["new_string"].(string)
-		if strings.TrimSpace(path) == "" {
-			return "Error: missing path for replace_in_file", nil
-		}
 		if oldStr == "" {
 			return "Error: missing old_string for replace_in_file", nil
 		}
-		full := filepath.Join(artifactDir, path)
-		if !isPathSafe(artifactDir, full) {
-			return "Error: path escapes project directory", nil
+		full, err := resolveArtifactSafePath(artifactDir, path)
+		if err != nil {
+			return "Error: " + err.Error(), nil
 		}
 		b, err := os.ReadFile(full)
 		if err != nil {
@@ -345,12 +366,9 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 
 	case "read_file":
 		path, _ := m["path"].(string)
-		if strings.TrimSpace(path) == "" {
-			return "Error: missing path for read_file", nil
-		}
-		full := filepath.Join(artifactDir, path)
-		if !isPathSafe(artifactDir, full) {
-			return "Error: path escapes project directory", nil
+		full, err := resolveArtifactSafePath(artifactDir, path)
+		if err != nil {
+			return "Error: " + err.Error(), nil
 		}
 		if filepath.Clean(full) == filepath.Clean(filepath.Join(artifactDir, "prompt.txt")) {
 			return "Error: file not found", nil
@@ -366,9 +384,9 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		if path == "" {
 			path = "."
 		}
-		full := filepath.Join(artifactDir, path)
-		if !isPathSafe(artifactDir, full) {
-			return "Error: path escapes project directory", nil
+		full, err := resolveArtifactSafePath(artifactDir, path)
+		if err != nil {
+			return "Error: " + err.Error(), nil
 		}
 		entries, err := os.ReadDir(full)
 		if err != nil {
@@ -399,10 +417,10 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 
 	case "create_artifact":
 		if artifactDir != "" {
-			return "Error: an artifact workspace is already active in this session. Do NOT call create_artifact again. You already have full access to write_file, replace_in_file, read_file, list_dir, exec, and get_artifact_console.", nil
+			return "Error: an artifact workspace is already active in this session. Do NOT call create_artifact again. You already have full access to write_file, replace_in_file, read_file, list_dir, exec, eval_artifact_js, and get_artifact_console.", nil
 		}
 		// No I/O — the loop handles sending the SSE artifact event.
-		return "Artifact workspace initialized successfully. Operational tools (write_file, replace_in_file, read_file, list_dir, exec, get_artifact_console) are now available.", nil
+		return "Artifact workspace initialized successfully. All operational tools (write_file, replace_in_file, read_file, list_dir, exec, eval_artifact_js, get_artifact_console) are now available in the project root directory ('.').", nil
 
 	case "get_artifact_console":
 		ts := artifactRelID(artifactDir)
@@ -436,11 +454,27 @@ func execInDir(parentCtx context.Context, dir, command string) (string, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, 120*time.Second)
 	defer cancel()
 
+	cmdStr := strings.TrimSpace(command)
+	// Strip redundant "cd <dir> && " or "cd <dir> ; " if the model attempts to cd into the artifact directory
+	if strings.HasPrefix(cmdStr, "cd ") {
+		absDir, _ := filepath.Abs(dir)
+		for _, sep := range []string{"&&", ";"} {
+			if idx := strings.Index(cmdStr, sep); idx != -1 {
+				cdTarget := strings.TrimSpace(strings.TrimPrefix(cmdStr[:idx], "cd "))
+				cdTargetClean := filepath.Clean(cdTarget)
+				if cdTargetClean == "." || cdTargetClean == dir || (absDir != "" && cdTargetClean == absDir) || strings.Contains(cdTargetClean, "artifacts") {
+					cmdStr = strings.TrimSpace(cmdStr[idx+len(sep):])
+					break
+				}
+			}
+		}
+	}
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd", "/c", command)
+		cmd = exec.CommandContext(ctx, "cmd", "/c", cmdStr)
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		cmd = exec.CommandContext(ctx, "sh", "-c", cmdStr)
 	}
 	cmd.Dir = dir
 
@@ -931,11 +965,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 					event["generating"] = true
 				}
 				send("artifact", event)
-				absPath, err := filepath.Abs(artifactDir)
-				if err != nil {
-					absPath = artifactDir
-				}
-				out = fmt.Sprintf("Artifact project created at absolute path '%s'. You now have access to the project tools: write_file, read_file, list_dir, exec, and get_artifact_console.", absPath)
+				out = "Artifact project workspace initialized. All operational tools (write_file, replace_in_file, read_file, list_dir, exec, eval_artifact_js, get_artifact_console) are now available. All file paths and commands execute directly inside the project root directory ('.')."
 			}
 			// After write_file or replace_in_file on an artifact, send the appropriate event:
 			// - loaded: first time index.html is written (transition from loading screen)

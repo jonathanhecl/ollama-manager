@@ -516,7 +516,6 @@ function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = f
 
 function updateChatSendEnabled() {
   const btn = $("chat-send-btn");
-  const sendNowBtn = $("chat-send-now-btn");
   let ok = managerApiOk && ollamaHostOk;
   if (btn) {
     if (!ok) {
@@ -530,11 +529,6 @@ function updateChatSendEnabled() {
     }
     btn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
     btn.disabled = !ok;
-  }
-  if (sendNowBtn) {
-    sendNowBtn.disabled = !ok;
-    sendNowBtn.hidden = !chatStreamLock;
-    sendNowBtn.title = t("chat.interrupt_send_hint");
   }
 }
 
@@ -4225,12 +4219,7 @@ function updateStreamBar() {
     btn.disabled = !chatStreamLock;
     btn.title = t("chat.stop_hint");
   }
-  const sendNowBtn = $("chat-send-now-btn");
   const sendBtn = $("chat-send-btn");
-  if (sendNowBtn) {
-    sendNowBtn.hidden = !chatStreamLock;
-    sendNowBtn.disabled = !managerApiOk || !ollamaHostOk;
-  }
   if (sendBtn) {
     sendBtn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
     sendBtn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
@@ -5783,7 +5772,6 @@ function bindChatEvents() {
     const ok = await copyTextToClipboard(val);
     toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
   });
-  $("chat-send-now-btn")?.addEventListener("click", () => sendChatMessage(true));
   $("chat-send-btn")?.addEventListener("click", () => sendChatMessage(false));
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("click", async (e) => {
     const artBtn = e.target.closest(".chat-artifact-open-btn");

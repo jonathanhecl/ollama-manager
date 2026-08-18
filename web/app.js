@@ -5103,6 +5103,33 @@ function loadExistingArtifact(id, label, name) {
   void refreshModelArtifactCount();
 }
 
+function applyArtifactWidth(cv, desiredWidth) {
+  if (!cv) cv = $("chat-view");
+  if (!cv) return 300;
+  const rect = cv.getBoundingClientRect();
+  const totalW = rect.width > 0 ? rect.width : (window.innerWidth - 36);
+  // Chat shell must be at least 35% of horizontal space (and at least 340px)
+  const minChatW = Math.max(340, totalW * 0.35);
+  const maxArtifactW = Math.max(280, totalW - minChatW - 10);
+  const minArtifactW = Math.max(280, totalW * 0.25);
+
+  let numW;
+  if (typeof desiredWidth === "number" && !isNaN(desiredWidth)) {
+    numW = desiredWidth;
+  } else if (typeof desiredWidth === "string" && desiredWidth.endsWith("%")) {
+    const pct = parseFloat(desiredWidth) / 100;
+    numW = totalW * pct;
+  } else if (typeof desiredWidth === "string" && desiredWidth.endsWith("px")) {
+    numW = parseFloat(desiredWidth);
+  } else {
+    numW = totalW * 0.5;
+  }
+
+  const clamped = Math.max(minArtifactW, Math.min(maxArtifactW, numW));
+  cv.style.setProperty("--chat-right-width", `${Math.round(clamped)}px`);
+  return clamped;
+}
+
 function showArtifactPanel(url, name, generating) {
   const panel = $("chat-artifact-panel");
   const frame = $("chat-artifact-frame");
@@ -5307,48 +5334,41 @@ html, body {
   0% { transform: rotateX(65deg) rotateY(15deg) rotateZ(0deg); }
   100% { transform: rotateX(65deg) rotateY(15deg) rotateZ(360deg); }
 }
-@keyframes spin-ring-2 {
-  0% { transform: rotateX(-55deg) rotateY(25deg) rotateZ(0deg); }
-  100% { transform: rotateX(-55deg) rotateY(25deg) rotateZ(360deg); }
+  margin-bottom: 6px;
 }
-@keyframes spin-ring-3 {
-  0% { transform: rotateX(75deg) rotateY(-10deg) rotateZ(0deg); }
-  100% { transform: rotateX(75deg) rotateY(-10deg) rotateZ(360deg); }
+.subtitle {
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-@keyframes spin-satellite {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-@keyframes shimmer-text {
-  0% { background-position: 0% center; }
-  100% { background-position: 200% center; }
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #a855f7;
+  display: inline-block;
+  animation: blink 1.2s infinite ease-in-out both;
 }
 @keyframes blink {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.2); }
 }
 </style>
 </head>
 <body>
   <div class="container">
-    <div class="ambient-glow"></div>
-    <div class="orb-stage">
-      <div class="ring ring-3"></div>
-      <div class="ring ring-2"></div>
-      <div class="ring ring-1"></div>
-      <div class="satellite"></div>
-      <div class="core-sparkle">
-        <svg viewBox="0 0 24 24">
-          <path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z"/>
-        </svg>
-      </div>
+    <div class="glow"></div>
+    <div class="spinner-wrap">
+      <div class="spinner-ring"></div>
+      <div class="spinner-ring-2"></div>
+      <div class="sparkle-icon">✦</div>
     </div>
-    <div class="text-box">
-      <div class="title">${loadingText}</div>
-      <div class="sub-pill">
-        <span class="pulsing-dot"></span>
-        <span>Synthesizing code & preview</span>
-      </div>
+    <div class="title">${loadingText}</div>
+    <div class="subtitle">
+      <span class="dot"></span>
+      <span>Synthesizing code & preview</span>
     </div>
   </div>
 </body>
@@ -5360,10 +5380,10 @@ html, body {
   panel.hidden = false;
   // Close options panel so the artifact gets the full right/top area.
   chatView?.classList.remove("chat-options-open");
-  // Show splitter on desktop and set default width to 50% on open.
+  // Show splitter on desktop and set default width on open (clamped so chat has >= 35%).
   if (chatView && splitter) {
     const savedWidth = localStorage.getItem("ollama_manager_artifact_width");
-    chatView.style.setProperty("--chat-right-width", savedWidth || "50%");
+    applyArtifactWidth(chatView, savedWidth || "50%");
     chatArtifactWidthSet = true;
     splitter.hidden = false;
   }
@@ -5410,7 +5430,7 @@ function swapToArtifact(cv) {
     artifactPanel.hidden = false;
     if (splitter) splitter.hidden = false;
     const savedWidth = localStorage.getItem("ollama_manager_artifact_width");
-    cv.style.setProperty("--chat-right-width", savedWidth || "50%");
+    applyArtifactWidth(cv, savedWidth || "50%");
   } else {
     cv.style.setProperty("--chat-right-width", "300px");
   }
@@ -6117,10 +6137,7 @@ function bindChatEvents() {
       if (!dragging) return;
       const rect = chatView.getBoundingClientRect();
       const rightWidth = rect.right - e.clientX;
-      const minW = 280;
-      const maxW = rect.width - 300;
-      const clamped = Math.max(minW, Math.min(maxW, rightWidth));
-      chatView.style.setProperty("--chat-right-width", clamped + "px");
+      applyArtifactWidth(chatView, rightWidth);
     });
     document.addEventListener("mouseup", () => {
       if (!dragging) return;
@@ -6135,6 +6152,16 @@ function bindChatEvents() {
       const w = chatView.style.getPropertyValue("--chat-right-width");
       if (w && w.endsWith("px")) {
         localStorage.setItem("ollama_manager_artifact_width", w);
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 1135) {
+        const panel = $("chat-artifact-panel");
+        if (panel && !panel.hidden && chatView) {
+          const currentW = chatView.style.getPropertyValue("--chat-right-width");
+          if (currentW) applyArtifactWidth(chatView, currentW);
+        }
       }
     });
   }

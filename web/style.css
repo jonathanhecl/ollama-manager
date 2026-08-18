@@ -1620,7 +1620,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   overflow: hidden;
 }
 .chat-view.artifact-open {
-  grid-template-columns: minmax(0, 1fr) 10px var(--chat-right-width);
+  grid-template-columns: minmax(max(340px, 35%), 1fr) 10px minmax(280px, var(--chat-right-width));
   gap: 0;
 }
 .chat-shell {
@@ -2525,6 +2525,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border-radius: var(--radius);
   background: #0a0c12;
   font-size: 12px;
+  min-width: 0;
+  width: 100%;
 }
 .chat-stream-pulse {
   width: 8px;
@@ -2540,6 +2542,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .chat-stream-label {
   flex: 1;
+  min-width: 0;
   color: var(--text-dim);
   font-family: var(--mono);
   white-space: nowrap;
@@ -2554,6 +2557,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   background: #14151c;
   color: var(--text);
   cursor: pointer;
+  flex-shrink: 0;
 }
 .chat-stop-btn:hover:not(:disabled) {
   border-color: var(--warn);

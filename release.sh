@@ -11,7 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION="${1:-}"
 
 # 1. Validate version format (e.g., v1.0.0 or v1.0.0-beta.1)
-if [[ -z "$VERSION" ]] || ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'
+if [[ -z "$VERSION" ]] || ! [[ "$VERSION" =~ $VERSION_REGEX ]]; then
   echo -e "\033[0;31mError: La versión debe tener el formato vX.Y.Z (ej. v1.0.0)\033[0m" >&2
   echo "Uso: $0 vX.Y.Z" >&2
   exit 1
@@ -46,9 +47,10 @@ fi
 
 # 6. Parse Owner and Repo from remote origin URL
 REMOTE_URL="$(git remote get-url origin | tr -d '[:space:]')"
-if [[ "$REMOTE_URL" =~ github\.com[:/]([^/]+)/([^/.]+?)(\.git)?$ ]]; then
+REMOTE_REGEX='github\.com[:/]([^/]+)/([^/]+)'
+if [[ "$REMOTE_URL" =~ $REMOTE_REGEX ]]; then
   OWNER="${BASH_REMATCH[1]}"
-  REPO="${BASH_REMATCH[2]}"
+  REPO="${BASH_REMATCH[2]%.git}"
 else
   echo -e "\033[0;31mError: No se pudo determinar el propietario/repositorio de GitHub desde la URL de remote origin: $REMOTE_URL\033[0m" >&2
   exit 1

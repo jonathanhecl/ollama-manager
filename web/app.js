@@ -6733,10 +6733,12 @@ $("dl-add-form").addEventListener("submit", async (e) => {
   }
   let previous = null;
   let uninstallReason = "";
+  let usage = null;
   try {
     const res = await api(`/api/download-history/${encodeURIComponent(name)}`);
     previous = res && res.exists ? res.history : null;
     uninstallReason = uninstallReasonToText(res?.uninstall?.reason);
+    usage = res?.usage || null;
   } catch {
     // history endpoint is best-effort for UX warning
   }
@@ -6746,12 +6748,40 @@ $("dl-add-form").addEventListener("submit", async (e) => {
   } else if (previous?.last_error_at || (previous?.error_count || 0) > 0) {
     confirmMsg = t("downloads.reenqueue_error_confirm", { name });
   }
+
+  let usageLines = [];
+  if (usage) {
+    if (usage.record_tokens_per_sec > 0) {
+      const recDate = usage.record_tokens_per_sec_at ? ` (${fmtDate(usage.record_tokens_per_sec_at)})` : "";
+      usageLines.push(`• ${t("downloads.reenqueue_stat_record")}: ${usage.record_tokens_per_sec.toFixed(1)} tok/s${recDate}`);
+    }
+    if (usage.min_cold_load_ms > 0) {
+      const minDate = usage.min_cold_load_at ? ` (${fmtDate(usage.min_cold_load_at)})` : "";
+      usageLines.push(`• ${t("downloads.reenqueue_stat_min_load")}: ${fmtColdLoad(usage.min_cold_load_ms)}${minDate}`);
+    }
+    if (usage.last_used_at) {
+      usageLines.push(`• ${t("downloads.reenqueue_stat_last_used")}: ${fmtDateTimeFull(usage.last_used_at)}`);
+    }
+    if (usage.total_calls > 0) {
+      usageLines.push(`• ${t("downloads.reenqueue_stat_total_calls")}: ${usage.total_calls}`);
+    }
+  }
+
   if (uninstallReason) {
     const reasonLine = t("downloads.reenqueue_last_uninstall_reason", { reason: uninstallReason });
     if (!confirmMsg) {
       confirmMsg = t("downloads.reenqueue_with_reason_confirm", { name, reason: uninstallReason });
     } else {
       confirmMsg = `${confirmMsg}\n\n${reasonLine}`;
+    }
+  }
+
+  if (usageLines.length > 0) {
+    const statsBlock = `${t("downloads.reenqueue_prev_performance")}:\n${usageLines.join("\n")}`;
+    if (!confirmMsg) {
+      confirmMsg = `${t("downloads.reenqueue_with_history_confirm", { name })}\n\n${statsBlock}`;
+    } else {
+      confirmMsg = `${confirmMsg}\n\n${statsBlock}`;
     }
   }
   if (confirmMsg && !window.confirm(confirmMsg)) return;

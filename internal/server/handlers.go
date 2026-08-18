@@ -1499,6 +1499,19 @@ func (s *Server) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if s.usage != nil {
+		if u, ok := s.usage.Get(name); ok {
+			resp["usage"] = map[string]any{
+				"last_used_at":             u.LastUsedAt,
+				"record_tokens_per_sec":    u.RecordTokensPerSec,
+				"record_tokens_per_sec_at": u.RecordTokensPerSecAt,
+				"min_cold_load_ms":         u.MinColdLoadMs,
+				"min_cold_load_at":         u.MinColdLoadAt,
+				"total_tokens":             u.TotalTokens,
+				"total_calls":              u.TotalCalls,
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

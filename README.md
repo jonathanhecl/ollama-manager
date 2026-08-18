@@ -9,6 +9,8 @@ Tiny, fast, and feature-packed Go web server to manage and interact with [Ollama
 - **Model Management**:
   - Comprehensive model catalog: name, family, parameter count, quantization, model size, context length, install date, and loaded status (VRAM/RAM).
   - **Instant Live Search & Filter**: quickly filter models in real-time with an adaptive desktop/mobile search bar and column sorting (persisted in `localStorage`).
+  - **Memory & VRAM Management**: unload individual models or unload all active models from VRAM/RAM with one click.
+  - **Model Archiving**: archive rarely used models to clean up the primary catalog view while keeping them available for unarchiving anytime.
   - **Full Model Inspector**: view modelfiles, Jinja/Go templates, license, parameters, and architecture details.
   - **Model Repair & Patch**: inspect, test, and automatically patch missing tool templates or invalid stop tokens for community models.
   - **Uninstall History & Archiving**: keep track of uninstalled models with optional deletion reason notes.
@@ -19,22 +21,27 @@ Tiny, fast, and feature-packed Go web server to manage and interact with [Ollama
 
 - **Rich Web Chat Interface**:
   - Real-time streaming via Server-Sent Events (SSE) with smooth live **tokens/second (tok/s)** and total execution time counters.
+  - **Interactive Telemetry & Metrics**: detailed response generation metrics (total duration, prompt evaluation, model load time, tok/s) with explanatory tooltips, as well as parameter tooltips for sampling settings.
   - **Message Editing & Regeneration**: edit the last submitted message to resend and regenerate answers; easily cancel queued turns to recover original text and media assets into the input box.
+  - **Session Management**: reset conversation state with a confirmation dialog to start a fresh chat session cleanly without refreshing the page.
   - **Subtle Finish Reason Indicators**: clearly marks completion states (*stop*, *length limit*, *stopped*, *tool limit*).
-  - **Per-Model System Prompt & Config**: customizations (system prompt, temperature, top-k, top-p, thinking level) automatically save per model in `localStorage`, with an underlined **Reset to defaults** button.
+  - **Per-Model System Prompt & Config**: customizations (system prompt, temperature, top-k, top-p, thinking level) automatically save per model in `localStorage`, with a **Reset to defaults** button.
   - **Global Chat Defaults**: configure server-wide fallback chat parameters saved directly in `config.json`.
   - **Multimodal Support**: image generation, vision inputs, audio attachments, and browser microphone voice recording.
-  - **Thinking Traces**: collapsible and chronologically structured `<think>` reasoning traces, with per-chat **thinking level** selection (`off` / `low` / `medium` / `high` / `max`) for reasoning-capable models.
+  - **Thinking Traces & Reasoning Control**: collapsible and chronologically structured `<think>` reasoning traces, with granular **thinking level** controls (`auto`, `off` / no-think, `low`, `medium`, `high`, `max`) supported per model and globally.
 
 - **Web Tools & Live Artifacts Agent**:
   - **Internet Access (Web Tools)**: server-side bounded web agent utilizing DuckDuckGo (`web_search`) and direct HTTP (`web_fetch`) with a structured timeline (think → tool execution → answer).
-  - **Artifacts Workspace**: interactive sandbox allowing the model to create and modify web apps/HTML/JS/Python files (`create_artifact`, `write_file`, `replace_in_file`, `exec`) with a live side-by-side draggable splitter and live preview. Each model's artifacts are grouped by its digest under `artifacts/<digest>/<date>/`, can be re-loaded from the chat options to keep working on them, and are removed together with the model when uninstalling.
+  - **Artifacts Workspace Sandbox**: interactive workspace enabling models to build and iterate on web apps and codebases (`create_artifact`, `write_file`, `replace_in_file`, `read_file`, `list_dir`, `exec`) with a side-by-side draggable splitter and real-time live preview.
+  - **Visual Inspection (Screenshots)**: vision-capable models can invoke `take_artifact_screenshot` to capture and visually inspect the rendered preview directly from the user's browser, debugging layout, styling, and color contrast autonomously.
+  - **Live Console Diagnostics**: automatic capture of sandboxed iframe runtime logs (`console.log`, `console.warn`, `console.error`) via `get_artifact_console` for autonomous runtime debugging.
+  - **Artifact History & Management**: artifacts are organized by model digest under `artifacts/<digest>/<date>/`. Browse past artifacts, reload previous projects to continue editing, delete individual artifact workspaces via UI/API, or auto-clean them when uninstalling the model.
 
 - **Tests & Benchmark Suite**:
   - Built-in benchmark and evaluation runner to test models against standardized prompts and compare speed, context processing, and accuracy.
 
 - **Persistent Download Queue**:
-  - Enqueue multiple downloads with FIFO processing, real-time download progress streams, cancel/retry controls, and persistence across server restarts via `jobs.json`.
+  - Enqueue multiple downloads with FIFO processing, real-time download progress streams, pause/resume queue, pause/resume individual jobs, cancel/retry controls, download speed telemetry, and persistence across server restarts via `jobs.json`.
 
 - **Security & Portability**:
   - Single binary, zero external dependencies, minimalist dark UI, and bilingual interface (English / Spanish).
@@ -73,8 +80,17 @@ GOOS=windows GOARCH=amd64 go build -ldflags "-X 'main.buildTime=$(date +'%F %T')
 $env:CGO_ENABLED = "0"; $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -trimpath -ldflags="-s -w -X 'main.buildTime=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))'" -o ollama-manager .
 ```
 
-### Automated Multiplatform Release Scripts
+### Build & Release Scripts
 
+- **macOS (Bash)**:
+  ```bash
+  ./build-mac.sh              # Builds native macOS binary (arm64/amd64)
+  ./build-mac.sh -a arm64 -o dist/ollama-manager-macos
+  ```
+- **macOS (PowerShell)**:
+  ```powershell
+  ./build-mac.ps1
+  ```
 - **Build all platforms**:
   ```powershell
   ./build-all.ps1 -Version v1.0.0
@@ -156,10 +172,18 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `GET` | `/api/status` | System metrics, disk usage, and Ollama connection status |
 | `GET` | `/api/models` | List installed models with loaded status and context lengths |
 | `GET` | `/api/running` | Models currently loaded in VRAM/RAM (`/api/ps`) |
+| `POST` | `/api/running/unload-all` | Unload all models currently residing in VRAM/RAM |
 | `GET` | `/api/models/{name}` | Detailed model info, modelfile, parameters, and template |
-| `DELETE` | `/api/models/{name}` | Uninstall model (with optional deletion reason tracking). Also removes the artifacts it generated (`artifact_count`/`deleted_artifacts` in the response) |
+| `POST` | `/api/models/unload` | Unload a specific model from VRAM/RAM |
+| `POST` | `/api/models/archive` | Archive a model to hide it from standard listings |
+| `POST` | `/api/models/unarchive` | Unarchive a model |
+| `DELETE` | `/api/models/{name}` | Uninstall model (with optional deletion reason tracking). Also removes associated artifacts (`artifact_count`/`deleted_artifacts` in response) |
 | `POST` | `/api/chat` | SSE chat stream (`chunk`, `tool`, `done`, `error`) supporting Web Tools & Artifacts |
-| `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed artifact files for live preview. Artifacts are stored under `artifacts/<model-digest>/<timestamp>/` |
+| `POST` | `/api/embed` | Generate text embeddings |
+| `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed artifact files for live preview (`GET /api/artifacts/{rest...}`) |
+| `DELETE` | `/api/artifacts/{digest}/{timestamp}` | Delete a specific generated artifact workspace |
+| `POST` | `/api/artifacts/console` | Relay runtime console logs from artifact preview iframe to the agent |
+| `POST` | `/api/artifacts/screenshot` | Submit browser preview screenshot for vision agent inspection |
 | `GET` | `/api/models/{name}/artifacts` | List the artifact projects a model has created (id, date, file count, size) |
 | `POST` | `/api/model-repair/preview` | Generate patched Modelfile preview (tools/templates/stops) |
 | `POST` | `/api/model-repair/apply` | Apply repair and build fixed model |
@@ -168,7 +192,10 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `POST` | `/api/pull` | Enqueue a model download (`{"name":"llama3:8b"}`) |
 | `GET` | `/api/jobs` | List download queue jobs |
 | `GET` | `/api/jobs/events` | SSE stream for real-time download queue updates |
+| `GET` | `/api/download-history/{name}` | Download history and statistics for a model |
+| `POST` | `/api/jobs/pause`, `/api/jobs/resume` | Pause or resume download queue processing |
 | `POST` | `/api/jobs/{id}/cancel` | Cancel a queued or active download |
+| `POST` | `/api/jobs/{id}/pause`, `/api/jobs/{id}/resume` | Pause or resume an individual download job |
 | `DELETE` | `/api/jobs/{id}` | Delete a finished/cancelled job from history |
 | `POST` | `/api/jobs/clear` | Clear all terminal download jobs |
 | `GET` | `/api/config` | Read current configuration |
@@ -176,7 +203,7 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `POST` | `/api/config/password` | Set or clear password protection |
 | `GET` | `/api/opencode` | OpenCode integration state (config path, local Ollama provider, per-model visibility) |
 | `POST` | `/api/opencode/provider` | Create the local Ollama provider in the OpenCode config if missing |
-| `POST` | `/api/opencode/models` | Set exactly which models are exposed in the local OpenCode provider (`{"enabled":["tag",…],"names":{"tag":"Custom name"}}`) |
+| `POST` | `/api/opencode/models` | Set exactly which models are exposed in the local OpenCode provider |
 
 ---
 

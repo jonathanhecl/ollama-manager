@@ -5073,15 +5073,233 @@ function showArtifactPanel(url, name, generating) {
 
   if (title && name) title.textContent = name;
   if (generating) {
-    const loadingText = t("chat.artifact.generating");
+    const loadingText = escapeHtml(t("chat.artifact.generating") || "Generating artifact…");
     frame.removeAttribute("src");
-    frame.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
-      + 'html,body{margin:0;height:100%;background:#0d0d0d;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}'
-      + '.loader{color:#888;font-size:1.1rem;letter-spacing:.03em;display:flex;align-items:center;gap:.6rem}'
-      + '.spinner{width:18px;height:18px;border:2px solid #333;border-top-color:#888;border-radius:50%;animation:spin 0.8s linear infinite}'
-      + '@keyframes spin{to{transform:rotate(360deg)}}'
-      + '</style></head><body><div class="loader"><span class="spinner"></span><span>'
-      + loadingText + '</span></div></body></html>';
+    frame.srcdoc = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%;
+  height: 100%;
+  background: #090a0f;
+  background-image: 
+    radial-gradient(circle at 50% 45%, rgba(139, 92, 246, 0.2) 0%, rgba(59, 130, 246, 0.12) 35%, transparent 70%),
+    radial-gradient(circle at 80% 20%, rgba(236, 72, 153, 0.08) 0%, transparent 50%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  overflow: hidden;
+  color: #fff;
+}
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  user-select: none;
+}
+.ambient-glow {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, rgba(59, 130, 246, 0.2) 50%, transparent 75%);
+  filter: blur(40px);
+  animation: pulse-glow 4s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.orb-stage {
+  position: relative;
+  width: 130px;
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2rem;
+  perspective: 800px;
+}
+.core-sparkle {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #a855f7, #3b82f6);
+  box-shadow: 0 0 30px rgba(168, 85, 247, 0.8), 0 0 60px rgba(59, 130, 246, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: float-core 3s ease-in-out infinite alternate, rotate-core 12s linear infinite;
+  z-index: 5;
+}
+.core-sparkle svg {
+  width: 26px;
+  height: 26px;
+  fill: #ffffff;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+  animation: pulse-icon 2s ease-in-out infinite;
+}
+.ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  pointer-events: none;
+}
+.ring-1 {
+  width: 90px;
+  height: 90px;
+  border-top-color: #ec4899;
+  border-bottom-color: #8b5cf6;
+  animation: spin-ring-1 3s linear infinite;
+  box-shadow: 0 0 15px rgba(236, 72, 153, 0.4);
+}
+.ring-2 {
+  width: 114px;
+  height: 114px;
+  border-left-color: #3b82f6;
+  border-right-color: #06b6d4;
+  animation: spin-ring-2 4.5s linear infinite reverse;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.35);
+}
+.ring-3 {
+  width: 136px;
+  height: 136px;
+  border-top-color: rgba(168, 85, 247, 0.7);
+  border-right-color: rgba(236, 72, 153, 0.5);
+  border-style: dashed;
+  animation: spin-ring-3 8s linear infinite;
+}
+.satellite {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  animation: spin-satellite 5s linear infinite;
+}
+.satellite::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 12px #fff, 0 0 20px #a855f7;
+}
+.text-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 10;
+}
+.title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: linear-gradient(90deg, #f1f5f9 0%, #cbd5e1 30%, #a855f7 50%, #60a5fa 70%, #f1f5f9 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text 3s linear infinite;
+}
+.sub-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  backdrop-filter: blur(8px);
+}
+.pulsing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: blink 1.5s ease-in-out infinite;
+}
+@keyframes pulse-glow {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  100% { transform: scale(1.15); opacity: 0.95; }
+}
+@keyframes float-core {
+  0% { transform: translateY(-4px) scale(0.98); }
+  100% { transform: translateY(4px) scale(1.02); }
+}
+@keyframes rotate-core {
+  0% { border-radius: 14px; }
+  50% { border-radius: 20px; }
+  100% { border-radius: 14px; }
+}
+@keyframes pulse-icon {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+@keyframes spin-ring-1 {
+  0% { transform: rotateX(65deg) rotateY(15deg) rotateZ(0deg); }
+  100% { transform: rotateX(65deg) rotateY(15deg) rotateZ(360deg); }
+}
+@keyframes spin-ring-2 {
+  0% { transform: rotateX(-55deg) rotateY(25deg) rotateZ(0deg); }
+  100% { transform: rotateX(-55deg) rotateY(25deg) rotateZ(360deg); }
+}
+@keyframes spin-ring-3 {
+  0% { transform: rotateX(75deg) rotateY(-10deg) rotateZ(0deg); }
+  100% { transform: rotateX(75deg) rotateY(-10deg) rotateZ(360deg); }
+}
+@keyframes spin-satellite {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes shimmer-text {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="ambient-glow"></div>
+    <div class="orb-stage">
+      <div class="ring ring-3"></div>
+      <div class="ring ring-2"></div>
+      <div class="ring ring-1"></div>
+      <div class="satellite"></div>
+      <div class="core-sparkle">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z"/>
+        </svg>
+      </div>
+    </div>
+    <div class="text-box">
+      <div class="title">${loadingText}</div>
+      <div class="sub-pill">
+        <span class="pulsing-dot"></span>
+        <span>Synthesizing code & preview</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
   } else if (url) {
     frame.removeAttribute("srcdoc");
     frame.src = url;

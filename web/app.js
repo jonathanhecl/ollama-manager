@@ -367,6 +367,16 @@ async function refreshStatus() {
     $("settings-logout-btn").hidden = !s.has_password;
     updateSystemWidgets(s);
     updateChatSendEnabled();
+    if (Array.isArray(s.running)) {
+      runningModels = s.running;
+      applyRunning(s.running);
+      updateLoadedDotsOnly();
+      updateChatModelLoadDot();
+      patchDetailLoadedState();
+      if ($("running-modal") && !$("running-modal").hidden) {
+        renderRunningModalList();
+      }
+    }
   } catch (e) {
     lastSystemStatus = null;
     managerApiOk = false;
@@ -8792,7 +8802,6 @@ updateChatCapabilityUI();
 updateChatContextMeter();
 updateChatSendEnabled();
 setInterval(refreshStatus, STATUS_REFRESH_MS);
-setInterval(refreshLoadedState, 1000);
 setInterval(() => {
   const modal = $("downloads-modal");
   if (modal && !modal.hidden) renderDownloads();

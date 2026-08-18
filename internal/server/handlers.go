@@ -157,7 +157,31 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	diskPath := resolveDiskProbePath(cfgPath)
 	sys := sysmetrics.Collect(ctx, diskPath)
-	loadedModelsRAM, loadedModelsVRAM, loadedModelsTotal := s.loadedModelsMemoryUsage(ctx)
+
+	running, err := s.ollama.PS(ctx)
+	if err != nil {
+		running = nil
+	}
+	runningViews := make([]runningView, 0, len(running))
+	var ramBytes, vramBytes, totalBytes uint64
+	for _, rm := range running {
+		total, vram := normalizeRunningModelSizes(rm.Size, rm.SizeVRAM)
+		ram := total - vram
+		totalBytes += uint64(total)
+		ramBytes += uint64(ram)
+		vramBytes += uint64(vram)
+
+		rv := runningView{
+			Name:     rm.Name,
+			SizeVRAM: vram,
+		}
+		if !rm.ExpiresAt.IsZero() {
+			exp := rm.ExpiresAt
+			rv.ExpiresAt = &exp
+		}
+		runningViews = append(runningViews, rv)
+	}
+
 	resp := map[string]any{
 		"ollama_url":               ollamaURL,
 		"expose_network":           exposeNetwork,
@@ -174,26 +198,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"memory_free":              sys.MemoryFree,
 		"memory_used":              sys.MemoryUsed,
 		"memory_used_pct":          sys.MemoryUsedPct,
-		"models_ram_loaded_bytes":  loadedModelsRAM,
-		"models_vram_loaded_bytes": loadedModelsVRAM,
-		"models_loaded_bytes":      loadedModelsTotal,
+		"models_ram_loaded_bytes":  ramBytes,
+		"models_vram_loaded_bytes": vramBytes,
+		"models_loaded_bytes":      totalBytes,
+		"running":                  runningViews,
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) loadedModelsMemoryUsage(ctx context.Context) (ramBytes uint64, vramBytes uint64, totalBytes uint64) {
-	running, err := s.ollama.PS(ctx)
-	if err != nil {
-		return 0, 0, 0
-	}
-	for _, rm := range running {
-		total, vram := normalizeRunningModelSizes(rm.Size, rm.SizeVRAM)
-		ram := total - vram
-		totalBytes += uint64(total)
-		ramBytes += uint64(ram)
-		vramBytes += uint64(vram)
-	}
-	return ramBytes, vramBytes, totalBytes
 }
 
 func normalizeRunningModelSizes(size, sizeVRAM int64) (int64, int64) {

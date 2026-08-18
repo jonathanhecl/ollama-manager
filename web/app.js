@@ -572,7 +572,6 @@ async function refreshModels() {
     syncChatModelOptions();
     updateChatCapabilityUI();
     updateChatContextMeter();
-    await handleRouting();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
     $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
@@ -1970,7 +1969,6 @@ function showModelsView() {
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
   }
-  refreshModels();
 }
 
 function resetChatState() {
@@ -2627,7 +2625,9 @@ async function handleRouting() {
   } else if (path === "/tests/battery/history") {
     showBatteryHistoryView();
   } else if (path === "/") {
-    showModelsView();
+    if (currentView !== "models") {
+      showModelsView();
+    }
   }
 }
 
@@ -5777,6 +5777,7 @@ function bindChatEvents() {
   addFastTapListener($("chat-back-btn"), () => {
     showModelsView();
     resetChatState();
+    refreshModels().catch(() => {});
   });
   addFastTapListener($("chat-options-toggle"), () => {
     const cv = $("chat-view");
@@ -8696,7 +8697,7 @@ $("agent-feedback-send")?.addEventListener("click", () => {
 window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
 bindModelsSearchEvents();
 refreshStatus();
-refreshModels();
+refreshModels().then(() => handleRouting());
 connectJobsStream();
 bindChatEvents();
 updateStreamBar();

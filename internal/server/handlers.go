@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log"
@@ -1722,6 +1723,19 @@ func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write(injected)
 			return
 		}
+
+		// When requesting the artifact root or an HTML entry point and index.html is missing,
+		// serve a clean, diagnostic "Missing index.html" page instead of a raw 404.
+		if subpath == "" || strings.HasSuffix(strings.ToLower(subpath), ".html") {
+			missingHTML := renderMissingIndexPage(baseDir)
+			injected := injectConsoleCaptureScript(missingHTML)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(injected)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(injected)
+			return
+		}
+
 		http.NotFound(w, r)
 		return
 	}
@@ -1883,6 +1897,188 @@ func injectConsoleCaptureScript(htmlContent []byte) []byte {
 	res = append(res, script...)
 	res = append(res, htmlContent...)
 	return res
+}
+
+func renderMissingIndexPage(baseDir string) []byte {
+	var fileListItems []string
+	if entries, err := os.ReadDir(baseDir); err == nil {
+		for _, e := range entries {
+			if e.Name() == "prompt.txt" || e.Name() == ".artifact.json" {
+				continue
+			}
+			icon := "📄"
+			if e.IsDir() {
+				icon = "📁"
+			}
+			info, _ := e.Info()
+			sizeStr := ""
+			if info != nil && !e.IsDir() {
+				sizeStr = fmt.Sprintf(" · %d bytes", info.Size())
+			}
+			fileListItems = append(fileListItems, fmt.Sprintf(`<li><span class="file-icon">%s</span><span class="file-name">%s</span><span class="file-size">%s</span></li>`, icon, html.EscapeString(e.Name()), sizeStr))
+		}
+	}
+
+	filesHtml := `<div class="empty-state">(No hay archivos en el workspace todavía)</div>`
+	if len(fileListItems) > 0 {
+		filesHtml = `<ul class="file-list">` + strings.Join(fileListItems, "") + `</ul>`
+	}
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>index.html no encontrado</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%%;
+  height: 100%%;
+  background: #090a0f;
+  background-image: 
+    radial-gradient(circle at 50%% 40%%, rgba(245, 158, 11, 0.12) 0%%, rgba(139, 92, 246, 0.08) 35%%, transparent 70%%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100%% 100%%, 32px 32px, 32px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  overflow: hidden;
+  color: #f1f5f9;
+  padding: 1.5rem;
+}
+.card {
+  max-width: 520px;
+  width: 100%%;
+  background: rgba(18, 20, 29, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 2.2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(245, 158, 11, 0.1);
+  animation: fadeIn 0.4s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.icon-badge {
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(239, 68, 68, 0.1));
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.25);
+}
+.title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+  margin-bottom: 0.5rem;
+}
+.desc {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #94a3b8;
+  margin-bottom: 1.5rem;
+}
+.hint-box {
+  width: 100%%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+}
+.hint-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #f59e0b;
+  margin-bottom: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.hint-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  color: #e2e8f0;
+  word-break: break-all;
+}
+.files-section {
+  width: 100%%;
+  text-align: left;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 1rem;
+}
+.files-heading {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.6rem;
+}
+.file-list {
+  list-style: none;
+  max-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.file-list li {
+  display: flex;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+}
+.file-icon { margin-right: 0.45rem; }
+.file-name { font-weight: 500; }
+.file-size { color: #64748b; font-size: 0.75rem; margin-left: 0.4rem; }
+.empty-state {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-style: italic;
+}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon-badge">⚠️</div>
+    <h1 class="title">index.html no encontrado</h1>
+    <p class="desc">Este artifact no contiene un archivo <code>index.html</code> de entrada. Para renderizar la vista previa interactiva, es necesario crear <code>index.html</code>.</p>
+    <div class="hint-box">
+      <div class="hint-label">✦ Instrucción para el Asistente / Modelo</div>
+      <div class="hint-code">write_file(path="index.html", content="...")</div>
+    </div>
+    <div class="files-section">
+      <div class="files-heading">Archivos en este artifact</div>
+      %s
+    </div>
+  </div>
+</body>
+</html>`, filesHtml)
+	return []byte(html)
 }
 
 // ---------- helpers ----------

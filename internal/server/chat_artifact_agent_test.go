@@ -106,6 +106,39 @@ func TestHandleArtifactFilesSPAFallback(t *testing.T) {
 	}
 }
 
+func TestHandleArtifactFilesMissingIndexPage(t *testing.T) {
+	ts := "2026-08-04-noindex"
+	artifactDir := filepath.Join("artifacts", ts)
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("failed to create artifact dir: %v", err)
+	}
+	defer os.RemoveAll("artifacts")
+
+	// Write an auxiliary file like app.js, but no index.html
+	_ = os.WriteFile(filepath.Join(artifactDir, "app.js"), []byte("console.log('hi');"), 0o644)
+
+	s := &Server{}
+	req := httptest.NewRequest("GET", "/api/artifacts/"+ts+"/", nil)
+	req.SetPathValue("rest", ts+"/")
+
+	rr := httptest.NewRecorder()
+	s.handleArtifactFiles(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK for missing index page, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "index.html no encontrado") {
+		t.Errorf("expected body to contain 'index.html no encontrado', got: %s", body)
+	}
+	if !strings.Contains(body, "write_file(path=\"index.html\"") {
+		t.Errorf("expected body to contain write_file hint, got: %s", body)
+	}
+	if !strings.Contains(body, "app.js") {
+		t.Errorf("expected body to list existing app.js, got: %s", body)
+	}
+}
+
 func TestHandleArtifactFilesNestedDigestLayout(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "artifact_nested_test_*")
 	if err != nil {

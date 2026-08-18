@@ -333,6 +333,18 @@ func TestListModelArtifacts(t *testing.T) {
 	if a.Size <= 0 {
 		t.Errorf("size = %d, want > 0", a.Size)
 	}
+
+	// Test deleting the artifact
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/artifacts/"+a.ID, nil)
+	delRec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, body = %s", delRec.Code, delRec.Body.String())
+	}
+
+	if _, err := os.Stat(artifactDir); !os.IsNotExist(err) {
+		t.Errorf("expected artifact dir to be deleted, stat err = %v", err)
+	}
 }
 
 func TestArtifactVisionToolDefinitions(t *testing.T) {

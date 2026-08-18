@@ -1295,6 +1295,13 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .running-main {
   min-width: 0;
+  flex: 1;
+}
+.running-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .running-name {
   font-family: var(--mono);

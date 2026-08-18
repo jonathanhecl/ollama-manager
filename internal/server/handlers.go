@@ -1614,6 +1614,56 @@ func (s *Server) handleListModelArtifacts(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"model": name, "artifacts": artifacts})
 }
 
+// handleDeleteArtifact removes an artifact project from disk.
+// Path: DELETE /api/artifacts/{rest...}
+func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
+	rest := r.PathValue("rest")
+	if rest == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("missing artifact id"))
+		return
+	}
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid artifact id"))
+		return
+	}
+
+	var targetDir string
+	if len(parts) >= 2 {
+		targetDir = filepath.Join("artifacts", parts[0], parts[1])
+	} else {
+		targetDir = filepath.Join("artifacts", parts[0])
+	}
+
+	cleanTarget := filepath.Clean(targetDir)
+	cleanArtifacts, _ := filepath.Abs("artifacts")
+	absTarget, err := filepath.Abs(cleanTarget)
+	if err != nil || !strings.HasPrefix(absTarget, cleanArtifacts+string(filepath.Separator)) {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid artifact path"))
+		return
+	}
+
+	if info, err := os.Stat(cleanTarget); err != nil || !info.IsDir() {
+		writeError(w, http.StatusNotFound, fmt.Errorf("artifact not found"))
+		return
+	}
+
+	if err := os.RemoveAll(cleanTarget); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to delete artifact: %w", err))
+		return
+	}
+
+	// Clean up empty parent digest folder if no more artifacts remain
+	if len(parts) >= 2 {
+		parentDir := filepath.Join("artifacts", parts[0])
+		if entries, err := os.ReadDir(parentDir); err == nil && len(entries) == 0 {
+			_ = os.Remove(parentDir)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": rest})
+}
+
 func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 	// Path: /api/artifacts/{rest...}
 	// Current layout: artifacts/<model-digest>/<timestamp>/<files...>

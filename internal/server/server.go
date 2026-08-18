@@ -214,6 +214,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Artifact files — public (no auth) so sandboxed iframes can load them.
 	mux.HandleFunc("GET /api/artifacts/{rest...}", s.handleArtifactFiles)
+	mux.Handle("DELETE /api/artifacts/{rest...}", s.requireAuth(s.handleDeleteArtifact))
 
 	return logging(mux)
 }

@@ -4984,8 +4984,12 @@ function openLoadArtifactModal() {
           <div class="running-name">${escapeHtml(displayName)}</div>
           <div class="running-meta">${meta.join(" · ")}</div>
         </div>
-        <button type="button" class="primary" data-load="${escapeHtml(a.id)}">${escapeHtml(t("chat.load_artifact"))}</button>`;
-      row.querySelector("button").addEventListener("click", () => loadExistingArtifact(a.id, a.date, a.name));
+        <div class="running-actions">
+          <button type="button" class="primary" data-load="${escapeHtml(a.id)}">${escapeHtml(t("chat.load_artifact"))}</button>
+          <button type="button" class="ghost danger-text" data-delete="${escapeHtml(a.id)}" data-i18n-attr="title" data-i18n="chat.delete_artifact" title="${escapeHtml(t("chat.delete_artifact"))}">🗑️</button>
+        </div>`;
+      row.querySelector("[data-load]").addEventListener("click", () => loadExistingArtifact(a.id, a.date, a.name));
+      row.querySelector("[data-delete]").addEventListener("click", () => deleteExistingArtifact(a.id, displayName));
       list.appendChild(row);
     }
     const btn = $("chat-model-artifacts-btn");
@@ -5000,6 +5004,26 @@ function openLoadArtifactModal() {
     empty.hidden = false;
     empty.textContent = t("state.error_prefix") + e.message;
   });
+}
+
+async function deleteExistingArtifact(id, name) {
+  const confirmed = window.confirm(t("chat.delete_artifact_confirm", { name: name || id }));
+  if (!confirmed) return;
+  try {
+    await api("/api/artifacts/" + id, { method: "DELETE" });
+    toast(t("chat.delete_artifact_success", { name: name || id }), "success");
+    if (activeArtifactTimestamp === id) {
+      activeArtifactTimestamp = null;
+      activeArtifactName = null;
+      activeArtifactUrl = null;
+      hideArtifactPanel();
+      updateArtifactResourceBtn();
+    }
+    openLoadArtifactModal();
+    void refreshModelArtifactCount();
+  } catch (err) {
+    toast(t("toast.delete_error", { msg: err.message }), "error");
+  }
 }
 
 function loadExistingArtifact(id, label, name) {

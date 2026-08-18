@@ -1226,6 +1226,21 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest")
 	}
 
+	isComputeOrOOMError := func(err error) bool {
+		if err == nil {
+			return false
+		}
+		s := strings.ToLower(err.Error())
+		return strings.Contains(s, "compute error") ||
+			strings.Contains(s, "out of memory") ||
+			strings.Contains(s, "cuda error") ||
+			strings.Contains(s, "cuda out of memory") ||
+			strings.Contains(s, "metal: command buffer") ||
+			strings.Contains(s, "failed to allocate") ||
+			strings.Contains(s, "not enough memory") ||
+			strings.Contains(s, "llama-server chat error")
+	}
+
 	var wasCold bool
 	if running, err := s.ollama.PS(r.Context()); err == nil {
 		wasCold = true
@@ -1303,21 +1318,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "data: %s\n\n", buf)
 			flusher.Flush()
 		}
-
-func isComputeOrOOMError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "compute error") ||
-		strings.Contains(s, "out of memory") ||
-		strings.Contains(s, "cuda error") ||
-		strings.Contains(s, "cuda out of memory") ||
-		strings.Contains(s, "metal: command buffer") ||
-		strings.Contains(s, "failed to allocate") ||
-		strings.Contains(s, "not enough memory") ||
-		strings.Contains(s, "llama-server chat error")
-}
 
 		startedAt := time.Now()
 		var firstTokenTime time.Duration

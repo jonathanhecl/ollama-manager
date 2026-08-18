@@ -89,7 +89,8 @@ const I18N = {
     "col.quant": "Quant.",
     "col.context": "Context",
     "col.size": "Size",
-    "col.modified": "Modified",
+    "col.last_used": "Last Used",
+    "col.modified": "Last Used",
 
     "state.loading": "Loading…",
     "state.empty_models": "No models installed. Click Downloads to pull one.",
@@ -630,7 +631,8 @@ const I18N = {
     "col.quant": "Cuant.",
     "col.context": "Contexto",
     "col.size": "Tamaño",
-    "col.modified": "Modificado",
+    "col.last_used": "Último Uso",
+    "col.modified": "Último Uso",
 
     "state.loading": "Cargando…",
     "state.empty_models": "No hay modelos instalados. Tocá Descargas para instalar uno.",

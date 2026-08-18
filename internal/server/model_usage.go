@@ -110,7 +110,6 @@ func (s *modelUsageStore) InheritUsage(srcName, targetName string) error {
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	src, ok := s.models[srcName]
 	if !ok {
 		if strings.HasSuffix(srcName, ":latest") {
@@ -120,10 +119,13 @@ func (s *modelUsageStore) InheritUsage(srcName, targetName string) error {
 		}
 	}
 	if !ok {
+		s.mu.Unlock()
 		return nil
 	}
 	target := s.models[targetName]
 	s.models[targetName] = mergeBaseUsage(target, src)
+	s.mu.Unlock()
+
 	return s.save()
 }
 

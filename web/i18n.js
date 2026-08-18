@@ -83,6 +83,7 @@ const I18N = {
 
     "col.name": "Name",
     "col.family": "Family",
+    "col.record_tokens_per_sec": "Record Tok/s",
     "col.params": "Params",
     "col.quant": "Quant.",
     "col.context": "Context",
@@ -101,6 +102,9 @@ const I18N = {
 
     "detail.empty": "Select a model.",
     "detail.family": "Family",
+    "detail.last_used": "Last Used",
+    "detail.record_tokens": "Record Tok/s",
+    "detail.record_at": "Record achieved on {date}",
     "detail.architecture": "Architecture",
     "detail.params": "Parameters",
     "detail.quant": "Quantization",
@@ -617,6 +621,7 @@ const I18N = {
 
     "col.name": "Nombre",
     "col.family": "Familia",
+    "col.record_tokens_per_sec": "Récord Prom.",
     "col.params": "Parámetros",
     "col.quant": "Cuant.",
     "col.context": "Contexto",
@@ -635,6 +640,9 @@ const I18N = {
 
     "detail.empty": "Selecciona un modelo.",
     "detail.family": "Familia",
+    "detail.last_used": "Último Uso",
+    "detail.record_tokens": "Récord Tok/s",
+    "detail.record_at": "Récord alcanzado el {date}",
     "detail.architecture": "Arquitectura",
     "detail.params": "Parámetros",
     "detail.quant": "Cuantización",

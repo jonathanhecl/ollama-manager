@@ -1,0 +1,86 @@
+package server
+
+import (
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestModelUsageStore(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+
+	store := newModelUsageStore(path)
+	if err := store.Load(); err != nil {
+		t.Fatalf("Load on empty store failed: %v", err)
+	}
+
+	t1 := time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC)
+	// 50 tokens in 2 seconds = 25.0 tok/s
+	if err := store.Record("llama3:8b", 50, 2000000000, 10, t1); err != nil {
+		t.Fatalf("Record failed: %v", err)
+	}
+
+	rec, ok := store.Get("llama3:8b")
+	if !ok {
+		t.Fatalf("expected record for llama3:8b")
+	}
+	if rec.TotalCalls != 1 {
+		t.Errorf("expected TotalCalls 1, got %d", rec.TotalCalls)
+	}
+	if rec.TotalTokens != 60 {
+		t.Errorf("expected TotalTokens 60, got %d", rec.TotalTokens)
+	}
+	if rec.RecordTokensPerSec != 25.0 {
+		t.Errorf("expected RecordTokensPerSec 25.0, got %f", rec.RecordTokensPerSec)
+	}
+	if rec.RecordTokensPerSecAt == nil || !rec.RecordTokensPerSecAt.Equal(t1) {
+		t.Errorf("expected RecordTokensPerSecAt %v, got %v", t1, rec.RecordTokensPerSecAt)
+	}
+	if rec.LastUsedAt == nil || !rec.LastUsedAt.Equal(t1) {
+		t.Errorf("expected LastUsedAt %v, got %v", t1, rec.LastUsedAt)
+	}
+
+	// Record lower speed: should update last used but NOT record tok/s
+	t2 := time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC)
+	// 20 tokens in 2 seconds = 10.0 tok/s
+	if err := store.Record("llama3:8b", 20, 2000000000, 5, t2); err != nil {
+		t.Fatalf("Record 2 failed: %v", err)
+	}
+
+	rec, _ = store.Get("llama3:8b")
+	if rec.TotalCalls != 2 {
+		t.Errorf("expected TotalCalls 2, got %d", rec.TotalCalls)
+	}
+	if rec.RecordTokensPerSec != 25.0 {
+		t.Errorf("expected RecordTokensPerSec to remain 25.0, got %f", rec.RecordTokensPerSec)
+	}
+	if rec.LastUsedAt == nil || !rec.LastUsedAt.Equal(t2) {
+		t.Errorf("expected LastUsedAt %v, got %v", t2, rec.LastUsedAt)
+	}
+
+	// Record higher speed: should update both
+	t3 := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	// 100 tokens in 2 seconds = 50.0 tok/s
+	if err := store.Record("llama3:8b", 100, 2000000000, 20, t3); err != nil {
+		t.Fatalf("Record 3 failed: %v", err)
+	}
+
+	rec, _ = store.Get("llama3:8b")
+	if rec.RecordTokensPerSec != 50.0 {
+		t.Errorf("expected RecordTokensPerSec 50.0, got %f", rec.RecordTokensPerSec)
+	}
+	if rec.RecordTokensPerSecAt == nil || !rec.RecordTokensPerSecAt.Equal(t3) {
+		t.Errorf("expected RecordTokensPerSecAt %v, got %v", t3, rec.RecordTokensPerSecAt)
+	}
+
+	// Test persistence by reloading in a new store instance
+	store2 := newModelUsageStore(path)
+	if err := store2.Load(); err != nil {
+		t.Fatalf("store2 Load failed: %v", err)
+	}
+	rec2, ok := store2.Get("llama3:8b")
+	if !ok || rec2.RecordTokensPerSec != 50.0 || rec2.TotalCalls != 3 {
+		t.Errorf("persisted store mismatch: %+v", rec2)
+	}
+}

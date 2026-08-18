@@ -62,6 +62,17 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	bgCtx := context.Background()
 	runID := s.runner.ExecuteBatteryAsync(bgCtx, group, testsList, body.ModelIDs, modelCaps, sysInfo, func(run *runner.BatteryRun) {
 		_ = s.runnerStore.SaveRun(run)
+		if s.usage != nil && run != nil {
+			for _, testRes := range run.Results {
+				if testRes.Model != "" {
+					if testRes.TokensPerSec > 0 {
+						_ = s.usage.RecordTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
+					} else {
+						_ = s.usage.RecordTPS(testRes.Model, 0, run.Timestamp)
+					}
+				}
+			}
+		}
 		s.runner.ClearProgress(run.ID)
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})

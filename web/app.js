@@ -732,11 +732,12 @@ function sortKey(m, col) {
   switch (col) {
     case "name": return (m.name || "").toLowerCase();
     case "family": return (m.family || "").toLowerCase();
+    case "record_tokens_per_sec": return Number(m.record_tokens_per_sec) || 0;
     case "parameter_size": return parseParamSize(m.parameter_size);
     case "quantization": return (m.quantization || "").toLowerCase();
     case "context_length": return Number(m.context_length) || 0;
     case "size": return Number(m.size) || 0;
-    case "modified_at": return new Date(m.modified_at).getTime() || 0;
+    case "modified_at": return m.last_used_at ? new Date(m.last_used_at).getTime() || 0 : (new Date(m.modified_at).getTime() || 0);
     default: return "";
   }
 }
@@ -761,8 +762,12 @@ function applySort(arr) {
       const typeA = isQueuedA ? 0 : a.job?.status === "running" ? 1 : 2;
       const typeB = isQueuedB ? 0 : b.job?.status === "running" ? 1 : 2;
       if (typeA !== typeB) return dir === "asc" ? (typeB - typeA) : (typeA - typeB);
-      const timeA = a.job?.created_at ? new Date(a.job.created_at).getTime() : new Date(a.modified_at).getTime();
-      const timeB = b.job?.created_at ? new Date(b.job.created_at).getTime() : new Date(b.modified_at).getTime();
+      const timeA = a.job?.created_at
+        ? new Date(a.job.created_at).getTime()
+        : (a.last_used_at ? new Date(a.last_used_at).getTime() : new Date(a.modified_at).getTime());
+      const timeB = b.job?.created_at
+        ? new Date(b.job.created_at).getTime()
+        : (b.last_used_at ? new Date(b.last_used_at).getTime() : new Date(b.modified_at).getTime());
       return dir === "asc" ? (timeA - timeB) : (timeB - timeA);
     });
   }
@@ -911,24 +916,41 @@ function renderTable() {
   const archiveTitle = t("detail.archive_title");
   const unarchiveTitle = t("detail.unarchive_title");
   function getRowInnerHtml(m, capsHtml, progressHtml) {
+    const familyTag = (m.family && m.family !== "—")
+      ? `<span class="model-family-tag">(${escapeHtml(m.family)})</span>`
+      : "";
+    const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
+      ? `<span class="cell-record-tok" title="${m.record_tokens_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })) : ""}">${m.record_tokens_per_sec.toFixed(1)} <span class="unit">tok/s</span></span>`
+      : "—";
+    
+    const lastUsedDisplay = m.last_used_at ? fmtDate(m.last_used_at) : "—";
+    const lastUsedTitle = m.last_used_at ? fmtDateTimeFull(m.last_used_at) : "";
+    const modifiedDisplay = fmtDate(m.modified_at);
+    const modifiedTitle = fmtDateTimeFull(m.modified_at);
+
     return `
       <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name">${escapeHtml(m.name)}</div>
+            <div class="model-name">${escapeHtml(m.name)}${familyTag}</div>
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
           ${!m.isPending ? `<button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>` : ""}
         </div>
       </td>
-      <td>${escapeHtml(m.family || "—")}</td>
+      <td class="cell-record-tok-col">${m.isPending ? "—" : recordTokHtml}</td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
       <td class="cell-ctx">${m.isPending ? "—" : fmtCtx(m.context_length)}</td>
       <td class="cell-size">${m.isPending ? "—" : fmtBytes(m.size)}</td>
-      <td class="cell-modified">${m.isPending ? "—" : fmtDate(m.modified_at)}</td>
+      <td class="cell-modified">
+        <div class="cell-dates">
+          <div class="date-primary" title="${escapeHtml(lastUsedTitle)}">${m.isPending ? "—" : lastUsedDisplay}</div>
+          <div class="date-secondary mono" title="${escapeHtml(modifiedTitle)}">${m.isPending ? "—" : modifiedDisplay}</div>
+        </div>
+      </td>
       <td class="col-actions">
         ${!m.isPending ? `
           <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
@@ -970,6 +992,8 @@ function renderTable() {
         tr._m_caps !== capsStr ||
         tr._m_size !== m.size ||
         tr._m_modified !== m.modified_at ||
+        tr._m_last_used !== m.last_used_at ||
+        tr._m_record_tok !== m.record_tokens_per_sec ||
         tr._m_ctx !== m.context_length ||
         tr._m_family !== m.family ||
         tr._m_param !== m.parameter_size ||
@@ -1023,6 +1047,8 @@ function renderTable() {
       newTr._m_caps = capsStr;
       newTr._m_size = m.size;
       newTr._m_modified = m.modified_at;
+      newTr._m_last_used = m.last_used_at;
+      newTr._m_record_tok = m.record_tokens_per_sec;
       newTr._m_ctx = m.context_length;
       newTr._m_family = m.family;
       newTr._m_param = m.parameter_size;
@@ -1113,7 +1139,7 @@ document.querySelectorAll("#models-table th.sortable").forEach((th) => {
     } else {
       sort.col = col;
       // Numeric defaults: largest first; text defaults: A→Z.
-      sort.dir = ["size", "context_length", "modified_at", "parameter_size"].includes(col) ? "desc" : "asc";
+      sort.dir = ["size", "context_length", "modified_at", "parameter_size", "record_tokens_per_sec"].includes(col) ? "desc" : "asc";
     }
     localStorage.setItem(SORT_KEY, JSON.stringify(sort));
     renderTable();
@@ -1156,6 +1182,12 @@ function renderDetail(d) {
   const stateText = m.loaded
     ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) })
     : t("detail.not_loaded");
+  const lastUsedVal = (d.last_used_at || m.last_used_at)
+    ? fmtDateTimeFull(d.last_used_at || m.last_used_at)
+    : "—";
+  const recordToksVal = (d.record_tokens_per_sec || m.record_tokens_per_sec) > 0
+    ? `${(d.record_tokens_per_sec || m.record_tokens_per_sec).toFixed(1)} tok/s${(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at) ? ` (${fmtDate(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at)})` : ""}`
+    : "—";
   const rows = [
     [t("detail.family"), d.details?.family || "—", false],
     [t("detail.architecture"), d.architecture || "—", false],
@@ -1164,6 +1196,8 @@ function renderDetail(d) {
     [t("detail.format"), d.details?.format || "—", false],
     [t("detail.context"), fmtCtx(d.context_length), false],
     [t("detail.size"), fmtBytes(m.size), false],
+    [t("detail.record_tokens"), recordToksVal, false],
+    [t("detail.last_used"), lastUsedVal, false],
     [t("detail.state"), stateText, true],
     [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
     [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false],

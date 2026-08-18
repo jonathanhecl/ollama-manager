@@ -336,6 +336,13 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 .model-name-wrap { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .model-name-block { min-width: 0; }
 .model-name { font-family: var(--mono); }
+.model-family-tag {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-left: 6px;
+  opacity: 0.85;
+}
 .info-btn { flex-shrink: 0; }
 .info-glyph {
   display: inline-grid; place-items: center;
@@ -367,7 +374,32 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
   transition: width .3s ease;
 }
 .cell-size, .cell-quant, .cell-params, .cell-ctx { font-family: var(--mono); color: var(--text-dim); }
+.cell-record-tok-col { font-family: var(--mono); color: var(--text); }
+.cell-record-tok {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--mono);
+}
+.cell-record-tok .unit {
+  font-size: 11px;
+  color: var(--text-dim);
+}
 .cell-modified { color: var(--text-dim); white-space: nowrap; }
+.cell-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cell-dates .date-primary {
+  color: var(--text);
+  font-size: 13px;
+}
+.cell-dates .date-secondary {
+  color: var(--text-dim);
+  font-size: 11px;
+  opacity: 0.8;
+}
 
 .btn-icon {
   background: transparent;

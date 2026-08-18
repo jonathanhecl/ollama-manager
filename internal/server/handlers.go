@@ -353,21 +353,24 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 
 // modelView is what the frontend consumes.
 type modelView struct {
-	Name          string     `json:"name"`
-	Size          int64      `json:"size"`
-	ModifiedAt    time.Time  `json:"modified_at"`
-	Digest        string     `json:"digest"`
-	Family        string     `json:"family"`
-	Families      []string   `json:"families"`
-	Format        string     `json:"format"`
-	ParameterSize string     `json:"parameter_size"`
-	Quantization  string     `json:"quantization"`
-	ContextLength int64      `json:"context_length,omitempty"`
-	Capabilities  []string   `json:"capabilities,omitempty"`
-	Loaded        bool       `json:"loaded"`
-	SizeVRAM      int64      `json:"size_vram,omitempty"`
-	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
-	Archived      bool       `json:"archived"`
+	Name                 string     `json:"name"`
+	Size                 int64      `json:"size"`
+	ModifiedAt           time.Time  `json:"modified_at"`
+	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
+	RecordTokensPerSec   float64    `json:"record_tokens_per_sec,omitempty"`
+	RecordTokensPerSecAt *time.Time `json:"record_tokens_per_sec_at,omitempty"`
+	Digest               string     `json:"digest"`
+	Family               string     `json:"family"`
+	Families             []string   `json:"families"`
+	Format               string     `json:"format"`
+	ParameterSize        string     `json:"parameter_size"`
+	Quantization         string     `json:"quantization"`
+	ContextLength        int64      `json:"context_length,omitempty"`
+	Capabilities         []string   `json:"capabilities,omitempty"`
+	Loaded               bool       `json:"loaded"`
+	SizeVRAM             int64      `json:"size_vram,omitempty"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
+	Archived             bool       `json:"archived"`
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -405,6 +408,13 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			ContextLength: modelMeta[m.Digest].ContextLength,
 			Capabilities:  modelMeta[m.Digest].Capabilities,
 			Archived:      s.archived.IsArchived(m.Name),
+		}
+		if s.usage != nil {
+			if rec, ok := s.usage.Get(m.Name); ok {
+				v.LastUsedAt = rec.LastUsedAt
+				v.RecordTokensPerSec = rec.RecordTokensPerSec
+				v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+			}
 		}
 		if rm, ok := loaded[m.Name]; ok {
 			_, vram := normalizeRunningModelSizes(rm.Size, rm.SizeVRAM)
@@ -652,20 +662,23 @@ func extractContextLength(show *ollama.ShowResponse) int64 {
 
 // modelDetail is the response of GET /api/models/{name}.
 type modelDetail struct {
-	Name           string              `json:"name"`
-	License        string              `json:"license,omitempty"`
-	Modelfile      string              `json:"modelfile,omitempty"`
-	Parameters     string              `json:"parameters,omitempty"`
-	Template       string              `json:"template,omitempty"`
-	Details        ollama.ModelDetails `json:"details"`
-	Capabilities   []string            `json:"capabilities,omitempty"`
-	ContextLength  int64               `json:"context_length,omitempty"`
-	Architecture   string              `json:"architecture,omitempty"`
-	ParameterCount int64               `json:"parameter_count,omitempty"`
-	ModelInfo      map[string]any      `json:"model_info,omitempty"`
-	ArtifactCount  int                 `json:"artifact_count,omitempty"`
-	ArtifactBytes  int64               `json:"artifact_bytes,omitempty"`
-	ModifiedAt     time.Time           `json:"modified_at"`
+	Name                 string              `json:"name"`
+	License              string              `json:"license,omitempty"`
+	Modelfile            string              `json:"modelfile,omitempty"`
+	Parameters           string              `json:"parameters,omitempty"`
+	Template             string              `json:"template,omitempty"`
+	Details              ollama.ModelDetails `json:"details"`
+	Capabilities         []string            `json:"capabilities,omitempty"`
+	ContextLength        int64               `json:"context_length,omitempty"`
+	Architecture         string              `json:"architecture,omitempty"`
+	ParameterCount       int64               `json:"parameter_count,omitempty"`
+	ModelInfo            map[string]any      `json:"model_info,omitempty"`
+	ArtifactCount        int                 `json:"artifact_count,omitempty"`
+	ArtifactBytes        int64               `json:"artifact_bytes,omitempty"`
+	ModifiedAt           time.Time           `json:"modified_at"`
+	LastUsedAt           *time.Time          `json:"last_used_at,omitempty"`
+	RecordTokensPerSec   float64             `json:"record_tokens_per_sec,omitempty"`
+	RecordTokensPerSecAt *time.Time          `json:"record_tokens_per_sec_at,omitempty"`
 }
 
 func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
@@ -689,6 +702,13 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		Details:      show.Details,
 		Capabilities: show.Capabilities,
 		ModifiedAt:   show.ModifiedAt,
+	}
+	if s.usage != nil {
+		if rec, ok := s.usage.Get(name); ok {
+			detail.LastUsedAt = rec.LastUsedAt
+			detail.RecordTokensPerSec = rec.RecordTokensPerSec
+			detail.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+		}
 	}
 	detail.ArtifactCount, detail.ArtifactBytes = s.artifactInfoForModel(r.Context(), name)
 	flat := make(map[string]any, len(show.ModelInfo))
@@ -1296,6 +1316,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		totalTokens := final.PromptEvalCount + final.EvalCount
+		if s.usage != nil {
+			_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
+		}
 		send("done", map[string]any{
 			"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 			"prompt_tokens":      final.PromptEvalCount,
@@ -1358,6 +1381,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalTokens := final.PromptEvalCount + final.EvalCount
+	if s.usage != nil {
+		_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
+	}
 	send("done", map[string]any{
 		"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 		"prompt_tokens":      final.PromptEvalCount,

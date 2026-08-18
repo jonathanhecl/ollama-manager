@@ -244,6 +244,8 @@ function textForSpeech(raw) {
 
 // ---------- state ----------
 let models = [];
+let ghostModels = [];
+let showGhostModels = localStorage.getItem("ollama_show_ghost_models") === "true";
 let activeName = null;
 let jobs = new Map();   // id -> job
 let jobsStream = null;  // EventSource for /api/jobs/events
@@ -567,6 +569,7 @@ async function refreshModels() {
   try {
     const data = await api("/api/models");
     models = data.models || [];
+    ghostModels = data.ghost_models || [];
     updateSystemWidgets(lastSystemStatus);
     renderTable();
     syncChatModelOptions();
@@ -793,8 +796,13 @@ function updateModelsCount(renderedCount, totalCount, query) {
     countEl.textContent = "";
     return;
   }
+  countEl.classList.toggle("ghosts-active", showGhostModels && ghostModels.length > 0);
+  countEl.title = t("models.toggle_ghosts_title");
+
   if (query) {
     countEl.textContent = t("models.count_filtered", { count: renderedCount, total: totalCount });
+  } else if (showGhostModels && ghostModels.length > 0) {
+    countEl.textContent = t("models.count_with_ghosts", { count: totalCount, ghosts: ghostModels.length });
   } else {
     countEl.textContent = t("models.count_total", { count: totalCount });
   }
@@ -803,6 +811,16 @@ function updateModelsCount(renderedCount, totalCount, query) {
 function bindModelsSearchEvents() {
   const searchInput = $("models-search");
   const clearBtn = $("models-search-clear");
+  const countEl = $("models-count");
+  if (countEl && !countEl._ghostBound) {
+    countEl._ghostBound = true;
+    countEl.title = t("models.toggle_ghosts_title");
+    countEl.addEventListener("click", () => {
+      showGhostModels = !showGhostModels;
+      localStorage.setItem("ollama_show_ghost_models", String(showGhostModels));
+      renderTable();
+    });
+  }
   if (!searchInput) return;
 
   searchInput.addEventListener("input", () => {
@@ -846,8 +864,21 @@ function renderTable() {
   const q = (modelSearchQuery || "").trim().toLowerCase();
 
   // Filter models based on archived state
-  const activeModels = models.filter(m => !!m.archived === showArchivedOnly).map(m => ({ ...m }));
+  let activeModels = models.filter(m => !!m.archived === showArchivedOnly).map(m => ({ ...m }));
   const totalCount = activeModels.length;
+
+  if (showGhostModels && !showArchivedOnly) {
+    activeModels = activeModels.concat(ghostModels.map(g => ({
+      ...g,
+      isGhost: true,
+      family: "—",
+      parameter_size: "—",
+      quantization: "—",
+      context_length: 0,
+      size: 0,
+      capabilities: []
+    })));
+  }
 
   let filteredModels = activeModels;
   if (q) {
@@ -944,7 +975,7 @@ function renderTable() {
   function getRowInnerHtml(m, capsHtml, progressHtml) {
     const familyTag = (m.family && m.family !== "—")
       ? `<span class="model-family-tag">(${escapeHtml(m.family)})</span>`
-      : "";
+      : (m.isGhost ? `<span class="model-ghost-tag">(${escapeHtml(t("models.ghost_badge"))})</span>` : "");
     const tokColor = getToksRecordColor(m.record_tokens_per_sec);
     const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
@@ -956,11 +987,19 @@ function renderTable() {
     
     const lastUsedDisplay = m.last_used_at ? fmtDate(m.last_used_at) : "—";
     const lastUsedTitle = m.last_used_at ? fmtDateTimeFull(m.last_used_at) : "";
-    const modifiedDisplay = fmtDate(m.modified_at);
-    const modifiedTitle = fmtDateTimeFull(m.modified_at);
+    const modifiedDisplay = m.isGhost ? "—" : fmtDate(m.modified_at);
+    const modifiedTitle = m.isGhost ? "" : fmtDateTimeFull(m.modified_at);
+
+    const stateDotHtml = m.isGhost
+      ? `<span class="state-dot ghost" title="${escapeHtml(t("models.ghost_badge"))}">👻</span>`
+      : `<span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span>`;
+
+    const actionsHtml = m.isGhost
+      ? `<button type="button" class="btn-icon reinstall-ghost-btn" title="${escapeHtml(t("models.reinstall_title"))}" data-name="${escapeHtml(m.name)}">📥</button>`
+      : (!m.isPending ? `<button type="button" class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
 
     return `
-      <td class="col-state"><span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span></td>
+      <td class="col-state">${stateDotHtml}</td>
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
@@ -968,7 +1007,7 @@ function renderTable() {
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
-          ${!m.isPending ? `<button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>` : ""}
+          ${(!m.isPending && !m.isGhost) ? `<button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>` : ""}
         </div>
       </td>
       <td class="cell-record-tok-col">
@@ -979,8 +1018,8 @@ function renderTable() {
       </td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
-      <td class="cell-ctx">${m.isPending ? "—" : fmtCtx(m.context_length)}</td>
-      <td class="cell-size">${m.isPending ? "—" : fmtBytes(m.size)}</td>
+      <td class="cell-ctx">${(m.isPending || m.isGhost) ? "—" : fmtCtx(m.context_length)}</td>
+      <td class="cell-size">${(m.isPending || m.isGhost) ? "—" : fmtBytes(m.size)}</td>
       <td class="cell-modified">
         <div class="cell-dates">
           <div class="date-primary" title="${escapeHtml(lastUsedTitle)}">${m.isPending ? "—" : lastUsedDisplay}</div>
@@ -988,9 +1027,7 @@ function renderTable() {
         </div>
       </td>
       <td class="col-actions">
-        ${!m.isPending ? `
-          <button class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>
-        ` : ""}
+        ${actionsHtml}
       </td>
     `;
   }
@@ -1026,6 +1063,7 @@ function renderTable() {
       // Check if structural fields changed
       if (
         tr._m_isPending !== !!m.isPending ||
+        tr._m_isGhost !== !!m.isGhost ||
         tr._m_caps !== capsStr ||
         tr._m_size !== m.size ||
         tr._m_modified !== m.modified_at ||
@@ -1046,8 +1084,11 @@ function renderTable() {
       const newTr = document.createElement("tr");
       newTr.dataset.name = m.name;
       
-      const rowClass = m.isPending ? "row pending" : `row${isActive ? " active" : ""}`;
+      const rowClass = m.isPending ? "row pending" : m.isGhost ? `row ghost${isActive ? " active" : ""}` : `row${isActive ? " active" : ""}`;
       newTr.className = rowClass;
+      if (m.isGhost) {
+        newTr.title = t("models.reinstall_title");
+      }
       if (m.isPending) {
         newTr.title = "Downloading...";
         newTr.style.pointerEvents = "none";
@@ -1059,8 +1100,21 @@ function renderTable() {
       newTr.addEventListener("click", (e) => {
         if (e.target.closest(".info-btn")) return;
         if (e.target.closest(".delete-btn")) return;
+        if (e.target.closest(".reinstall-ghost-btn")) return;
+        if (m.isGhost) {
+          void promptDownloadModel(m.name);
+          return;
+        }
         showChatViewWithModel(newTr.dataset.name);
       });
+
+      const reinstallBtn = newTr.querySelector(".reinstall-ghost-btn");
+      if (reinstallBtn) {
+        reinstallBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void promptDownloadModel(reinstallBtn.dataset.name);
+        });
+      }
 
       const infoBtn = newTr.querySelector(".info-btn");
       if (infoBtn) {
@@ -1080,6 +1134,7 @@ function renderTable() {
 
       // Save properties to track state
       newTr._m_isPending = !!m.isPending;
+      newTr._m_isGhost = !!m.isGhost;
       newTr._m_loaded = !!m.loaded;
       newTr._m_active = isActive;
       newTr._m_pct = pct;
@@ -6765,10 +6820,8 @@ function uninstallReasonToText(reasonKey) {
   return i18nKey ? t(i18nKey) : "";
 }
 
-$("dl-add-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const input = $("dl-add-input");
-  const name = normalizePullInput(input.value);
+async function promptDownloadModel(rawName) {
+  const name = normalizePullInput(rawName);
   if (!name) return;
   let installedNow = !!modelByName(name);
   if (!installedNow) {
@@ -6839,11 +6892,19 @@ $("dl-add-form").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
-    input.value = "";
+    const input = $("dl-add-input");
+    if (input) input.value = "";
     toast(t("downloads.enqueued", { name }), "success");
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }
+}
+
+$("dl-add-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $("dl-add-input");
+  if (!input) return;
+  await promptDownloadModel(input.value);
 });
 
 $("dl-clear-btn").addEventListener("click", async () => {

@@ -107,6 +107,10 @@ const I18N = {
     "models.search_clear": "Clear search",
     "models.count_total": "{count} models",
     "models.count_filtered": "{count} of {total} models",
+    "models.count_with_ghosts": "{count} (+{ghosts} history) models",
+    "models.toggle_ghosts_title": "Click to show/hide uninstalled model history",
+    "models.ghost_badge": "uninstalled",
+    "models.reinstall_title": "Reinstall model",
 
     "detail.empty": "Select a model.",
     "detail.family": "Family",
@@ -656,6 +660,10 @@ const I18N = {
     "models.search_clear": "Limpiar búsqueda",
     "models.count_total": "{count} modelos",
     "models.count_filtered": "{count} de {total} modelos",
+    "models.count_with_ghosts": "{count} (+{ghosts} historial) modelos",
+    "models.toggle_ghosts_title": "Clic para mostrar/ocultar historial de modelos desinstalados",
+    "models.ghost_badge": "desinstalado",
+    "models.reinstall_title": "Reinstalar modelo",
 
     "detail.empty": "Selecciona un modelo.",
     "detail.family": "Familia",

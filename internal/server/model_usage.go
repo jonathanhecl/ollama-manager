@@ -62,6 +62,16 @@ func (s *modelUsageStore) Load() error {
 	return nil
 }
 
+func (s *modelUsageStore) All() map[string]ModelUsageRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	res := make(map[string]ModelUsageRecord, len(s.models))
+	for k, v := range s.models {
+		res[k] = v
+	}
+	return res
+}
+
 func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
 	out := base
 	if target.RecordTokensPerSec > out.RecordTokensPerSec {

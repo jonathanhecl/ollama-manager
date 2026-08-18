@@ -373,15 +373,18 @@ type modelView struct {
 	SizeVRAM             int64      `json:"size_vram,omitempty"`
 	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
 	Archived             bool       `json:"archived"`
+	IsGhost              bool       `json:"is_ghost,omitempty"`
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	models, err := s.ollama.List(ctx)
 	if err != nil {
+		log.Printf("list failed: %v", err)
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
+
 	running, err := s.ollama.PS(ctx)
 	if err != nil {
 		// Non-fatal: just report nothing as loaded.
@@ -429,7 +432,41 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, v)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": out})
+
+	var ghostOut []modelView
+	if s.usage != nil {
+		installedSet := make(map[string]struct{}, len(models)*2)
+		for _, m := range models {
+			installedSet[m.Name] = struct{}{}
+			installedSet[strings.TrimSuffix(m.Name, ":latest")] = struct{}{}
+		}
+		for name, rec := range s.usage.All() {
+			if _, ok := installedSet[name]; ok {
+				continue
+			}
+			if _, ok := installedSet[strings.TrimSuffix(name, ":latest")]; ok {
+				continue
+			}
+			gv := modelView{
+				Name:                 name,
+				IsGhost:              true,
+				RecordTokensPerSec:   rec.RecordTokensPerSec,
+				RecordTokensPerSecAt: rec.RecordTokensPerSecAt,
+				MinColdLoadMs:        rec.MinColdLoadMs,
+				MinColdLoadAt:        rec.MinColdLoadAt,
+				LastUsedAt:           rec.LastUsedAt,
+			}
+			if rec.LastUsedAt != nil {
+				gv.ModifiedAt = *rec.LastUsedAt
+			}
+			ghostOut = append(ghostOut, gv)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"models":       out,
+		"ghost_models": ghostOut,
+	})
 }
 
 // runningView is a slim row for GET /api/running (Ollama /api/ps only, no list/show).

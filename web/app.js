@@ -3119,7 +3119,7 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     const imgName = t("chat.tool.take_artifact_screenshot") || "Screenshot";
     detailHtml += `<div class="chat-tool-img-wrap">
       <button type="button" class="image-preview-open chat-tool-img-thumb" data-name="${escapeHtml(imgName)}" title="${escapeHtml(imgName)}">
-        <img src="${e.image}" alt="${escapeHtml(imgName)}" />
+        <img src="${e.image}" alt="${escapeHtml(imgName)}" onload="if (typeof scrollChatToBottom === 'function') scrollChatToBottom();" />
       </button>
     </div>`;
   }
@@ -4371,14 +4371,8 @@ function scrollChatToBottom(force = false) {
     return;
   }
 
-  // If the user has scrolled up to read previous messages or thinking, do NOT force scroll down!
+  // If the user has explicitly scrolled up to read previous messages, do NOT auto-scroll down
   if (chatUserScrolledUp) return;
-
-  const isAtBottom = host.scrollHeight - host.clientHeight - host.scrollTop < 140;
-  if (!isAtBottom) {
-    chatUserScrolledUp = true;
-    return;
-  }
 
   host.scrollTop = host.scrollHeight;
 }
@@ -5634,6 +5628,7 @@ async function handleArtifactScreenshotRequest(data) {
         }
       }
       scheduleRenderChatMessages();
+      requestAnimationFrame(() => scrollChatToBottom());
     }
     void api("/api/artifacts/screenshot", {
       method: "POST",
@@ -5965,16 +5960,34 @@ function bindChatEvents() {
     const ok = await copyTextToClipboard(text);
     toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
   });
-  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("scroll", (e) => {
-    const host = e.currentTarget;
-    if (!host) return;
-    const distFromBottom = host.scrollHeight - host.clientHeight - host.scrollTop;
-    if (distFromBottom > 140) {
-      chatUserScrolledUp = true;
-    } else {
-      chatUserScrolledUp = false;
-    }
-  }, { passive: true });
+  const chatScrollHost = $("chat-scroll-shell") || $("chat-messages");
+  if (chatScrollHost) {
+    let isUserTouching = false;
+    chatScrollHost.addEventListener("wheel", (e) => {
+      if (e.deltaY < -2) {
+        // User actively scrolled UP with wheel
+        chatUserScrolledUp = true;
+      } else if (e.deltaY > 2) {
+        // User actively scrolled DOWN with wheel
+        const distFromBottom = chatScrollHost.scrollHeight - chatScrollHost.clientHeight - chatScrollHost.scrollTop;
+        if (distFromBottom < 100) {
+          chatUserScrolledUp = false;
+        }
+      }
+    }, { passive: true });
+
+    chatScrollHost.addEventListener("touchstart", () => { isUserTouching = true; }, { passive: true });
+    chatScrollHost.addEventListener("touchend", () => { isUserTouching = false; }, { passive: true });
+
+    chatScrollHost.addEventListener("scroll", () => {
+      const distFromBottom = chatScrollHost.scrollHeight - chatScrollHost.clientHeight - chatScrollHost.scrollTop;
+      if (distFromBottom < 60) {
+        chatUserScrolledUp = false;
+      } else if (isUserTouching && distFromBottom > 120) {
+        chatUserScrolledUp = true;
+      }
+    }, { passive: true });
+  }
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("input", (e) => {
     const ta = e.target.closest(".chat-edit-textarea");
     if (ta) {

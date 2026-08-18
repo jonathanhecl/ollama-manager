@@ -964,6 +964,9 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if s.usage != nil {
+		_ = s.usage.InheritUsage(preview.BaseName, preview.TargetName)
+	}
 	resPayload := map[string]any{
 		"base_name":   preview.BaseName,
 		"target_name": preview.TargetName,

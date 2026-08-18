@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -61,6 +62,26 @@ func (s *modelUsageStore) Load() error {
 	return nil
 }
 
+func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
+	out := base
+	if target.RecordTokensPerSec > out.RecordTokensPerSec {
+		out.RecordTokensPerSec = target.RecordTokensPerSec
+		out.RecordTokensPerSecAt = target.RecordTokensPerSecAt
+	}
+	if target.MinColdLoadMs > 0 && (out.MinColdLoadMs == 0 || target.MinColdLoadMs < out.MinColdLoadMs) {
+		out.MinColdLoadMs = target.MinColdLoadMs
+		out.MinColdLoadAt = target.MinColdLoadAt
+	}
+	if target.LastUsedAt != nil {
+		out.LastUsedAt = target.LastUsedAt
+	}
+	if target.TotalCalls > out.TotalCalls {
+		out.TotalCalls = target.TotalCalls
+		out.TotalTokens = target.TotalTokens
+	}
+	return out
+}
+
 func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 	if name == "" {
 		return ModelUsageRecord{}, false
@@ -68,7 +89,42 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rec, ok := s.models[name]
+	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0) {
+		return rec, true
+	}
+	// Fallback for :fixed models inheriting from their base model
+	if isFixedModelName(name) {
+		base := fixedBaseName(name)
+		if baseRec, baseOk := s.models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+			return mergeBaseUsage(rec, baseRec), true
+		}
+		if baseRec, baseOk := s.models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+			return mergeBaseUsage(rec, baseRec), true
+		}
+	}
 	return rec, ok
+}
+
+func (s *modelUsageStore) InheritUsage(srcName, targetName string) error {
+	if srcName == "" || targetName == "" || srcName == targetName {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src, ok := s.models[srcName]
+	if !ok {
+		if strings.HasSuffix(srcName, ":latest") {
+			src, ok = s.models[strings.TrimSuffix(srcName, ":latest")]
+		} else {
+			src, ok = s.models[srcName+":latest"]
+		}
+	}
+	if !ok {
+		return nil
+	}
+	target := s.models[targetName]
+	s.models[targetName] = mergeBaseUsage(target, src)
+	return s.save()
 }
 
 func (s *modelUsageStore) Record(name string, evalCount int, evalDurationNs int64, promptEvalCount int, usedAt time.Time) error {

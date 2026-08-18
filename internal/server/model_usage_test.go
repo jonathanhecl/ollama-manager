@@ -114,3 +114,44 @@ func TestModelUsageStore(t *testing.T) {
 		t.Errorf("persisted store mismatch: %+v", rec2)
 	}
 }
+
+func TestFixedModelInheritsUsage(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+
+	store := newModelUsageStore(path)
+	_ = store.Load()
+
+	t1 := time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC)
+	_ = store.RecordTPS("qwen3:latest", 45.0, t1)
+	_ = store.RecordColdLoad("qwen3:latest", 12000, t1)
+
+	// Automatic fallback for :fixed when not explicitly recorded yet
+	fixedRec, ok := store.Get("qwen3:fixed")
+	if !ok {
+		t.Fatalf("expected fixed model to inherit base stats via fallback")
+	}
+	if fixedRec.RecordTokensPerSec != 45.0 || fixedRec.MinColdLoadMs != 12000 {
+		t.Errorf("unexpected inherited stats: %+v", fixedRec)
+	}
+
+	// Explicit inheritance
+	if err := store.InheritUsage("qwen3:latest", "qwen3:fixed"); err != nil {
+		t.Fatalf("InheritUsage failed: %v", err)
+	}
+
+	// Record better stats on fixed model
+	t2 := time.Date(2026, 8, 18, 11, 0, 0, 0, time.UTC)
+	_ = store.RecordTPS("qwen3:fixed", 55.0, t2)
+
+	fixedRec2, _ := store.Get("qwen3:fixed")
+	if fixedRec2.RecordTokensPerSec != 55.0 {
+		t.Errorf("expected 55.0, got %f", fixedRec2.RecordTokensPerSec)
+	}
+
+	// Base model should still have its own 45.0
+	baseRec, _ := store.Get("qwen3:latest")
+	if baseRec.RecordTokensPerSec != 45.0 {
+		t.Errorf("expected base to keep 45.0, got %f", baseRec.RecordTokensPerSec)
+	}
+}

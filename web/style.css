@@ -2258,6 +2258,33 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .chat-tool-link { color: #8ec5ff; text-decoration: underline; text-underline-offset: 2px; }
 .chat-tool-link:hover { color: #cfe4ff; }
+.chat-tool-img-wrap {
+  margin-top: 6px;
+}
+.chat-tool-img-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: #000;
+  max-width: 240px;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.chat-tool-img-thumb:hover {
+  transform: scale(1.02);
+  border-color: var(--accent, #7aa2ff);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.chat-tool-img-thumb img {
+  display: block;
+  width: 100%;
+  max-height: 150px;
+  object-fit: contain;
+}
 .chat-tool-err {
   margin-top: 6px;
   font-size: 11px;

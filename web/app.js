@@ -2977,6 +2977,7 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isList = e.name === "list_dir";
   const isExec = e.name === "exec";
   const isCreateArt = e.name === "create_artifact";
+  const isScreenshot = e.name === "take_artifact_screenshot";
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
@@ -2984,7 +2985,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
           : isList ? t("chat.tool.list_dir")
             : isExec ? t("chat.tool.exec")
               : isCreateArt ? t("chat.tool.create_artifact")
-                : escapeHtml(e.name);
+                : isScreenshot ? t("chat.tool.take_artifact_screenshot")
+                  : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -3006,6 +3008,14 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
       d += ` <span class="chat-tool-runes mono" style="margin-left: 8px;">[folder: ${timestamp}]</span>`;
     }
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
+  }
+  if (e.image) {
+    const imgName = t("chat.tool.take_artifact_screenshot") || "Screenshot";
+    detailHtml += `<div class="chat-tool-img-wrap">
+      <button type="button" class="image-preview-open chat-tool-img-thumb" data-name="${escapeHtml(imgName)}" title="${escapeHtml(imgName)}">
+        <img src="${e.image}" alt="${escapeHtml(imgName)}" />
+      </button>
+    </div>`;
   }
   const st = e.status || "unknown";
   const icon = st === "generating" ? "✎" : st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
@@ -4557,11 +4567,12 @@ async function runChatRequest(assistantMsg) {
           }
           for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
             const e = assistantMsg.toolLog[i];
-            if (e.name === data.name && e.status === "running") {
+            if (e.name === data.name && (e.status === "running" || e.status === "generating")) {
               e.status = data.ok ? "ok" : "error";
               e.error = data.error || "";
               e.result_preview = data.result_preview || "";
               e.result_runes = data.result_runes;
+              if (data.image) e.image = data.image;
               break;
             }
           }
@@ -5138,6 +5149,18 @@ async function handleArtifactScreenshotRequest(data) {
     const base64 = await captureIframeContent(frame);
     if (!base64) {
       throw new Error("Could not capture preview image");
+    }
+    const fullDataUrl = "data:image/jpeg;base64," + base64;
+    const lastMsg = chatMessages[chatMessages.length - 1];
+    if (lastMsg && lastMsg.role === "assistant" && Array.isArray(lastMsg.toolLog)) {
+      for (let i = lastMsg.toolLog.length - 1; i >= 0; i--) {
+        const entry = lastMsg.toolLog[i];
+        if (entry.name === "take_artifact_screenshot") {
+          entry.image = fullDataUrl;
+          break;
+        }
+      }
+      scheduleRenderChatMessages();
     }
     void api("/api/artifacts/screenshot", {
       method: "POST",

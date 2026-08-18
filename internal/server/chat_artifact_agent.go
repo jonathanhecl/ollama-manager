@@ -905,6 +905,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			msgs = append(msgs, toolMsg)
 
 			done := map[string]any{"phase": "done", "name": n, "ok": toolErr == nil}
+			if toolImageBase64 != "" {
+				done["image"] = "data:image/jpeg;base64," + toolImageBase64
+			}
 			if toolErr != nil {
 				done["error"] = toolErr.Error()
 			} else if out != "" {

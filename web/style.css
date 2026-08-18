@@ -2511,6 +2511,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   gap: 8px;
   position: relative;
   z-index: 2;
+  min-width: 0;
 }
 .chat-stream-bar {
   display: flex;
@@ -2640,9 +2641,11 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .chat-actions-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: stretch;
+  min-width: 0;
+  width: 100%;
 }
 .chat-upload-actions {
   display: flex;
@@ -2650,6 +2653,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   gap: 8px;
   align-self: stretch;
   min-width: 48px;
+  flex-shrink: 0;
 }
 .chat-media-btn {
   display: inline-flex;
@@ -2776,6 +2780,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 #chat-input {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   resize: vertical;
   min-height: 72px;
   max-height: 280px;
@@ -2790,6 +2796,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 #chat-input:focus { border-color: var(--accent); }
 .chat-send {
   min-width: 88px;
+  flex-shrink: 0;
   align-self: stretch;
   display: inline-flex;
   align-items: center;

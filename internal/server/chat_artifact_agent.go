@@ -1003,13 +1003,34 @@ func artifactRelID(artifactDir string) string {
 // "sha256:" prefix), or "" if it cannot be resolved. Artifact folders are
 // grouped under this digest because it uniquely identifies the model.
 func (s *Server) artifactModelDigest(ctx context.Context, modelName string) string {
+	name := strings.TrimSpace(modelName)
+	if name == "" {
+		return ""
+	}
 	models, err := s.ollama.List(ctx)
 	if err != nil {
 		return ""
 	}
 	for _, m := range models {
-		if m.Name == modelName || m.Model == modelName {
-			return strings.TrimPrefix(m.Digest, "sha256:")
+		if m.Name == name || m.Model == name {
+			if m.Digest != "" {
+				return strings.TrimPrefix(m.Digest, "sha256:")
+			}
+		}
+	}
+	nameNorm := strings.ToLower(name)
+	if !strings.Contains(nameNorm, ":") {
+		nameNorm += ":latest"
+	}
+	for _, m := range models {
+		mNorm := strings.ToLower(m.Name)
+		if !strings.Contains(mNorm, ":") {
+			mNorm += ":latest"
+		}
+		if mNorm == nameNorm || strings.ToLower(m.Model) == nameNorm {
+			if m.Digest != "" {
+				return strings.TrimPrefix(m.Digest, "sha256:")
+			}
 		}
 	}
 	return ""

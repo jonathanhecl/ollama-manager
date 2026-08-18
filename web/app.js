@@ -1798,6 +1798,12 @@ function updateChatCapabilityUI() {
   $("chat-think-wrap").hidden = !canThink;
   $("chat-web-tools-wrap").hidden = !canTools;
   $("chat-artifacts-wrap").hidden = !canTools;
+
+  const artBtn = $("chat-model-artifacts-btn");
+  const artWrap = $("chat-model-artifacts-wrap");
+  if (artBtn) artBtn.hidden = true;
+  if (artWrap) artWrap.hidden = true;
+
   void refreshModelArtifactCount();
 
   const imgOpts = $("chat-image-options-wrap");
@@ -4856,6 +4862,8 @@ let chatArtifactWidthSet = false;
 
 // ---------- model artifact list / load ----------
 
+let artifactCountReqSeq = 0;
+
 async function refreshModelArtifactCount() {
   const btn = $("chat-model-artifacts-btn");
   const wrap = $("chat-model-artifacts-wrap");
@@ -4865,14 +4873,20 @@ async function refreshModelArtifactCount() {
   if (!model || !modelCaps(model).has("tools")) {
     wrap.hidden = true;
     btn.hidden = true;
+    btn.textContent = "";
     return;
   }
+  const seq = ++artifactCountReqSeq;
   try {
     const data = await api("/api/models/" + encodeURIComponent(model) + "/artifacts");
+    if (seq !== artifactCountReqSeq || $("chat-model")?.value !== model) {
+      return;
+    }
     const n = (data && Array.isArray(data.artifacts)) ? data.artifacts.length : 0;
     if (n === 0) {
       wrap.hidden = true;
       btn.hidden = true;
+      btn.textContent = "";
       return;
     }
     btn.textContent = n === 1
@@ -4881,8 +4895,10 @@ async function refreshModelArtifactCount() {
     wrap.hidden = false;
     btn.hidden = false;
   } catch (e) {
-    wrap.hidden = true;
-    btn.hidden = true;
+    if (seq === artifactCountReqSeq) {
+      wrap.hidden = true;
+      btn.hidden = true;
+    }
   }
 }
 
@@ -4916,6 +4932,8 @@ function unloadSessionArtifact() {
   toast(t("chat.artifact.unloaded"), "success");
 }
 
+let loadArtifactModalReqSeq = 0;
+
 function openLoadArtifactModal() {
   const model = $("chat-model")?.value;
   if (!model) return;
@@ -4923,15 +4941,24 @@ function openLoadArtifactModal() {
   const list = $("load-artifact-list");
   const empty = $("load-artifact-empty");
   list.innerHTML = "";
-  empty.hidden = true;
-  empty.textContent = t("chat.load_artifact_none");
+  empty.hidden = false;
+  empty.textContent = t("state.loading") || "Loading…";
   $("load-artifact-modal").hidden = false;
+
+  const seq = ++loadArtifactModalReqSeq;
   api("/api/models/" + encodeURIComponent(model) + "/artifacts").then((data) => {
+    if (seq !== loadArtifactModalReqSeq || $("chat-model")?.value !== model) return;
     const arts = (data && Array.isArray(data.artifacts)) ? data.artifacts : [];
+    list.innerHTML = "";
     if (arts.length === 0) {
       empty.hidden = false;
+      empty.textContent = t("chat.load_artifact_none");
+      const btn = $("chat-model-artifacts-btn");
+      const wrap = $("chat-model-artifacts-wrap");
+      if (btn && wrap) { wrap.hidden = true; btn.hidden = true; }
       return;
     }
+    empty.hidden = true;
     for (const a of arts) {
       const meta = [];
       if (a.name && a.name !== a.date) {
@@ -4953,7 +4980,17 @@ function openLoadArtifactModal() {
       row.querySelector("button").addEventListener("click", () => loadExistingArtifact(a.id, a.date, a.name));
       list.appendChild(row);
     }
+    const btn = $("chat-model-artifacts-btn");
+    const wrap = $("chat-model-artifacts-wrap");
+    if (btn && wrap) {
+      btn.textContent = arts.length === 1
+        ? t("chat.model_artifacts_link_one")
+        : t("chat.model_artifacts_link_other", { count: arts.length });
+      wrap.hidden = false;
+      btn.hidden = false;
+    }
   }).catch((e) => {
+    if (seq !== loadArtifactModalReqSeq) return;
     empty.hidden = false;
     empty.textContent = t("state.error_prefix") + e.message;
   });

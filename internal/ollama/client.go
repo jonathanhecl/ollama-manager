@@ -203,6 +203,7 @@ type ChatChunk struct {
 	Total              int         `json:"total,omitempty"`
 	PromptEvalCount    int         `json:"prompt_eval_count,omitempty"`
 	EvalCount          int         `json:"eval_count,omitempty"`
+	LoadDuration       int64       `json:"load_duration,omitempty"`
 	PromptEvalDuration int64       `json:"prompt_eval_duration,omitempty"`
 	EvalDuration       int64       `json:"eval_duration,omitempty"`
 	TotalDuration      int64       `json:"total_duration,omitempty"`
@@ -542,6 +543,7 @@ type GenerateChunk struct {
 	Total              int       `json:"total,omitempty"`
 	PromptEvalCount    int       `json:"prompt_eval_count,omitempty"`
 	EvalCount          int       `json:"eval_count,omitempty"`
+	LoadDuration       int64     `json:"load_duration,omitempty"`
 	PromptEvalDuration int64     `json:"prompt_eval_duration,omitempty"`
 	EvalDuration       int64     `json:"eval_duration,omitempty"`
 	TotalDuration      int64     `json:"total_duration,omitempty"`

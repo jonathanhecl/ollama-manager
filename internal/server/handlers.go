@@ -359,6 +359,8 @@ type modelView struct {
 	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
 	RecordTokensPerSec   float64    `json:"record_tokens_per_sec,omitempty"`
 	RecordTokensPerSecAt *time.Time `json:"record_tokens_per_sec_at,omitempty"`
+	MinColdLoadMs        int64      `json:"min_cold_load_ms,omitempty"`
+	MinColdLoadAt        *time.Time `json:"min_cold_load_at,omitempty"`
 	Digest               string     `json:"digest"`
 	Family               string     `json:"family"`
 	Families             []string   `json:"families"`
@@ -414,6 +416,8 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				v.LastUsedAt = rec.LastUsedAt
 				v.RecordTokensPerSec = rec.RecordTokensPerSec
 				v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+				v.MinColdLoadMs = rec.MinColdLoadMs
+				v.MinColdLoadAt = rec.MinColdLoadAt
 			}
 		}
 		if rm, ok := loaded[m.Name]; ok {
@@ -679,6 +683,8 @@ type modelDetail struct {
 	LastUsedAt           *time.Time          `json:"last_used_at,omitempty"`
 	RecordTokensPerSec   float64             `json:"record_tokens_per_sec,omitempty"`
 	RecordTokensPerSecAt *time.Time          `json:"record_tokens_per_sec_at,omitempty"`
+	MinColdLoadMs        int64               `json:"min_cold_load_ms,omitempty"`
+	MinColdLoadAt        *time.Time          `json:"min_cold_load_at,omitempty"`
 }
 
 func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
@@ -708,6 +714,8 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 			detail.LastUsedAt = rec.LastUsedAt
 			detail.RecordTokensPerSec = rec.RecordTokensPerSec
 			detail.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+			detail.MinColdLoadMs = rec.MinColdLoadMs
+			detail.MinColdLoadAt = rec.MinColdLoadAt
 		}
 	}
 	detail.ArtifactCount, detail.ArtifactBytes = s.artifactInfoForModel(r.Context(), name)
@@ -1206,6 +1214,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		isImageGenerationModel = hasImage && !hasVision && !hasCompletion
 	}
 
+	var wasCold bool
+	if running, err := s.ollama.PS(r.Context()); err == nil {
+		wasCold = true
+		for _, rm := range running {
+			if rm.Name == body.Model || rm.Model == body.Model {
+				wasCold = false
+				break
+			}
+		}
+	}
+
 	if isImageGenerationModel {
 		var prompt string
 		var images []string
@@ -1274,8 +1293,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		startedAt := time.Now()
+		var firstTokenTime time.Duration
 		var final ollama.GenerateChunk
 		err := s.ollama.Generate(r.Context(), genReq, func(chunk ollama.GenerateChunk) error {
+			if wasCold && firstTokenTime == 0 && (chunk.Response != "" || chunk.Image != "") {
+				firstTokenTime = time.Since(startedAt)
+			}
 			chatChunk := ollama.ChatChunk{
 				Model:     chunk.Model,
 				CreatedAt: chunk.CreatedAt,
@@ -1318,6 +1341,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		totalTokens := final.PromptEvalCount + final.EvalCount
 		if s.usage != nil {
 			_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
+			if wasCold {
+				var loadMs int64
+				if firstTokenTime > 0 {
+					loadMs = firstTokenTime.Milliseconds()
+				} else if final.LoadDuration > 0 {
+					loadMs = time.Duration(final.LoadDuration).Milliseconds()
+				}
+				if loadMs > 0 {
+					_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
+				}
+			}
 		}
 		send("done", map[string]any{
 			"elapsed_ms":         time.Since(startedAt).Milliseconds(),
@@ -1356,8 +1390,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	startedAt := time.Now()
+	var firstTokenTime time.Duration
 	var final ollama.ChatChunk
 	err := s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
+		if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
+			firstTokenTime = time.Since(startedAt)
+		}
 		send("chunk", chunk)
 		if chunk.Done {
 			final = chunk
@@ -1383,6 +1421,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	totalTokens := final.PromptEvalCount + final.EvalCount
 	if s.usage != nil {
 		_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
+		if wasCold {
+			var loadMs int64
+			if firstTokenTime > 0 {
+				loadMs = firstTokenTime.Milliseconds()
+			} else if final.LoadDuration > 0 {
+				loadMs = time.Duration(final.LoadDuration).Milliseconds()
+			}
+			if loadMs > 0 {
+				_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
+			}
+		}
 	}
 	send("done", map[string]any{
 		"elapsed_ms":         time.Since(startedAt).Milliseconds(),

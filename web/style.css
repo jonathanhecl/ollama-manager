@@ -375,6 +375,11 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 }
 .cell-size, .cell-quant, .cell-params, .cell-ctx { font-family: var(--mono); color: var(--text-dim); }
 .cell-record-tok-col { font-family: var(--mono); color: var(--text); }
+.cell-record-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .cell-record-tok {
   display: inline-flex;
   align-items: baseline;
@@ -384,6 +389,11 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 .cell-record-tok .unit {
   font-size: 11px;
   color: var(--text-dim);
+}
+.cell-min-load {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  opacity: 0.8;
 }
 .cell-modified { color: var(--text-dim); white-space: nowrap; }
 .cell-dates {

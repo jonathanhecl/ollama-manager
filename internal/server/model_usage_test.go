@@ -74,13 +74,43 @@ func TestModelUsageStore(t *testing.T) {
 		t.Errorf("expected RecordTokensPerSecAt %v, got %v", t3, rec.RecordTokensPerSecAt)
 	}
 
+	// Record cold load
+	tCold1 := time.Date(2026, 8, 18, 13, 0, 0, 0, time.UTC)
+	if err := store.RecordColdLoad("llama3:8b", 22400, tCold1); err != nil {
+		t.Fatalf("RecordColdLoad failed: %v", err)
+	}
+	rec, _ = store.Get("llama3:8b")
+	if rec.MinColdLoadMs != 22400 {
+		t.Errorf("expected MinColdLoadMs 22400, got %d", rec.MinColdLoadMs)
+	}
+
+	// Record higher cold load: should NOT replace min
+	tCold2 := time.Date(2026, 8, 18, 14, 0, 0, 0, time.UTC)
+	if err := store.RecordColdLoad("llama3:8b", 30000, tCold2); err != nil {
+		t.Fatalf("RecordColdLoad 2 failed: %v", err)
+	}
+	rec, _ = store.Get("llama3:8b")
+	if rec.MinColdLoadMs != 22400 {
+		t.Errorf("expected MinColdLoadMs to remain 22400, got %d", rec.MinColdLoadMs)
+	}
+
+	// Record lower cold load: SHOULD replace min
+	tCold3 := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	if err := store.RecordColdLoad("llama3:8b", 18500, tCold3); err != nil {
+		t.Fatalf("RecordColdLoad 3 failed: %v", err)
+	}
+	rec, _ = store.Get("llama3:8b")
+	if rec.MinColdLoadMs != 18500 {
+		t.Errorf("expected MinColdLoadMs 18500, got %d", rec.MinColdLoadMs)
+	}
+
 	// Test persistence by reloading in a new store instance
 	store2 := newModelUsageStore(path)
 	if err := store2.Load(); err != nil {
 		t.Fatalf("store2 Load failed: %v", err)
 	}
 	rec2, ok := store2.Get("llama3:8b")
-	if !ok || rec2.RecordTokensPerSec != 50.0 || rec2.TotalCalls != 3 {
+	if !ok || rec2.RecordTokensPerSec != 50.0 || rec2.TotalCalls != 3 || rec2.MinColdLoadMs != 18500 {
 		t.Errorf("persisted store mismatch: %+v", rec2)
 	}
 }

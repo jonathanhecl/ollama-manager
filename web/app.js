@@ -22,6 +22,11 @@ const fmtDate = (s) => {
   if (diffDays < 7) return getRelativeTimeFormatter().format(-diffDays, "day");
   return d.toLocaleDateString();
 };
+const fmtColdLoad = (ms) => {
+  if (!ms || ms <= 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+};
 const RELATIVE_UNITS = [
   { unit: "year", ms: 365 * 24 * 60 * 60 * 1000 },
   { unit: "month", ms: 30 * 24 * 60 * 60 * 1000 },
@@ -922,6 +927,9 @@ function renderTable() {
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
       ? `<span class="cell-record-tok" title="${m.record_tokens_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })) : ""}">${m.record_tokens_per_sec.toFixed(1)} <span class="unit">tok/s</span></span>`
       : "—";
+    const minLoadHtml = (m.min_cold_load_ms && m.min_cold_load_ms > 0)
+      ? `<div class="cell-min-load mono" title="${m.min_cold_load_at ? escapeHtml(t("detail.min_load_at", { date: fmtDateTimeFull(m.min_cold_load_at) })) : ""}">${escapeHtml(t("col.min_load"))}: ${fmtColdLoad(m.min_cold_load_ms)}</div>`
+      : "";
     
     const lastUsedDisplay = m.last_used_at ? fmtDate(m.last_used_at) : "—";
     const lastUsedTitle = m.last_used_at ? fmtDateTimeFull(m.last_used_at) : "";
@@ -940,7 +948,12 @@ function renderTable() {
           ${!m.isPending ? `<button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>` : ""}
         </div>
       </td>
-      <td class="cell-record-tok-col">${m.isPending ? "—" : recordTokHtml}</td>
+      <td class="cell-record-tok-col">
+        <div class="cell-record-wrap">
+          <div class="cell-record-main">${m.isPending ? "—" : recordTokHtml}</div>
+          ${m.isPending ? "" : minLoadHtml}
+        </div>
+      </td>
       <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
       <td class="cell-ctx">${m.isPending ? "—" : fmtCtx(m.context_length)}</td>
@@ -994,6 +1007,7 @@ function renderTable() {
         tr._m_modified !== m.modified_at ||
         tr._m_last_used !== m.last_used_at ||
         tr._m_record_tok !== m.record_tokens_per_sec ||
+        tr._m_min_cold_load !== m.min_cold_load_ms ||
         tr._m_ctx !== m.context_length ||
         tr._m_family !== m.family ||
         tr._m_param !== m.parameter_size ||
@@ -1049,6 +1063,7 @@ function renderTable() {
       newTr._m_modified = m.modified_at;
       newTr._m_last_used = m.last_used_at;
       newTr._m_record_tok = m.record_tokens_per_sec;
+      newTr._m_min_cold_load = m.min_cold_load_ms;
       newTr._m_ctx = m.context_length;
       newTr._m_family = m.family;
       newTr._m_param = m.parameter_size;
@@ -1188,6 +1203,9 @@ function renderDetail(d) {
   const recordToksVal = (d.record_tokens_per_sec || m.record_tokens_per_sec) > 0
     ? `${(d.record_tokens_per_sec || m.record_tokens_per_sec).toFixed(1)} tok/s${(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at) ? ` (${fmtDate(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at)})` : ""}`
     : "—";
+  const minColdLoadVal = (d.min_cold_load_ms || m.min_cold_load_ms) > 0
+    ? `${fmtColdLoad(d.min_cold_load_ms || m.min_cold_load_ms)}${(d.min_cold_load_at || m.min_cold_load_at) ? ` (${fmtDate(d.min_cold_load_at || m.min_cold_load_at)})` : ""}`
+    : "—";
   const rows = [
     [t("detail.family"), d.details?.family || "—", false],
     [t("detail.architecture"), d.architecture || "—", false],
@@ -1197,6 +1215,7 @@ function renderDetail(d) {
     [t("detail.context"), fmtCtx(d.context_length), false],
     [t("detail.size"), fmtBytes(m.size), false],
     [t("detail.record_tokens"), recordToksVal, false],
+    [t("detail.min_cold_load"), minColdLoadVal, false],
     [t("detail.last_used"), lastUsedVal, false],
     [t("detail.state"), stateText, true],
     [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],

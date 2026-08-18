@@ -13,6 +13,8 @@ type ModelUsageRecord struct {
 	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
 	RecordTokensPerSec   float64    `json:"record_tokens_per_sec,omitempty"`
 	RecordTokensPerSecAt *time.Time `json:"record_tokens_per_sec_at,omitempty"`
+	MinColdLoadMs        int64      `json:"min_cold_load_ms,omitempty"`
+	MinColdLoadAt        *time.Time `json:"min_cold_load_at,omitempty"`
 	TotalTokens          int64      `json:"total_tokens,omitempty"`
 	TotalCalls           int64      `json:"total_calls,omitempty"`
 }
@@ -111,6 +113,26 @@ func (s *modelUsageStore) RecordTPS(name string, tps float64, usedAt time.Time) 
 	if tps > rec.RecordTokensPerSec {
 		rec.RecordTokensPerSec = tps
 		rec.RecordTokensPerSecAt = &usedAt
+	}
+	s.models[name] = rec
+	s.mu.Unlock()
+
+	return s.save()
+}
+
+func (s *modelUsageStore) RecordColdLoad(name string, durationMs int64, at time.Time) error {
+	if name == "" || durationMs <= 0 {
+		return nil
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+
+	s.mu.Lock()
+	rec := s.models[name]
+	if rec.MinColdLoadMs == 0 || durationMs < rec.MinColdLoadMs {
+		rec.MinColdLoadMs = durationMs
+		rec.MinColdLoadAt = &at
 	}
 	s.models[name] = rec
 	s.mu.Unlock()

@@ -1270,7 +1270,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		if a == b {
 			return true
 		}
-		return strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest")
+		if strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest") {
+			return true
+		}
+		aBase := a[strings.LastIndex(a, "/")+1:]
+		bBase := b[strings.LastIndex(b, "/")+1:]
+		return strings.TrimSuffix(aBase, ":latest") == strings.TrimSuffix(bBase, ":latest")
 	}
 
 	isComputeOrOOMError := func(err error) bool {
@@ -1288,9 +1293,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			strings.Contains(s, "llama-server chat error")
 	}
 
-	var wasCold bool
+	var wasCold bool = true
 	if running, err := s.ollama.PS(r.Context()); err == nil {
-		wasCold = true
 		for _, rm := range running {
 			if isSameModelName(rm.Name, body.Model) || isSameModelName(rm.Model, body.Model) {
 				wasCold = false
@@ -1460,14 +1464,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		totalTokens := final.PromptEvalCount + final.EvalCount
 		if s.usage != nil {
 			_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
-			var loadMs int64
 			if wasCold && firstTokenTime > 0 {
-				loadMs = firstTokenTime.Milliseconds()
-			} else if final.LoadDuration > 50_000_000 {
-				loadMs = time.Duration(final.LoadDuration).Milliseconds()
-			}
-			if loadMs > 0 {
-				_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
+				loadMs := firstTokenTime.Milliseconds()
+				if loadMs > 0 {
+					_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
+				}
 			}
 		}
 		send("done", map[string]any{
@@ -1568,14 +1569,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	totalTokens := final.PromptEvalCount + final.EvalCount
 	if s.usage != nil {
 		_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
-		var loadMs int64
 		if wasCold && firstTokenTime > 0 {
-			loadMs = firstTokenTime.Milliseconds()
-		} else if final.LoadDuration > 50_000_000 {
-			loadMs = time.Duration(final.LoadDuration).Milliseconds()
-		}
-		if loadMs > 0 {
-			_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
+			loadMs := firstTokenTime.Milliseconds()
+			if loadMs > 0 {
+				_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
+			}
 		}
 	}
 	send("done", map[string]any{

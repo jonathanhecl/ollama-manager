@@ -2981,6 +2981,7 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isExec = e.name === "exec";
   const isCreateArt = e.name === "create_artifact";
   const isScreenshot = e.name === "take_artifact_screenshot";
+  const isEval = e.name === "eval_artifact_js";
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
@@ -2989,7 +2990,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
             : isExec ? t("chat.tool.exec")
               : isCreateArt ? t("chat.tool.create_artifact")
                 : isScreenshot ? t("chat.tool.take_artifact_screenshot")
-                  : escapeHtml(e.name);
+                  : isEval ? t("chat.tool.eval_artifact_js")
+                    : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -3002,6 +3004,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.path)}</div>`;
   } else if (isExec && e.command) {
     detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.command)}</div>`;
+  } else if (isEval && e.code) {
+    detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.code)}</div>`;
   } else if (isCreateArt && e.artifact_name) {
     let d = escapeHtml(e.artifact_name);
     if (e.description) d += ` — <span class="muted">${escapeHtml(e.description)}</span>`;
@@ -4483,6 +4487,8 @@ async function runChatRequest(assistantMsg) {
         }
       } else if (event === "artifact_screenshot_request") {
         void handleArtifactScreenshotRequest(data);
+      } else if (event === "artifact_eval_request") {
+        void handleArtifactEvalRequest(data);
       } else if (event === "tool") {
         if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
         if (data?.phase === "generating") {
@@ -4496,6 +4502,7 @@ async function runChatRequest(assistantMsg) {
               name: data.name,
               path: data.path,
               command: data.command,
+              code: data.code,
               artifact_name: data.artifact_name,
               status: "generating",
             };
@@ -4506,6 +4513,7 @@ async function runChatRequest(assistantMsg) {
             // Update existing entry with any newly received fields.
             if (data.path) existing.path = data.path;
             if (data.command) existing.command = data.command;
+            if (data.code) existing.code = data.code;
             if (data.artifact_name) existing.artifact_name = data.artifact_name;
           }
 
@@ -4532,6 +4540,7 @@ async function runChatRequest(assistantMsg) {
               e.description = data.description;
               if (data.path) e.path = data.path;
               if (data.command) e.command = data.command;
+              if (data.code) e.code = data.code;
               if (data.artifact_name) e.artifact_name = data.artifact_name;
               upgraded = true;
               break;
@@ -4546,6 +4555,7 @@ async function runChatRequest(assistantMsg) {
               max_results: data.max_results,
               path: data.path,
               command: data.command,
+              code: data.code,
               artifact_name: data.artifact_name,
               description: data.description,
               status: "running",
@@ -5148,6 +5158,91 @@ function syncChatPanels(cv) {
   cv.classList.toggle("artifact-open", artifactOpen);
   const toggle = $("chat-options-toggle");
   if (toggle) toggle.setAttribute("aria-expanded", cv.classList.contains("chat-options-open") ? "true" : "false");
+}
+
+async function handleArtifactEvalRequest(data) {
+  const reqID = data?.request_id;
+  if (!reqID) return;
+
+  const panel = $("chat-artifact-panel");
+  const frame = $("chat-artifact-frame");
+  if (!panel || panel.hidden || !frame) {
+    void api("/api/artifacts/eval", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: reqID, error: "Artifact preview is currently closed or hidden in the browser." }),
+    });
+    return;
+  }
+
+  const win = frame.contentWindow;
+  if (!win) {
+    void api("/api/artifacts/eval", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: reqID, error: "Artifact preview frame is not accessible." }),
+    });
+    return;
+  }
+
+  const code = String(data?.code || "").trim();
+  try {
+    let fn;
+    let isDirectExpr = false;
+    if (!code.includes("return ") && !code.includes("\n") && !code.includes(";")) {
+      try {
+        fn = win.Function(`return (${code});`);
+        isDirectExpr = true;
+      } catch {}
+    }
+    if (!isDirectExpr) {
+      try {
+        fn = win.Function(`return (async () => {\n${code}\n})();`);
+      } catch {
+        fn = () => win.eval(code);
+      }
+    }
+
+    const rawResult = await fn.call(win);
+
+    let resultStr = "";
+    if (rawResult === undefined) {
+      resultStr = "undefined (executed successfully)";
+    } else if (rawResult === null) {
+      resultStr = "null";
+    } else if (typeof rawResult === "string") {
+      resultStr = rawResult;
+    } else if (typeof rawResult === "number" || typeof rawResult === "boolean" || typeof rawResult === "bigint") {
+      resultStr = String(rawResult);
+    } else if (rawResult instanceof win.Element || (rawResult && rawResult.nodeType === 1)) {
+      resultStr = `<${rawResult.tagName.toLowerCase()}${rawResult.id ? ' id="' + rawResult.id + '"' : ''}${rawResult.className ? ' class="' + rawResult.className + '"' : ''}>` + (rawResult.innerText ? ` ${rawResult.innerText.trim().slice(0, 200)}` : "");
+    } else if (rawResult instanceof win.NodeList || rawResult instanceof win.HTMLCollection) {
+      resultStr = `[${Array.from(rawResult).map(el => el.tagName ? `<${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}>` : String(el)).join(", ")}]`;
+    } else {
+      try {
+        resultStr = JSON.stringify(rawResult, (key, value) => {
+          if (value instanceof win.Element || (value && value.nodeType === 1)) {
+            return `<${value.tagName.toLowerCase()}${value.id ? '#' + value.id : ''}>`;
+          }
+          return value;
+        }, 2);
+      } catch {
+        resultStr = String(rawResult);
+      }
+    }
+
+    void api("/api/artifacts/eval", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: reqID, result: resultStr }),
+    });
+  } catch (err) {
+    void api("/api/artifacts/eval", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: reqID, error: err?.message || String(err) || "Evaluation failed" }),
+    });
+  }
 }
 
 async function handleArtifactScreenshotRequest(data) {

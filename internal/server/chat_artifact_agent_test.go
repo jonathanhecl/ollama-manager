@@ -409,3 +409,52 @@ func TestArtifactScreenshotHandler(t *testing.T) {
 		t.Fatalf("timed out waiting for screenshot channel response")
 	}
 }
+
+func TestArtifactEvalToolDefinitions(t *testing.T) {
+	tools := artifactOperationalToolDefinitions(false)
+	hasEvalTool := false
+	for _, raw := range tools {
+		if m, ok := raw.(map[string]any); ok {
+			if fn, ok := m["function"].(map[string]any); ok {
+				if fn["name"] == "eval_artifact_js" {
+					hasEvalTool = true
+				}
+			}
+		}
+	}
+	if !hasEvalTool {
+		t.Errorf("expected eval_artifact_js tool to be defined in operational tools")
+	}
+}
+
+func TestArtifactEvalHandler(t *testing.T) {
+	srv := newTestServer(t, "http://127.0.0.1:11434")
+	reqID := "test-eval-req-456"
+	ch := make(chan artifactEvalResponse, 1)
+
+	srv.artifactEvalMu.Lock()
+	srv.artifactEvalCh[reqID] = ch
+	srv.artifactEvalMu.Unlock()
+
+	bodyBytes, _ := json.Marshal(map[string]string{
+		"request_id": reqID,
+		"result":     "{\"clicked\":true,\"counter\":1}",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/artifacts/eval", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case res := <-ch:
+		if res.Result != "{\"clicked\":true,\"counter\":1}" {
+			t.Errorf("expected expected result, got: %s", res.Result)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for eval channel response")
+	}
+}
+

@@ -34,6 +34,7 @@ Tiny, fast, and feature-packed Go web server to manage and interact with [Ollama
   - **Internet Access (Web Tools)**: server-side bounded web agent utilizing DuckDuckGo (`web_search`) and direct HTTP (`web_fetch`) with a structured timeline (think → tool execution → answer).
   - **Artifacts Workspace Sandbox**: interactive workspace enabling models to build and iterate on web apps and codebases (`create_artifact`, `write_file`, `replace_in_file`, `read_file`, `list_dir`, `exec`) with a side-by-side draggable splitter and real-time live preview.
   - **Visual Inspection (Screenshots)**: vision-capable models can invoke `take_artifact_screenshot` to capture and visually inspect the rendered preview directly from the user's browser, debugging layout, styling, and color contrast autonomously.
+  - **Direct UI Interaction (`eval_artifact_js`)**: models can execute JavaScript directly inside the active artifact preview iframe to click elements, fill inputs, submit forms, test event flows, and query live DOM state in real time.
   - **Live Console Diagnostics**: automatic capture of sandboxed iframe runtime logs (`console.log`, `console.warn`, `console.error`) via `get_artifact_console` for autonomous runtime debugging.
   - **Artifact History & Management**: artifacts are organized by model digest under `artifacts/<digest>/<date>/`. Browse past artifacts, reload previous projects to continue editing, delete individual artifact workspaces via UI/API, or auto-clean them when uninstalling the model.
 
@@ -184,6 +185,7 @@ When accessing over `http://` from another machine or phone, modern browsers res
 | `DELETE` | `/api/artifacts/{digest}/{timestamp}` | Delete a specific generated artifact workspace |
 | `POST` | `/api/artifacts/console` | Relay runtime console logs from artifact preview iframe to the agent |
 | `POST` | `/api/artifacts/screenshot` | Submit browser preview screenshot for vision agent inspection |
+| `POST` | `/api/artifacts/eval` | Submit browser preview JavaScript evaluation results for the agent |
 | `GET` | `/api/models/{name}/artifacts` | List the artifact projects a model has created (id, date, file count, size) |
 | `POST` | `/api/model-repair/preview` | Generate patched Modelfile preview (tools/templates/stops) |
 | `POST` | `/api/model-repair/apply` | Apply repair and build fixed model |

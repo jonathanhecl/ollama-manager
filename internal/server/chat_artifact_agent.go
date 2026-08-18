@@ -131,6 +131,23 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 				},
 			},
 		},
+		map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "eval_artifact_js",
+				"description": "Execute JavaScript directly inside the live artifact preview iframe. Use this to interact with UI elements (click buttons, fill input fields, submit forms, trigger events) or inspect live DOM state, values, and test interactive user flows.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"code": map[string]any{
+							"type":        "string",
+							"description": "JavaScript code or expression to run in the iframe context. Supports async/await, 'return <value>', direct expressions, and DOM APIs like document.querySelector.",
+						},
+					},
+					"required": []string{"code"},
+				},
+			},
+		},
 	}
 	if hasVision {
 		tools = append(tools, map[string]any{
@@ -155,7 +172,7 @@ func artifactSystemPrompt(hasVision bool) string {
 	}
 	return `You are a helpful coding and web assistant. You have access to artifact tools to create and build interactive web applications and projects.
 To start building a project or web application, you MUST first call the tool 'create_artifact' with 'name' and 'description'.
-Calling 'create_artifact' initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', 'get_artifact_console'` + visionNote + `) for you to use in the subsequent steps.
+Calling 'create_artifact' initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', 'get_artifact_console', 'eval_artifact_js'` + visionNote + `) for you to use in the subsequent steps.
 
 WORKFLOW:
 1. Call 'create_artifact' with the project name.
@@ -182,12 +199,13 @@ The artifact session is ALREADY ACTIVE and initialized. You do NOT need to call 
 - 'read_file': Read the contents of an existing file. Required arguments: 'path'.
 - 'list_dir': List files and folders in a directory. Optional argument: 'path' (default '.').
 - 'exec': Run a shell command in the project directory. Required argument: 'command'.
-- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.` + visionLine + `
+- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.
+- 'eval_artifact_js': Execute JavaScript directly in the rendered preview iframe to interact with the UI (click, input, submit) or inspect DOM state.` + visionLine + `
 
 WORKFLOW:
 1. When asked to modify, update, add features, or fix the project, directly use 'write_file', 'replace_in_file', or 'read_file'.
 2. The user will see your changes instantly reflected in the live preview.
-3. If the user reports a bug, error, blank screen, or unexpected behavior, call 'get_artifact_console', 'take_artifact_screenshot', or 'read_file' to diagnose and fix it.
+3. If the user reports a bug, error, blank screen, or unexpected behavior, call 'get_artifact_console', 'eval_artifact_js', 'take_artifact_screenshot', or 'read_file' to diagnose and fix it.
 4. Keep all file paths relative to the project root.
 
 UI/CONVERSATION RULES:
@@ -251,6 +269,14 @@ func artifactToolStartPayload(name string, args json.RawMessage) map[string]any 
 				preview = string([]rune(preview)[:120]) + "…"
 			}
 			p["command"] = preview
+		}
+	case "eval_artifact_js":
+		if code, _ := m["code"].(string); strings.TrimSpace(code) != "" {
+			preview := code
+			if utf8.RuneCountInString(preview) > 120 {
+				preview = string([]rune(preview)[:120]) + "…"
+			}
+			p["code"] = preview
 		}
 	case "create_artifact":
 		if n, _ := m["name"].(string); n != "" {
@@ -799,6 +825,46 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 				case <-ctx.Done():
 					out = "Error: context cancelled"
 					toolErr = ctx.Err()
+				}
+			} else if n == "eval_artifact_js" {
+				m := parseToolArgs(tc.Function.Arguments)
+				code, _ := m["code"].(string)
+				if strings.TrimSpace(code) == "" {
+					out = "Error: missing 'code' argument for eval_artifact_js"
+				} else {
+					reqID := fmt.Sprintf("eval-%d-%d", time.Now().UnixNano(), round)
+					ch := make(chan artifactEvalResponse, 1)
+					s.artifactEvalMu.Lock()
+					s.artifactEvalCh[reqID] = ch
+					s.artifactEvalMu.Unlock()
+
+					defer func(id string) {
+						s.artifactEvalMu.Lock()
+						delete(s.artifactEvalCh, id)
+						s.artifactEvalMu.Unlock()
+					}(reqID)
+
+					send("artifact_eval_request", map[string]any{
+						"request_id": reqID,
+						"code":       code,
+						"timestamp":  ts,
+					})
+
+					select {
+					case res := <-ch:
+						if res.Error != "" {
+							out = "Error evaluating JavaScript: " + res.Error
+						} else if res.Result != "" {
+							out = res.Result
+						} else {
+							out = "undefined (executed successfully with no return value)"
+						}
+					case <-time.After(10 * time.Second):
+						out = "Error: eval request timed out. Make sure the artifact preview panel is currently open in your browser."
+					case <-ctx.Done():
+						out = "Error: context cancelled"
+						toolErr = ctx.Err()
+					}
 				}
 			} else if isWebTool(n) {
 				out, toolErr = s.runWebTool(ctx, n, tc.Function.Arguments)

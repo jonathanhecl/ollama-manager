@@ -3847,10 +3847,12 @@ button.chat-send:disabled:hover {
   .brand { min-width: 0; }
   .topbar-actions {
     width: 100%;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 4px;
     flex-wrap: nowrap;
+    overflow: hidden;
   }
   .metrics-strip {
     flex: 1;
@@ -3902,17 +3904,17 @@ button.chat-send:disabled:hover {
     background: #0f1119;
   }
   .metric-widget-label {
-    display: inline;
-    font-size: 8px;
-    letter-spacing: .35px;
+    display: none;
   }
   .metric-widget-track {
     display: block;
-    width: 36px;
+    width: 26px;
+    min-width: 0;
   }
   .metric-widget-text {
     font-size: 9px;
     max-width: 60px;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -4883,7 +4883,7 @@ button.chat-send:disabled:hover {
 .analytics-head .badge { margin-left: auto; }
 .analytics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 .analytics-card {
@@ -4897,7 +4897,7 @@ button.chat-send:disabled:hover {
 .analytics-card-head h3 { margin: 0 0 2px; font-size: 14px; }
 .analytics-sub { font-size: 12px; }
 .analytics-chart {
-  min-height: 260px;
+  min-height: 300px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4911,14 +4911,15 @@ button.chat-send:disabled:hover {
 .analytics-axislabel--y { letter-spacing: 1px; }
 .analytics-dot { stroke: rgba(0,0,0,0.35); stroke-width: 1; }
 .analytics-pt:hover .analytics-dot { stroke: var(--text); stroke-width: 2; }
-.analytics-ptlabel { fill: var(--text-dim); font-size: 10px; pointer-events: none; }
+.analytics-ptlabel { fill: var(--text-dim); font-size: 11px; pointer-events: none; }
 .analytics-barrect { stroke: rgba(0,0,0,0.2); stroke-width: 1; }
 .analytics-bar:hover .analytics-barrect { filter: brightness(1.15); }
-.analytics-barlabel { fill: var(--text-dim); font-size: 9px; pointer-events: none; }
-.analytics-barval { fill: var(--text-dim); font-size: 9px; pointer-events: none; }
+.analytics-barlabel { fill: var(--text-dim); font-size: 11px; pointer-events: none; }
+.analytics-barval { fill: var(--text-dim); font-size: 11px; pointer-events: none; }
 .analytics-empty { padding: 20px; text-align: center; }
 @media (max-width: 900px) {
   .analytics-view { padding: 12px; }
+  .analytics-grid { grid-template-columns: 1fr; }
 }
 
 /* Analytics filter bar */
@@ -4965,6 +4966,8 @@ button.chat-send:disabled:hover {
 
 /* Analytics metadata table */
 .analytics-meta-card { margin-top: 16px; }
+.analytics-meta-lists { display: grid; gap: 18px; }
+.analytics-meta-list h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-dim); }
 .analytics-meta-head {
   display: flex;
   align-items: center;
@@ -4999,4 +5002,3 @@ button.chat-send:disabled:hover {
 }
 .analytics-remove-ghost { padding: 2px 6px; font-size: 11px; margin-left: 4px; }
 .analytics-remove-ghost:hover { color: var(--bad); border-color: var(--bad); }
-

@@ -2174,7 +2174,10 @@ async function renderAnalytics() {
   if (charts.every((c) => !c)) return;
   try {
     const data = await api("/api/models");
-    analyticsAllData = (data.models || []).concat(data.ghost_models || []);
+    // Archived models remain available in their archive view and history, but
+    // must not influence analytics or comparison filters.
+    const installed = (data.models || []).filter((m) => !m.archived);
+    analyticsAllData = installed.concat(data.ghost_models || []);
     if (countEl) {
       const ghostCount = (data.ghost_models || []).length;
       countEl.textContent = t("analytics.count", { models: analyticsAllData.length, ghosts: ghostCount });
@@ -2286,11 +2289,14 @@ function persistAnalyticsFilters() {
 // Combine metadata for a model: prefer the live modelView fields, fall back to
 // usage-record metadata carried by ghosts. Returns a plain object.
 function analyticsPoint(m) {
-  const paramsRaw = m.parameter_size || "";
+  const parameterCount = Number(m.parameter_count) || 0;
+  const paramsRaw = m.parameter_size || (parameterCount ? formatExactParams(parameterCount) : "");
   return {
     name: m.name,
     ghost: !!m.is_ghost,
-    params: parseParamSize(paramsRaw),
+    // Some Ollama MLX entries omit parameter_size, while model_info still
+    // provides general.parameter_count. Use that exact value as the fallback.
+    params: parseParamSize(paramsRaw) || parameterCount,
     paramsLabel: paramsRaw || "—",
     sizeBytes: Number(m.size) || 0,
     quant: m.quantization || "",
@@ -2300,7 +2306,7 @@ function analyticsPoint(m) {
     coldLoadMs: Number(m.min_cold_load_ms) || 0,
     totalTokens: Number(m.total_tokens) || 0,
     totalCalls: Number(m.total_calls) || 0,
-    parameterCount: Number(m.parameter_count) || 0,
+    parameterCount,
     architecture: m.architecture || "",
     fileType: Number(m.file_type) || 0,
     sizeLabel: m.size_label || "",
@@ -2343,6 +2349,11 @@ function fmtCompactTokens(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
   return `${Math.round(n)}`;
+}
+
+function shortModelLabel(name, max = 22) {
+  const short = String(name || "").split("/").pop();
+  return short.length > max ? `${short.slice(0, max - 1)}…` : short;
 }
 
 // Build a horizontal (log-ish) scale. Charts use a linear scale but we give
@@ -2400,13 +2411,21 @@ function renderScatter(container, data, opts) {
   svg.appendChild(svgEl("text", { x: W / 2, y: H - 6, "text-anchor": "middle", class: "analytics-axislabel" }, opts.xLabel));
   svg.appendChild(svgEl("text", { x: 14, y: H / 2, "text-anchor": "middle", class: "analytics-axislabel analytics-axislabel--y", transform: `rotate(-90 14 ${H / 2})` }, opts.yLabel));
 
-  // title tooltip group
+  // Keep labels only where there is enough room. Every point still has a
+  // native SVG tooltip with the complete model name, so dense plots remain
+  // usable without a wall of overlapping text.
+  const placedLabels = [];
   points.forEach((p, i) => {
     const cx = sx(p.x), cy = sy(p.y);
     const g = svgEl("g", { class: "analytics-pt" });
     g.appendChild(svgEl("circle", { cx, cy, r: 6, fill: opts.color ? opts.color(p.m, i) : analyticsColor(i), class: "analytics-dot" }));
     g.appendChild(svgEl("title", null, `${p.m.name}\n${opts.xTitle ? opts.xTitle(p.m) : opts.xLabel}: ${fmtAxis(p.x, opts.xKind)}\n${opts.yTitle ? opts.yTitle(p.m) : opts.yLabel}: ${fmtAxis(p.y, opts.yKind)}`));
-    g.appendChild(svgEl("text", { x: cx + 9, y: cy - 6, class: "analytics-ptlabel" }, p.m.name));
+    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < 54 && Math.abs(q.y - cy) < 24);
+    if (!tooClose) {
+      const label = shortModelLabel(p.m.name, 20);
+      g.appendChild(svgEl("text", { x: cx + 9, y: cy - 6, class: "analytics-ptlabel" }, label));
+      placedLabels.push({ x: cx, y: cy });
+    }
     svg.appendChild(g);
   });
 
@@ -2414,12 +2433,12 @@ function renderScatter(container, data, opts) {
   container.appendChild(svg);
 }
 
-// barChart(container, data, opts): vertical bars, one per model.
+// barChart(container, data, opts): horizontal bars, one per model. Horizontal
+// bars keep model labels readable even when many models are selected.
 // opts: {value, label, kind, title}
 function renderBars(container, data, opts) {
-  const W = 640, H = 380, PAD = { l: 58, r: 18, t: 18, b: 64 };
+  const W = 640, PAD = { l: 170, r: 56, t: 18, b: 30 };
   const iw = W - PAD.l - PAD.r;
-  const ih = H - PAD.t - PAD.b;
   const items = data
     .map((m) => ({ m, v: opts.value(m) }))
     .filter((p) => Number.isFinite(p.v) && p.v > 0)
@@ -2430,33 +2449,32 @@ function renderBars(container, data, opts) {
     return;
   }
 
+  const rowH = 28;
+  const H = Math.max(260, PAD.t + PAD.b + items.length * rowH);
+  const ih = H - PAD.t - PAD.b;
   const xDom = niceDomain(items.map((p) => p.v));
-  const sy = (v) => PAD.t + ih - (v - xDom.min) / (xDom.max - xDom.min) * ih;
+  const sx = (v) => PAD.l + (v - xDom.min) / (xDom.max - xDom.min) * iw;
 
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg", role: "img" });
   const yTicks = 5;
   for (let i = 0; i <= yTicks; i++) {
     const v = xDom.min + (xDom.max - xDom.min) * i / yTicks;
-    const y = sy(v);
-    svg.appendChild(svgEl("line", { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, class: "analytics-grid" }));
-    svg.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.kind)));
+    const x = sx(v);
+    svg.appendChild(svgEl("line", { x1: x, y1: PAD.t, x2: x, y2: H - PAD.b, class: "analytics-grid" }));
+    svg.appendChild(svgEl("text", { x, y: H - 8, "text-anchor": "middle", class: "analytics-tick" }, fmtAxis(v, opts.kind)));
   }
   svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
   svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
 
-  const n = items.length;
-  const slot = iw / n;
-  const barW = Math.max(8, Math.min(34, slot * 0.6));
   items.forEach((it, i) => {
-    const x = PAD.l + slot * i + (slot - barW) / 2;
-    const y = sy(it.v);
-    const h = H - PAD.b - y;
+    const y = PAD.t + i * rowH + (rowH - 18) / 2;
+    const x = PAD.l;
+    const barW = Math.max(1, sx(it.v) - PAD.l);
     const g = svgEl("g", { class: "analytics-bar" });
-    g.appendChild(svgEl("rect", { x, y, width: barW, height: h, rx: 2, fill: analyticsColor(i), class: "analytics-barrect" }));
+    g.appendChild(svgEl("rect", { x, y, width: barW, height: 18, rx: 2, fill: analyticsColor(i), class: "analytics-barrect" }));
     g.appendChild(svgEl("title", null, `${it.m.name}\n${opts.label}: ${fmtAxis(it.v, opts.kind)}`));
-    const label = it.m.name.length > 14 ? it.m.name.slice(0, 13) + "…" : it.m.name;
-    g.appendChild(svgEl("text", { x: x + barW / 2, y: H - PAD.b + 14, "text-anchor": "middle", class: "analytics-barlabel" }, label));
-    g.appendChild(svgEl("text", { x: x + barW / 2, y: y - 4, "text-anchor": "middle", class: "analytics-barval" }, fmtAxis(it.v, opts.kind)));
+    g.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 13, "text-anchor": "end", class: "analytics-barlabel" }, shortModelLabel(it.m.name, 25)));
+    g.appendChild(svgEl("text", { x: Math.min(W - PAD.r + 4, sx(it.v) + 6), y: y + 13, class: "analytics-barval" }, fmtAxis(it.v, opts.kind)));
     svg.appendChild(g);
   });
 
@@ -2522,12 +2540,6 @@ function renderCallsBar(all) {
 let analyticsMetaSearch = "";
 
 function renderMetaTable(all) {
-  const tbody = $("analytics-meta-tbody");
-  if (!tbody) return;
-  if (!all.length) {
-    tbody.innerHTML = `<tr class="empty"><td colspan="9" class="muted">${escapeHtml(t("analytics.no_data"))}</td></tr>`;
-    return;
-  }
   const q = analyticsMetaSearch.toLowerCase();
   const rows = all.filter((m) => {
     if (!q) return true;
@@ -2535,12 +2547,24 @@ function renderMetaTable(all) {
     return p.name.toLowerCase().includes(q) || p.family.toLowerCase().includes(q) || p.architecture.toLowerCase().includes(q);
   });
   rows.sort((a, b) => analyticsPoint(b).parameterCount - analyticsPoint(a).parameterCount);
+  renderMetaTableBody($("analytics-meta-tbody-installed"), rows.filter((m) => !analyticsPoint(m).ghost), false, q);
+  renderMetaTableBody($("analytics-meta-tbody-uninstalled"), rows.filter((m) => analyticsPoint(m).ghost), true, q);
+}
+
+function renderMetaTableBody(tbody, rows, uninstalled, query) {
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr class="empty"><td colspan="${uninstalled ? 9 : 8}" class="muted">${escapeHtml(query ? t("analytics.no_data") : t("analytics.no_models"))}</td></tr>`;
+    return;
+  }
   tbody.innerHTML = rows.map((m) => {
     const p = analyticsPoint(m);
-    const ghostBadge = p.ghost ? `<span class="badge badge-muted">${escapeHtml(t("analytics.meta_ghost"))}</span>` : "";
     const moeBadge = p.isMOE ? `<span class="badge badge-moe">MoE</span>` : "";
-    return `<tr class="${p.ghost ? "ghost" : ""}">
-      <td class="analytics-meta-name">${escapeHtml(p.name)} ${ghostBadge}</td>
+    const remove = uninstalled
+      ? `<button type="button" class="ghost analytics-remove-ghost" data-name="${escapeHtml(p.name)}" title="${escapeHtml(t("analytics.remove_ghost"))}">🗑</button>`
+      : "";
+    return `<tr class="${uninstalled ? "ghost" : ""}">
+      <td class="analytics-meta-name">${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.paramsLabel)}</td>
       <td class="mono">${p.parameterCount ? formatExactParams(p.parameterCount) : "—"}</td>
       <td>${escapeHtml(p.architecture || "—")} ${moeBadge}</td>
@@ -2548,9 +2572,9 @@ function renderMetaTable(all) {
       <td>${escapeHtml(p.quant || "—")}</td>
       <td>${escapeHtml(p.family || "—")}</td>
       <td class="mono">${p.sizeBytes ? fmtBytes(p.sizeBytes) : "—"}</td>
-      <td>${p.ghost ? t("action.yes") : t("action.no")}${p.ghost ? ` <button type="button" class="ghost analytics-remove-ghost" data-name="${escapeHtml(p.name)}" data-i18n-attr="title" data-i18n="analytics.remove_ghost" title="${escapeHtml(t("analytics.remove_ghost"))}">🗑</button>` : ""}</td>
+      ${uninstalled ? `<td>${remove}</td>` : ""}
     </tr>`;
-  }).join("") || `<tr class="empty"><td colspan="9" class="muted">${escapeHtml(t("analytics.no_data"))}</td></tr>`;
+  }).join("");
 }
 
 function formatExactParams(n) {
@@ -2566,8 +2590,7 @@ function bindAnalyticsMetaSearch() {
     analyticsMetaSearch = input.value.trim();
     renderMetaTable(analyticsAllData.filter((m) => analyticsFilterMatches(analyticsPoint(m))));
   });
-  const tbody = $("analytics-meta-tbody");
-  if (tbody) {
+  document.querySelectorAll("#analytics-meta-tbody-installed, #analytics-meta-tbody-uninstalled").forEach((tbody) => {
     tbody.addEventListener("click", (e) => {
       const btn = e.target.closest(".analytics-remove-ghost");
       if (btn) {
@@ -2576,7 +2599,7 @@ function bindAnalyticsMetaSearch() {
         if (name) void removeGhost(name);
       }
     });
-  }
+  });
 }
 
 async function removeGhost(name) {

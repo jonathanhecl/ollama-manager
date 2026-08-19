@@ -346,7 +346,7 @@
         <select id="analytics-filter-source" class="analytics-filter-select">
           <option value="all" data-i18n="analytics.source_all">All</option>
           <option value="installed" data-i18n="analytics.source_installed">Installed</option>
-          <option value="ghost" data-i18n="analytics.source_ghost">Ghosts</option>
+          <option value="ghost" data-i18n="analytics.source_ghost">Not installed</option>
         </select>
       </div>
       <div class="analytics-filter-group">
@@ -419,31 +419,58 @@
       <div class="analytics-meta-head">
         <div>
           <h3 data-i18n="analytics.meta_title">Model metadata</h3>
-          <span class="analytics-sub muted" data-i18n="analytics.meta_sub">Detailed info stored for each model (installed and ghost)</span>
+          <span class="analytics-sub muted" data-i18n="analytics.meta_sub">Detailed info stored for each model (installed and not installed)</span>
         </div>
         <div class="analytics-meta-search">
           <input type="search" id="analytics-meta-search" data-i18n-attr="placeholder aria-label" data-i18n="analytics.meta_search" placeholder="Filter models…" aria-label="Filter models" autocomplete="off" spellcheck="false">
         </div>
       </div>
-      <div class="analytics-table-wrap">
-        <table class="analytics-table">
-          <thead>
-            <tr>
-              <th data-i18n="analytics.meta_model">Model</th>
-              <th data-i18n="col.params">Params</th>
-              <th data-i18n="analytics.meta_params_exact">Exact params</th>
-              <th data-i18n="analytics.meta_arch">Architecture</th>
-              <th data-i18n="analytics.meta_filetype">File type</th>
-              <th data-i18n="analytics.meta_quant">Quant.</th>
-              <th data-i18n="analytics.meta_family">Family</th>
-              <th data-i18n="analytics.meta_size">Size</th>
-              <th data-i18n="analytics.meta_ghost">Ghost</th>
-            </tr>
-          </thead>
-          <tbody id="analytics-meta-tbody">
-            <tr class="empty"><td colspan="9" data-i18n="state.loading">Loading…</td></tr>
-          </tbody>
-        </table>
+      <div class="analytics-meta-lists">
+        <section class="analytics-meta-list">
+          <h4 data-i18n="analytics.installed_title">Installed models</h4>
+          <div class="analytics-table-wrap">
+            <table class="analytics-table">
+              <thead>
+                <tr>
+                  <th data-i18n="analytics.meta_model">Model</th>
+                  <th data-i18n="col.params">Params</th>
+                  <th data-i18n="analytics.meta_params_exact">Exact params</th>
+                  <th data-i18n="analytics.meta_arch">Architecture</th>
+                  <th data-i18n="analytics.meta_filetype">File type</th>
+                  <th data-i18n="analytics.meta_quant">Quant.</th>
+                  <th data-i18n="analytics.meta_family">Family</th>
+                  <th data-i18n="analytics.meta_size">Size</th>
+                </tr>
+              </thead>
+              <tbody id="analytics-meta-tbody-installed">
+                <tr class="empty"><td colspan="8" data-i18n="state.loading">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section class="analytics-meta-list">
+          <h4 data-i18n="analytics.uninstalled_title">Not installed</h4>
+          <div class="analytics-table-wrap">
+            <table class="analytics-table">
+              <thead>
+                <tr>
+                  <th data-i18n="analytics.meta_model">Model</th>
+                  <th data-i18n="col.params">Params</th>
+                  <th data-i18n="analytics.meta_params_exact">Exact params</th>
+                  <th data-i18n="analytics.meta_arch">Architecture</th>
+                  <th data-i18n="analytics.meta_filetype">File type</th>
+                  <th data-i18n="analytics.meta_quant">Quant.</th>
+                  <th data-i18n="analytics.meta_family">Family</th>
+                  <th data-i18n="analytics.meta_size">Size</th>
+                  <th data-i18n="analytics.remove_ghost">Remove</th>
+                </tr>
+              </thead>
+              <tbody id="analytics-meta-tbody-uninstalled">
+                <tr class="empty"><td colspan="9" data-i18n="state.loading">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </section>
   </main>

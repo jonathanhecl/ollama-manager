@@ -1122,10 +1122,8 @@ function renderTable() {
         if (e.target.closest(".info-btn")) return;
         if (e.target.closest(".delete-btn")) return;
         if (e.target.closest(".reinstall-ghost-btn")) return;
-        if (m.isGhost) {
-          void promptDownloadModel(m.name);
-          return;
-        }
+        if (e.target.closest(".ghost-site-btn")) return;
+        if (m.isGhost) return;
         showChatViewWithModel(newTr.dataset.name);
       });
 

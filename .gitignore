@@ -47,6 +47,7 @@ ollama-manager.exe
 # .idea/
 # .vscode/
 .DS_Store
+.openchamber/
 
 # Built distribution packages
 dist/

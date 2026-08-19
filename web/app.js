@@ -7015,7 +7015,7 @@ document.querySelector(".brand")?.addEventListener("click", () => {
   showModelsView();
   history.pushState(null, "", "/");
 });
-$("refresh-btn").addEventListener("click", () => { refreshStatus(); refreshModels(); });
+$("models-reload-btn")?.addEventListener("click", () => { refreshStatus(); refreshModels(); });
 $("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 
 $("tests-btn")?.addEventListener("click", () => {

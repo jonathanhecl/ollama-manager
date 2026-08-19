@@ -42,12 +42,6 @@
       </div>
     </div>
     <div class="topbar-row topbar-row--actions">
-      <div class="topbar-actions topbar-actions--left">
-        <button id="refresh-btn" class="ghost" data-i18n-attr="title" data-i18n="action.reload_models" title="Reload models">
-          <span class="dl-icon" aria-hidden="true">🔄</span>
-          <span data-i18n="action.reload_models">Reload models</span>
-        </button>
-      </div>
       <div class="topbar-actions topbar-actions--right">
         <button id="downloads-btn" class="ghost with-badge" data-i18n-attr="title" data-i18n="downloads.title" title="Downloads">
           <span class="dl-icon" aria-hidden="true">📥</span>
@@ -75,7 +69,15 @@
         <input type="search" id="models-search" class="models-search-input" data-i18n-attr="placeholder aria-label" data-i18n="models.search_placeholder" placeholder="Search models (name, family, size…)" aria-label="Search models" autocomplete="off" spellcheck="false">
         <button type="button" id="models-search-clear" class="btn-icon models-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
       </div>
-      <div id="models-count" class="models-count mono"></div>
+      <div class="models-count-wrap">
+        <div id="models-count" class="models-count mono"></div>
+        <button id="models-reload-btn" type="button" class="ghost models-reload-btn" data-i18n-attr="title" data-i18n="action.reload_models" title="Reload models">
+          <svg class="chat-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+          </svg>
+        </button>
+      </div>
     </div>
     <section class="table-wrap">
       <table id="models-table">

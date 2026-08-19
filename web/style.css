@@ -80,7 +80,7 @@ select { cursor: pointer; }
   min-width: 0;
 }
 .topbar-row--actions {
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .brand:hover { opacity: 0.85; }
@@ -292,6 +292,32 @@ main { padding: 18px; }
 .models-count.ghosts-active {
   color: var(--accent);
   background: rgba(122, 162, 255, 0.1);
+}
+.models-count-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.models-reload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  transition: color 0.15s ease, background 0.15s ease, transform 0.18s ease;
+}
+.models-reload-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+  transform: rotate(-35deg);
+}
+.models-reload-btn .chat-header-icon {
+  width: 15px;
+  height: 15px;
 }
 tr.row.ghost {
   opacity: 0.65;
@@ -3856,7 +3882,7 @@ button.chat-send:disabled:hover {
   }
   .brand { min-width: 0; }
   .topbar-row--actions {
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
   }
   .topbar-actions {
@@ -3876,8 +3902,7 @@ button.chat-send:disabled:hover {
     gap: 4px;
     margin-left: 0;
   }
-  .topbar-actions--left .ghost,
-  .topbar-actions--right .ghost {
+  .topbar-actions .ghost {
     width: 28px;
     min-width: 28px;
     height: 28px;
@@ -3888,14 +3913,7 @@ button.chat-send:disabled:hover {
     font-size: 12px;
     line-height: 1;
   }
-  .topbar-actions--left .ghost > span[data-i18n="action.reload_models"] {
-    display: none;
-  }
-  .topbar-actions--left .ghost .dl-icon {
-    font-size: 13px;
-    line-height: 1;
-  }
-  .topbar-actions--right .with-badge {
+  .topbar-actions .with-badge {
     min-height: 28px;
     min-width: 28px;
     width: 28px;
@@ -3904,14 +3922,14 @@ button.chat-send:disabled:hover {
     display: inline-grid;
     place-items: center;
   }
-  .topbar-actions--right .with-badge .dl-icon {
+  .topbar-actions .with-badge .dl-icon {
     font-size: 13px;
     line-height: 1;
   }
-  .topbar-actions--right .with-badge > span[data-i18n="downloads.button"] {
+  .topbar-actions .with-badge > span[data-i18n="downloads.button"] {
     display: none;
   }
-  .topbar-actions--right .with-badge .count-badge {
+  .topbar-actions .with-badge .count-badge {
     display: none !important;
   }
   .metric-widget {

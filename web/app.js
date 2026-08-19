@@ -2548,7 +2548,7 @@ function renderMetaTable(all) {
       <td>${escapeHtml(p.quant || "—")}</td>
       <td>${escapeHtml(p.family || "—")}</td>
       <td class="mono">${p.sizeBytes ? fmtBytes(p.sizeBytes) : "—"}</td>
-      <td>${p.ghost ? t("yes") : t("no")}</td>
+      <td>${p.ghost ? t("action.yes") : t("action.no")}</td>
     </tr>`;
   }).join("") || `<tr class="empty"><td colspan="9" class="muted">${escapeHtml(t("analytics.no_data"))}</td></tr>`;
 }
@@ -9280,6 +9280,8 @@ refreshStatus();
 refreshModels().then(() => handleRouting());
 connectJobsStream();
 bindChatEvents();
+bindAnalyticsFilters();
+bindAnalyticsMetaSearch();
 updateStreamBar();
 syncChatModelOptions();
 updateChatCapabilityUI();

@@ -174,7 +174,13 @@ type ChatOnceResponse struct {
 
 // EmbedResponse is the normalized output of Ollama embed endpoints.
 type EmbedResponse struct {
-	Embedding []float64 `json:"embedding"`
+	Embedding          []float64 `json:"embedding"`
+	EvalCount          int       `json:"eval_count,omitempty"`
+	EvalDuration       int64     `json:"eval_duration,omitempty"`
+	PromptEvalCount    int       `json:"prompt_eval_count,omitempty"`
+	PromptEvalDuration int64     `json:"prompt_eval_duration,omitempty"`
+	LoadDuration       int64     `json:"load_duration,omitempty"`
+	TotalDuration      int64     `json:"total_duration,omitempty"`
 }
 
 // CreateRequest is the subset of /api/create used to create derived models.
@@ -449,8 +455,14 @@ func (c *Client) Embed(ctx context.Context, model, input string) (*EmbedResponse
 			return nil, err
 		}
 		var raw struct {
-			Embedding  []float64   `json:"embedding"`
-			Embeddings [][]float64 `json:"embeddings"`
+			Embedding          []float64   `json:"embedding"`
+			Embeddings         [][]float64 `json:"embeddings"`
+			EvalCount          int         `json:"eval_count"`
+			EvalDuration       int64       `json:"eval_duration"`
+			PromptEvalCount    int         `json:"prompt_eval_count"`
+			PromptEvalDuration int64       `json:"prompt_eval_duration"`
+			LoadDuration       int64       `json:"load_duration"`
+			TotalDuration      int64       `json:"total_duration"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 			return nil, fmt.Errorf("decode embed response: %w", err)
@@ -459,7 +471,15 @@ func (c *Client) Embed(ctx context.Context, model, input string) (*EmbedResponse
 		if len(vec) == 0 && len(raw.Embeddings) > 0 {
 			vec = raw.Embeddings[0]
 		}
-		return &EmbedResponse{Embedding: vec}, nil
+		return &EmbedResponse{
+			Embedding:          vec,
+			EvalCount:          raw.EvalCount,
+			EvalDuration:       raw.EvalDuration,
+			PromptEvalCount:    raw.PromptEvalCount,
+			PromptEvalDuration: raw.PromptEvalDuration,
+			LoadDuration:       raw.LoadDuration,
+			TotalDuration:      raw.TotalDuration,
+		}, nil
 	}
 
 	out, err := try("/api/embed")

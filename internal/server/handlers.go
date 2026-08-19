@@ -1182,11 +1182,49 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("missing 'input'"))
 		return
 	}
+
+	var wasCold bool = true
+	isSameModelName := func(a, b string) bool {
+		a = strings.TrimSpace(a)
+		b = strings.TrimSpace(b)
+		if a == b {
+			return true
+		}
+		if strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest") {
+			return true
+		}
+		aBase := a[strings.LastIndex(a, "/")+1:]
+		bBase := b[strings.LastIndex(b, "/")+1:]
+		return strings.TrimSuffix(aBase, ":latest") == strings.TrimSuffix(bBase, ":latest")
+	}
+	if running, err := s.ollama.PS(r.Context()); err == nil {
+		for _, rm := range running {
+			if isSameModelName(rm.Name, body.Model) || isSameModelName(rm.Model, body.Model) {
+				wasCold = false
+				break
+			}
+		}
+	}
+
 	out, err := s.ollama.Embed(r.Context(), body.Model, body.Input)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
+
+	if s.usage != nil {
+		evalCount := out.EvalCount
+		evalDuration := out.EvalDuration
+		if evalCount <= 0 || evalDuration <= 0 {
+			evalCount = out.PromptEvalCount
+			evalDuration = out.PromptEvalDuration
+		}
+		_ = s.usage.Record(body.Model, evalCount, evalDuration, out.PromptEvalCount, time.Now())
+		if wasCold && out.LoadDuration > 0 {
+			_ = s.usage.RecordColdLoad(body.Model, out.LoadDuration/1e6, time.Now())
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"model":     body.Model,
 		"embedding": out.Embedding,

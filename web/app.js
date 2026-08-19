@@ -754,7 +754,7 @@ function sortKey(m, col) {
     case "name": return (m.name || "").toLowerCase();
     case "family": return (m.family || "").toLowerCase();
     case "record_tokens_per_sec": return Number(m.record_tokens_per_sec) || 0;
-    case "parameter_size": return parseParamSize(m.parameter_size);
+    case "parameter_size": return parseParamSize(m.parameter_size) || Number(m.parameter_count) || 0;
     case "quantization": return (m.quantization || "").toLowerCase();
     case "context_length": return Number(m.context_length) || 0;
     case "size": return Number(m.size) || 0;
@@ -771,6 +771,12 @@ function parseParamSize(s) {
   const n = parseFloat(m[1]);
   const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || "").toUpperCase()] || 1;
   return n * mult;
+}
+
+function modelParameterLabel(m) {
+  if (m.parameter_size && m.parameter_size !== "—") return m.parameter_size;
+  const exact = Number(m.parameter_count) || 0;
+  return exact > 0 ? formatExactParams(exact) : "—";
 }
 
 function applySort(arr) {
@@ -892,7 +898,7 @@ function renderTable() {
       ...g,
       isGhost: true,
       family: "—",
-      parameter_size: "—",
+       parameter_size: "—",
       quantization: "—",
       context_length: 0,
       size: 0,
@@ -907,7 +913,8 @@ function renderTable() {
         (m.name && m.name.toLowerCase().includes(q)) ||
         (m.family && m.family.toLowerCase().includes(q)) ||
         ((m.families || []).some(f => f && f.toLowerCase().includes(q))) ||
-        (m.parameter_size && m.parameter_size.toLowerCase().includes(q)) ||
+         modelParameterLabel(m).toLowerCase().includes(q) ||
+         (m.parameter_count && String(m.parameter_count).includes(q)) ||
         (m.quantization && m.quantization.toLowerCase().includes(q)) ||
         ((m.capabilities || []).some(c => c && c.toLowerCase().includes(q))) ||
         (m.digest && m.digest.toLowerCase().includes(q))
@@ -933,7 +940,8 @@ function renderTable() {
             isPending: true,
             job: j,
             family: "—",
-            parameter_size: "—",
+             parameter_size: "—",
+             parameter_count: 0,
             quantization: "—",
             context_length: 0,
             size: 0,
@@ -1037,7 +1045,7 @@ function renderTable() {
           ${m.isPending ? "" : minLoadHtml}
         </div>
       </td>
-      <td class="cell-params">${escapeHtml(m.parameter_size || "—")}</td>
+      <td class="cell-params">${escapeHtml(modelParameterLabel(m))}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
       <td class="cell-ctx">${(m.isPending || m.isGhost) ? "—" : fmtCtx(m.context_length)}</td>
       <td class="cell-size">${(m.isPending || m.isGhost) ? "—" : fmtBytes(m.size)}</td>
@@ -1095,6 +1103,7 @@ function renderTable() {
         tr._m_ctx !== m.context_length ||
         tr._m_family !== m.family ||
         tr._m_param !== m.parameter_size ||
+        tr._m_param_count !== m.parameter_count ||
         tr._m_quant !== m.quantization
       ) {
         needUpdate = true;
@@ -1166,7 +1175,8 @@ function renderTable() {
       newTr._m_min_cold_load = m.min_cold_load_ms;
       newTr._m_ctx = m.context_length;
       newTr._m_family = m.family;
-      newTr._m_param = m.parameter_size;
+       newTr._m_param = m.parameter_size;
+       newTr._m_param_count = m.parameter_count;
       newTr._m_quant = m.quantization;
 
       if (tr) {
@@ -2420,10 +2430,19 @@ function renderScatter(container, data, opts) {
     const g = svgEl("g", { class: "analytics-pt" });
     g.appendChild(svgEl("circle", { cx, cy, r: 6, fill: opts.color ? opts.color(p.m, i) : analyticsColor(i), class: "analytics-dot" }));
     g.appendChild(svgEl("title", null, `${p.m.name}\n${opts.xTitle ? opts.xTitle(p.m) : opts.xLabel}: ${fmtAxis(p.x, opts.xKind)}\n${opts.yTitle ? opts.yTitle(p.m) : opts.yLabel}: ${fmtAxis(p.y, opts.yKind)}`));
-    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < 54 && Math.abs(q.y - cy) < 24);
+    // A 20-character label is roughly 130px at this font size. Reserve that
+    // width, otherwise labels that are merely close to their anchor still
+    // collide visually.
+    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < 136 && Math.abs(q.y - cy) < 22);
     if (!tooClose) {
       const label = shortModelLabel(p.m.name, 20);
-      g.appendChild(svgEl("text", { x: cx + 9, y: cy - 6, class: "analytics-ptlabel" }, label));
+      const onRightEdge = cx > W - 145;
+      g.appendChild(svgEl("text", {
+        x: onRightEdge ? cx - 9 : cx + 9,
+        y: cy - 6,
+        "text-anchor": onRightEdge ? "end" : "start",
+        class: "analytics-ptlabel",
+      }, label));
       placedLabels.push({ x: cx, y: cy });
     }
     svg.appendChild(g);
@@ -8045,16 +8064,16 @@ $("opencode-cmd-copy-btn").addEventListener("click", async () => {
 });
 
 // ---------- init ----------
-// Show Tests button only on desktop.
+// Tests remains desktop-only, but Analytics is useful on mobile too.
 if (window.innerWidth > 900) {
   $("tests-btn").hidden = false;
-  $("analytics-btn").hidden = false;
 }
+$("analytics-btn").hidden = false;
 window.addEventListener("resize", () => {
   const btn = $("tests-btn");
   if (btn) btn.hidden = window.innerWidth <= 900;
   const abtn = $("analytics-btn");
-  if (abtn) abtn.hidden = window.innerWidth <= 900;
+  if (abtn) abtn.hidden = false;
 });
 // ---------- agent session ----------
 

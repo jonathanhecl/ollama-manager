@@ -1014,6 +1014,43 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// handleDeleteGhost removes a model's persistent usage/metadata record so it
+// no longer appears as a ghost in stats/charts. The uninstall-history record
+// (deletion reason) is preserved.
+func (s *Server) handleDeleteGhost(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if s.usage == nil {
+		writeError(w, http.StatusInternalServerError, errors.New("usage store unavailable"))
+		return
+	}
+	// Guard: refuse to remove a model that is still installed; use the normal
+	// delete flow for those instead.
+	installed, _ := s.ollama.List(r.Context())
+	for _, m := range installed {
+		if m.Name == name || m.Name == strings.TrimSuffix(name, ":latest") || name == strings.TrimSuffix(m.Name, ":latest") {
+			writeError(w, http.StatusBadRequest, errors.New("model is installed; delete it from the models list instead"))
+			return
+		}
+	}
+	removed, err := s.usage.Delete(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "name": name})
+}
+
 func (s *Server) handleRepairPreview(w http.ResponseWriter, r *http.Request) {
 	var body modelRepairRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

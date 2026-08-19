@@ -4997,4 +4997,6 @@ button.chat-send:disabled:hover {
   color: #c084fc;
   margin-left: 5px;
 }
+.analytics-remove-ghost { padding: 2px 6px; font-size: 11px; margin-left: 4px; }
+.analytics-remove-ghost:hover { color: var(--bad); border-color: var(--bad); }
 

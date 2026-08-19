@@ -228,3 +228,33 @@ func TestFixedInheritsMetadata(t *testing.T) {
 		t.Errorf("fixed model did not inherit metadata: %+v", fixedRec)
 	}
 }
+
+func TestDeleteRecord(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+	store := newModelUsageStore(path)
+	_ = store.Load()
+
+	_ = store.SetMeta("ghost:7b", modelUsageMeta{ParameterSize: "7.0B", Size: 1000, Family: "llama"})
+	if _, ok := store.Get("ghost:7b"); !ok {
+		t.Fatalf("expected record to exist before delete")
+	}
+	removed, err := store.Delete("ghost:7b")
+	if err != nil || !removed {
+		t.Fatalf("Delete failed: removed=%v err=%v", removed, err)
+	}
+	if _, ok := store.Get("ghost:7b"); ok {
+		t.Errorf("record should be gone after delete")
+	}
+	// Deleting again returns removed=false.
+	removed2, _ := store.Delete("ghost:7b")
+	if removed2 {
+		t.Errorf("expected removed=false on second delete")
+	}
+	// Persistence: reload should not contain the record.
+	store2 := newModelUsageStore(path)
+	_ = store2.Load()
+	if _, ok := store2.Get("ghost:7b"); ok {
+		t.Errorf("deleted record persisted across reload")
+	}
+}

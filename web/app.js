@@ -2548,7 +2548,7 @@ function renderMetaTable(all) {
       <td>${escapeHtml(p.quant || "—")}</td>
       <td>${escapeHtml(p.family || "—")}</td>
       <td class="mono">${p.sizeBytes ? fmtBytes(p.sizeBytes) : "—"}</td>
-      <td>${p.ghost ? t("action.yes") : t("action.no")}</td>
+      <td>${p.ghost ? t("action.yes") : t("action.no")}${p.ghost ? ` <button type="button" class="ghost analytics-remove-ghost" data-name="${escapeHtml(p.name)}" data-i18n-attr="title" data-i18n="analytics.remove_ghost" title="${escapeHtml(t("analytics.remove_ghost"))}">🗑</button>` : ""}</td>
     </tr>`;
   }).join("") || `<tr class="empty"><td colspan="9" class="muted">${escapeHtml(t("analytics.no_data"))}</td></tr>`;
 }
@@ -2566,8 +2566,42 @@ function bindAnalyticsMetaSearch() {
     analyticsMetaSearch = input.value.trim();
     renderMetaTable(analyticsAllData.filter((m) => analyticsFilterMatches(analyticsPoint(m))));
   });
+  const tbody = $("analytics-meta-tbody");
+  if (tbody) {
+    tbody.addEventListener("click", (e) => {
+      const btn = e.target.closest(".analytics-remove-ghost");
+      if (btn) {
+        e.stopPropagation();
+        const name = btn.getAttribute("data-name");
+        if (name) void removeGhost(name);
+      }
+    });
+  }
 }
 
+async function removeGhost(name) {
+  const res = await askConfirm({
+    title: t("analytics.remove_ghost_title"),
+    text: t("analytics.remove_ghost_confirm", { name: "{__NAME__}" }).replace("{__NAME__}", name),
+    okText: t("analytics.remove_ghost"),
+    okClass: "danger",
+    mono: name,
+  });
+  if (!res || !res.ok) return;
+  try {
+    const res = await api("/api/models/ghost/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    toast(t("analytics.remove_ghost_done", { name }), "success");
+    analyticsAllData = analyticsAllData.filter((m) => m.name !== name);
+    renderAnalyticsFiltered();
+    void refreshModels();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
 
 function showTestsView() {
   hideAllMainViews();

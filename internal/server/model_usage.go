@@ -317,6 +317,25 @@ func (s *modelUsageStore) SetMeta(name string, meta modelUsageMeta) error {
 	return s.save()
 }
 
+// Delete removes the persistent usage/metadata record for a model entirely.
+// It does not touch the uninstall-history store, so the deletion reason remains
+// available. Returns true if a record existed and was removed.
+func (s *modelUsageStore) Delete(name string) (bool, error) {
+	if name == "" {
+		return false, nil
+	}
+	s.mu.Lock()
+	_, existed := s.models[name]
+	if existed {
+		delete(s.models, name)
+	}
+	s.mu.Unlock()
+	if !existed {
+		return false, nil
+	}
+	return true, s.save()
+}
+
 func (s *modelUsageStore) save() error {
 	if s.path == "" {
 		return nil

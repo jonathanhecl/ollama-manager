@@ -40,7 +40,7 @@ type opencodeStateView struct {
 // handleOpenCodeGet reports the opencode integration state: config path,
 // detected local provider and every installed model's visibility flag.
 func (s *Server) handleOpenCodeGet(w http.ResponseWriter, r *http.Request) {
-	view, err := s.buildOpenCodeView(r.Context(), isLoopbackRequest(r))
+	view, err := s.buildOpenCodeView(r.Context(), !isLoopbackRequest(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -75,7 +75,7 @@ func (s *Server) handleOpenCodeEnsureProvider(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	view, err := s.buildOpenCodeView(r.Context(), isLoopbackRequest(r))
+	view, err := s.buildOpenCodeView(r.Context(), !isLoopbackRequest(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -118,7 +118,7 @@ func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	view, err := s.buildOpenCodeView(r.Context(), isLoopbackRequest(r))
+	view, err := s.buildOpenCodeView(r.Context(), !isLoopbackRequest(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

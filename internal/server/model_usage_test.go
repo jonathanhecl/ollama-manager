@@ -155,3 +155,74 @@ func TestFixedModelInheritsUsage(t *testing.T) {
 		t.Errorf("expected base to keep 45.0, got %f", baseRec.RecordTokensPerSec)
 	}
 }
+
+func TestSetMetaPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+	store := newModelUsageStore(path)
+	_ = store.Load()
+
+	if err := store.SetMeta("llama3:8b", modelUsageMeta{
+		ParameterSize:  "8.0B",
+		Size:           4832754765,
+		Quantization:   "Q4_K_M",
+		Family:         "llama",
+		ParameterCount: 8030277632,
+		Architecture:   "llama",
+		FileType:       15,
+		SizeLabel:      "8B",
+	}); err != nil {
+		t.Fatalf("SetMeta failed: %v", err)
+	}
+	rec, ok := store.Get("llama3:8b")
+	if !ok {
+		t.Fatalf("expected record after SetMeta")
+	}
+	if rec.ParameterSize != "8.0B" || rec.Size != 4832754765 || rec.Quantization != "Q4_K_M" || rec.Family != "llama" {
+		t.Errorf("unexpected meta: %+v", rec)
+	}
+	if rec.ParameterCount != 8030277632 || rec.Architecture != "llama" || rec.FileType != 15 || rec.SizeLabel != "8B" {
+		t.Errorf("unexpected extended meta: %+v", rec)
+	}
+
+	// Empty values must NOT overwrite known ones.
+	if err := store.SetMeta("llama3:8b", modelUsageMeta{}); err != nil {
+		t.Fatalf("SetMeta(empty) failed: %v", err)
+	}
+	rec, _ = store.Get("llama3:8b")
+	if rec.ParameterSize != "8.0B" || rec.Size != 4832754765 || rec.ParameterCount != 8030277632 {
+		t.Errorf("empty SetMeta overwrote values: %+v", rec)
+	}
+
+	// Persistence across reload.
+	store2 := newModelUsageStore(path)
+	_ = store2.Load()
+	rec2, _ := store2.Get("llama3:8b")
+	if rec2.ParameterSize != "8.0B" || rec2.Family != "llama" || rec2.ParameterCount != 8030277632 || rec2.Architecture != "llama" {
+		t.Errorf("meta did not persist: %+v", rec2)
+	}
+}
+
+func TestFixedInheritsMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+	store := newModelUsageStore(path)
+	_ = store.Load()
+
+	_ = store.SetMeta("qwen3:latest", modelUsageMeta{
+		ParameterSize:  "14B",
+		Size:           9000000000,
+		Quantization:   "Q4_K_M",
+		Family:         "qwen",
+		ParameterCount: 14600000000,
+		Architecture:   "qwen3",
+		FileType:       15,
+		SizeLabel:      "14B",
+	})
+	_ = store.RecordTPS("qwen3:latest", 45.0, time.Now())
+	_ = store.SetMeta("qwen3:fixed", modelUsageMeta{})
+	fixedRec, _ := store.Get("qwen3:fixed")
+	if fixedRec.ParameterSize != "14B" || fixedRec.Family != "qwen" || fixedRec.ParameterCount != 14600000000 || fixedRec.Architecture != "qwen3" {
+		t.Errorf("fixed model did not inherit metadata: %+v", fixedRec)
+	}
+}

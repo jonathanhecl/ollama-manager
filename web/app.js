@@ -2057,6 +2057,7 @@ function showModelsView() {
   $("tests-view") && ($("tests-view").hidden = true);
   $("test-editor-view") && ($("test-editor-view").hidden = true);
   $("opencode-view") && ($("opencode-view").hidden = true);
+  $("analytics-view") && ($("analytics-view").hidden = true);
   $("chat-btn")?.classList.remove("active");
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
@@ -2135,6 +2136,7 @@ function hideAllMainViews() {
   $("battery-results-view").hidden = true;
   $("battery-history-view").hidden = true;
   $("opencode-view").hidden = true;
+  $("analytics-view").hidden = true;
   $("detail-panel").hidden = true;
 }
 
@@ -2144,6 +2146,280 @@ function showOpenCodeView() {
   $("opencode-view").hidden = false;
   refreshOpenCodeUI();
 }
+
+function showAnalyticsView() {
+  hideAllMainViews();
+  stopSpeechPlayback();
+  currentView = "analytics";
+  $("analytics-view").hidden = false;
+  if (!window.location.pathname.startsWith("/analytics")) {
+    history.pushState(null, "", "/analytics");
+  }
+  renderAnalytics();
+}
+
+// ---------- analytics ----------
+
+async function renderAnalytics() {
+  const countEl = $("analytics-count");
+  const charts = ["tps", "size", "coldload", "tokens", "calls"].map((k) => $(`analytics-chart-${k}`));
+  if (charts.every((c) => !c)) return;
+  try {
+    const data = await api("/api/models");
+    const all = (data.models || []).concat(data.ghost_models || []);
+    if (countEl) {
+      const ghostCount = (data.ghost_models || []).length;
+      countEl.textContent = t("analytics.count", { models: all.length, ghosts: ghostCount });
+    }
+    renderTpsVsParams(all);
+    renderSizeVsParams(all);
+    renderColdLoad(all);
+    renderTokensBar(all);
+    renderCallsBar(all);
+    renderMetaTable(all);
+  } catch (e) {
+    if (countEl) countEl.textContent = "";
+    charts.forEach((c) => {
+      if (c) c.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("toast.error", { msg: e.message }))}</div>`;
+    });
+  }
+}
+
+// Combine metadata for a model: prefer the live modelView fields, fall back to
+// usage-record metadata carried by ghosts. Returns a plain object.
+function analyticsPoint(m) {
+  const paramsRaw = m.parameter_size || "";
+  return {
+    name: m.name,
+    ghost: !!m.is_ghost,
+    params: parseParamSize(paramsRaw),
+    paramsLabel: paramsRaw || "—",
+    sizeBytes: Number(m.size) || 0,
+    quant: m.quantization || "",
+    family: m.family || "",
+    tps: Number(m.record_tokens_per_sec) || 0,
+    tpsAt: m.record_tokens_per_sec_at || null,
+    coldLoadMs: Number(m.min_cold_load_ms) || 0,
+    totalTokens: Number(m.total_tokens) || 0,
+    totalCalls: Number(m.total_calls) || 0,
+    parameterCount: Number(m.parameter_count) || 0,
+    architecture: m.architecture || "",
+    fileType: Number(m.file_type) || 0,
+    sizeLabel: m.size_label || "",
+  };
+}
+
+const ANALYTICS_COLORS = [
+  "#4f8cff", "#e07b39", "#2ecc71", "#a855f7", "#f5c542",
+  "#ef5b7d", "#22b8cf", "#8f8fff", "#f48024", "#5fbf6a",
+];
+
+function analyticsColor(i) {
+  return ANALYTICS_COLORS[i % ANALYTICS_COLORS.length];
+}
+
+// ---- SVG helpers ----
+
+function svgAttrs(el, attrs) {
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function svgEl(tag, attrs, text) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  if (attrs) svgAttrs(el, attrs);
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+function fmtAxis(v, kind) {
+  if (kind === "bytes") return fmtBytes(v);
+  if (kind === "tokens") return fmtCompactTokens(v);
+  if (kind === "ms") return v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`;
+  if (kind === "params") return `${(v / 1e9).toFixed(1)}B`;
+  return `${Math.round(v)}`;
+}
+
+function fmtCompactTokens(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return `${Math.round(n)}`;
+}
+
+// Build a horizontal (log-ish) scale. Charts use a linear scale but we give
+// each point a label tooltip. Returns {min,max} on the raw domain.
+function niceDomain(values) {
+  let min = Infinity, max = -Infinity;
+  values.forEach((v) => {
+    if (Number.isFinite(v) && v > 0) { if (v < min) min = v; if (v > max) max = v; }
+  });
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1 };
+  if (min === max) { max = min * 1.2 || 1; }
+  return { min: 0, max: max * 1.1 };
+}
+
+// scatterChart(container, data, opts): draws points with x and y axes.
+// opts: {xLabel, yLabel, xKind, yKind, xValue, yValue, color}
+function renderScatter(container, data, opts) {
+  const W = 640, H = 380, PAD = { l: 58, r: 18, t: 18, b: 44 };
+  const iw = W - PAD.l - PAD.r;
+  const ih = H - PAD.t - PAD.b;
+  const points = data
+    .map((m) => ({ m, x: opts.xValue(m), y: opts.yValue(m) }))
+    .filter((p) => Number.isFinite(p.x) && p.x > 0 && Number.isFinite(p.y) && p.y > 0)
+    .sort((a, b) => a.y - b.y);
+
+  if (!points.length) {
+    container.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("analytics.no_data"))}</div>`;
+    return;
+  }
+
+  const xDom = niceDomain(points.map((p) => p.x));
+  const yDom = niceDomain(points.map((p) => p.y));
+  const sx = (v) => PAD.l + (v - xDom.min) / (xDom.max - xDom.min) * iw;
+  const sy = (v) => PAD.t + ih - (v - yDom.min) / (yDom.max - yDom.min) * ih;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg", role: "img" });
+  // Grid + y labels
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = yDom.min + (yDom.max - yDom.min) * i / yTicks;
+    const y = sy(v);
+    svg.appendChild(svgEl("line", { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, class: "analytics-grid" }));
+    svg.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.yKind)));
+  }
+  // x labels
+  const xTicks = 6;
+  for (let i = 0; i <= xTicks; i++) {
+    const v = xDom.min + (xDom.max - xDom.min) * i / xTicks;
+    const x = sx(v);
+    svg.appendChild(svgEl("text", { x, y: H - PAD.b + 18, "text-anchor": "middle", class: "analytics-tick" }, fmtAxis(v, opts.xKind)));
+  }
+  // axes
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
+  svg.appendChild(svgEl("text", { x: W / 2, y: H - 6, "text-anchor": "middle", class: "analytics-axislabel" }, opts.xLabel));
+  svg.appendChild(svgEl("text", { x: 14, y: H / 2, "text-anchor": "middle", class: "analytics-axislabel analytics-axislabel--y", transform: `rotate(-90 14 ${H / 2})` }, opts.yLabel));
+
+  // title tooltip group
+  points.forEach((p, i) => {
+    const cx = sx(p.x), cy = sy(p.y);
+    const g = svgEl("g", { class: "analytics-pt" });
+    g.appendChild(svgEl("circle", { cx, cy, r: 6, fill: opts.color ? opts.color(p.m, i) : analyticsColor(i), class: "analytics-dot" }));
+    g.appendChild(svgEl("title", null, `${p.m.name}\n${opts.xTitle ? opts.xTitle(p.m) : opts.xLabel}: ${fmtAxis(p.x, opts.xKind)}\n${opts.yTitle ? opts.yTitle(p.m) : opts.yLabel}: ${fmtAxis(p.y, opts.yKind)}`));
+    g.appendChild(svgEl("text", { x: cx + 9, y: cy - 6, class: "analytics-ptlabel" }, p.m.name));
+    svg.appendChild(g);
+  });
+
+  container.innerHTML = "";
+  container.appendChild(svg);
+}
+
+// barChart(container, data, opts): vertical bars, one per model.
+// opts: {value, label, kind, title}
+function renderBars(container, data, opts) {
+  const W = 640, H = 380, PAD = { l: 58, r: 18, t: 18, b: 64 };
+  const iw = W - PAD.l - PAD.r;
+  const ih = H - PAD.t - PAD.b;
+  const items = data
+    .map((m) => ({ m, v: opts.value(m) }))
+    .filter((p) => Number.isFinite(p.v) && p.v > 0)
+    .sort((a, b) => b.v - a.v);
+
+  if (!items.length) {
+    container.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("analytics.no_data"))}</div>`;
+    return;
+  }
+
+  const xDom = niceDomain(items.map((p) => p.v));
+  const sy = (v) => PAD.t + ih - (v - xDom.min) / (xDom.max - xDom.min) * ih;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg", role: "img" });
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = xDom.min + (xDom.max - xDom.min) * i / yTicks;
+    const y = sy(v);
+    svg.appendChild(svgEl("line", { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, class: "analytics-grid" }));
+    svg.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.kind)));
+  }
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
+
+  const n = items.length;
+  const slot = iw / n;
+  const barW = Math.max(8, Math.min(34, slot * 0.6));
+  items.forEach((it, i) => {
+    const x = PAD.l + slot * i + (slot - barW) / 2;
+    const y = sy(it.v);
+    const h = H - PAD.b - y;
+    const g = svgEl("g", { class: "analytics-bar" });
+    g.appendChild(svgEl("rect", { x, y, width: barW, height: h, rx: 2, fill: analyticsColor(i), class: "analytics-barrect" }));
+    g.appendChild(svgEl("title", null, `${it.m.name}\n${opts.label}: ${fmtAxis(it.v, opts.kind)}`));
+    const label = it.m.name.length > 14 ? it.m.name.slice(0, 13) + "…" : it.m.name;
+    g.appendChild(svgEl("text", { x: x + barW / 2, y: H - PAD.b + 14, "text-anchor": "middle", class: "analytics-barlabel" }, label));
+    g.appendChild(svgEl("text", { x: x + barW / 2, y: y - 4, "text-anchor": "middle", class: "analytics-barval" }, fmtAxis(it.v, opts.kind)));
+    svg.appendChild(g);
+  });
+
+  container.innerHTML = "";
+  container.appendChild(svg);
+}
+
+function renderTpsVsParams(all) {
+  const el = $("analytics-chart-tps");
+  if (!el) return;
+  renderScatter(el, all, {
+    xLabel: t("analytics.tps_x"), yLabel: t("analytics.params_y"),
+    xKind: "num", yKind: "params",
+    xValue: (m) => analyticsPoint(m).tps,
+    yValue: (m) => analyticsPoint(m).params,
+    xTitle: (m) => `${t("analytics.tps")}: ${analyticsPoint(m).tps.toFixed(1)} tok/s`,
+    yTitle: (m) => `${t("analytics.params")}: ${analyticsPoint(m).paramsLabel}`,
+    color: (m) => (m.is_ghost ? "#9aa4b1" : analyticsColor(0)),
+  });
+}
+
+function renderSizeVsParams(all) {
+  const el = $("analytics-chart-size");
+  if (!el) return;
+  renderScatter(el, all, {
+    xLabel: t("analytics.size_x"), yLabel: t("analytics.params_y"),
+    xKind: "bytes", yKind: "params",
+    xValue: (m) => analyticsPoint(m).sizeBytes,
+    yValue: (m) => analyticsPoint(m).params,
+    xTitle: (m) => `${t("analytics.size")}: ${fmtBytes(analyticsPoint(m).sizeBytes)}`,
+    yTitle: (m) => `${t("analytics.params")}: ${analyticsPoint(m).paramsLabel}`,
+    color: (m) => (m.is_ghost ? "#9aa4b1" : analyticsColor(1)),
+  });
+}
+
+function renderColdLoad(all) {
+  const el = $("analytics-chart-coldload");
+  if (!el) return;
+  renderBars(el, all, {
+    label: t("analytics.coldload"), kind: "ms",
+    value: (m) => analyticsPoint(m).coldLoadMs,
+  });
+}
+
+function renderTokensBar(all) {
+  const el = $("analytics-chart-tokens");
+  if (!el) return;
+  renderBars(el, all, {
+    label: t("analytics.tokens"), kind: "tokens",
+    value: (m) => analyticsPoint(m).totalTokens,
+  });
+}
+
+function renderCallsBar(all) {
+  const el = $("analytics-chart-calls");
+  if (!el) return;
+  renderBars(el, all, {
+    label: t("analytics.calls"), kind: "num",
+    value: (m) => analyticsPoint(m).totalCalls,
+  });
+}
+
 
 function showTestsView() {
   hideAllMainViews();
@@ -2718,6 +2994,8 @@ async function handleRouting() {
     void showBatteryResultsView(id);
   } else if (path === "/tests/battery/history") {
     showBatteryHistoryView();
+  } else if (path === "/analytics" || path === "/analytics/") {
+    showAnalyticsView();
   } else if (path === "/") {
     if (currentView !== "models") {
       showModelsView();
@@ -7038,6 +7316,12 @@ $("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 $("tests-btn")?.addEventListener("click", () => {
   showTestsView();
 });
+$("analytics-btn")?.addEventListener("click", () => {
+  showAnalyticsView();
+});
+$("analytics-back-btn")?.addEventListener("click", () => {
+  showModelsView();
+});
 $("tests-new-test-btn")?.addEventListener("click", () => {
   void showTestEditorView(null);
 });
@@ -7559,10 +7843,13 @@ $("opencode-cmd-copy-btn").addEventListener("click", async () => {
 // Show Tests button only on desktop.
 if (window.innerWidth > 900) {
   $("tests-btn").hidden = false;
+  $("analytics-btn").hidden = false;
 }
 window.addEventListener("resize", () => {
   const btn = $("tests-btn");
   if (btn) btn.hidden = window.innerWidth <= 900;
+  const abtn = $("analytics-btn");
+  if (abtn) abtn.hidden = window.innerWidth <= 900;
 });
 // ---------- agent session ----------
 

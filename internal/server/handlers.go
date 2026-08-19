@@ -41,7 +41,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(r.URL.Path, "/tests/edit/") ||
 		strings.HasPrefix(r.URL.Path, "/tests/group/") ||
 		strings.HasPrefix(r.URL.Path, "/tests/agent/") ||
-		strings.HasPrefix(r.URL.Path, "/tests/battery/")
+		strings.HasPrefix(r.URL.Path, "/tests/battery/") ||
+		r.URL.Path == "/analytics"
 	if !isSPAPath {
 		http.NotFound(w, r)
 		return
@@ -371,6 +372,8 @@ type modelView struct {
 	RecordTokensPerSecAt *time.Time `json:"record_tokens_per_sec_at,omitempty"`
 	MinColdLoadMs        int64      `json:"min_cold_load_ms,omitempty"`
 	MinColdLoadAt        *time.Time `json:"min_cold_load_at,omitempty"`
+	TotalTokens          int64      `json:"total_tokens,omitempty"`
+	TotalCalls           int64      `json:"total_calls,omitempty"`
 	Digest               string     `json:"digest"`
 	Family               string     `json:"family"`
 	Families             []string   `json:"families"`
@@ -379,6 +382,10 @@ type modelView struct {
 	Quantization         string     `json:"quantization"`
 	ContextLength        int64      `json:"context_length,omitempty"`
 	Capabilities         []string   `json:"capabilities,omitempty"`
+	ParameterCount       int64      `json:"parameter_count,omitempty"`
+	Architecture         string     `json:"architecture,omitempty"`
+	FileType             int64      `json:"file_type,omitempty"`
+	SizeLabel            string     `json:"size_label,omitempty"`
 	Loaded               bool       `json:"loaded"`
 	SizeVRAM             int64      `json:"size_vram,omitempty"`
 	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
@@ -422,6 +429,10 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Quantization:  m.Details.QuantizationLevel,
 			ContextLength: modelMeta[m.Digest].ContextLength,
 			Capabilities:  modelMeta[m.Digest].Capabilities,
+			ParameterCount: modelMeta[m.Digest].ParameterCount,
+			Architecture:  modelMeta[m.Digest].Architecture,
+			FileType:      modelMeta[m.Digest].FileType,
+			SizeLabel:     modelMeta[m.Digest].SizeLabel,
 			Archived:      s.archived.IsArchived(m.Name),
 		}
 		if s.usage != nil {
@@ -431,6 +442,8 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
 				v.MinColdLoadMs = rec.MinColdLoadMs
 				v.MinColdLoadAt = rec.MinColdLoadAt
+				v.TotalTokens = rec.TotalTokens
+				v.TotalCalls = rec.TotalCalls
 			}
 		}
 		if rm, ok := loaded[m.Name]; ok {
@@ -439,6 +452,21 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			v.SizeVRAM = vram
 			exp := rm.ExpiresAt
 			v.ExpiresAt = &exp
+		}
+		if s.usage != nil {
+			meta := modelMeta[m.Digest]
+			if err := s.usage.SetMeta(m.Name, modelUsageMeta{
+				ParameterSize:  m.Details.ParameterSize,
+				Size:           m.Size,
+				Quantization:   m.Details.QuantizationLevel,
+				Family:         m.Details.Family,
+				ParameterCount: meta.ParameterCount,
+				Architecture:   meta.Architecture,
+				FileType:       meta.FileType,
+				SizeLabel:      meta.SizeLabel,
+			}); err != nil {
+				log.Printf("usage: SetMeta failed for %q: %v", m.Name, err)
+			}
 		}
 		out = append(out, v)
 	}
@@ -465,6 +493,16 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				MinColdLoadMs:        rec.MinColdLoadMs,
 				MinColdLoadAt:        rec.MinColdLoadAt,
 				LastUsedAt:           rec.LastUsedAt,
+				TotalTokens:          rec.TotalTokens,
+				TotalCalls:           rec.TotalCalls,
+				ParameterSize:        rec.ParameterSize,
+				Size:                 rec.Size,
+				Quantization:         rec.Quantization,
+				Family:               rec.Family,
+				ParameterCount:       rec.ParameterCount,
+				Architecture:         rec.Architecture,
+				FileType:             rec.FileType,
+				SizeLabel:            rec.SizeLabel,
 			}
 			if rec.LastUsedAt != nil {
 				gv.ModifiedAt = *rec.LastUsedAt
@@ -606,8 +644,12 @@ func (s *Server) handleUnloadAllRunning(w http.ResponseWriter, r *http.Request) 
 }
 
 type modelMetaCache struct {
-	ContextLength int64
-	Capabilities  []string
+	ContextLength  int64
+	Capabilities   []string
+	ParameterCount int64
+	Architecture   string
+	FileType       int64
+	SizeLabel      string
 }
 
 // fetchModelMeta returns digest-keyed model metadata for list rendering,
@@ -622,10 +664,15 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 	for _, m := range models {
 		ctxLen, okCtx := s.ctxCache[m.Digest]
 		caps, okCaps := s.capsCache[m.Digest]
-		if okCtx && okCaps {
+		meta, okMeta := s.metaCache[m.Digest]
+		if okCtx && okCaps && okMeta {
 			result[m.Digest] = modelMetaCache{
-				ContextLength: ctxLen,
-				Capabilities:  append([]string(nil), caps...),
+				ContextLength:  ctxLen,
+				Capabilities:   append([]string(nil), caps...),
+				ParameterCount: meta.ParameterCount,
+				Architecture:   meta.Architecture,
+				FileType:       meta.FileType,
+				SizeLabel:      meta.SizeLabel,
 			}
 		} else {
 			missing = append(missing, m)
@@ -639,9 +686,13 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 
 	// Second pass: bounded parallel /api/show.
 	type item struct {
-		digest       string
-		contextLen   int64
-		capabilities []string
+		digest         string
+		contextLen     int64
+		capabilities   []string
+		parameterCount int64
+		architecture   string
+		fileType       int64
+		sizeLabel      string
 	}
 	out := make(chan item, len(missing))
 	const concurrency = 6
@@ -661,9 +712,13 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 				return
 			}
 			out <- item{
-				digest:       m.Digest,
-				contextLen:   extractContextLength(show),
-				capabilities: append([]string(nil), show.Capabilities...),
+				digest:         m.Digest,
+				contextLen:     extractContextLength(show),
+				capabilities:   append([]string(nil), show.Capabilities...),
+				parameterCount: extractParameterCount(show),
+				architecture:   extractArchitecture(show),
+				fileType:       extractFileType(show),
+				sizeLabel:      extractSizeLabel(show),
 			}
 		}(m)
 	}
@@ -674,13 +729,70 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 	for it := range out {
 		s.ctxCache[it.digest] = it.contextLen
 		s.capsCache[it.digest] = append([]string(nil), it.capabilities...)
+		s.metaCache[it.digest] = modelMetaCache{
+			ParameterCount: it.parameterCount,
+			Architecture:   it.architecture,
+			FileType:       it.fileType,
+			SizeLabel:      it.sizeLabel,
+		}
 		result[it.digest] = modelMetaCache{
-			ContextLength: it.contextLen,
-			Capabilities:  append([]string(nil), it.capabilities...),
+			ContextLength:  it.contextLen,
+			Capabilities:   append([]string(nil), it.capabilities...),
+			ParameterCount: it.parameterCount,
+			Architecture:   it.architecture,
+			FileType:       it.fileType,
+			SizeLabel:      it.sizeLabel,
 		}
 	}
 	s.ctxMu.Unlock()
 	return result
+}
+
+// extractModelInfoString reads a string-valued key from a ShowResponse model_info.
+func extractModelInfoString(show *ollama.ShowResponse, key string) string {
+	if show == nil || show.ModelInfo == nil {
+		return ""
+	}
+	raw, ok := show.ModelInfo[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return ""
+}
+
+// extractModelInfoInt reads an int-valued key from a ShowResponse model_info.
+func extractModelInfoInt(show *ollama.ShowResponse, key string) int64 {
+	if show == nil || show.ModelInfo == nil {
+		return 0
+	}
+	raw, ok := show.ModelInfo[key]
+	if !ok {
+		return 0
+	}
+	var n float64
+	if json.Unmarshal(raw, &n) == nil && n > 0 {
+		return int64(n)
+	}
+	return 0
+}
+
+// extractArchitecture reads the architecture from a ShowResponse model_info.
+// (Defined in model_repair.go; kept as a thin alias for clarity.)
+
+func extractParameterCount(show *ollama.ShowResponse) int64 {
+	return extractModelInfoInt(show, "general.parameter_count")
+}
+
+func extractFileType(show *ollama.ShowResponse) int64 {
+	return extractModelInfoInt(show, "general.file_type")
+}
+
+func extractSizeLabel(show *ollama.ShowResponse) string {
+	return extractModelInfoString(show, "general.size_label")
 }
 
 // extractContextLength scans a ShowResponse for a "<arch>.context_length" key.
@@ -819,6 +931,27 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	if reason != "" && !allowedUninstallReasons[reason] {
 		writeError(w, http.StatusBadRequest, errors.New("invalid uninstall reason"))
 		return
+	}
+	// Capture the model's metadata before deletion so the "ghost" record keeps
+	// enough context for analytics charts (params, size, quant, family, etc.).
+	if s.usage != nil {
+		models, _ := s.ollama.List(r.Context())
+		for _, m := range models {
+			if m.Name == name {
+				meta := s.fetchModelMeta(r.Context(), []ollama.Model{m})[m.Digest]
+				_ = s.usage.SetMeta(m.Name, modelUsageMeta{
+					ParameterSize:  m.Details.ParameterSize,
+					Size:           m.Size,
+					Quantization:   m.Details.QuantizationLevel,
+					Family:         m.Details.Family,
+					ParameterCount: meta.ParameterCount,
+					Architecture:   meta.Architecture,
+					FileType:       meta.FileType,
+					SizeLabel:      meta.SizeLabel,
+				})
+				break
+			}
+		}
 	}
 	if err := s.ollama.Delete(r.Context(), name); err != nil {
 		writeError(w, http.StatusBadGateway, err)

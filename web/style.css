@@ -4870,3 +4870,53 @@ button.chat-send:disabled:hover {
   white-space: nowrap;
 }
 
+
+/* ---------- Analytics view ---------- */
+.analytics-view { padding: 18px; }
+.analytics-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.analytics-head h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.analytics-head .badge { margin-left: auto; }
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+.analytics-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.analytics-card--wide { grid-column: 1 / -1; }
+.analytics-card-head { margin-bottom: 10px; }
+.analytics-card-head h3 { margin: 0 0 2px; font-size: 14px; }
+.analytics-sub { font-size: 12px; }
+.analytics-chart {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.analytics-svg { width: 100%; height: auto; display: block; }
+.analytics-grid line.analytics-grid { stroke: var(--border); stroke-width: 1; }
+.analytics-axis { stroke: var(--text-dim); stroke-width: 1; }
+.analytics-tick { fill: var(--text-dim); font-size: 10px; }
+.analytics-axislabel { fill: var(--text-dim); font-size: 11px; }
+.analytics-axislabel--y { letter-spacing: 1px; }
+.analytics-dot { stroke: rgba(0,0,0,0.35); stroke-width: 1; }
+.analytics-pt:hover .analytics-dot { stroke: var(--text); stroke-width: 2; }
+.analytics-ptlabel { fill: var(--text-dim); font-size: 10px; pointer-events: none; }
+.analytics-barrect { stroke: rgba(0,0,0,0.2); stroke-width: 1; }
+.analytics-bar:hover .analytics-barrect { filter: brightness(1.15); }
+.analytics-barlabel { fill: var(--text-dim); font-size: 9px; pointer-events: none; }
+.analytics-barval { fill: var(--text-dim); font-size: 9px; pointer-events: none; }
+.analytics-empty { padding: 20px; text-align: center; }
+@media (max-width: 900px) {
+  .analytics-view { padding: 12px; }
+}

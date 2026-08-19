@@ -18,6 +18,29 @@ type ModelUsageRecord struct {
 	MinColdLoadAt        *time.Time `json:"min_cold_load_at,omitempty"`
 	TotalTokens          int64      `json:"total_tokens,omitempty"`
 	TotalCalls           int64      `json:"total_calls,omitempty"`
+	// Metadata captured the last time the model was seen installed or used.
+	// Kept so deleted ("ghost") models retain enough context for analytics.
+	ParameterSize string `json:"parameter_size,omitempty"`
+	Size          int64  `json:"size,omitempty"`
+	Quantization  string `json:"quantization,omitempty"`
+	Family        string `json:"family,omitempty"`
+	// Additional metadata sourced from the GGUF model_info block.
+	ParameterCount int64  `json:"parameter_count,omitempty"`
+	Architecture   string `json:"architecture,omitempty"`
+	FileType       int64  `json:"file_type,omitempty"`
+	SizeLabel      string `json:"size_label,omitempty"`
+}
+
+// modelUsageMeta carries the persistent metadata fields stored per model.
+type modelUsageMeta struct {
+	ParameterSize  string
+	Size           int64
+	Quantization   string
+	Family         string
+	ParameterCount int64
+	Architecture   string
+	FileType       int64
+	SizeLabel      string
 }
 
 type modelUsageFile struct {
@@ -88,6 +111,30 @@ func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
 	if target.TotalCalls > out.TotalCalls {
 		out.TotalCalls = target.TotalCalls
 		out.TotalTokens = target.TotalTokens
+	}
+	if out.ParameterSize == "" && target.ParameterSize != "" {
+		out.ParameterSize = target.ParameterSize
+	}
+	if out.Size == 0 && target.Size != 0 {
+		out.Size = target.Size
+	}
+	if out.Quantization == "" && target.Quantization != "" {
+		out.Quantization = target.Quantization
+	}
+	if out.Family == "" && target.Family != "" {
+		out.Family = target.Family
+	}
+	if out.ParameterCount == 0 && target.ParameterCount != 0 {
+		out.ParameterCount = target.ParameterCount
+	}
+	if out.Architecture == "" && target.Architecture != "" {
+		out.Architecture = target.Architecture
+	}
+	if out.FileType == 0 && target.FileType != 0 {
+		out.FileType = target.FileType
+	}
+	if out.SizeLabel == "" && target.SizeLabel != "" {
+		out.SizeLabel = target.SizeLabel
 	}
 	return out
 }
@@ -205,6 +252,59 @@ func (s *modelUsageStore) RecordColdLoad(name string, durationMs int64, at time.
 	s.models[name] = rec
 	s.mu.Unlock()
 
+	return s.save()
+}
+
+// SetMeta records model metadata (parameter size, disk size, quantization,
+// family, exact parameter count, architecture, GGUF file type and size label)
+// keyed by model name. It only persists when a value actually changes, so it is
+// safe to call on every model listing. Empty/zero values never overwrite a
+// previously known value.
+func (s *modelUsageStore) SetMeta(name string, meta modelUsageMeta) error {
+	if name == "" {
+		return nil
+	}
+	s.mu.Lock()
+	rec := s.models[name]
+	changed := false
+	if meta.ParameterSize != "" && rec.ParameterSize != meta.ParameterSize {
+		rec.ParameterSize = meta.ParameterSize
+		changed = true
+	}
+	if meta.Size > 0 && rec.Size != meta.Size {
+		rec.Size = meta.Size
+		changed = true
+	}
+	if meta.Quantization != "" && rec.Quantization != meta.Quantization {
+		rec.Quantization = meta.Quantization
+		changed = true
+	}
+	if meta.Family != "" && rec.Family != meta.Family {
+		rec.Family = meta.Family
+		changed = true
+	}
+	if meta.ParameterCount > 0 && rec.ParameterCount != meta.ParameterCount {
+		rec.ParameterCount = meta.ParameterCount
+		changed = true
+	}
+	if meta.Architecture != "" && rec.Architecture != meta.Architecture {
+		rec.Architecture = meta.Architecture
+		changed = true
+	}
+	if meta.FileType > 0 && rec.FileType != meta.FileType {
+		rec.FileType = meta.FileType
+		changed = true
+	}
+	if meta.SizeLabel != "" && rec.SizeLabel != meta.SizeLabel {
+		rec.SizeLabel = meta.SizeLabel
+		changed = true
+	}
+	s.models[name] = rec
+	s.mu.Unlock()
+
+	if !changed {
+		return nil
+	}
 	return s.save()
 }
 

@@ -48,6 +48,7 @@
           <span data-i18n="downloads.button">Downloads</span>
           <span id="downloads-count" class="count-badge" hidden>0</span>
         </button>
+        <button id="analytics-btn" class="ghost" data-i18n-attr="title" data-i18n="analytics.button" title="Analytics" hidden>📊</button>
         <button id="tests-btn" class="ghost" data-i18n-attr="title" data-i18n="tests.button" title="Tests" hidden>🧪</button>
         <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">⚙️</button>
       </div>
@@ -328,6 +329,86 @@
         <div id="tests-empty" class="tests-empty muted" data-i18n="tests.empty" hidden>No tests yet.</div>
       </section>
     </div>
+  </main>
+
+  <main id="analytics-view" class="analytics-view" hidden>
+    <header class="analytics-head">
+      <button id="analytics-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+      <h2>
+        <span class="gear">📊</span>
+        <span data-i18n="analytics.title">Analytics</span>
+      </h2>
+      <span id="analytics-count" class="badge badge-muted"></span>
+    </header>
+    <div class="analytics-grid">
+      <section class="analytics-card analytics-card--wide">
+        <div class="analytics-card-head">
+          <h3 data-i18n="analytics.tps_title">Record Tok/s vs Parameters</h3>
+          <span class="analytics-sub muted" data-i18n="analytics.tps_sub">X: record tok/s · Y: model parameters</span>
+        </div>
+        <div id="analytics-chart-tps" class="analytics-chart"></div>
+      </section>
+      <section class="analytics-card">
+        <div class="analytics-card-head">
+          <h3 data-i18n="analytics.size_title">Disk size vs Parameters</h3>
+          <span class="analytics-sub muted" data-i18n="analytics.size_sub">X: size on disk · Y: model parameters</span>
+        </div>
+        <div id="analytics-chart-size" class="analytics-chart"></div>
+      </section>
+      <section class="analytics-card">
+        <div class="analytics-card-head">
+          <h3 data-i18n="analytics.coldload_title">Cold load vs Parameters</h3>
+          <span class="analytics-sub muted" data-i18n="analytics.coldload_sub">Min. load time (s) per model parameters</span>
+        </div>
+        <div id="analytics-chart-coldload" class="analytics-chart"></div>
+      </section>
+      <section class="analytics-card">
+        <div class="analytics-card-head">
+          <h3 data-i18n="analytics.tokens_title">Total tokens per model</h3>
+          <span class="analytics-sub muted" data-i18n="analytics.tokens_sub">Cumulative tokens consumed</span>
+        </div>
+        <div id="analytics-chart-tokens" class="analytics-chart"></div>
+      </section>
+      <section class="analytics-card">
+        <div class="analytics-card-head">
+          <h3 data-i18n="analytics.calls_title">Total calls per model</h3>
+          <span class="analytics-sub muted" data-i18n="analytics.calls_sub">Completed tasks per model</span>
+        </div>
+        <div id="analytics-chart-calls" class="analytics-chart"></div>
+      </section>
+    </div>
+
+    <section class="analytics-card analytics-card--wide analytics-meta-card">
+      <div class="analytics-meta-head">
+        <div>
+          <h3 data-i18n="analytics.meta_title">Model metadata</h3>
+          <span class="analytics-sub muted" data-i18n="analytics.meta_sub">Detailed info stored for each model (installed and ghost)</span>
+        </div>
+        <div class="analytics-meta-search">
+          <input type="search" id="analytics-meta-search" data-i18n-attr="placeholder aria-label" data-i18n="analytics.meta_search" placeholder="Filter models…" aria-label="Filter models" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="analytics-table-wrap">
+        <table class="analytics-table">
+          <thead>
+            <tr>
+              <th data-i18n="analytics.meta_model">Model</th>
+              <th data-i18n="col.params">Params</th>
+              <th data-i18n="analytics.meta_params_exact">Exact params</th>
+              <th data-i18n="analytics.meta_arch">Architecture</th>
+              <th data-i18n="analytics.meta_filetype">File type</th>
+              <th data-i18n="analytics.meta_quant">Quant.</th>
+              <th data-i18n="analytics.meta_family">Family</th>
+              <th data-i18n="analytics.meta_size">Size</th>
+              <th data-i18n="analytics.meta_ghost">Ghost</th>
+            </tr>
+          </thead>
+          <tbody id="analytics-meta-tbody">
+            <tr class="empty"><td colspan="9" data-i18n="state.loading">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <main id="test-editor-view" hidden>

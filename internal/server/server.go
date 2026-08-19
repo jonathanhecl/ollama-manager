@@ -52,6 +52,7 @@ type Server struct {
 	ctxMu     sync.RWMutex
 	ctxCache  map[string]int64
 	capsCache map[string][]string
+	metaCache map[string]modelMetaCache
 
 	artifactConsoleMu   sync.RWMutex
 	artifactConsoleLogs map[string][]string // timestamp -> slice of log lines
@@ -128,6 +129,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		usage:       usageStore,
 		ctxCache:             make(map[string]int64),
 		capsCache:            make(map[string][]string),
+		metaCache:            make(map[string]modelMetaCache),
 		artifactConsoleLogs:  make(map[string][]string),
 		artifactScreenshotCh: make(map[string]chan artifactScreenshotResponse),
 		artifactEvalCh:       make(map[string]chan artifactEvalResponse),

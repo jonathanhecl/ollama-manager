@@ -29,6 +29,7 @@ type ModelUsageRecord struct {
 	Architecture   string `json:"architecture,omitempty"`
 	FileType       int64  `json:"file_type,omitempty"`
 	SizeLabel      string `json:"size_label,omitempty"`
+	IsMOE          bool   `json:"is_moe,omitempty"`
 }
 
 // modelUsageMeta carries the persistent metadata fields stored per model.
@@ -41,6 +42,7 @@ type modelUsageMeta struct {
 	Architecture   string
 	FileType       int64
 	SizeLabel      string
+	IsMOE          bool
 }
 
 type modelUsageFile struct {
@@ -135,6 +137,9 @@ func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
 	}
 	if out.SizeLabel == "" && target.SizeLabel != "" {
 		out.SizeLabel = target.SizeLabel
+	}
+	if target.IsMOE {
+		out.IsMOE = true
 	}
 	return out
 }
@@ -297,6 +302,10 @@ func (s *modelUsageStore) SetMeta(name string, meta modelUsageMeta) error {
 	}
 	if meta.SizeLabel != "" && rec.SizeLabel != meta.SizeLabel {
 		rec.SizeLabel = meta.SizeLabel
+		changed = true
+	}
+	if meta.IsMOE && !rec.IsMOE {
+		rec.IsMOE = true
 		changed = true
 	}
 	s.models[name] = rec

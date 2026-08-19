@@ -386,6 +386,7 @@ type modelView struct {
 	Architecture         string     `json:"architecture,omitempty"`
 	FileType             int64      `json:"file_type,omitempty"`
 	SizeLabel            string     `json:"size_label,omitempty"`
+	IsMOE                bool       `json:"is_moe,omitempty"`
 	Loaded               bool       `json:"loaded"`
 	SizeVRAM             int64      `json:"size_vram,omitempty"`
 	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
@@ -433,6 +434,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Architecture:  modelMeta[m.Digest].Architecture,
 			FileType:      modelMeta[m.Digest].FileType,
 			SizeLabel:     modelMeta[m.Digest].SizeLabel,
+			IsMOE:         modelMeta[m.Digest].IsMOE,
 			Archived:      s.archived.IsArchived(m.Name),
 		}
 		if s.usage != nil {
@@ -464,6 +466,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				Architecture:   meta.Architecture,
 				FileType:       meta.FileType,
 				SizeLabel:      meta.SizeLabel,
+				IsMOE:          meta.IsMOE,
 			}); err != nil {
 				log.Printf("usage: SetMeta failed for %q: %v", m.Name, err)
 			}
@@ -503,6 +506,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				Architecture:         rec.Architecture,
 				FileType:             rec.FileType,
 				SizeLabel:            rec.SizeLabel,
+				IsMOE:                rec.IsMOE,
 			}
 			if rec.LastUsedAt != nil {
 				gv.ModifiedAt = *rec.LastUsedAt
@@ -650,6 +654,7 @@ type modelMetaCache struct {
 	Architecture   string
 	FileType       int64
 	SizeLabel      string
+	IsMOE          bool
 }
 
 // fetchModelMeta returns digest-keyed model metadata for list rendering,
@@ -673,6 +678,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 				Architecture:   meta.Architecture,
 				FileType:       meta.FileType,
 				SizeLabel:      meta.SizeLabel,
+				IsMOE:          meta.IsMOE,
 			}
 		} else {
 			missing = append(missing, m)
@@ -693,6 +699,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 		architecture   string
 		fileType       int64
 		sizeLabel      string
+		isMOE          bool
 	}
 	out := make(chan item, len(missing))
 	const concurrency = 6
@@ -719,6 +726,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 				architecture:   extractArchitecture(show),
 				fileType:       extractFileType(show),
 				sizeLabel:      extractSizeLabel(show),
+				isMOE:          extractIsMOE(show),
 			}
 		}(m)
 	}
@@ -734,6 +742,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 			Architecture:   it.architecture,
 			FileType:       it.fileType,
 			SizeLabel:      it.sizeLabel,
+			IsMOE:          it.isMOE,
 		}
 		result[it.digest] = modelMetaCache{
 			ContextLength:  it.contextLen,
@@ -742,6 +751,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 			Architecture:   it.architecture,
 			FileType:       it.fileType,
 			SizeLabel:      it.sizeLabel,
+			IsMOE:          it.isMOE,
 		}
 	}
 	s.ctxMu.Unlock()
@@ -793,6 +803,28 @@ func extractFileType(show *ollama.ShowResponse) int64 {
 
 func extractSizeLabel(show *ollama.ShowResponse) string {
 	return extractModelInfoString(show, "general.size_label")
+}
+
+// extractIsMOE reports whether a model is a Mixture-of-Experts (MoE) by checking
+// for a positive "<arch>.expert_count" in its GGUF model_info.
+func extractIsMOE(show *ollama.ShowResponse) bool {
+	if show == nil || show.ModelInfo == nil {
+		return false
+	}
+	if arch := extractArchitecture(show); arch != "" {
+		if n := extractModelInfoInt(show, arch+".expert_count"); n > 0 {
+			return true
+		}
+	}
+	for k, raw := range show.ModelInfo {
+		if strings.HasSuffix(k, ".expert_count") {
+			var n float64
+			if json.Unmarshal(raw, &n) == nil && n > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // extractContextLength scans a ShowResponse for a "<arch>.context_length" key.
@@ -948,6 +980,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 					Architecture:   meta.Architecture,
 					FileType:       meta.FileType,
 					SizeLabel:      meta.SizeLabel,
+					IsMOE:          meta.IsMOE,
 				})
 				break
 			}

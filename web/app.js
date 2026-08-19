@@ -1028,6 +1028,7 @@ function renderTable() {
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
           ${(!m.isPending && !m.isGhost) ? `<button type="button" class="btn-icon info-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(infoTitle)}" aria-label="${escapeHtml(infoTitle)}"><span class="info-glyph" aria-hidden="true">i</span></button>` : ""}
+          ${(!m.isPending && m.isGhost && modelHomepageUrl(m.name)) ? `<a class="btn-icon ghost-site-btn" href="${modelHomepageUrl(m.name)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("detail.site"))}" aria-label="${escapeHtml(t("detail.site"))}"><span class="ghost-site-glyph" aria-hidden="true">↗</span></a>` : ""}
         </div>
       </td>
       <td class="cell-record-tok-col">
@@ -1293,6 +1294,19 @@ function openDetail(name) {
   });
 }
 
+function modelHomepageUrl(name) {
+  if (!name) return "";
+  let base = name.split(":")[0];
+  if (base.startsWith("hf.co/")) {
+    const repo = base.slice("hf.co/".length);
+    return repo ? "https://huggingface.co/" + repo : "";
+  }
+  if (base.includes("/")) {
+    return "https://ollama.com/" + base;
+  }
+  return base ? "https://ollama.com/library/" + base : "";
+}
+
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};
   const stateText = m.loaded
@@ -1307,6 +1321,8 @@ function renderDetail(d) {
   const minColdLoadVal = (d.min_cold_load_ms || m.min_cold_load_ms) > 0
     ? `${fmtColdLoad(d.min_cold_load_ms || m.min_cold_load_ms)}${(d.min_cold_load_at || m.min_cold_load_at) ? ` (${fmtDate(d.min_cold_load_at || m.min_cold_load_at)})` : ""}`
     : "—";
+  const siteUrl = modelHomepageUrl(d.name);
+  const hostLabel = siteUrl ? (siteUrl.startsWith("https://huggingface.co") ? "Hugging Face" : "Ollama") : "";
   const rows = [
     [t("detail.family"), d.details?.family || "—", false],
     [t("detail.architecture"), d.architecture || "—", false],
@@ -1322,6 +1338,9 @@ function renderDetail(d) {
     [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
     [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false],
   ];
+  if (siteUrl) {
+    rows.push([t("detail.site"), `<a class="detail-site-link" href="${siteUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(hostLabel)}</a>`, false]);
+  }
   if (d.artifact_count > 0) {
     const artSize = d.artifact_bytes ? ` · ${fmtBytes(d.artifact_bytes)}` : "";
     rows.push([t("detail.artifacts"), `${d.artifact_count}${artSize}`, false]);

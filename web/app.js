@@ -7261,6 +7261,13 @@ function openCodeShortName(tag) {
   return i >= 0 ? tag.slice(i + 1) : tag;
 }
 
+function openCodeFolderCommand() {
+  const ua = navigator.userAgent || "";
+  if (/windows/i.test(ua)) return "explorer %USERPROFILE%\\.config\\opencode";
+  if (/mac|darwin/i.test(ua) || /mac/i.test(navigator.platform || "")) return "open ~/.config/opencode";
+  return "xdg-open ~/.config/opencode";
+}
+
 function buildOpenCodeExport() {
   const tags = openCodeEnabledTags();
   const names = openCodeNamesMap();
@@ -7511,6 +7518,12 @@ $("opencode-copy-models-btn").addEventListener("click", () => {
     return;
   }
   copyOpenCodeText(ex.models);
+});
+
+$("opencode-cmd").textContent = openCodeFolderCommand();
+$("opencode-cmd-copy-btn").addEventListener("click", async () => {
+  const ok = await copyTextToClipboard(openCodeFolderCommand());
+  toast(ok ? t("settings.opencode_cmd_copied") : t("settings.opencode_copy_manual"), ok ? "success" : "");
 });
 
 // ---------- init ----------

@@ -1282,6 +1282,25 @@ select:focus { border-color: var(--accent); }
   gap: 8px;
   margin-top: 10px;
 }
+.opencode-cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.opencode-cmd-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.opencode-cmd button { flex: 0 0 auto; }
 .settings-sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .badge.badge-bad { color: var(--bad); border-color: #5a2a2a; }
 

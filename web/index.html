@@ -1018,6 +1018,18 @@
         <button id="opencode-copy-all-btn" class="primary" data-i18n="settings.opencode_copy_all">Copy provider</button>
       </div>
     </section>
+
+    <section class="opencode-card">
+      <div class="section-head">
+        <h3 data-i18n="settings.opencode_apply_title">Apply on this machine</h3>
+      </div>
+      <p class="form-hint" data-i18n="settings.opencode_apply_hint">This manager saves to the OpenCode config of the server. To use the config on this computer, run the command below to open your local OpenCode folder, then paste the JSON above into opencode.json.</p>
+
+      <div class="opencode-cmd">
+        <code id="opencode-cmd" class="opencode-cmd-code mono"></code>
+        <button id="opencode-cmd-copy-btn" class="ghost" data-i18n="settings.opencode_copy_cmd">Copy command</button>
+      </div>
+    </section>
   </main>
 
   <div id="toast"></div>

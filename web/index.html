@@ -340,6 +340,43 @@
       </h2>
       <span id="analytics-count" class="badge badge-muted"></span>
     </header>
+    <div class="analytics-filters">
+      <div class="analytics-filter-group">
+        <label class="analytics-filter-label" data-i18n="analytics.filter_source">Source</label>
+        <select id="analytics-filter-source" class="analytics-filter-select">
+          <option value="all" data-i18n="analytics.source_all">All</option>
+          <option value="installed" data-i18n="analytics.source_installed">Installed</option>
+          <option value="ghost" data-i18n="analytics.source_ghost">Ghosts</option>
+        </select>
+      </div>
+      <div class="analytics-filter-group">
+        <label class="analytics-filter-label" data-i18n="analytics.filter_params">Params (B)</label>
+        <div class="analytics-filter-range">
+          <input id="analytics-filter-params-min" type="number" min="0" step="0.1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.min" placeholder="Min" aria-label="Min params">
+          <span class="analytics-filter-sep">–</span>
+          <input id="analytics-filter-params-max" type="number" min="0" step="0.1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.max" placeholder="Max" aria-label="Max params">
+        </div>
+      </div>
+      <div class="analytics-filter-group">
+        <label class="analytics-filter-label" data-i18n="analytics.filter_tps">Min tok/s</label>
+        <input id="analytics-filter-tps-min" type="number" min="0" step="1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.min" placeholder="Min" aria-label="Min tok/s">
+      </div>
+      <div class="analytics-filter-group">
+        <label class="analytics-filter-label" data-i18n="analytics.filter_family">Family</label>
+        <select id="analytics-filter-family" class="analytics-filter-select">
+          <option value="all" data-i18n="analytics.family_all">All</option>
+        </select>
+      </div>
+      <div class="analytics-filter-group">
+        <label class="analytics-filter-label" data-i18n="analytics.filter_type">Type</label>
+        <select id="analytics-filter-type" class="analytics-filter-select">
+          <option value="all" data-i18n="analytics.type_all">All</option>
+          <option value="dense" data-i18n="analytics.type_dense">Dense</option>
+          <option value="moe" data-i18n="analytics.type_moe">MoE</option>
+        </select>
+      </div>
+      <button id="analytics-filter-reset" type="button" class="ghost" data-i18n="analytics.filter_reset">Reset</button>
+    </div>
     <div class="analytics-grid">
       <section class="analytics-card analytics-card--wide">
         <div class="analytics-card-head">

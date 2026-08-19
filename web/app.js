@@ -2206,6 +2206,7 @@ function analyticsPoint(m) {
     architecture: m.architecture || "",
     fileType: Number(m.file_type) || 0,
     sizeLabel: m.size_label || "",
+    isMOE: !!m.is_moe,
   };
 }
 

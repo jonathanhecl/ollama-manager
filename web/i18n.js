@@ -78,6 +78,7 @@ const I18N = {
     "downloads.queue_paused_note": "Queue is paused",
 
     "action.refresh": "Refresh",
+    "action.reload_models": "Reload models",
     "action.settings": "Settings",
     "action.logout": "Sign out",
     "action.close": "Close",
@@ -636,6 +637,7 @@ const I18N = {
     "downloads.queue_paused_note": "La cola está pausada",
 
     "action.refresh": "Refrescar",
+    "action.reload_models": "Recargar modelos",
     "action.settings": "Ajustes",
     "action.logout": "Salir",
     "action.close": "Cerrar",

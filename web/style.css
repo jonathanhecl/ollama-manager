@@ -66,12 +66,21 @@ select { cursor: pointer; }
 /* ---------- Topbar ---------- */
 .topbar {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 10px;
   padding: 12px 18px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   position: sticky; top: 0; z-index: 5;
+}
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.topbar-row--actions {
+  justify-content: space-between;
 }
 .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .brand:hover { opacity: 0.85; }
@@ -81,12 +90,13 @@ select { cursor: pointer; }
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent);
 }
-.topbar-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+.topbar-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .metrics-strip {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  margin-left: auto;
 }
 .metric-widget {
   display: inline-flex;
@@ -3511,17 +3521,14 @@ button.chat-send:disabled:hover {
     padding: 12px;
   }
   .topbar {
-    gap: 10px;
+    gap: 8px;
     padding: 10px 12px;
   }
   .brand h1 { font-size: 14px; }
   .topbar-actions {
-    width: 100%;
-    justify-content: flex-end;
     flex-wrap: wrap;
   }
   .metrics-strip {
-    width: 100%;
     justify-content: flex-end;
     flex-wrap: wrap;
   }
@@ -3844,9 +3851,15 @@ button.chat-send:disabled:hover {
     gap: 8px;
     align-items: stretch;
   }
+  .topbar-row {
+    flex-wrap: wrap;
+  }
   .brand { min-width: 0; }
+  .topbar-row--actions {
+    justify-content: space-between;
+    align-items: center;
+  }
   .topbar-actions {
-    width: 100%;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -3861,8 +3874,10 @@ button.chat-send:disabled:hover {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 4px;
+    margin-left: 0;
   }
-  .topbar-actions .ghost {
+  .topbar-actions--left .ghost,
+  .topbar-actions--right .ghost {
     width: 28px;
     min-width: 28px;
     height: 28px;
@@ -3873,7 +3888,14 @@ button.chat-send:disabled:hover {
     font-size: 12px;
     line-height: 1;
   }
-  .topbar-actions .with-badge {
+  .topbar-actions--left .ghost > span[data-i18n="action.reload_models"] {
+    display: none;
+  }
+  .topbar-actions--left .ghost .dl-icon {
+    font-size: 13px;
+    line-height: 1;
+  }
+  .topbar-actions--right .with-badge {
     min-height: 28px;
     min-width: 28px;
     width: 28px;
@@ -3882,14 +3904,14 @@ button.chat-send:disabled:hover {
     display: inline-grid;
     place-items: center;
   }
-  .topbar-actions .with-badge .dl-icon {
+  .topbar-actions--right .with-badge .dl-icon {
     font-size: 13px;
     line-height: 1;
   }
-  .topbar-actions .with-badge > span[data-i18n="downloads.button"] {
+  .topbar-actions--right .with-badge > span[data-i18n="downloads.button"] {
     display: none;
   }
-  .topbar-actions .with-badge .count-badge {
+  .topbar-actions--right .with-badge .count-badge {
     display: none !important;
   }
   .metric-widget {

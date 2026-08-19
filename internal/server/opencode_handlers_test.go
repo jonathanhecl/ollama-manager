@@ -95,6 +95,9 @@ func TestOpenCodeEndToEnd(t *testing.T) {
 	if initial.Exists {
 		t.Fatal("expected exists=false before file creation")
 	}
+	if !initial.Remote {
+		t.Fatal("expected remote=true for httptest client (non-loopback)")
+	}
 	if initial.Provider != nil {
 		t.Fatalf("expected no provider, got %+v", initial.Provider)
 	}
@@ -199,5 +202,26 @@ func TestOpenCodeSetModelsRequiresProvider(t *testing.T) {
 	})
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestIsLoopbackRequest(t *testing.T) {
+	cases := []struct {
+		remote string
+		want   bool
+	}{
+		{"127.0.0.1:7860", true},
+		{"[::1]:7860", true},
+		{"localhost:7860", true},
+		{"192.168.1.50:7860", false},
+		{"10.0.0.7:4444", false},
+		{"", true},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/api/opencode", nil)
+		req.RemoteAddr = c.remote
+		if got := isLoopbackRequest(req); got != c.want {
+			t.Errorf("RemoteAddr=%q: got %v, want %v", c.remote, got, c.want)
+		}
 	}
 }

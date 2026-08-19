@@ -7201,6 +7201,8 @@ function renderOpenCodeView() {
   noProvider.hidden = !!st.provider;
   createBtn.hidden = !!st.provider;
   saveBtn.disabled = !st.provider;
+  const remoteWarn = $("opencode-remote-warn");
+  if (remoteWarn) remoteWarn.hidden = !st.remote;
   renderOpenCodeModels(st);
   renderOpenCodePreview();
 }

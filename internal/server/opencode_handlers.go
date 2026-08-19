@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -31,6 +32,7 @@ type opencodeStateView struct {
 	ConfigPath     string                `json:"config_path"`
 	Exists         bool                  `json:"exists"`
 	DefaultBaseURL string                `json:"default_base_url"`
+	Remote         bool                  `json:"remote"`
 	Provider       *opencodeProviderView `json:"provider"`
 	Models         []opencodeModelView   `json:"models"`
 }
@@ -38,7 +40,7 @@ type opencodeStateView struct {
 // handleOpenCodeGet reports the opencode integration state: config path,
 // detected local provider and every installed model's visibility flag.
 func (s *Server) handleOpenCodeGet(w http.ResponseWriter, r *http.Request) {
-	view, err := s.buildOpenCodeView(r.Context())
+	view, err := s.buildOpenCodeView(r.Context(), isLoopbackRequest(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -73,7 +75,7 @@ func (s *Server) handleOpenCodeEnsureProvider(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	view, err := s.buildOpenCodeView(r.Context())
+	view, err := s.buildOpenCodeView(r.Context(), isLoopbackRequest(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -116,7 +118,7 @@ func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	view, err := s.buildOpenCodeView(r.Context())
+	view, err := s.buildOpenCodeView(r.Context(), isLoopbackRequest(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -138,7 +140,7 @@ func sanitizeTags(tags []string) []string {
 	return out
 }
 
-func (s *Server) buildOpenCodeView(ctx context.Context) (opencodeStateView, error) {
+func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeStateView, error) {
 	path := opencode.Resolve()
 	doc, err := opencode.Load(path)
 	if err != nil {
@@ -147,6 +149,7 @@ func (s *Server) buildOpenCodeView(ctx context.Context) (opencodeStateView, erro
 	view := opencodeStateView{
 		ConfigPath: path,
 		Exists:     configFileExists(path),
+		Remote:     remote,
 	}
 	if p := doc.LocalOllamaProvider(); p != nil {
 		view.Provider = &opencodeProviderView{Key: p.Key, Name: p.Name, BaseURL: p.BaseURL}
@@ -185,6 +188,20 @@ func (s *Server) buildOpenCodeView(ctx context.Context) (opencodeStateView, erro
 func configFileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// isLoopbackRequest reports whether the client connected from the same
+// machine (localhost / loopback) or from a different device on the network.
+func isLoopbackRequest(r *http.Request) bool {
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = h
+	}
+	if host == "" || host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ollamaOpenAIBaseURL returns the Ollama OpenAI-compatible base URL (with a

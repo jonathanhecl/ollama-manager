@@ -3924,23 +3924,33 @@ button.chat-send:disabled:hover {
   #models-table th:nth-child(1), #models-table td:nth-child(1) {
     width: 20px;
   }
-  #models-table th:nth-child(7), #models-table td:nth-child(7) {
-    width: 90px;
+  /* Mobile: show the record tok/s column (hidden by the wider breakpoint) in place of size/dates. */
+  #models-table th:nth-child(3), #models-table td:nth-child(3) {
+    display: table-cell;
+    width: 82px;
+    text-align: right;
   }
-  #models-table td:nth-child(8) { display: none; }
-  #models-table th:nth-child(8) {
-    width: 30px;
-    padding: 10px 0;
-    font-size: 0;
-    text-align: center;
-    overflow: hidden;
+  #models-table th:nth-child(3) {
+    font-size: 9px;
+    letter-spacing: .2px;
+    text-align: right;
     white-space: nowrap;
   }
-  #models-table th:nth-child(8)::after { margin-left: 0; }
-  #models-table th:nth-child(8).sort-asc::after,
-  #models-table th:nth-child(8).sort-desc::after { opacity: 1; }
+  #models-table th:nth-child(7), #models-table td:nth-child(7),
+  #models-table th:nth-child(8), #models-table td:nth-child(8),
   #models-table th:nth-child(9), #models-table td:nth-child(9) {
     display: none;
+  }
+  .cell-record-wrap {
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .cell-record-tok .unit {
+    font-size: 9px;
+  }
+  .cell-min-load {
+    font-size: 9px;
+    white-space: nowrap;
   }
   .model-name-wrap {
     align-items: center;

@@ -320,11 +320,15 @@ let currentAgentTestId = null;
 
 // Sorting: persisted across reloads.
 const SORT_KEY = "ollamaMgr.sort";
+const MOBILE_BREAK = 640;
 let sort = { col: "modified_at", dir: "desc" };
 try {
   const saved = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
   if (saved && saved.col) sort = saved;
 } catch { }
+if (!localStorage.getItem(SORT_KEY) && window.innerWidth <= MOBILE_BREAK) {
+  sort = { col: "record_tokens_per_sec", dir: "desc" };
+}
 
 // ---------- API ----------
 async function api(path, opts = {}) {
@@ -792,10 +796,16 @@ function applySort(arr) {
   return [...arr].sort((a, b) => {
     const ka = sortKey(a, col);
     const kb = sortKey(b, col);
+    let cmp;
     if (typeof ka === "string" || typeof kb === "string") {
-      return mul * String(ka).localeCompare(String(kb));
+      cmp = String(ka).localeCompare(String(kb));
+    } else {
+      cmp = ka - kb;
     }
-    return mul * (ka - kb);
+    if (cmp === 0) {
+      cmp = String(a.name || "").toLowerCase().localeCompare(String(b.name || "").toLowerCase());
+    }
+    return mul * cmp;
   });
 }
 

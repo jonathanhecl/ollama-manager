@@ -756,7 +756,7 @@ function sortKey(m, col) {
     case "family": return (m.family || "").toLowerCase();
     case "record_tokens_per_sec": return Number(m.record_tokens_per_sec) || 0;
     case "parameter_size": return parseParamSize(m.parameter_size) || Number(m.parameter_count) || 0;
-    case "quantization": return (m.quantization || "").toLowerCase();
+    case "quantization": return ((m.family || "") + " " + (m.quantization || "")).toLowerCase();
     case "context_length": return Number(m.context_length) || 0;
     case "size": return Number(m.size) || 0;
     case "modified_at": return m.last_used_at ? new Date(m.last_used_at).getTime() || 0 : (new Date(m.modified_at).getTime() || 0);
@@ -778,6 +778,12 @@ function modelParameterLabel(m) {
   if (m.parameter_size && m.parameter_size !== "—") return m.parameter_size;
   const exact = Number(m.parameter_count) || 0;
   return exact > 0 ? formatExactParams(exact) : "—";
+}
+
+function modelQuantLabel(m) {
+  const q = (m.quantization && m.quantization !== "—") ? m.quantization : "—";
+  if (m.family && m.family !== "—") return m.family + " · " + q;
+  return q;
 }
 
 function applySort(arr) {
@@ -898,11 +904,6 @@ function renderTable() {
     activeModels = activeModels.concat(ghostModels.map(g => ({
       ...g,
       isGhost: true,
-      family: "—",
-       parameter_size: "—",
-      quantization: "—",
-      context_length: 0,
-      size: 0,
       capabilities: []
     })));
   }
@@ -1002,9 +1003,6 @@ function renderTable() {
   const archiveTitle = t("detail.archive_title");
   const unarchiveTitle = t("detail.unarchive_title");
   function getRowInnerHtml(m, capsHtml, progressHtml) {
-    const familyTag = (m.family && m.family !== "—")
-      ? `<span class="model-family-tag">(${escapeHtml(m.family)})</span>`
-      : "";
     const ghostTag = m.isGhost ? `<span class="model-ghost-tag">(${escapeHtml(t("models.ghost_badge"))})</span>` : "";
     const tokColor = getToksRecordColor(m.record_tokens_per_sec);
     const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
@@ -1033,7 +1031,7 @@ function renderTable() {
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name">${escapeHtml(m.name)}${familyTag}${ghostTag}</div>
+            <div class="model-name">${escapeHtml(m.name)}${ghostTag}</div>
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
@@ -1048,7 +1046,7 @@ function renderTable() {
         </div>
       </td>
       <td class="cell-params">${escapeHtml(modelParameterLabel(m))}</td>
-      <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
+      <td class="cell-quant">${escapeHtml(modelQuantLabel(m))}</td>
       <td class="cell-ctx">${m.isPending ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
       <td class="cell-size">${m.isPending ? "—" : (m.size > 0 ? fmtBytes(m.size) : "—")}</td>
       <td class="cell-modified">
@@ -1106,7 +1104,7 @@ function renderTable() {
         tr._m_family !== m.family ||
         tr._m_param !== m.parameter_size ||
         tr._m_param_count !== m.parameter_count ||
-        tr._m_quant !== m.quantization
+        tr._m_quant !== modelQuantLabel(m)
       ) {
         needUpdate = true;
       }
@@ -1179,7 +1177,7 @@ function renderTable() {
       newTr._m_family = m.family;
        newTr._m_param = m.parameter_size;
        newTr._m_param_count = m.parameter_count;
-      newTr._m_quant = m.quantization;
+      newTr._m_quant = modelQuantLabel(m);
 
       if (tr) {
         tr.replaceWith(newTr);

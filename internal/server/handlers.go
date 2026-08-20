@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/jobs"
@@ -1376,6 +1377,35 @@ type chatRequestBody struct {
 	Steps       int                  `json:"steps,omitempty"`
 }
 
+// estimateTextTokens is a rough fallback (~4 chars per token) used when Ollama
+// does not report token counts, e.g. for some vision/OCR responses.
+func estimateTextTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := utf8.RuneCountInString(s)
+	if n < 4 {
+		return 1
+	}
+	return n / 4
+}
+
+// estimatePromptTokens approximates prompt token usage from the request when
+// Ollama reports a zero prompt_eval_count (vision/OCR requests). Text counts
+// roughly one token per 4 characters plus a nominal allowance per image.
+func estimatePromptTokens(body chatRequestBody) int {
+	var b strings.Builder
+	for _, m := range body.Messages {
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	tokens := estimateTextTokens(b.String())
+	for _, m := range body.Messages {
+		tokens += len(m.Images) * 256
+	}
+	return tokens
+}
+
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Model string `json:"model"`
@@ -1624,9 +1654,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now()
 		var firstTokenTime time.Duration
 		var final ollama.GenerateChunk
+		var accContent strings.Builder
 		err := s.ollama.Generate(r.Context(), genReq, func(chunk ollama.GenerateChunk) error {
 			if wasCold && firstTokenTime == 0 && (chunk.Response != "" || chunk.Image != "") {
 				firstTokenTime = time.Since(startedAt)
+			}
+			if chunk.Response != "" {
+				accContent.WriteString(chunk.Response)
 			}
 			chatChunk := ollama.ChatChunk{
 				Model:     chunk.Model,
@@ -1662,9 +1696,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 			firstTokenTime = 0
 			final = ollama.GenerateChunk{}
+			accContent.Reset()
 			err = s.ollama.Generate(r.Context(), genReq, func(chunk ollama.GenerateChunk) error {
 				if firstTokenTime == 0 && (chunk.Response != "" || chunk.Image != "") {
 					firstTokenTime = time.Since(startedAt)
+				}
+				if chunk.Response != "" {
+					accContent.WriteString(chunk.Response)
 				}
 				chatChunk := ollama.ChatChunk{
 					Model:     chunk.Model,
@@ -1712,9 +1750,25 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		totalTokens := final.PromptEvalCount + final.EvalCount
+		evalCount := final.EvalCount
+		evalDuration := final.EvalDuration
+		promptEvalCount := final.PromptEvalCount
+		if evalCount <= 0 {
+			if est := estimateTextTokens(accContent.String()); est > 0 {
+				evalCount = est
+			}
+		}
+		if promptEvalCount <= 0 {
+			if est := estimatePromptTokens(body); est > 0 {
+				promptEvalCount = est
+			}
+		}
+		if evalCount > 0 && evalDuration <= 0 {
+			evalDuration = int64(time.Since(startedAt))
+		}
+		totalTokens := promptEvalCount + evalCount
 		if s.usage != nil {
-			_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
+			_ = s.usage.Record(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
 			if wasCold && firstTokenTime > 0 {
 				loadMs := firstTokenTime.Milliseconds()
 				if loadMs > 0 {
@@ -1724,11 +1778,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 		send("done", map[string]any{
 			"elapsed_ms":         time.Since(startedAt).Milliseconds(),
-			"prompt_tokens":      final.PromptEvalCount,
-			"completion_tokens":  final.EvalCount,
+			"prompt_tokens":      promptEvalCount,
+			"completion_tokens":  evalCount,
 			"total_tokens":       totalTokens,
 			"prompt_duration_ns": final.PromptEvalDuration,
-			"eval_duration_ns":   final.EvalDuration,
+			"eval_duration_ns":   evalDuration,
 			"total_duration_ns":  final.TotalDuration,
 			"done_reason":        final.DoneReason,
 		})
@@ -1761,9 +1815,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	startedAt := time.Now()
 	var firstTokenTime time.Duration
 	var final ollama.ChatChunk
+	var accContent strings.Builder
+	var accThinking strings.Builder
 	err := s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
 		if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 			firstTokenTime = time.Since(startedAt)
+		}
+		if chunk.Message.Content != "" {
+			accContent.WriteString(chunk.Message.Content)
+		}
+		if chunk.Message.Thinking != "" {
+			accThinking.WriteString(chunk.Message.Thinking)
 		}
 		send("chunk", chunk)
 		if chunk.Done {
@@ -1783,9 +1845,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 		firstTokenTime = 0
 		final = ollama.ChatChunk{}
+		accContent.Reset()
+		accThinking.Reset()
 		err = s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
 			if firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 				firstTokenTime = time.Since(startedAt)
+			}
+			if chunk.Message.Content != "" {
+				accContent.WriteString(chunk.Message.Content)
+			}
+			if chunk.Message.Thinking != "" {
+				accThinking.WriteString(chunk.Message.Thinking)
 			}
 			send("chunk", chunk)
 			if chunk.Done {
@@ -1817,9 +1887,25 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	totalTokens := final.PromptEvalCount + final.EvalCount
+	evalCount := final.EvalCount
+	evalDuration := final.EvalDuration
+	promptEvalCount := final.PromptEvalCount
+	if evalCount <= 0 {
+		if est := estimateTextTokens(accContent.String() + "\n" + accThinking.String()); est > 0 {
+			evalCount = est
+		}
+	}
+	if promptEvalCount <= 0 {
+		if est := estimatePromptTokens(body); est > 0 {
+			promptEvalCount = est
+		}
+	}
+	if evalCount > 0 && evalDuration <= 0 {
+		evalDuration = int64(time.Since(startedAt))
+	}
+	totalTokens := promptEvalCount + evalCount
 	if s.usage != nil {
-		_ = s.usage.Record(body.Model, final.EvalCount, final.EvalDuration, final.PromptEvalCount, time.Now())
+		_ = s.usage.Record(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
 		if wasCold && firstTokenTime > 0 {
 			loadMs := firstTokenTime.Milliseconds()
 			if loadMs > 0 {
@@ -1829,11 +1915,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	send("done", map[string]any{
 		"elapsed_ms":         time.Since(startedAt).Milliseconds(),
-		"prompt_tokens":      final.PromptEvalCount,
-		"completion_tokens":  final.EvalCount,
+		"prompt_tokens":      promptEvalCount,
+		"completion_tokens":  evalCount,
 		"total_tokens":       totalTokens,
 		"prompt_duration_ns": final.PromptEvalDuration,
-		"eval_duration_ns":   final.EvalDuration,
+		"eval_duration_ns":   evalDuration,
 		"total_duration_ns":  final.TotalDuration,
 		"done_reason":        final.DoneReason,
 	})

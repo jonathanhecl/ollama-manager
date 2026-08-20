@@ -225,7 +225,7 @@ function renderAnalyticsKPIs(data) {
 
 // Modern Scatter Plot with Trendline, Pareto Frontier and Radial Glow
 function renderModernScatter(container, data, opts) {
-  const W = 680, H = 380, PAD = { l: 64, r: 24, t: 26, b: 50 };
+  const W = 720, H = 380, PAD = { l: 96, r: 24, t: 26, b: 50 };
   const iw = W - PAD.l - PAD.r;
   const ih = H - PAD.t - PAD.b;
 
@@ -266,7 +266,7 @@ function renderModernScatter(container, data, opts) {
     const v = yDom.min + ((yDom.max - yDom.min) * i) / yTicks;
     const y = sy(v);
     svg.appendChild(svgEl("line", { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, class: "analytics-grid-line" }));
-    svg.appendChild(svgEl("text", { x: PAD.l - 10, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.yKind)));
+    svg.appendChild(svgEl("text", { x: PAD.l - 12, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.yKind)));
   }
 
   // X Labels + Grid Lines
@@ -279,10 +279,11 @@ function renderModernScatter(container, data, opts) {
   }
 
   // Axes
+  const yCenter = (PAD.t + H - PAD.b) / 2;
   svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
   svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
-  svg.appendChild(svgEl("text", { x: W / 2, y: H - 8, "text-anchor": "middle", class: "analytics-axislabel" }, opts.xLabel));
-  svg.appendChild(svgEl("text", { x: 18, y: H / 2, "text-anchor": "middle", class: "analytics-axislabel analytics-axislabel--y", transform: `rotate(-90 18 ${H / 2})` }, opts.yLabel));
+  svg.appendChild(svgEl("text", { x: PAD.l + iw / 2, y: H - 8, "text-anchor": "middle", class: "analytics-axislabel" }, opts.xLabel));
+  svg.appendChild(svgEl("text", { x: 16, y: yCenter, "text-anchor": "middle", class: "analytics-axislabel analytics-axislabel--y", transform: `rotate(-90 16 ${yCenter})` }, opts.yLabel));
 
   // Render Progression / Trendline Curve
   if (opts.showTrendline && points.length >= 2) {

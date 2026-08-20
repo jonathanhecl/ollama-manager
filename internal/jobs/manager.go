@@ -871,6 +871,10 @@ func (m *Manager) saveHistoryLocked() error {
 // beyond what the runner persists. Useful for tests.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
+	// Prevent the runner from auto-starting a queued job once the active one
+	// finalizes. This is what lets tests tear down cleanly and matches the
+	// intent that a shut-down manager should not begin new downloads.
+	m.queuePaused = true
 	if m.activeID != "" {
 		if j := m.jobs[m.activeID]; j != nil && j.cancel != nil {
 			j.cancel()

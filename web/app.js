@@ -7224,6 +7224,15 @@ function onJobsChanged() {
   throttleRenderTable(); // Update main model list to show/hide pending downloads
 }
 
+// Re-fetch the authoritative job list so the jobs Map reflects the server's
+// current queue order (e.g. after "move to front"). Map insertion order is
+// preserved, so this also reorders the queue UI to match the server.
+async function refreshJobs() {
+  const data = await api("/api/jobs");
+  jobs = new Map((data.jobs || []).map((j) => [j.id, j]));
+  onJobsChanged();
+}
+
 function jobsByStatus() {
   const buckets = { active: [], queued: [], paused: [], finished: [] };
   for (const j of jobs.values()) {
@@ -7232,12 +7241,11 @@ function jobsByStatus() {
     else if (j.status === "paused") buckets.paused.push(j);
     else buckets.finished.push(j);
   }
-  // Active and queued keep their natural (creation) order; finished shows
-  // most recent first.
-  const byCreated = (a, b) => new Date(a.created_at) - new Date(b.created_at);
-  buckets.active.sort(byCreated);
-  buckets.queued.sort(byCreated);
-  buckets.paused.sort(byCreated);
+  // Active, queued and paused keep the server's authoritative queue order
+  // (the jobs Map is inserted in the order returned by /api/jobs, which is the
+  // manager's m.order — the same order "move to front" promotes into). We must
+  // NOT re-sort by created_at here, or promotion would be undone. Finished
+  // shows most recent first.
   buckets.finished.sort((a, b) => new Date(b.finished_at || b.created_at) - new Date(a.finished_at || a.created_at));
   return buckets;
 }
@@ -7294,73 +7302,10 @@ function renderDownloads() {
     resumeBtn.hidden = true;
   }
 
-  // Wire per-card buttons.
-  document.querySelectorAll("#downloads-modal .dl-item [data-action]").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      const action = btn.dataset.action;
-      if (!id || !action) return;
-      if (action === "cancel") {
-        try {
-          await api(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      } else if (action === "remove") {
-        try {
-          await api(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      } else if (action === "pause") {
-        try {
-          await api(`/api/jobs/${encodeURIComponent(id)}/pause`, { method: "POST" });
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      } else if (action === "resume") {
-        try {
-          await api(`/api/jobs/${encodeURIComponent(id)}/resume`, { method: "POST" });
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      } else if (action === "promote") {
-        try {
-          await api(`/api/jobs/${encodeURIComponent(id)}/promote`, { method: "POST" });
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      } else if (action === "retry") {
-        const j = jobs.get(id);
-        if (!j) return;
-        try {
-          await api("/api/pull", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: j.name }),
-          });
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      }
-    });
-  });
-
-  // Click on a finished download card opens chat with that model
-  // if the model is still installed.
-  document.querySelectorAll("#downloads-modal .dl-item").forEach((card) => {
-    card.addEventListener("click", async () => {
-      const id = card.dataset.id;
-      if (!id) return;
-      const j = jobs.get(id);
-      if (!j || j.status !== "done" || !j.name) return;
-      await refreshModels();
-      if (!modelByName(j.name)) return;
-      closeDownloads();
-      showChatViewWithModel(j.name);
-    });
-  });
+  // Wire per-card buttons via delegation on the stable modal container in
+  // bindDownloadsEvents (see below). Per-card listeners are NOT attached here
+  // because while a download is active the SSE stream re-renders the list
+  // every few hundred ms, destroying the buttons before a click lands.
 }
 
 function emptyRow() {
@@ -7484,6 +7429,56 @@ $("downloads-close").addEventListener("click", closeDownloads);
 $("downloads-x").addEventListener("click", closeDownloads);
 $("downloads-modal").addEventListener("click", (e) => {
   if (e.target === $("downloads-modal")) closeDownloads();
+});
+
+// Per-card actions are delegated to the stable modal container (attached once,
+// never re-rendered). While a download is active the SSE stream re-renders the
+// list every few hundred ms, so listeners bound to individual cards/buttons
+// would be destroyed before a click lands; delegation survives that.
+$("downloads-modal").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (btn) {
+    e.stopPropagation();
+    const id = btn.dataset.id;
+    const action = btn.dataset.action;
+    if (!id || !action) return;
+    try {
+      if (action === "cancel") {
+        await api(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+      } else if (action === "remove") {
+        await api(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+      } else if (action === "pause") {
+        await api(`/api/jobs/${encodeURIComponent(id)}/pause`, { method: "POST" });
+      } else if (action === "resume") {
+        await api(`/api/jobs/${encodeURIComponent(id)}/resume`, { method: "POST" });
+      } else if (action === "promote") {
+        await api(`/api/jobs/${encodeURIComponent(id)}/promote`, { method: "POST" });
+        await refreshJobs();
+      } else if (action === "retry") {
+        const j = jobs.get(id);
+        if (!j) return;
+        await api("/api/pull", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: j.name }),
+        });
+      }
+    } catch (err) {
+      toast(t("toast.error", { msg: err.message }), "error");
+    }
+    return;
+  }
+  // Click on a finished download card opens chat with that model.
+  const card = e.target.closest(".dl-item");
+  if (!card) return;
+  const id = card.dataset.id;
+  if (!id) return;
+  const j = jobs.get(id);
+  if (!j || j.status !== "done" || !j.name) return;
+  await refreshModels();
+  if (!modelByName(j.name)) return;
+  closeDownloads();
+  showChatViewWithModel(j.name);
 });
 
 $("dl-pause-btn").addEventListener("click", async () => {

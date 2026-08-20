@@ -452,7 +452,7 @@ function renderTable() {
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name">${escapeHtml(m.name)}${ghostTag}</div>
+            <div class="model-name model-name-track"><span class="model-name-text">${escapeHtml(m.name)}</span>${ghostTag}</div>
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
@@ -665,7 +665,24 @@ function renderTable() {
   while (tbody.children.length > allToRender.length) {
     tbody.removeChild(tbody.lastChild);
   }
+
+  updateListMarquees();
 }
+
+function updateListMarquees() {
+  if (typeof updateMarquee !== "function") return;
+  const tracks = document.querySelectorAll("#models-table .model-name-track");
+  tracks.forEach((track) => {
+    const text = track.querySelector(".model-name-text");
+    if (text) updateMarquee(track, text);
+  });
+}
+
+window.addEventListener("resize", () => {
+  if (typeof currentView !== "undefined" && currentView === "models") {
+    updateListMarquees();
+  }
+});
 
 function updateSortIndicators() {
   document.querySelectorAll("#models-table th.sortable").forEach((th) => {

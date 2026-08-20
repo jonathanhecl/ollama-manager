@@ -415,8 +415,23 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 }
 .cell-name { font-size: 13px; }
 .model-name-wrap { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.model-name-block { min-width: 0; }
+.model-name-block { min-width: 0; flex: 1; }
 .model-name { font-family: var(--mono); }
+.model-name-track {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.model-name-text {
+  display: inline-block;
+  white-space: nowrap;
+  font-family: var(--mono);
+  vertical-align: middle;
+}
 .model-family-tag {
   font-size: 11px;
   font-weight: 400;
@@ -4513,8 +4528,16 @@ button.chat-send:disabled:hover {
   }
   .model-name {
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 100%;
+  }
+  .model-name-track {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
   }
   .model-name-block {
     min-width: 0;

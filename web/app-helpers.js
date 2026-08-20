@@ -242,3 +242,28 @@ function textForSpeech(raw) {
   return s;
 }
 
+function updateMarquee(trackEl, textEl) {
+  if (!trackEl || !textEl) return;
+  textEl.classList.remove("is-bouncing");
+  textEl.style.removeProperty("--marquee-dist");
+  textEl.style.removeProperty("--marquee-dur");
+  textEl.style.transform = "";
+
+  requestAnimationFrame(() => {
+    if (!trackEl || !textEl) return;
+    const trackWidth = trackEl.clientWidth;
+    const textWidth = textEl.scrollWidth;
+    const overflow = textWidth - trackWidth;
+
+    if (overflow > 2) {
+      const dist = overflow + 8;
+      const duration = Math.max(4, Math.min(16, dist / 20));
+      textEl.style.setProperty("--marquee-dist", `-${dist}px`);
+      textEl.style.setProperty("--marquee-dur", `${duration}s`);
+      textEl.classList.add("is-bouncing");
+    } else {
+      textEl.classList.remove("is-bouncing");
+    }
+  });
+}
+

@@ -2658,6 +2658,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: #0d0f16;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .chat-think summary {
   cursor: pointer;
@@ -2666,18 +2668,22 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   color: var(--text-dim);
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
+  word-break: break-word;
 }
 .chat-think pre {
   margin: 0;
   padding: 10px;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: auto;
   max-height: 220px;
-  white-space: pre-wrap;
+  white-space: pre-wrap !important;
   word-break: break-word;
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text-dim);
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .chat-md p { margin: 0 0 8px; line-height: 1.45; }
@@ -4078,6 +4084,13 @@ button.chat-send:disabled:hover {
     -webkit-overflow-scrolling: touch;
     white-space: pre;
   }
+  .chat-msg .chat-think pre,
+  .chat-msg .chat-tool-preview pre {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    overflow-x: hidden !important;
+  }
   .chat-msg code {
     word-break: break-word;
     overflow-wrap: anywhere;
@@ -4086,6 +4099,12 @@ button.chat-send:disabled:hover {
     word-break: normal;
     overflow-wrap: normal;
     white-space: pre;
+  }
+  .chat-msg .chat-think pre code,
+  .chat-msg .chat-tool-preview pre code {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
   .chat-msg table {
     display: block;

@@ -54,7 +54,16 @@ input[type=text], input[type=password], input[type=number], textarea, select {
   outline: none;
   transition: border-color .12s;
 }
-input[type=number] { font-family: var(--mono); }
+input[type=number] {
+  font-family: var(--mono);
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 textarea { resize: vertical; }
 select { cursor: pointer; }
@@ -3264,6 +3273,10 @@ button.chat-send:disabled:hover {
   box-sizing: border-box;
   transition: border-color 0.15s ease, background 0.15s ease;
   flex-shrink: 0;
+}
+.chat-side-card .field input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 .chat-side-card .field select {
   font-family: inherit;

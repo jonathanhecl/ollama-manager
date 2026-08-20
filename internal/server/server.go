@@ -186,6 +186,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/jobs/{id}/cancel", s.requireAuth(s.handleJobCancel))
 	mux.Handle("POST /api/jobs/{id}/pause", s.requireAuth(s.handleJobPause))
 	mux.Handle("POST /api/jobs/{id}/resume", s.requireAuth(s.handleJobResume))
+	mux.Handle("POST /api/jobs/{id}/promote", s.requireAuth(s.handleJobPromote))
 	mux.Handle("DELETE /api/jobs/{id}", s.requireAuth(s.handleJobRemove))
 
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))

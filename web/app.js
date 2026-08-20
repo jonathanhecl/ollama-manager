@@ -7325,6 +7325,12 @@ function renderDownloads() {
         } catch (err) {
           toast(t("toast.error", { msg: err.message }), "error");
         }
+      } else if (action === "promote") {
+        try {
+          await api(`/api/jobs/${encodeURIComponent(id)}/promote`, { method: "POST" });
+        } catch (err) {
+          toast(t("toast.error", { msg: err.message }), "error");
+        }
       } else if (action === "retry") {
         const j = jobs.get(id);
         if (!j) return;
@@ -7392,11 +7398,16 @@ function jobCardHTML(j) {
 
   let actionBtn = "";
   if (j.status === "running" || j.status === "queued") {
+    const promoteBtn = j.status === "queued"
+      ? `<button class="btn-icon" data-action="promote" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.promote"))}">↑</button>`
+      : "";
     actionBtn = `
+      ${promoteBtn}
       <button class="ghost dl-pause" data-action="pause" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.pause"))}">⏸</button>
       <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "paused") {
     actionBtn = `
+      <button class="btn-icon" data-action="promote" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.promote"))}">↑</button>
       <button class="ghost dl-resume" data-action="resume" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.resume"))}">▶</button>
       <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "error" || j.status === "cancelled") {

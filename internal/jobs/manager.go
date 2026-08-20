@@ -437,6 +437,46 @@ func (m *Manager) Resume(id string) error {
 	return nil
 }
 
+// Promote moves a queued (or paused) job to the front of the download queue
+// so it starts first when the current job finishes. Paused jobs are resumed
+// to queued as part of the promotion. Returns an error if the job is running
+// or already terminal.
+func (m *Manager) Promote(id string) error {
+	m.mu.Lock()
+	j, ok := m.jobs[id]
+	if !ok {
+		m.mu.Unlock()
+		return errors.New("job not found")
+	}
+	switch j.Status {
+	case StatusQueued, StatusPaused:
+		// no-op
+	case StatusRunning:
+		m.mu.Unlock()
+		return fmt.Errorf("job is %s", j.Status)
+	default:
+		m.mu.Unlock()
+		return fmt.Errorf("job is %s", j.Status)
+	}
+	// Un-pause so the promoted job is eligible to start.
+	j.Status = StatusQueued
+	j.pauseIntent = false
+	// Move this job to the front of the ordering, preserving the relative
+	// order of every other queued job.
+	m.order = removeString(m.order, id)
+	m.order = append([]string{id}, m.order...)
+	snap := j.clone()
+	// If nothing is running, starting the promoted job immediately is the
+	// expected "move to front" behaviour.
+	m.tryStartNextLocked()
+	if err := m.saveLocked(); err != nil {
+		m.logger.Printf("jobs: save failed: %v", err)
+	}
+	m.mu.Unlock()
+	m.broadcast(Event{Kind: EventUpdate, Job: &snap})
+	return nil
+}
+
 // PauseQueue prevents new jobs from starting until ResumeQueue is called.
 // A currently running job is allowed to finish. All queued jobs are moved
 // to the paused state so they appear in the paused section.

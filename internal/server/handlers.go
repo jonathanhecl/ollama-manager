@@ -2019,6 +2019,19 @@ func (s *Server) handleJobResume(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *Server) handleJobPromote(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing id"))
+		return
+	}
+	if err := s.jobs.Promote(id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) handleJobsPauseQueue(w http.ResponseWriter, r *http.Request) {
 	s.jobs.PauseQueue()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "queue_paused": true})

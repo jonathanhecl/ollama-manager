@@ -50,6 +50,47 @@ function renderCapabilityPills(caps) {
     .join("");
 }
 
+function updateMarquee(trackEl, textEl) {
+  if (!trackEl || !textEl) return;
+  textEl.classList.remove("is-bouncing");
+  textEl.style.removeProperty("--marquee-dist");
+  textEl.style.removeProperty("--marquee-dur");
+  textEl.style.transform = "";
+
+  requestAnimationFrame(() => {
+    if (!trackEl || !textEl) return;
+    const trackWidth = trackEl.clientWidth;
+    const textWidth = textEl.scrollWidth;
+    const overflow = textWidth - trackWidth;
+
+    if (overflow > 2) {
+      const dist = overflow + 8;
+      const duration = Math.max(4, Math.min(16, dist / 20));
+      textEl.style.setProperty("--marquee-dist", `-${dist}px`);
+      textEl.style.setProperty("--marquee-dur", `${duration}s`);
+      textEl.classList.add("is-bouncing");
+    } else {
+      textEl.classList.remove("is-bouncing");
+    }
+  });
+}
+
+function updateChatModelDisplay() {
+  const sel = $("chat-model");
+  const display = $("chat-model-display");
+  const track = $("chat-model-marquee-track");
+  if (sel && display) {
+    display.textContent = sel.selectedOptions?.[0]?.textContent || sel.value || "";
+    display.title = sel.value || "";
+    updateMarquee(track, display);
+  }
+  const nameVal = $("chat-model-name-value");
+  const nameTrack = $("chat-model-name-track");
+  if (nameVal && nameTrack) {
+    updateMarquee(nameTrack, nameVal);
+  }
+}
+
 function syncChatModelOptions() {
   const sel = $("chat-model");
   if (!sel) return;
@@ -68,13 +109,16 @@ function syncChatModelOptions() {
     sel.value = (loaded || sorted[0]).name;
   }
   updateChatModelLoadDot();
+  updateChatModelDisplay();
 }
 
 function updateChatCapabilityUI() {
   const model = $("chat-model").value;
   if ($("chat-model-name-value")) {
     $("chat-model-name-value").textContent = model;
+    $("chat-model-name-value").title = model;
   }
+  updateChatModelDisplay();
   const caps = modelCaps(model);
   const isImageModel = isImageGenerationOnlyCaps(caps);
   const canVision = caps.has("vision");
@@ -236,4 +280,21 @@ function showChatView() {
   void applyChatDefaultsForModel($("chat-model").value);
   setTimeout(() => $("chat-input").focus(), 20);
 }
+
+if (typeof ResizeObserver !== "undefined") {
+  const chatMarqueeRO = new ResizeObserver(() => {
+    if (typeof updateChatModelDisplay === "function") {
+      updateChatModelDisplay();
+    }
+  });
+  const t1 = $("chat-model-marquee-track");
+  if (t1) chatMarqueeRO.observe(t1);
+  const t2 = $("chat-model-name-track");
+  if (t2) chatMarqueeRO.observe(t2);
+}
+window.addEventListener("resize", () => {
+  if (typeof currentView !== "undefined" && currentView === "chat" && typeof updateChatModelDisplay === "function") {
+    updateChatModelDisplay();
+  }
+});
 

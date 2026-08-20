@@ -111,7 +111,12 @@
             <label for="chat-model" data-i18n="chat.model">Model</label>
             <div class="chat-model-picker">
               <span id="chat-model-load-dot" class="state-dot" role="img" aria-hidden="true"></span>
-              <select id="chat-model" autocomplete="off"></select>
+              <div class="chat-model-custom-select" id="chat-model-custom-select">
+                <div class="chat-model-marquee-track" id="chat-model-marquee-track">
+                  <span id="chat-model-display" class="chat-model-display-text mono"></span>
+                </div>
+                <select id="chat-model" autocomplete="off"></select>
+              </div>
             </div>
             <button id="chat-reset-btn" type="button" class="ghost chat-reset-btn" data-i18n-attr="title aria-label" data-i18n="chat.reset_session" title="Reset session" aria-label="Reset session">
               <svg class="chat-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -217,7 +222,9 @@
         <div id="chat-model-copy-container" class="chat-model-copy-container">
           <div class="chat-model-copy-label" data-i18n="chat.model_name_label">Model Name</div>
           <div class="chat-model-copy-row">
-            <span id="chat-model-name-value" class="mono"></span>
+            <div class="chat-model-name-track" id="chat-model-name-track">
+              <span id="chat-model-name-value" class="mono"></span>
+            </div>
             <button id="chat-model-copy-btn" class="ghost" data-i18n-attr="title" data-i18n="chat.copy_model_name" title="Copy model name">📋</button>
           </div>
         </div>

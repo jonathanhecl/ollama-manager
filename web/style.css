@@ -1943,18 +1943,67 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 #chat-model-load-dot {
   flex-shrink: 0;
 }
-#chat-model {
+.chat-model-custom-select {
+  position: relative;
+  display: flex;
+  align-items: center;
   min-width: 0;
+  flex: 1 1 auto;
   width: 100%;
-  max-width: 100%;
   background: #0f0f13;
-  color: var(--text);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  padding: 5px 8px;
-  text-overflow: ellipsis;
+  height: 32px;
+  padding: 0 24px 0 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.chat-model-custom-select::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--muted);
+  pointer-events: none;
+}
+.chat-model-custom-select:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.chat-model-marquee-track {
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+.chat-model-display-text {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+#chat-model {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  border: none;
 }
 .chat-reset-btn {
   display: inline-flex;
@@ -3558,17 +3607,44 @@ button.chat-send:disabled:hover {
   justify-content: space-between;
   gap: 8px;
 }
+.chat-model-name-track {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
 #chat-model-name-value {
+  display: inline-block;
   font-family: var(--mono);
   font-size: 12px;
-  word-break: break-all;
+  white-space: nowrap;
   user-select: all;
   color: var(--text-dim);
+  vertical-align: middle;
 }
 .chat-model-copy-row button {
   padding: 4px 8px;
   font-size: 12px;
   line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Ping-pong Marquee Bounce Animation (always visible, bouncing smoothly left to right) */
+@keyframes marquee-ping-pong {
+  0%, 20% {
+    transform: translateX(0);
+  }
+  80%, 100% {
+    transform: translateX(var(--marquee-dist, 0px));
+  }
+}
+
+.is-bouncing {
+  animation: marquee-ping-pong var(--marquee-dur, 6s) ease-in-out infinite alternate !important;
+  will-change: transform;
 }
 
 /* Image Generation options */

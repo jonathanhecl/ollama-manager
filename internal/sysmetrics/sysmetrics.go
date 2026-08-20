@@ -13,6 +13,7 @@ import (
 
 // Snapshot holds system-level CPU and memory usage.
 type Snapshot struct {
+	CPUModel       string
 	CPUUsedPercent float64
 	MemoryTotal    uint64
 	MemoryFree     uint64
@@ -29,7 +30,9 @@ func Collect(parent context.Context, path string) Snapshot {
 	ctx, cancel := context.WithTimeout(parent, 900*time.Millisecond)
 	defer cancel()
 
-	out := Snapshot{}
+	out := Snapshot{
+		CPUModel: CPUModel(),
+	}
 
 	if pct, err := cpu.PercentWithContext(ctx, 0, false); err == nil && len(pct) > 0 {
 		out.CPUUsedPercent = clampPercent(pct[0])

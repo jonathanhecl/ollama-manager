@@ -122,6 +122,15 @@ select { cursor: pointer; }
   text-transform: uppercase;
   letter-spacing: .6px;
   color: var(--muted);
+  white-space: nowrap;
+}
+#cpu-widget-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: .3px;
 }
 .metric-widget-track {
   width: 84px;
@@ -3830,6 +3839,9 @@ button.chat-send:disabled:hover {
   .metric-widget-label {
     font-size: 10px;
     letter-spacing: .45px;
+  }
+  #cpu-widget-label {
+    max-width: 90px;
   }
   .metric-widget-text {
     font-size: 10px;

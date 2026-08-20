@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/gense/ollama-manager/internal/sysmetrics"
 )
 
 // SysInfo captures the hardware / OS environment where a battery run was executed.
@@ -22,17 +24,18 @@ type SysInfo struct {
 // DetectSysInfo attempts to gather OS and hardware details.
 // It is best-effort: fields are left empty when detection fails.
 func DetectSysInfo() SysInfo {
-	s := SysInfo{OS: runtime.GOOS}
+	s := SysInfo{
+		OS:       runtime.GOOS,
+		CPUModel: sysmetrics.CPUModel(),
+	}
 	switch runtime.GOOS {
 	case "windows":
-		s.CPUModel = windowsCPU()
 		s.GPUModel, s.VRAMGB = windowsGPU()
 		ramBytes := wmicIntValue(execOutput("wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value"), "TotalPhysicalMemory")
 		if ramBytes > 0 {
 			s.RAMGB = fmt.Sprintf("%.1f", float64(ramBytes)/(1024*1024*1024))
 		}
 	case "linux":
-		s.CPUModel = linuxCPU()
 		s.GPUModel = linuxGPU()
 		ramKB := parseIntSuffix(execOutput("grep", "MemTotal", "/proc/meminfo"), "kB")
 		if ramKB > 0 {
@@ -43,7 +46,6 @@ func DetectSysInfo() SysInfo {
 			s.VRAMGB = fmt.Sprintf("%.1f", float64(vramMB)/1024)
 		}
 	case "darwin":
-		s.CPUModel = strings.TrimSpace(execOutput("sysctl", "-n", "machdep.cpu.brand_string"))
 		ramBytes := parseIntSuffix(execOutput("sysctl", "-n", "hw.memsize"), "")
 		if ramBytes > 0 {
 			s.RAMGB = fmt.Sprintf("%.1f", float64(ramBytes)/(1024*1024*1024))

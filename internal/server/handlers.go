@@ -195,6 +195,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"disk_free_bytes":          sys.DiskFree,
 		"disk_used_bytes":          sys.DiskUsed,
 		"disk_used_pct":            sys.DiskUsedPct,
+		"cpu_model":                sys.CPUModel,
 		"cpu_used_pct":             sys.CPUUsedPercent,
 		"memory_total":             sys.MemoryTotal,
 		"memory_free":              sys.MemoryFree,

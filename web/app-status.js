@@ -44,14 +44,31 @@ async function refreshStatus() {
 
 function updateSystemWidgets(status) {
   const compact = window.matchMedia("(max-width: 900px)").matches;
+  const cpuPct = Number(status?.cpu_used_pct);
+  const cpuModel = status?.cpu_model ? String(status.cpu_model).trim() : "";
+  const cpuLabelEl = $("cpu-widget-label");
+  if (cpuLabelEl) {
+    if (cpuModel) {
+      cpuLabelEl.textContent = cpuModel;
+      cpuLabelEl.title = cpuModel;
+    } else {
+      cpuLabelEl.textContent = t("status.cpu");
+      cpuLabelEl.removeAttribute("title");
+    }
+  }
+
+  const roundedPct = Math.round(cpuPct || 0);
+  const cpuTitle = cpuModel
+    ? `${cpuModel} • ${t("status.cpu_title", { pct: roundedPct })}`
+    : t("status.cpu_title", { pct: roundedPct });
 
   updateMetricWidget({
     wrapId: "cpu-widget",
     fillId: "cpu-widget-fill",
     textId: "cpu-widget-text",
-    pct: Number(status?.cpu_used_pct),
-    text: t("status.cpu_short", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
-    title: t("status.cpu_title", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
+    pct: cpuPct,
+    text: t("status.cpu_short", { pct: roundedPct }),
+    title: cpuTitle,
     warn: true,
   });
 

@@ -1150,7 +1150,7 @@ select:focus { border-color: var(--accent); }
 
 .settings-param-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -2239,6 +2239,38 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .chat-msg-error-text p {
   margin: 0;
+}
+.chat-oom-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: var(--radius);
+  background: rgba(234, 179, 8, 0.08);
+}
+.chat-oom-hint-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #fde68a;
+}
+.chat-oom-retry-btn {
+  align-self: flex-start;
+  background: rgba(234, 179, 8, 0.15);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.5);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.chat-oom-retry-btn:hover {
+  background: rgba(234, 179, 8, 0.28);
+  color: #fff;
 }
 
 .chat-file-list, .chat-attachments {

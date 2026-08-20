@@ -285,7 +285,7 @@ const CHAT_OPTION_FALLBACKS = {
   temperature: 0.7,
   top_k: 40,
   top_p: 0.9,
-  num_ctx: 0,
+  num_ctx: 100,
   think_level: "auto",
   web_tools: false,
   artifacts: false,
@@ -3919,6 +3919,19 @@ function renderChatMessages() {
         }
       } else if (m.isError) {
         bodyHTML = `<div class="chat-msg-error"><span class="chat-msg-error-icon">⚠️</span><div class="chat-msg-error-text">${renderMarkdownSafe(m.content || "")}</div></div>`;
+        if (m.isOom && m.suggestedPct > 0) {
+          const curTokens = m.effectiveCtx > 0 ? ` (${fmtCtx(m.effectiveCtx)})` : "";
+          const sugTokens = m.suggestedCtx > 0 ? ` (${fmtCtx(m.suggestedCtx)})` : "";
+          bodyHTML += `<div class="chat-oom-hint">
+            <p class="chat-oom-hint-text">${escapeHtml(t("chat.oom_reduce_hint", {
+              pct: m.effectivePct,
+              tokens: curTokens,
+              suggestedPct: m.suggestedPct,
+              suggestedTokens: sugTokens,
+            }))}</p>
+            <button type="button" class="chat-oom-retry-btn" data-msg-id="${escapeHtml(m.id)}" data-suggested-pct="${m.suggestedPct}">${escapeHtml(t("chat.oom_retry", { pct: m.suggestedPct }))}</button>
+          </div>`;
+        }
       } else {
         bodyHTML = renderMarkdownSafe(m.content || "");
       }
@@ -4577,7 +4590,6 @@ function parseModelChatOptionsText(text) {
     if (key === "temperature") out.temperature = val;
     else if (key === "top_k" || key === "top-k" || key === "topk") out.top_k = val;
     else if (key === "top_p" || key === "top-p" || key === "topp") out.top_p = val;
-    else if (key === "num_ctx" || key === "num-ctx" || key === "numctx") out.num_ctx = val;
   }
   return out;
 }
@@ -4598,7 +4610,7 @@ function getGlobalChatDefaults() {
     temperature: serverDefaults?.temperature ?? 0.7,
     top_k: serverDefaults?.top_k ?? 40,
     top_p: serverDefaults?.top_p ?? 0.9,
-    num_ctx: serverDefaults?.num_ctx ?? 0,
+    num_ctx: serverDefaults?.num_ctx ?? 100,
     think_level: serverDefaults?.think_level ?? "auto",
     web_tools: serverDefaults?.web_tools ?? false,
     artifacts: serverDefaults?.artifacts ?? false,
@@ -4661,7 +4673,7 @@ function saveChatOptionsForCurrentModel() {
     temperature: $("chat-temperature")?.value ?? "0.7",
     top_k: $("chat-top-k")?.value ?? "40",
     top_p: $("chat-top-p")?.value ?? "0.9",
-    num_ctx: $("chat-num-ctx")?.value ?? "0",
+    num_ctx: $("chat-num-ctx")?.value ?? "100",
     think_level: $("chat-think-level")?.value ?? "auto",
     web_tools: $("chat-web-tools")?.checked ?? false,
     artifacts: $("chat-artifacts")?.checked ?? false,
@@ -4715,7 +4727,8 @@ function setChatOptionsValues(opts) {
     $("chat-top-p").value = String(opts.top_p);
   }
   if (opts.num_ctx != null && $("chat-num-ctx")) {
-    $("chat-num-ctx").value = String(Math.round(Number(opts.num_ctx)));
+    const pct = Number(opts.num_ctx);
+    $("chat-num-ctx").value = String(normalizeNumCtxPct(pct));
   }
   if (opts.think_level !== undefined && $("chat-think-level")) {
     $("chat-think-level").value = opts.think_level;
@@ -4901,6 +4914,50 @@ function isAbortError(e) {
   return msg.includes("aborted") || msg.includes("user aborted");
 }
 
+function isOomError(e) {
+  const msg = String(e && (e.message || e) || "").toLowerCase();
+  return (
+    msg.includes("out of memory") ||
+    msg.includes("ran out of memory") ||
+    msg.includes("sin memoria") ||
+    msg.includes("falta de memoria") ||
+    msg.includes("memory error") ||
+    msg.includes("vram") ||
+    msg.includes("cuda error") ||
+    msg.includes("compute error") ||
+    msg.includes("llama-server chat error") ||
+    msg.includes("metal: command buffer") ||
+    msg.includes("allocation failed") ||
+    msg.includes("failed to allocate")
+  );
+}
+
+const NUM_CTX_PRESETS = [10, 25, 50, 75, 100];
+
+/** Clamp a value to a valid context percentage (100/75/50/25/10), defaulting to 100. */
+function normalizeNumCtxPct(p) {
+  const n = Math.round(Number(p));
+  return NUM_CTX_PRESETS.includes(n) ? n : 100;
+}
+
+/** Token budget for a context percentage. 100% (or unknown model) returns 0 = use model default. */
+function numCtxTokensForPct(pct, modelName) {
+  const p = normalizeNumCtxPct(pct);
+  if (p >= 100) return 0;
+  const modelMax = Number(modelByName(modelName)?.context_length) || 0;
+  const base = modelMax > 0 ? modelMax : 32768;
+  return Math.max(256, Math.round((base * p) / 100));
+}
+
+/** Suggest the next lower context percentage to retry after an out-of-memory error. */
+function suggestLowerPct(currentPct) {
+  const order = [100, 75, 50, 25, 10];
+  for (let i = 0; i < order.length; i++) {
+    if (order[i] < currentPct) return order[i];
+  }
+  return 0; // already at the minimum
+}
+
 function updateStreamBar() {
   const bar = $("chat-stream-bar");
   const btn = $("chat-stop-btn");
@@ -5041,7 +5098,7 @@ async function runChatRequest(assistantMsg) {
     options.temperature = readOptionNumber("chat-temperature", CHAT_OPTION_FALLBACKS.temperature);
     options.top_k = Math.round(readOptionNumber("chat-top-k", CHAT_OPTION_FALLBACKS.top_k));
     options.top_p = readOptionNumber("chat-top-p", CHAT_OPTION_FALLBACKS.top_p);
-    const numCtx = Math.round(readOptionNumber("chat-num-ctx", CHAT_OPTION_FALLBACKS.num_ctx));
+    const numCtx = numCtxTokensForPct(readOptionNumber("chat-num-ctx", CHAT_OPTION_FALLBACKS.num_ctx), modelName);
     if (numCtx > 0) options.num_ctx = numCtx;
   }
 
@@ -5459,6 +5516,19 @@ async function runChatRequest(assistantMsg) {
       ) {
         errMsg = t("chat.error_compute_oom");
       }
+      if (isOomError(errMsg)) {
+        assistantMsg.isOom = true;
+        const curPct = normalizeNumCtxPct(Number($("chat-num-ctx")?.value) || 100);
+        const modelMax = Number(modelByName(assistantMsg.model)?.context_length) || 0;
+        const base = modelMax > 0 ? modelMax : 32768;
+        const effective = curPct >= 100 ? (modelMax || 0) : Math.round((base * curPct) / 100);
+        const suggestedPct = suggestLowerPct(curPct);
+        const suggested = suggestedPct >= 100 ? (modelMax || 0) : Math.round((base * suggestedPct) / 100);
+        assistantMsg.effectiveCtx = effective;
+        assistantMsg.effectivePct = curPct;
+        assistantMsg.suggestedPct = suggestedPct;
+        assistantMsg.suggestedCtx = suggested;
+      }
       assistantMsg.isError = true;
       const isImg = assistantMsg.model && modelCaps(assistantMsg.model).has("image");
       if (!assistantMsg.content || isImg) {
@@ -5530,6 +5600,22 @@ async function regenerateLastAssistantMessage(clickedId) {
   renderChatMessages();
   scrollChatToBottom(true);
   await runChatRequest(assistantMsg);
+}
+
+async function reduceContextAndRetry(msgId, suggestedPct) {
+  if (chatStreamLock) {
+    toast(t("chat.regenerate_busy"), "error");
+    return;
+  }
+  const pct = normalizeNumCtxPct(suggestedPct);
+  if (pct <= 0) return;
+  const numCtxInput = $("chat-num-ctx");
+  if (numCtxInput) {
+    numCtxInput.value = String(pct);
+    saveChatOptionsForCurrentModel();
+    toast(t("chat.oom_ctx_set", { pct }), "success");
+  }
+  await regenerateLastAssistantMessage(msgId);
 }
 
 async function editAndResendUserMessage(userId, newText) {
@@ -6513,6 +6599,16 @@ function bindChatEvents() {
       e.preventDefault();
       const id = regenB.getAttribute("data-msg-id");
       if (id) await regenerateLastAssistantMessage(id);
+      return;
+    }
+    const oomB = e.target.closest(".chat-oom-retry-btn");
+    if (oomB) {
+      e.preventDefault();
+      const id = oomB.getAttribute("data-msg-id");
+      const pct = normalizeNumCtxPct(Number(oomB.getAttribute("data-suggested-pct")));
+      if (id && pct > 0) {
+        await reduceContextAndRetry(id, pct);
+      }
       return;
     }
     const ttsB = e.target.closest(".chat-tts-btn");
@@ -7650,7 +7746,7 @@ async function openSettings() {
   if ($("set-default-temp")) $("set-default-temp").value = String(globalDefaults.temperature != null && globalDefaults.temperature !== "" ? globalDefaults.temperature : "0.7");
   if ($("set-default-top-k")) $("set-default-top-k").value = String(globalDefaults.top_k != null && globalDefaults.top_k !== "" ? globalDefaults.top_k : "40");
   if ($("set-default-top-p")) $("set-default-top-p").value = String(globalDefaults.top_p != null && globalDefaults.top_p !== "" ? globalDefaults.top_p : "0.9");
-  if ($("set-default-num-ctx")) $("set-default-num-ctx").value = String(globalDefaults.num_ctx != null && globalDefaults.num_ctx !== "" ? globalDefaults.num_ctx : "0");
+  if ($("set-default-num-ctx")) $("set-default-num-ctx").value = String(normalizeNumCtxPct(globalDefaults.num_ctx ?? 100));
   if ($("set-default-think-level")) $("set-default-think-level").value = globalDefaults.think_level || "auto";
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
@@ -7906,7 +8002,7 @@ $("settings-save").addEventListener("click", async () => {
     temperature: parseFloat($("set-default-temp")?.value) || 0.7,
     top_k: parseInt($("set-default-top-k")?.value, 10) || 40,
     top_p: parseFloat($("set-default-top-p")?.value) || 0.9,
-    num_ctx: parseInt($("set-default-num-ctx")?.value, 10) || 0,
+    num_ctx: normalizeNumCtxPct($("set-default-num-ctx")?.value ?? 100),
     think_level: $("set-default-think-level")?.value ?? "auto",
     web_tools: $("set-default-web-tools")?.checked ?? false,
     artifacts: $("set-default-artifacts")?.checked ?? false,

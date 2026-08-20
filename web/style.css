@@ -3164,7 +3164,73 @@ button.chat-send:disabled:hover {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+.chat-side-card .field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+  min-height: 28px;
+}
+.chat-side-card .field > label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  user-select: none;
+  cursor: default;
+  transition: color 0.15s ease;
+}
+.chat-side-card .field:hover > label {
+  color: var(--text);
+}
+.chat-side-card .field input[type="number"],
+.chat-side-card .field select {
+  width: 152px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-family: var(--mono);
+  text-align: right;
+  border-radius: 6px;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+}
+.chat-side-card .field select {
+  font-family: inherit;
+  font-size: 12px;
+  text-align-last: right;
+  padding-right: 8px;
+  cursor: pointer;
+}
+.chat-side-card .field input[type="number"]:focus,
+.chat-side-card .field select:focus {
+  border-color: var(--accent);
+  background: #13141c;
+  outline: none;
+}
+.chat-side-card .switch-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  margin-bottom: 0;
+}
+.chat-side-card .switch-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  user-select: none;
+  transition: color 0.15s ease;
+}
+.chat-side-card .switch-field:hover .switch-label {
+  color: var(--text);
 }
 .chat-side-top {
   display: none;
@@ -3203,7 +3269,8 @@ button.chat-send:disabled:hover {
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
-  gap: 6px !important;
+  gap: 5px !important;
+  margin-bottom: 2px !important;
 }
 #chat-system-field > label {
   font-size: 12px;
@@ -3212,9 +3279,17 @@ button.chat-send:disabled:hover {
 }
 #chat-system {
   width: 100%;
-  min-height: 80px;
+  min-height: 60px;
+  max-height: 160px;
   box-sizing: border-box;
   resize: vertical;
+  font-size: 12px;
+  line-height: 1.4;
+  background: #0e0e12;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
 }
 
 .chat-options-reset-link {
@@ -3341,24 +3416,8 @@ button.chat-send:disabled:hover {
   color: var(--muted);
 }
 .chat-opt-hint {
-  display: block;
-  margin-top: 4px;
-  font-size: 10px;
-  line-height: 1.35;
-  max-width: 22rem;
+  display: none !important;
 }
-#chat-system {
-  width: 100%;
-  resize: vertical;
-  min-height: 82px;
-  font: inherit;
-  background: #0e0e12;
-  border: 1px solid var(--border-strong);
-  color: var(--text);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-}
-#chat-system:focus { border-color: var(--accent); outline: none; }
 
 /* ---------- Artifact panel ---------- */
 .chat-artifact-panel {
@@ -3871,15 +3930,20 @@ button.chat-send:disabled:hover {
     box-sizing: border-box;
   }
   .chat-side-card .field {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-    gap: 6px;
-    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0;
+    min-height: 28px;
   }
   .chat-side-card .switch-field {
-    grid-template-columns: 1fr auto;
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    padding: 2px 0;
+    margin-bottom: 0;
   }
   .chat-side-card .field > label {
     font-size: 12px;

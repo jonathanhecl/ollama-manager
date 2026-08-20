@@ -225,43 +225,39 @@
           <p class="chat-cap-heading" data-i18n="chat.model_caps">Capabilities</p>
           <div id="chat-cap-flags" class="chat-cap-flags"></div>
         </div>
-        <div class="chat-options-title-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <h3 data-i18n="chat.options" style="margin: 0;">Options</h3>
+        <div class="chat-options-title-row">
+          <h3 data-i18n="chat.options">Options</h3>
           <button id="chat-options-reset-btn" type="button" class="chat-options-reset-link" data-i18n="chat.reset_to_defaults" hidden>Reset to defaults</button>
         </div>
         <div class="field" id="chat-system-field">
           <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
-          <textarea id="chat-system" rows="4" data-i18n-attr="placeholder" data-i18n="chat.system_placeholder" placeholder="Optional system instruction" autocomplete="off"></textarea>
+          <textarea id="chat-system" rows="3" data-i18n-attr="placeholder" data-i18n="chat.system_placeholder" placeholder="Optional system instruction" autocomplete="off"></textarea>
         </div>
-        <div class="field" id="chat-temperature-field">
+        <div class="field" id="chat-temperature-field" data-i18n-attr="title" data-i18n="chat.temperature_hint" title="Higher = more random and creative; lower = more focused and predictable.">
           <label for="chat-temperature" data-i18n="chat.temperature">Temperature</label>
           <input id="chat-temperature" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off" data-i18n-attr="title" data-i18n="chat.temperature_hint" title="Higher = more random and creative; lower = more focused and predictable.">
-          <small class="muted chat-opt-hint" data-i18n="chat.temperature_hint">—</small>
         </div>
-        <div class="field" id="chat-top-k-field">
+        <div class="field" id="chat-top-k-field" data-i18n-attr="title" data-i18n="chat.top_k_hint" title="Only the K most likely next tokens are considered; lower = narrower choice.">
           <label for="chat-top-k" data-i18n="chat.top_k">Top-k</label>
           <input id="chat-top-k" type="number" min="0" step="1" value="40" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_k_hint" title="Only the K most likely next tokens are considered; lower = narrower choice.">
-          <small class="muted chat-opt-hint" data-i18n="chat.top_k_hint">—</small>
         </div>
-        <div class="field" id="chat-top-p-field">
+        <div class="field" id="chat-top-p-field" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
           <label for="chat-top-p" data-i18n="chat.top_p">Top-p</label>
           <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
-          <small class="muted chat-opt-hint" data-i18n="chat.top_p_hint">—</small>
         </div>
-        <div class="field" id="chat-num-ctx-field">
+        <div class="field" id="chat-num-ctx-field" data-i18n-attr="title" data-i18n="chat.num_ctx_hint" title="% of the model's max context. Lower it to fit in VRAM/RAM and avoid out-of-memory errors.">
           <label for="chat-num-ctx" data-i18n="chat.num_ctx">Context length</label>
-          <select id="chat-num-ctx" autocomplete="off">
+          <select id="chat-num-ctx" autocomplete="off" data-i18n-attr="title" data-i18n="chat.num_ctx_hint" title="% of the model's max context. Lower it to fit in VRAM/RAM and avoid out-of-memory errors.">
             <option value="100" data-i18n="chat.num_ctx_pct">100% (model default)</option>
             <option value="75">75%</option>
             <option value="50">50%</option>
             <option value="25">25%</option>
             <option value="10">10%</option>
           </select>
-          <small class="muted chat-opt-hint" data-i18n="chat.num_ctx_hint">% of the model's max context. Lower it to fit in VRAM/RAM and avoid out-of-memory errors.</small>
         </div>
-        <div id="chat-think-wrap" class="field" hidden>
+        <div id="chat-think-wrap" class="field" hidden data-i18n-attr="title" data-i18n="chat.think_level_hint" title="Control how much the model reasons before answering.">
           <label for="chat-think-level" data-i18n="chat.think_level">Thinking level</label>
-          <select id="chat-think-level" autocomplete="off">
+          <select id="chat-think-level" autocomplete="off" data-i18n-attr="title" data-i18n="chat.think_level_hint" title="Control how much the model reasons before answering.">
             <option value="auto" data-i18n="chat.think.auto">Auto (model default)</option>
             <option value="off" data-i18n="chat.think.off">Off</option>
             <option value="low" data-i18n="chat.think.low">Low</option>
@@ -269,28 +265,25 @@
             <option value="high" data-i18n="chat.think.high">High</option>
             <option value="max" data-i18n="chat.think.max">Max</option>
           </select>
-          <small class="muted chat-opt-hint" data-i18n="chat.think_level_hint">Control how much the model reasons before answering.</small>
         </div>
-        <div id="chat-web-tools-wrap" class="field switch-field" hidden>
+        <div id="chat-web-tools-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.web_tools_hint" title="The server runs web_search (DuckDuckGo, no API key) and web_fetch (direct HTTP) in a loop until the model answers.">
           <div class="switch-label">
             <span data-i18n="chat.web_tools">Internet (web search &amp; fetch)</span>
-            <small class="muted" data-i18n="chat.web_tools_hint">Server runs web_search and web_fetch in a loop until the model answers.</small>
           </div>
           <label class="switch">
-            <input id="chat-web-tools" type="checkbox" autocomplete="off">
+            <input id="chat-web-tools" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.web_tools_hint" title="The server runs web_search (DuckDuckGo, no API key) and web_fetch (direct HTTP) in a loop until the model answers.">
             <span class="switch-slider"></span>
           </label>
         </div>
-        <div id="chat-artifacts-wrap" class="field switch-field" hidden>
+        <div id="chat-artifacts-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.artifacts_hint" title="Agent creates web projects you can preview live.">
           <div class="switch-label">
             <div class="switch-title-row">
               <span data-i18n="chat.artifacts">Artifacts</span>
               <button id="chat-model-artifacts-btn" type="button" class="chat-artifacts-inline-link" hidden></button>
             </div>
-            <small class="muted" data-i18n="chat.artifacts_hint">Agent creates web projects you can preview live.</small>
           </div>
           <label class="switch">
-            <input id="chat-artifacts" type="checkbox" autocomplete="off">
+            <input id="chat-artifacts" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.artifacts_hint" title="Agent creates web projects you can preview live.">
             <span class="switch-slider"></span>
           </label>
         </div>
@@ -308,10 +301,9 @@
             <label for="chat-image-steps" data-i18n="chat.image_steps">Steps</label>
             <input id="chat-image-steps" type="number" min="1" max="100" step="1" value="4" autocomplete="off">
           </div>
-          <div class="field">
+          <div class="field" data-i18n-attr="title" data-i18n="chat.image_seed_hint" title="0 for random seed">
             <label for="chat-image-seed" data-i18n="chat.image_seed">Seed</label>
-            <input id="chat-image-seed" type="number" min="0" step="1" value="0" autocomplete="off">
-            <small class="muted chat-opt-hint" data-i18n="chat.image_seed_hint">0 for random seed</small>
+            <input id="chat-image-seed" type="number" min="0" step="1" value="0" autocomplete="off" data-i18n-attr="title" data-i18n="chat.image_seed_hint" title="0 for random seed">
           </div>
         </div>
       </section>

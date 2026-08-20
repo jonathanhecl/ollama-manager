@@ -97,6 +97,27 @@ func TestPromoteRejectsRunningAndTerminal(t *testing.T) {
 	}
 }
 
+func TestResumePausedJobMovesToEnd(t *testing.T) {
+	m := newTestManager(t)
+	enqueue(t, m, "a", StatusQueued)
+	bID := enqueue(t, m, "b", StatusPaused)
+	enqueue(t, m, "c", StatusQueued)
+	enqueue(t, m, "d", StatusQueued)
+
+	if err := m.Resume(bID); err != nil {
+		t.Fatalf("resume paused: %v", err)
+	}
+	j := m.jobs[bID]
+	if j == nil || j.Status != StatusQueued {
+		t.Fatalf("resumed paused job should be queued, got %v", j.Status)
+	}
+	// b was enqueued before c and d, but upon resume it must be moved to the very end
+	got := jobOrder(t, m)
+	if got[len(got)-1] != "b" {
+		t.Fatalf("resumed job not at end of queue: %v, want last element 'b'", got)
+	}
+}
+
 func jobID(t *testing.T, m *Manager, name string) string {
 	t.Helper()
 	for _, j := range m.List() {

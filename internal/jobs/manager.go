@@ -413,6 +413,7 @@ func (m *Manager) Pause(id string) error {
 }
 
 // Resume puts a paused job back into the queue and tries to start it.
+// Resumed jobs are always placed at the end of the queue.
 func (m *Manager) Resume(id string) error {
 	m.mu.Lock()
 	j, ok := m.jobs[id]
@@ -427,6 +428,9 @@ func (m *Manager) Resume(id string) error {
 	j.Status = StatusQueued
 	j.pauseIntent = false
 	m.queuePaused = false
+	// Move resumed job to the end of the queue ordering
+	m.order = removeString(m.order, id)
+	m.order = append(m.order, id)
 	snap := j.clone()
 	m.tryStartNextLocked()
 	if err := m.saveLocked(); err != nil {
@@ -500,14 +504,23 @@ func (m *Manager) PauseQueue() {
 }
 
 // ResumeQueue allows queued jobs to start again. All paused jobs are
-// moved back to the queued state so they appear in the queue section.
+// moved back to the queued state and placed at the end of the queue.
 func (m *Manager) ResumeQueue() {
 	m.mu.Lock()
 	m.queuePaused = false
 	var snaps []Job
-	for _, j := range m.jobs {
-		if j.Status == StatusPaused {
+	var pausedIDs []string
+	for _, id := range m.order {
+		if j := m.jobs[id]; j != nil && j.Status == StatusPaused {
+			pausedIDs = append(pausedIDs, id)
+		}
+	}
+	for _, id := range pausedIDs {
+		if j := m.jobs[id]; j != nil {
 			j.Status = StatusQueued
+			j.pauseIntent = false
+			m.order = removeString(m.order, id)
+			m.order = append(m.order, id)
 			snaps = append(snaps, j.clone())
 		}
 	}

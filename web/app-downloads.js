@@ -249,7 +249,6 @@ function jobCardHTML(j) {
       <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "paused") {
     actionBtn = `
-      <button class="btn-icon" data-action="promote" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.promote"))}">↑</button>
       <button class="ghost dl-resume" data-action="resume" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.resume"))}">▶</button>
       <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "error" || j.status === "cancelled") {
@@ -348,6 +347,7 @@ $("downloads-modal").addEventListener("click", async (e) => {
         await api(`/api/jobs/${encodeURIComponent(id)}/pause`, { method: "POST" });
       } else if (action === "resume") {
         await api(`/api/jobs/${encodeURIComponent(id)}/resume`, { method: "POST" });
+        await refreshJobs();
       } else if (action === "promote") {
         await api(`/api/jobs/${encodeURIComponent(id)}/promote`, { method: "POST" });
         await refreshJobs();
@@ -389,6 +389,7 @@ $("dl-pause-btn").addEventListener("click", async () => {
 $("dl-resume-btn").addEventListener("click", async () => {
   try {
     await api("/api/jobs/resume", { method: "POST" });
+    await refreshJobs();
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }

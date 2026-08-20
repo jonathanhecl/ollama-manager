@@ -53,3 +53,4 @@ ollama-manager.exe
 dist/
 download_history.json
 uninstall_history.json
+model_usage.json

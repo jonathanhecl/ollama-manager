@@ -467,6 +467,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				FileType:       meta.FileType,
 				SizeLabel:      meta.SizeLabel,
 				IsMOE:          meta.IsMOE,
+				ContextLength:  meta.ContextLength,
 			}); err != nil {
 				log.Printf("usage: SetMeta failed for %q: %v", m.Name, err)
 			}
@@ -507,6 +508,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				FileType:             rec.FileType,
 				SizeLabel:            rec.SizeLabel,
 				IsMOE:                rec.IsMOE,
+				ContextLength:        rec.ContextLength,
 			}
 			if rec.LastUsedAt != nil {
 				gv.ModifiedAt = *rec.LastUsedAt

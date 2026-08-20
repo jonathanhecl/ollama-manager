@@ -172,6 +172,7 @@ func TestSetMetaPersistence(t *testing.T) {
 		FileType:       15,
 		SizeLabel:      "8B",
 		IsMOE:          true,
+		ContextLength:  8192,
 	}); err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
 	}
@@ -185,6 +186,9 @@ func TestSetMetaPersistence(t *testing.T) {
 	if rec.ParameterCount != 8030277632 || rec.Architecture != "llama" || rec.FileType != 15 || rec.SizeLabel != "8B" || !rec.IsMOE {
 		t.Errorf("unexpected extended meta: %+v", rec)
 	}
+	if rec.ContextLength != 8192 {
+		t.Errorf("context_length = %d, want 8192", rec.ContextLength)
+	}
 
 	// Empty values must NOT overwrite known ones (including IsMOE).
 	if err := store.SetMeta("llama3:8b", modelUsageMeta{}); err != nil {
@@ -194,6 +198,9 @@ func TestSetMetaPersistence(t *testing.T) {
 	if rec.ParameterSize != "8.0B" || rec.Size != 4832754765 || rec.ParameterCount != 8030277632 || !rec.IsMOE {
 		t.Errorf("empty SetMeta overwrote values: %+v", rec)
 	}
+	if rec.ContextLength != 8192 {
+		t.Errorf("empty SetMeta overwrote context_length: %d", rec.ContextLength)
+	}
 
 	// Persistence across reload.
 	store2 := newModelUsageStore(path)
@@ -201,6 +208,9 @@ func TestSetMetaPersistence(t *testing.T) {
 	rec2, _ := store2.Get("llama3:8b")
 	if rec2.ParameterSize != "8.0B" || rec2.Family != "llama" || rec2.ParameterCount != 8030277632 || rec2.Architecture != "llama" || !rec2.IsMOE {
 		t.Errorf("meta did not persist: %+v", rec2)
+	}
+	if rec2.ContextLength != 8192 {
+		t.Errorf("context_length did not persist: %d", rec2.ContextLength)
 	}
 }
 

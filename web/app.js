@@ -1004,7 +1004,8 @@ function renderTable() {
   function getRowInnerHtml(m, capsHtml, progressHtml) {
     const familyTag = (m.family && m.family !== "—")
       ? `<span class="model-family-tag">(${escapeHtml(m.family)})</span>`
-      : (m.isGhost ? `<span class="model-ghost-tag">(${escapeHtml(t("models.ghost_badge"))})</span>` : "");
+      : "";
+    const ghostTag = m.isGhost ? `<span class="model-ghost-tag">(${escapeHtml(t("models.ghost_badge"))})</span>` : "";
     const tokColor = getToksRecordColor(m.record_tokens_per_sec);
     const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
@@ -1032,7 +1033,7 @@ function renderTable() {
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name">${escapeHtml(m.name)}${familyTag}</div>
+            <div class="model-name">${escapeHtml(m.name)}${familyTag}${ghostTag}</div>
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
@@ -1048,8 +1049,8 @@ function renderTable() {
       </td>
       <td class="cell-params">${escapeHtml(modelParameterLabel(m))}</td>
       <td class="cell-quant">${escapeHtml(m.quantization || "—")}</td>
-      <td class="cell-ctx">${(m.isPending || m.isGhost) ? "—" : fmtCtx(m.context_length)}</td>
-      <td class="cell-size">${(m.isPending || m.isGhost) ? "—" : fmtBytes(m.size)}</td>
+      <td class="cell-ctx">${m.isPending ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
+      <td class="cell-size">${m.isPending ? "—" : (m.size > 0 ? fmtBytes(m.size) : "—")}</td>
       <td class="cell-modified">
         <div class="cell-dates">
           <div class="date-primary" title="${escapeHtml(lastUsedTitle)}">${m.isPending ? "—" : lastUsedDisplay}</div>

@@ -1798,8 +1798,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   grid-template-columns: minmax(0, 1fr) var(--chat-right-width);
   grid-template-rows: 1fr;
   gap: 12px;
-  height: calc(100vh - 66px);
-  height: calc(100dvh - 66px);
+  height: calc(100vh - 100px);
+  height: calc(100dvh - 100px);
   min-height: 0;
   overflow: hidden;
 }

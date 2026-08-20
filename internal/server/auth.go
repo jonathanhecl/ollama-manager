@@ -13,7 +13,7 @@ import (
 
 const (
 	cookieName    = "ollama_manager_session"
-	sessionMaxAge = 7 * 24 * time.Hour
+	sessionMaxAge = 30 * 24 * time.Hour
 )
 
 // signSession produces a token "<expiryUnix>.<base64-hmac>".

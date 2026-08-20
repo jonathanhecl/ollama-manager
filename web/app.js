@@ -1360,18 +1360,43 @@ function renderDetail(d) {
   const caps = renderCapabilityPills(d.capabilities);
   const capsBlock = caps ? `<div class="detail-section"><h3>${escapeHtml(t("detail.capabilities"))}</h3><div class="cap-list">${caps}</div></div>` : "";
 
-  const paramsBlock = d.parameters ? `<div class="detail-section"><h3>${escapeHtml(t("detail.parameters_section"))}</h3><pre>${escapeHtml(d.parameters)}</pre></div>` : "";
-  const tmplBlock = d.template ? `<div class="detail-section"><h3>${escapeHtml(t("detail.template"))}</h3><pre>${escapeHtml(d.template)}</pre></div>` : "";
+  const paramsBlock = d.parameters ? detailCodeSection(t("detail.parameters_section"), d.parameters) : "";
+  const tmplBlock = d.template ? detailCodeSection(t("detail.template"), d.template) : "";
+  const systemBlock = detailCodeSection(t("detail.system"), d.system || "", true);
   const repairBlock = renderRepairEntry(d);
 
   const updateBlock = `<div class="detail-section detail-update-section">
     <button type="button" class="ghost detail-update-btn" id="detail-update-btn" data-name="${escapeHtml(d.name)}">⟳ ${escapeHtml(t("detail.update_btn"))}</button>
   </div>`;
 
-  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${updateBlock}${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}`;
+  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${updateBlock}${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}${systemBlock}`;
   bindRepairEntry(d);
   bindUpdateButton();
 }
+
+function detailCodeSection(title, text, alwaysShow) {
+  const val = String(text ?? "");
+  if (!alwaysShow && !val) return "";
+  const emptyCls = val ? "" : " empty";
+  return `<div class="detail-section${emptyCls}" data-copy-target>
+    <div class="detail-section-head">
+      <h3>${escapeHtml(title)}</h3>
+      <button type="button" class="detail-copy-btn" title="${escapeHtml(t("detail.copy"))}" aria-label="${escapeHtml(t("detail.copy"))}">${escapeHtml(t("detail.copy"))}</button>
+    </div>
+    <pre>${escapeHtml(val)}</pre>
+  </div>`;
+}
+
+$("detail-body").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".detail-copy-btn");
+  if (!btn) return;
+  const section = btn.closest("[data-copy-target]");
+  if (!section) return;
+  const pre = section.querySelector("pre");
+  if (!pre) return;
+  const ok = await copyTextToClipboard(pre.textContent);
+  toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
+});
 
 function bindUpdateButton() {
   const btn = $("detail-update-btn");

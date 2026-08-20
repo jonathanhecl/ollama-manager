@@ -862,6 +862,7 @@ type modelDetail struct {
 	Modelfile            string              `json:"modelfile,omitempty"`
 	Parameters           string              `json:"parameters,omitempty"`
 	Template             string              `json:"template,omitempty"`
+	System               string              `json:"system,omitempty"`
 	Details              ollama.ModelDetails `json:"details"`
 	Capabilities         []string            `json:"capabilities,omitempty"`
 	ContextLength        int64               `json:"context_length,omitempty"`
@@ -896,9 +897,16 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		Modelfile:    show.Modelfile,
 		Parameters:   show.Parameters,
 		Template:     show.Template,
+		System:       show.System,
 		Details:      show.Details,
 		Capabilities: show.Capabilities,
 		ModifiedAt:   show.ModifiedAt,
+	}
+	if detail.System == "" {
+		// Older Ollama versions do not return a resolved system prompt in
+		// /api/show; fall back to the SYSTEM directive in the modelfile,
+		// mirroring "ollama show --system".
+		detail.System = extractModelfileSystem(show.Modelfile)
 	}
 	if s.usage != nil {
 		if rec, ok := s.usage.Get(name); ok {

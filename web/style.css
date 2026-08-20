@@ -618,10 +618,32 @@ tbody tr.row.active .btn-icon.info-btn:hover {
 .cap-list .pill { background: var(--panel-2); }
 
 .detail-section { margin-top: 18px; }
-.detail-section h3 {
+.detail-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.detail-section-head h3 {
   font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
   color: var(--muted); margin: 0 0 8px;
 }
+.detail-copy-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  transition: color .15s, background .15s;
+}
+.detail-copy-btn:hover {
+  color: var(--text);
+  background: rgba(255,255,255,.08);
+}
+.detail-section.empty pre { color: var(--muted); }
 .detail-section pre {
   background: #0e0e12;
   border: 1px solid var(--border);

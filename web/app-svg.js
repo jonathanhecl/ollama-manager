@@ -18,13 +18,17 @@ function fmtAxis(v, kind) {
   if (kind === "bytes") return fmtBytes(v);
   if (kind === "tokens") return fmtCompactTokens(v);
   if (kind === "ms") return v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`;
-  if (kind === "params") return `${(v / 1e9).toFixed(1)}B`;
+  if (kind === "params") return v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(0)}M` : `${v}`;
+  if (kind === "gb") return `${v.toFixed(1)} GB`;
+  if (kind === "paramsB") return `${v.toFixed(1)}B`;
+  if (kind === "tps") return `${v.toFixed(0)} tok/s`;
+  if (kind === "num") return `${Math.round(v)}`;
   return `${Math.round(v)}`;
 }
 
 function fmtCompactTokens(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}k`;
   return `${Math.round(n)}`;
 }
 
@@ -33,85 +37,331 @@ function shortModelLabel(name, max = 22) {
   return short.length > max ? `${short.slice(0, max - 1)}…` : short;
 }
 
-// Build a horizontal (log-ish) scale. Charts use a linear scale but we give
-// each point a label tooltip. Returns {min,max} on the raw domain.
 function niceDomain(values) {
   let min = Infinity, max = -Infinity;
   values.forEach((v) => {
-    if (Number.isFinite(v) && v > 0) { if (v < min) min = v; if (v > max) max = v; }
+    if (Number.isFinite(v) && v > 0) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
   });
   if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1 };
   if (min === max) { max = min * 1.2 || 1; }
-  return { min: 0, max: max * 1.1 };
+  return { min: 0, max: max * 1.15 };
 }
 
-// scatterChart(container, data, opts): draws points with x and y axes.
-// opts: {xLabel, yLabel, xKind, yKind, xValue, yValue, color}
-function renderScatter(container, data, opts) {
-  const W = 640, H = 380, PAD = { l: 58, r: 18, t: 18, b: 44 };
+// Fit smooth power regression: y = a * x^b (ln(y) = ln(a) + b * ln(x)) with linear fallback
+function fitProgressionCurve(points) {
+  const valid = points.filter(p => Number.isFinite(p.x) && p.x > 0 && Number.isFinite(p.y) && p.y > 0);
+  if (valid.length < 2) return null;
+  let sumLx = 0, sumLy = 0, sumLxLy = 0, sumLx2 = 0;
+  const n = valid.length;
+  for (const p of valid) {
+    const lx = Math.log(p.x);
+    const ly = Math.log(p.y);
+    sumLx += lx;
+    sumLy += ly;
+    sumLxLy += lx * ly;
+    sumLx2 += lx * lx;
+  }
+  const denom = n * sumLx2 - sumLx * sumLx;
+  if (Math.abs(denom) > 1e-9) {
+    const b = (n * sumLxLy - sumLx * sumLy) / denom;
+    const lna = (sumLy - b * sumLx) / n;
+    const a = Math.exp(lna);
+    if (Number.isFinite(a) && Number.isFinite(b)) {
+      return (x) => Math.max(0.01, a * Math.pow(x, b));
+    }
+  }
+  // Linear regression fallback
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (const p of valid) {
+    sumX += p.x;
+    sumY += p.y;
+    sumXY += p.x * p.y;
+    sumX2 += p.x * p.x;
+  }
+  const lDenom = n * sumX2 - sumX * sumX;
+  if (Math.abs(lDenom) > 1e-9) {
+    const m = (n * sumXY - sumX * sumY) / lDenom;
+    const c = (sumY - m * sumX) / n;
+    return (x) => Math.max(0.01, m * x + c);
+  }
+  return null;
+}
+
+// Calculate Pareto Frontier for (Params, Speed) where high speed at any size is optimal
+function calculateParetoFrontier(points) {
+  const sorted = [...points].sort((a, b) => a.x - b.x);
+  const frontier = [];
+  let maxSpeedSoFar = -Infinity;
+  const rev = [...sorted].reverse();
+  for (const p of rev) {
+    if (p.y >= maxSpeedSoFar) {
+      frontier.unshift(p);
+      maxSpeedSoFar = p.y;
+    }
+  }
+  return frontier;
+}
+
+// Floating Glassmorphism Tooltip
+function showAnalyticsTooltip(e, p) {
+  const tip = $("analytics-tooltip");
+  if (!tip) return;
+  const isGhost = p.ghost;
+  const quantBadge = p.quant ? `<span class="badge badge-quant">${escapeHtml(p.quant)}</span>` : "";
+  const moeBadge = p.isMOE ? `<span class="badge badge-moe">MoE</span>` : "";
+  const ghostBadge = isGhost
+    ? `<span class="badge badge-muted">${escapeHtml(t("analytics.source_ghost"))}</span>`
+    : `<span class="badge badge-installed">${escapeHtml(t("analytics.source_installed"))}</span>`;
+
+  const tpsStr = p.tps > 0 ? `${p.tps.toFixed(1)} tok/s` : "—";
+  const sizeStr = p.sizeBytes ? fmtBytes(p.sizeBytes) : "—";
+  const effStr = p.efficiencyTokPerGB > 0 ? `${p.efficiencyTokPerGB.toFixed(1)} tok/s/GB` : "—";
+  const loadStr = p.coldLoadMs > 0 ? `${(p.coldLoadMs / 1000).toFixed(1)}s (${Math.round(p.loadThroughputMBs)} MB/s)` : "—";
+  const ctxStr = p.contextLength > 0 ? fmtCompactTokens(p.contextLength) : "—";
+
+  tip.innerHTML = `
+    <div class="analytics-tip-head">
+      <div class="analytics-tip-title">${escapeHtml(p.name)}</div>
+      <div class="analytics-tip-badges">${ghostBadge}${quantBadge}${moeBadge}</div>
+    </div>
+    <div class="analytics-tip-grid">
+      <div class="analytics-tip-item"><span class="analytics-tip-lbl">⚡ ${escapeHtml(t("analytics.tps"))}:</span> <strong class="analytics-tip-val highlight-cyan">${tpsStr}</strong></div>
+      <div class="analytics-tip-item"><span class="analytics-tip-lbl">🧠 ${escapeHtml(t("analytics.params"))}:</span> <strong class="analytics-tip-val">${escapeHtml(p.paramsLabel)}</strong></div>
+      <div class="analytics-tip-item"><span class="analytics-tip-lbl">💾 ${escapeHtml(t("analytics.size"))}:</span> <strong class="analytics-tip-val">${sizeStr}</strong></div>
+      <div class="analytics-tip-item"><span class="analytics-tip-lbl">🚀 ${escapeHtml(t("analytics.efficiency"))}:</span> <strong class="analytics-tip-val highlight-emerald">${effStr}</strong></div>
+      <div class="analytics-tip-item"><span class="analytics-tip-lbl">⏱️ ${escapeHtml(t("analytics.coldload"))}:</span> <strong class="analytics-tip-val">${loadStr}</strong></div>
+      <div class="analytics-tip-item"><span class="analytics-tip-lbl">📖 ${escapeHtml(t("analytics.context"))}:</span> <strong class="analytics-tip-val highlight-purple">${ctxStr}</strong></div>
+    </div>
+    ${p.architecture || p.family ? `<div class="analytics-tip-sub muted">Arch: ${escapeHtml(p.architecture || p.family)} · Quant: ${escapeHtml(p.quant || "—")}</div>` : ""}
+  `;
+  tip.hidden = false;
+  positionAnalyticsTooltip(e);
+}
+
+function positionAnalyticsTooltip(e) {
+  const tip = $("analytics-tooltip");
+  if (!tip || tip.hidden) return;
+  const tipRect = tip.getBoundingClientRect();
+  const pad = 14;
+  let x = e.clientX + pad;
+  let y = e.clientY + pad;
+  if (x + tipRect.width > window.innerWidth - pad) {
+    x = e.clientX - tipRect.width - pad;
+  }
+  if (y + tipRect.height > window.innerHeight - pad) {
+    y = e.clientY - tipRect.height - pad;
+  }
+  tip.style.left = `${Math.max(pad, x)}px`;
+  tip.style.top = `${Math.max(pad, y)}px`;
+}
+
+function hideAnalyticsTooltip() {
+  const tip = $("analytics-tooltip");
+  if (tip) tip.hidden = true;
+}
+
+// KPI Summary Cards
+function renderAnalyticsKPIs(data) {
+  const container = $("analytics-kpis");
+  if (!container) return;
+  if (!data || !data.length) {
+    container.innerHTML = "";
+    return;
+  }
+  const points = data.map(analyticsPoint);
+  const totalModels = points.length;
+  const installedCount = points.filter((p) => !p.ghost).length;
+
+  // Peak speed
+  const withTps = points.filter((p) => p.tps > 0).sort((a, b) => b.tps - a.tps);
+  const topTps = withTps[0];
+
+  // Top efficiency
+  const withEff = points.filter((p) => p.efficiencyTokPerGB > 0).sort((a, b) => b.efficiencyTokPerGB - a.efficiencyTokPerGB);
+  const topEff = withEff[0];
+
+  // Average speed
+  const validTps = points.filter((p) => p.tps > 0);
+  const avgTps = validTps.length ? validTps.reduce((acc, p) => acc + p.tps, 0) / validTps.length : 0;
+
+  container.innerHTML = `
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon">📊</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.kpi_models"))}</span>
+        <strong class="analytics-kpi-val">${totalModels}</strong>
+        <span class="analytics-kpi-sub muted">${installedCount} ${escapeHtml(t("analytics.source_installed").toLowerCase())}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-cyan-icon">⚡</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.kpi_peak_tps"))}</span>
+        <strong class="analytics-kpi-val highlight-cyan">${topTps ? topTps.tps.toFixed(1) + " <small>tok/s</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted" title="${topTps ? escapeHtml(topTps.name) : ""}">${topTps ? escapeHtml(shortModelLabel(topTps.name, 16)) : "—"}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-emerald-icon">🚀</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.kpi_best_efficiency"))}</span>
+        <strong class="analytics-kpi-val highlight-emerald">${topEff ? topEff.efficiencyTokPerGB.toFixed(1) + " <small>tok/s/GB</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted" title="${topEff ? escapeHtml(topEff.name) : ""}">${topEff ? escapeHtml(shortModelLabel(topEff.name, 16)) : "—"}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-purple-icon">📈</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.kpi_avg_tps"))}</span>
+        <strong class="analytics-kpi-val highlight-purple">${avgTps > 0 ? avgTps.toFixed(1) + " <small>tok/s</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted">${validTps.length} ${escapeHtml(t("analytics.meta_model").toLowerCase())}</span>
+      </div>
+    </div>
+  `;
+}
+
+// Modern Scatter Plot with Trendline, Pareto Frontier and Radial Glow
+function renderModernScatter(container, data, opts) {
+  const W = 680, H = 380, PAD = { l: 64, r: 24, t: 26, b: 50 };
   const iw = W - PAD.l - PAD.r;
   const ih = H - PAD.t - PAD.b;
+
   const points = data
-    .map((m) => ({ m, x: opts.xValue(m), y: opts.yValue(m) }))
-    .filter((p) => Number.isFinite(p.x) && p.x > 0 && Number.isFinite(p.y) && p.y > 0)
-    .sort((a, b) => a.y - b.y);
+    .map(analyticsPoint)
+    .map((p) => ({ p, x: opts.xValue(p), y: opts.yValue(p) }))
+    .filter((pt) => Number.isFinite(pt.x) && pt.x > 0 && Number.isFinite(pt.y) && pt.y > 0)
+    .sort((a, b) => a.x - b.x);
 
   if (!points.length) {
     container.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("analytics.no_data"))}</div>`;
     return;
   }
 
-  const xDom = niceDomain(points.map((p) => p.x));
-  const yDom = niceDomain(points.map((p) => p.y));
-  const sx = (v) => PAD.l + (v - xDom.min) / (xDom.max - xDom.min) * iw;
-  const sy = (v) => PAD.t + ih - (v - yDom.min) / (yDom.max - yDom.min) * ih;
+  const xDom = niceDomain(points.map((pt) => pt.x));
+  const yDom = niceDomain(points.map((pt) => pt.y));
+  const sx = (v) => PAD.l + ((v - xDom.min) / (xDom.max - xDom.min)) * iw;
+  const sy = (v) => PAD.t + ih - ((v - yDom.min) / (yDom.max - yDom.min)) * ih;
 
-  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg", role: "img" });
-  // Grid + y labels
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg modern-scatter", role: "img" });
+
+  const defs = svgEl("defs");
+  defs.innerHTML = `
+    <linearGradient id="grad-trend-${opts.theme || "blue"}" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="grad-pareto" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="1"/>
+    </linearGradient>
+  `;
+  svg.appendChild(defs);
+
+  // Background Grid Lines + Y Labels
   const yTicks = 5;
   for (let i = 0; i <= yTicks; i++) {
-    const v = yDom.min + (yDom.max - yDom.min) * i / yTicks;
+    const v = yDom.min + ((yDom.max - yDom.min) * i) / yTicks;
     const y = sy(v);
-    svg.appendChild(svgEl("line", { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, class: "analytics-grid" }));
-    svg.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.yKind)));
+    svg.appendChild(svgEl("line", { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, class: "analytics-grid-line" }));
+    svg.appendChild(svgEl("text", { x: PAD.l - 10, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.yKind)));
   }
-  // x labels
+
+  // X Labels + Grid Lines
   const xTicks = 6;
   for (let i = 0; i <= xTicks; i++) {
-    const v = xDom.min + (xDom.max - xDom.min) * i / xTicks;
+    const v = xDom.min + ((xDom.max - xDom.min) * i) / xTicks;
     const x = sx(v);
-    svg.appendChild(svgEl("text", { x, y: H - PAD.b + 18, "text-anchor": "middle", class: "analytics-tick" }, fmtAxis(v, opts.xKind)));
+    svg.appendChild(svgEl("line", { x1: x, y1: PAD.t, x2: x, y2: H - PAD.b, class: "analytics-grid-line-v" }));
+    svg.appendChild(svgEl("text", { x, y: H - PAD.b + 20, "text-anchor": "middle", class: "analytics-tick" }, fmtAxis(v, opts.xKind)));
   }
-  // axes
+
+  // Axes
   svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
   svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
-  svg.appendChild(svgEl("text", { x: W / 2, y: H - 6, "text-anchor": "middle", class: "analytics-axislabel" }, opts.xLabel));
-  svg.appendChild(svgEl("text", { x: 14, y: H / 2, "text-anchor": "middle", class: "analytics-axislabel analytics-axislabel--y", transform: `rotate(-90 14 ${H / 2})` }, opts.yLabel));
+  svg.appendChild(svgEl("text", { x: W / 2, y: H - 8, "text-anchor": "middle", class: "analytics-axislabel" }, opts.xLabel));
+  svg.appendChild(svgEl("text", { x: 18, y: H / 2, "text-anchor": "middle", class: "analytics-axislabel analytics-axislabel--y", transform: `rotate(-90 18 ${H / 2})` }, opts.yLabel));
 
-  // Keep labels only where there is enough room. Every point still has a
-  // native SVG tooltip with the complete model name, so dense plots remain
-  // usable without a wall of overlapping text.
+  // Render Progression / Trendline Curve
+  if (opts.showTrendline && points.length >= 2) {
+    const curveFn = fitProgressionCurve(points.map((pt) => ({ x: pt.x, y: pt.y })));
+    if (curveFn) {
+      const segments = 40;
+      const pathPoints = [];
+      const minX = Math.max(xDom.min, points[0].x * 0.9);
+      const maxX = Math.min(xDom.max, points[points.length - 1].x * 1.1);
+      for (let s = 0; s <= segments; s++) {
+        const vx = minX + ((maxX - minX) * s) / segments;
+        const vy = curveFn(vx);
+        if (Number.isFinite(vy) && vy >= yDom.min && vy <= yDom.max * 1.25) {
+          pathPoints.push(`${pathPoints.length === 0 ? "M" : "L"} ${sx(vx).toFixed(1)} ${sy(vy).toFixed(1)}`);
+        }
+      }
+      if (pathPoints.length > 2) {
+        svg.appendChild(svgEl("path", {
+          d: pathPoints.join(" "),
+          class: "analytics-trendline-path",
+          stroke: `url(#grad-trend-${opts.theme || "blue"})`,
+        }));
+      }
+    }
+  }
+
+  // Render Pareto Frontier Line
+  if (opts.showPareto && points.length >= 2) {
+    const frontier = calculateParetoFrontier(points);
+    if (frontier.length >= 2) {
+      const paretoPath = frontier.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${sx(pt.x).toFixed(1)} ${sy(pt.y).toFixed(1)}`).join(" ");
+      svg.appendChild(svgEl("path", {
+        d: paretoPath,
+        class: "analytics-pareto-path",
+        stroke: "url(#grad-pareto)",
+      }));
+      frontier.forEach((pt) => {
+        svg.appendChild(svgEl("circle", {
+          cx: sx(pt.x), cy: sy(pt.y), r: 7.5,
+          class: "analytics-pareto-marker",
+        }));
+      });
+    }
+  }
+
+  // Render Interactive Dots
   const placedLabels = [];
-  points.forEach((p, i) => {
-    const cx = sx(p.x), cy = sy(p.y);
-    const g = svgEl("g", { class: "analytics-pt" });
-    g.appendChild(svgEl("circle", { cx, cy, r: 6, fill: opts.color ? opts.color(p.m, i) : analyticsColor(i), class: "analytics-dot" }));
-    g.appendChild(svgEl("title", null, `${p.m.name}\n${opts.xTitle ? opts.xTitle(p.m) : opts.xLabel}: ${fmtAxis(p.x, opts.xKind)}\n${opts.yTitle ? opts.yTitle(p.m) : opts.yLabel}: ${fmtAxis(p.y, opts.yKind)}`));
-    // A 20-character label is roughly 130px at this font size. Reserve that
-    // width, otherwise labels that are merely close to their anchor still
-    // collide visually.
-    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < 136 && Math.abs(q.y - cy) < 22);
+  points.forEach((pt) => {
+    const cx = sx(pt.x), cy = sy(pt.y);
+    const color = modelFamilyColor(pt.p.family, pt.p.ghost);
+    const g = svgEl("g", { class: `analytics-pt ${pt.p.ghost ? "is-ghost" : ""}` });
+
+    // Halo & Core Dot
+    g.appendChild(svgEl("circle", { cx, cy, r: 8, fill: color, class: "analytics-dot-halo" }));
+    g.appendChild(svgEl("circle", { cx, cy, r: 5.5, fill: color, class: "analytics-dot" }));
+
+    // Label if space allows
+    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < 120 && Math.abs(q.y - cy) < 20);
     if (!tooClose) {
-      const label = shortModelLabel(p.m.name, 20);
-      const onRightEdge = cx > W - 145;
+      const label = shortModelLabel(pt.p.name, 18);
+      const onRightEdge = cx > W - 130;
       g.appendChild(svgEl("text", {
-        x: onRightEdge ? cx - 9 : cx + 9,
+        x: onRightEdge ? cx - 11 : cx + 11,
         y: cy - 6,
         "text-anchor": onRightEdge ? "end" : "start",
         class: "analytics-ptlabel",
       }, label));
       placedLabels.push({ x: cx, y: cy });
     }
+
+    // Attach listeners with touch / mobile support
+    g.addEventListener("pointerenter", (e) => showAnalyticsTooltip(e, pt.p));
+    g.addEventListener("pointermove", (e) => positionAnalyticsTooltip(e));
+    g.addEventListener("pointerleave", () => hideAnalyticsTooltip());
+    g.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showAnalyticsTooltip(e, pt.p);
+    });
+
     svg.appendChild(g);
   });
 
@@ -119,107 +369,125 @@ function renderScatter(container, data, opts) {
   container.appendChild(svg);
 }
 
-// barChart(container, data, opts): horizontal bars, one per model. Horizontal
-// bars keep model labels readable even when many models are selected.
-// opts: {value, label, kind, title}
-function renderBars(container, data, opts) {
-  const W = 640, PAD = { l: 170, r: 56, t: 18, b: 30 };
-  const iw = W - PAD.l - PAD.r;
+// Modern High-Fidelity Bar Chart
+function renderModernBars(container, data, opts) {
   const items = data
-    .map((m) => ({ m, v: opts.value(m) }))
-    .filter((p) => Number.isFinite(p.v) && p.v > 0)
-    .sort((a, b) => b.v - a.v);
+    .map(analyticsPoint)
+    .filter((p) => {
+      const v = opts.value(p);
+      return Number.isFinite(v) && v > 0;
+    })
+    .sort((a, b) => opts.value(b) - opts.value(a));
 
   if (!items.length) {
     container.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("analytics.no_data"))}</div>`;
     return;
   }
 
-  const rowH = 28;
-  const H = Math.max(260, PAD.t + PAD.b + items.length * rowH);
-  const ih = H - PAD.t - PAD.b;
-  const xDom = niceDomain(items.map((p) => p.v));
-  const sx = (v) => PAD.l + (v - xDom.min) / (xDom.max - xDom.min) * iw;
+  const maxVal = Math.max(...items.map((p) => opts.value(p))) || 1;
+  const gradientClass = opts.gradientClass || "grad-cyan";
 
-  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg", role: "img" });
-  const yTicks = 5;
-  for (let i = 0; i <= yTicks; i++) {
-    const v = xDom.min + (xDom.max - xDom.min) * i / yTicks;
-    const x = sx(v);
-    svg.appendChild(svgEl("line", { x1: x, y1: PAD.t, x2: x, y2: H - PAD.b, class: "analytics-grid" }));
-    svg.appendChild(svgEl("text", { x, y: H - 8, "text-anchor": "middle", class: "analytics-tick" }, fmtAxis(v, opts.kind)));
-  }
-  svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
-  svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
+  const rowsHtml = items.map((p, i) => {
+    const v = opts.value(p);
+    const pct = Math.min(100, Math.max(3, (v / maxVal) * 100));
+    const valText = opts.formatVal ? opts.formatVal(v, p) : `${v.toFixed(1)} ${opts.unit || ""}`;
+    const subText = opts.formatSub ? opts.formatSub(p) : "";
+    const quantBadge = p.quant ? `<span class="badge badge-quant-pill">${escapeHtml(p.quant)}</span>` : "";
+    const ghostClass = p.ghost ? "is-ghost" : "";
 
-  items.forEach((it, i) => {
-    const y = PAD.t + i * rowH + (rowH - 18) / 2;
-    const x = PAD.l;
-    const barW = Math.max(1, sx(it.v) - PAD.l);
-    const g = svgEl("g", { class: "analytics-bar" });
-    g.appendChild(svgEl("rect", { x, y, width: barW, height: 18, rx: 2, fill: analyticsColor(i), class: "analytics-barrect" }));
-    g.appendChild(svgEl("title", null, `${it.m.name}\n${opts.label}: ${fmtAxis(it.v, opts.kind)}`));
-    g.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 13, "text-anchor": "end", class: "analytics-barlabel" }, shortModelLabel(it.m.name, 25)));
-    g.appendChild(svgEl("text", { x: Math.min(W - PAD.r + 4, sx(it.v) + 6), y: y + 13, class: "analytics-barval" }, fmtAxis(it.v, opts.kind)));
-    svg.appendChild(g);
+    return `
+      <div class="analytics-bar-row ${ghostClass}" data-model-idx="${i}">
+        <div class="analytics-bar-head">
+          <div class="analytics-bar-title-group">
+            <span class="analytics-bar-rank">#${i + 1}</span>
+            <span class="analytics-bar-name" title="${escapeHtml(p.name)}">${escapeHtml(shortModelLabel(p.name, 28))}</span>
+            ${quantBadge}
+          </div>
+          <div class="analytics-bar-vals">
+            <strong class="analytics-bar-primary">${escapeHtml(valText)}</strong>
+            ${subText ? `<span class="analytics-bar-secondary muted">${escapeHtml(subText)}</span>` : ""}
+          </div>
+        </div>
+        <div class="analytics-bar-track">
+          <div class="analytics-bar-fill ${gradientClass}" style="width: ${pct}%"></div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  container.innerHTML = `<div class="analytics-bars-container">${rowsHtml}</div>`;
+
+  const rows = container.querySelectorAll(".analytics-bar-row");
+  rows.forEach((row, idx) => {
+    const p = items[idx];
+    row.addEventListener("pointerenter", (e) => showAnalyticsTooltip(e, p));
+    row.addEventListener("pointermove", (e) => positionAnalyticsTooltip(e));
+    row.addEventListener("pointerleave", () => hideAnalyticsTooltip());
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showAnalyticsTooltip(e, p);
+    });
   });
+}
 
-  container.innerHTML = "";
-  container.appendChild(svg);
+// Global click to dismiss tooltip on touch/mobile
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".analytics-pt") && !e.target.closest(".analytics-bar-row")) {
+      hideAnalyticsTooltip();
+    }
+  });
 }
 
 function renderTpsVsParams(all) {
   const el = $("analytics-chart-tps");
   if (!el) return;
-  renderScatter(el, all, {
-    xLabel: t("analytics.tps_x"), yLabel: t("analytics.params_y"),
-    xKind: "num", yKind: "params",
-    xValue: (m) => analyticsPoint(m).tps,
-    yValue: (m) => analyticsPoint(m).params,
-    xTitle: (m) => `${t("analytics.tps")}: ${analyticsPoint(m).tps.toFixed(1)} tok/s`,
-    yTitle: (m) => `${t("analytics.params")}: ${analyticsPoint(m).paramsLabel}`,
-    color: (m) => (m.is_ghost ? "#9aa4b1" : analyticsColor(0)),
+  renderModernScatter(el, all, {
+    xLabel: t("analytics.tps_x"), yLabel: t("analytics.tps_y"),
+    xKind: "paramsB", yKind: "tps",
+    xValue: (p) => p.paramsB,
+    yValue: (p) => p.tps,
+    showTrendline: true,
+    showPareto: true,
+    theme: "speed",
   });
 }
 
 function renderSizeVsParams(all) {
   const el = $("analytics-chart-size");
   if (!el) return;
-  renderScatter(el, all, {
-    xLabel: t("analytics.size_x"), yLabel: t("analytics.params_y"),
-    xKind: "bytes", yKind: "params",
-    xValue: (m) => analyticsPoint(m).sizeBytes,
-    yValue: (m) => analyticsPoint(m).params,
-    xTitle: (m) => `${t("analytics.size")}: ${fmtBytes(analyticsPoint(m).sizeBytes)}`,
-    yTitle: (m) => `${t("analytics.params")}: ${analyticsPoint(m).paramsLabel}`,
-    color: (m) => (m.is_ghost ? "#9aa4b1" : analyticsColor(1)),
+  renderModernScatter(el, all, {
+    xLabel: t("analytics.size_x"), yLabel: t("analytics.size_y"),
+    xKind: "paramsB", yKind: "gb",
+    xValue: (p) => p.paramsB,
+    yValue: (p) => p.sizeGB,
+    showTrendline: true,
+    showPareto: false,
+    theme: "size",
+  });
+}
+
+function renderEfficiency(all) {
+  const el = $("analytics-chart-efficiency");
+  if (!el) return;
+  renderModernBars(el, all, {
+    label: t("analytics.efficiency"),
+    value: (p) => p.efficiencyTokPerGB,
+    formatVal: (v) => `${v.toFixed(1)} tok/s/GB`,
+    formatSub: (p) => p.tps > 0 && p.sizeBytes > 0 ? `${p.tps.toFixed(1)} tok/s · ${fmtBytes(p.sizeBytes)}` : "",
+    gradientClass: "grad-emerald",
   });
 }
 
 function renderColdLoad(all) {
   const el = $("analytics-chart-coldload");
   if (!el) return;
-  renderBars(el, all, {
-    label: t("analytics.coldload"), kind: "ms",
-    value: (m) => analyticsPoint(m).coldLoadMs,
-  });
-}
-
-function renderTokensBar(all) {
-  const el = $("analytics-chart-tokens");
-  if (!el) return;
-  renderBars(el, all, {
-    label: t("analytics.tokens"), kind: "tokens",
-    value: (m) => analyticsPoint(m).totalTokens,
-  });
-}
-
-function renderCallsBar(all) {
-  const el = $("analytics-chart-calls");
-  if (!el) return;
-  renderBars(el, all, {
-    label: t("analytics.calls"), kind: "num",
-    value: (m) => analyticsPoint(m).totalCalls,
+  renderModernBars(el, all, {
+    label: t("analytics.coldload"),
+    value: (p) => p.loadThroughputMBs,
+    formatVal: (v) => `${Math.round(v)} MB/s`,
+    formatSub: (p) => p.coldLoadMs > 0 ? `${(p.coldLoadMs / 1000).toFixed(1)}s load · ${fmtBytes(p.sizeBytes)}` : "",
+    gradientClass: "grad-cyan",
   });
 }
 

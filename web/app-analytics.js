@@ -12,7 +12,7 @@ try {
 
 async function renderAnalytics() {
   const countEl = $("analytics-count");
-  const charts = ["tps", "size", "coldload", "tokens", "calls"].map((k) => $(`analytics-chart-${k}`));
+  const charts = ["tps", "size", "efficiency", "coldload"].map((k) => $(`analytics-chart-${k}`));
   if (charts.every((c) => !c)) return;
   try {
     const data = await api("/api/models");
@@ -80,16 +80,6 @@ function analyticsFilterMatches(p) {
   return true;
 }
 
-function renderAnalyticsFiltered() {
-  const filtered = analyticsAllData.filter((m) => analyticsFilterMatches(analyticsPoint(m)));
-  renderTpsVsParams(filtered);
-  renderSizeVsParams(filtered);
-  renderColdLoad(filtered);
-  renderTokensBar(filtered);
-  renderCallsBar(filtered);
-  renderMetaTable(filtered);
-}
-
 function bindAnalyticsFilters() {
   const bind = (id, key) => {
     const el = $(id);
@@ -128,40 +118,98 @@ function persistAnalyticsFilters() {
   try { localStorage.setItem(ANALYTICS_FILTER_KEY, JSON.stringify(analyticsFilters)); } catch { }
 }
 
-// Combine metadata for a model: prefer the live modelView fields, fall back to
-// usage-record metadata carried by ghosts. Returns a plain object.
 function analyticsPoint(m) {
   const parameterCount = Number(m.parameter_count) || 0;
   const paramsRaw = m.parameter_size || (parameterCount ? formatExactParams(parameterCount) : "");
+  const params = parseParamSize(paramsRaw) || parameterCount;
+  const sizeBytes = Number(m.size) || 0;
+  const tps = Number(m.record_tokens_per_sec) || 0;
+  const coldLoadMs = Number(m.min_cold_load_ms) || 0;
+  const totalTokens = Number(m.total_tokens) || 0;
+  const totalCalls = Number(m.total_calls) || 0;
+
+  // Derived metrics
+  const sizeGB = sizeBytes > 0 ? sizeBytes / 1e9 : 0;
+  const efficiencyTokPerGB = sizeGB > 0 && tps > 0 ? tps / sizeGB : 0;
+  const loadThroughputMBs = coldLoadMs > 0 && sizeBytes > 0 ? (sizeBytes / 1e6) / (coldLoadMs / 1000) : 0;
+  const paramsB = params > 0 ? params / 1e9 : 0;
+
   return {
+    raw: m,
     name: m.name,
     ghost: !!m.is_ghost,
-    // Some Ollama MLX entries omit parameter_size, while model_info still
-    // provides general.parameter_count. Use that exact value as the fallback.
-    params: parseParamSize(paramsRaw) || parameterCount,
+    params,
+    paramsB,
     paramsLabel: paramsRaw || "—",
-    sizeBytes: Number(m.size) || 0,
+    sizeBytes,
+    sizeGB,
     quant: m.quantization || "",
-    family: m.family || "",
-    tps: Number(m.record_tokens_per_sec) || 0,
+    family: m.family || "other",
+    tps,
     tpsAt: m.record_tokens_per_sec_at || null,
-    coldLoadMs: Number(m.min_cold_load_ms) || 0,
-    totalTokens: Number(m.total_tokens) || 0,
-    totalCalls: Number(m.total_calls) || 0,
+    coldLoadMs,
+    loadThroughputMBs,
+    efficiencyTokPerGB,
+    totalTokens,
+    totalCalls,
     parameterCount,
     architecture: m.architecture || "",
     fileType: Number(m.file_type) || 0,
     sizeLabel: m.size_label || "",
     isMOE: !!m.is_moe,
+    contextLength: Number(m.context_length) || 0,
   };
 }
 
+const FAMILY_PALETTE = {
+  gemma: "#4f8cff",
+  gemma2: "#4f8cff",
+  gemma3: "#38bdf8",
+  gemma4: "#06b6d4",
+  qwen: "#a855f7",
+  qwen2: "#a855f7",
+  qwen25: "#c084fc",
+  qwen35: "#e879f9",
+  qwen3: "#d946ef",
+  llama: "#2ecc71",
+  llama2: "#2ecc71",
+  llama3: "#10b981",
+  llama31: "#059669",
+  mistral: "#f59e0b",
+  mixtral: "#d97706",
+  phi: "#ec4899",
+  phi3: "#f43f5e",
+  deepseek: "#3b82f6",
+  command: "#8b5cf6",
+  other: "#94a3b8",
+};
+
 const ANALYTICS_COLORS = [
-  "#4f8cff", "#e07b39", "#2ecc71", "#a855f7", "#f5c542",
-  "#ef5b7d", "#22b8cf", "#8f8fff", "#f48024", "#5fbf6a",
+  "#38bdf8", "#a855f7", "#10b981", "#f59e0b", "#ec4899",
+  "#06b6d4", "#6366f1", "#f97316", "#84cc16", "#14b8a6",
 ];
 
 function analyticsColor(i) {
   return ANALYTICS_COLORS[i % ANALYTICS_COLORS.length];
+}
+
+function modelFamilyColor(family, isGhost) {
+  if (isGhost) return "#94a3b8";
+  if (!family) return "#38bdf8";
+  const norm = family.toLowerCase().replace(/[^a-z0-9]/g, "");
+  for (const k in FAMILY_PALETTE) {
+    if (norm.startsWith(k) || norm.includes(k)) return FAMILY_PALETTE[k];
+  }
+  return "#38bdf8";
+}
+
+function renderAnalyticsFiltered() {
+  const filtered = analyticsAllData.filter((m) => analyticsFilterMatches(analyticsPoint(m)));
+  renderAnalyticsKPIs(filtered);
+  renderTpsVsParams(filtered);
+  renderSizeVsParams(filtered);
+  renderEfficiency(filtered);
+  renderColdLoad(filtered);
+  renderMetaTable(filtered);
 }
 

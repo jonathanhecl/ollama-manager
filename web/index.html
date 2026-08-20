@@ -388,43 +388,53 @@
       </div>
       <button id="analytics-filter-reset" type="button" class="ghost" data-i18n="analytics.filter_reset">Reset</button>
     </div>
+    <div id="analytics-kpis" class="analytics-kpis"></div>
+
     <div class="analytics-grid">
       <section class="analytics-card analytics-card--wide">
         <div class="analytics-card-head">
-          <h3 data-i18n="analytics.tps_title">Record Tok/s vs Parameters</h3>
-          <span class="analytics-sub muted" data-i18n="analytics.tps_sub">X: record tok/s · Y: model parameters</span>
+          <div>
+            <h3 data-i18n="analytics.tps_title">Inference Speed vs Model Parameters</h3>
+            <span class="analytics-sub muted" data-i18n="analytics.tps_sub">X: Parameters (Billions) · Y: Record Speed (Tok/s) with trendline & Pareto frontier</span>
+          </div>
+          <div class="analytics-legend">
+            <span class="analytics-legend-item"><span class="analytics-legend-dot dot-model"></span> <span data-i18n="analytics.meta_model">Model</span></span>
+            <span class="analytics-legend-item"><span class="analytics-legend-line line-trend"></span> <span data-i18n="analytics.trendline">Trendline</span></span>
+            <span class="analytics-legend-item"><span class="analytics-legend-line line-pareto"></span> <span data-i18n="analytics.pareto">Pareto Frontier</span></span>
+          </div>
         </div>
         <div id="analytics-chart-tps" class="analytics-chart"></div>
       </section>
       <section class="analytics-card">
         <div class="analytics-card-head">
-          <h3 data-i18n="analytics.size_title">Disk size vs Parameters</h3>
-          <span class="analytics-sub muted" data-i18n="analytics.size_sub">X: size on disk · Y: model parameters</span>
+          <div>
+            <h3 data-i18n="analytics.size_title">Disk Size vs Model Parameters</h3>
+            <span class="analytics-sub muted" data-i18n="analytics.size_sub">X: Parameters (Billions) · Y: Size on Disk (GB)</span>
+          </div>
         </div>
         <div id="analytics-chart-size" class="analytics-chart"></div>
       </section>
       <section class="analytics-card">
         <div class="analytics-card-head">
-          <h3 data-i18n="analytics.coldload_title">Cold load vs Parameters</h3>
-          <span class="analytics-sub muted" data-i18n="analytics.coldload_sub">Min. load time (s) per model parameters</span>
+          <div>
+            <h3 data-i18n="analytics.efficiency_title">Hardware Efficiency (Tok/s per GB)</h3>
+            <span class="analytics-sub muted" data-i18n="analytics.efficiency_sub">Inference throughput normalized by memory/disk footprint</span>
+          </div>
+        </div>
+        <div id="analytics-chart-efficiency" class="analytics-chart"></div>
+      </section>
+      <section class="analytics-card analytics-card--wide">
+        <div class="analytics-card-head">
+          <div>
+            <h3 data-i18n="analytics.coldload_title">Cold Load Throughput (MB/s)</h3>
+            <span class="analytics-sub muted" data-i18n="analytics.coldload_sub">Transfer rate from storage to memory during model startup</span>
+          </div>
         </div>
         <div id="analytics-chart-coldload" class="analytics-chart"></div>
       </section>
-      <section class="analytics-card">
-        <div class="analytics-card-head">
-          <h3 data-i18n="analytics.tokens_title">Total tokens per model</h3>
-          <span class="analytics-sub muted" data-i18n="analytics.tokens_sub">Cumulative tokens consumed</span>
-        </div>
-        <div id="analytics-chart-tokens" class="analytics-chart"></div>
-      </section>
-      <section class="analytics-card">
-        <div class="analytics-card-head">
-          <h3 data-i18n="analytics.calls_title">Total calls per model</h3>
-          <span class="analytics-sub muted" data-i18n="analytics.calls_sub">Completed tasks per model</span>
-        </div>
-        <div id="analytics-chart-calls" class="analytics-chart"></div>
-      </section>
     </div>
+
+    <div id="analytics-tooltip" class="analytics-tooltip" hidden></div>
 
     <section class="analytics-card analytics-card--wide analytics-meta-card">
       <div class="analytics-meta-head">

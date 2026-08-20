@@ -5733,6 +5733,53 @@ button.chat-send:disabled:hover {
 .grad-purple { background: linear-gradient(90deg, #7c3aed, #a855f7); box-shadow: 0 0 8px rgba(168, 85, 247, 0.35); }
 .grad-amber { background: linear-gradient(90deg, #d97706, #f59e0b); box-shadow: 0 0 8px rgba(245, 158, 11, 0.35); }
 
+/* Expandable Details for Analytics Bars */
+.analytics-bars-details {
+  margin-top: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.analytics-bars-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--panel-2, #14141b);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.analytics-bars-summary::-webkit-details-marker {
+  display: none;
+}
+.analytics-bars-summary:hover {
+  background: #1c1d27;
+  border-color: var(--accent-dim);
+}
+.analytics-bars-summary-icon {
+  font-size: 9px;
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+.analytics-bars-details[open] .analytics-bars-summary-icon {
+  transform: rotate(180deg);
+}
+.analytics-bars-details[open] .analytics-bars-summary {
+  margin-bottom: 12px;
+}
+.analytics-bars-rest {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* Badges */
 .badge-quant-pill {
   font-size: 10px;

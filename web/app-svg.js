@@ -369,7 +369,7 @@ function renderModernScatter(container, data, opts) {
   container.appendChild(svg);
 }
 
-// Modern High-Fidelity Bar Chart
+// Modern High-Fidelity Bar Chart (Top 10 with collapsible remainder)
 function renderModernBars(container, data, opts) {
   const items = data
     .map(analyticsPoint)
@@ -387,7 +387,7 @@ function renderModernBars(container, data, opts) {
   const maxVal = Math.max(...items.map((p) => opts.value(p))) || 1;
   const gradientClass = opts.gradientClass || "grad-cyan";
 
-  const rowsHtml = items.map((p, i) => {
+  const renderRow = (p, i) => {
     const v = opts.value(p);
     const pct = Math.min(100, Math.max(3, (v / maxVal) * 100));
     const valText = opts.formatVal ? opts.formatVal(v, p) : `${v.toFixed(1)} ${opts.unit || ""}`;
@@ -413,13 +413,50 @@ function renderModernBars(container, data, opts) {
         </div>
       </div>
     `;
-  }).join("");
+  };
 
-  container.innerHTML = `<div class="analytics-bars-container">${rowsHtml}</div>`;
+  const TOP_N = 10;
+  const topItems = items.slice(0, TOP_N);
+  const restItems = items.slice(TOP_N);
+
+  const topRowsHtml = topItems.map((p, i) => renderRow(p, i)).join("");
+
+  let collapsibleHtml = "";
+  if (restItems.length > 0) {
+    const restRowsHtml = restItems.map((p, i) => renderRow(p, TOP_N + i)).join("");
+    const moreLabel = t("analytics.show_more", { count: restItems.length }) || `Show remaining ${restItems.length} models`;
+    const lessLabel = t("analytics.show_less") || "Show top 10 only";
+    collapsibleHtml = `
+      <details class="analytics-bars-details">
+        <summary class="analytics-bars-summary" data-more="${escapeHtml(moreLabel)}" data-less="${escapeHtml(lessLabel)}">
+          <span class="analytics-bars-summary-icon">▼</span>
+          <span class="analytics-bars-summary-text">${escapeHtml(moreLabel)}</span>
+        </summary>
+        <div class="analytics-bars-rest">
+          ${restRowsHtml}
+        </div>
+      </details>
+    `;
+  }
+
+  container.innerHTML = `<div class="analytics-bars-container">${topRowsHtml}${collapsibleHtml}</div>`;
+
+  const details = container.querySelector(".analytics-bars-details");
+  if (details) {
+    const summary = details.querySelector(".analytics-bars-summary");
+    const textEl = summary?.querySelector(".analytics-bars-summary-text");
+    details.addEventListener("toggle", () => {
+      if (textEl && summary) {
+        textEl.textContent = details.open ? summary.dataset.less : summary.dataset.more;
+      }
+    });
+  }
 
   const rows = container.querySelectorAll(".analytics-bar-row");
-  rows.forEach((row, idx) => {
+  rows.forEach((row) => {
+    const idx = Number(row.dataset.modelIdx);
     const p = items[idx];
+    if (!p) return;
     row.addEventListener("pointerenter", (e) => showAnalyticsTooltip(e, p));
     row.addEventListener("pointermove", (e) => positionAnalyticsTooltip(e));
     row.addEventListener("pointerleave", () => hideAnalyticsTooltip());

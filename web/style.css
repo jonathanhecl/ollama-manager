@@ -4327,6 +4327,12 @@ button.chat-send:disabled:hover {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .table-wrap {
+    overflow-x: hidden;
+  }
+  thead th.sortable::after {
+    display: none !important;
+  }
   #models-table { min-width: 0; }
   #models-table {
     table-layout: fixed;
@@ -4337,7 +4343,7 @@ button.chat-send:disabled:hover {
   /* Mobile: show the record tok/s column (hidden by the wider breakpoint) in place of size/dates. */
   #models-table th:nth-child(3), #models-table td:nth-child(3) {
     display: table-cell;
-    width: 82px;
+    width: 86px;
     text-align: right;
   }
   #models-table th:nth-child(3) {

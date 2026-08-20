@@ -16,6 +16,9 @@ type ChatDefaults struct {
 	Temperature  *float64 `json:"temperature,omitempty"`
 	TopK         *int     `json:"top_k,omitempty"`
 	TopP         *float64 `json:"top_p,omitempty"`
+	// NumCtx is the default context window (num_ctx) in tokens. nil/0 means
+	// "use the model's own default". Lowering it reduces VRAM/RAM usage.
+	NumCtx *int `json:"num_ctx,omitempty"`
 	// ThinkLevel is the default reasoning effort: "auto", "off", "low",
 	// "medium", "high" or "max". It replaces the old no_think boolean.
 	ThinkLevel string `json:"think_level,omitempty"`
@@ -135,6 +138,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.ChatDefaults.TopP == nil {
 		cfg.ChatDefaults.TopP = def.TopP
+	}
+	if cfg.ChatDefaults.NumCtx == nil {
+		cfg.ChatDefaults.NumCtx = def.NumCtx
 	}
 	// Migrate the legacy no_think boolean into think_level.
 	cfg.ChatDefaults.ThinkLevel = NormalizeThinkLevel(cfg.ChatDefaults.ThinkLevel)

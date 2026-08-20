@@ -69,3 +69,25 @@ func TestLoadKeepsThinkLevelAndNormalizesInvalid(t *testing.T) {
 		t.Errorf("invalid ThinkLevel should normalize to auto, got %q", cfg2.ChatDefaults.ThinkLevel)
 	}
 }
+
+func TestLoadKeepsNumCtx(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860, "chat_defaults": {"num_ctx": 2048}}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ChatDefaults.NumCtx == nil || *cfg.ChatDefaults.NumCtx != 2048 {
+		t.Errorf("NumCtx = %v, want 2048", cfg.ChatDefaults.NumCtx)
+	}
+}
+
+func TestLoadDefaultsNumCtxNil(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ChatDefaults.NumCtx != nil {
+		t.Errorf("NumCtx = %v, want nil (model default)", cfg.ChatDefaults.NumCtx)
+	}
+}

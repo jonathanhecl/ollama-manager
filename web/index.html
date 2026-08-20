@@ -248,6 +248,20 @@
           <input id="chat-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
           <small class="muted chat-opt-hint" data-i18n="chat.top_p_hint">—</small>
         </div>
+        <div class="field" id="chat-num-ctx-field">
+          <label for="chat-num-ctx" data-i18n="chat.num_ctx">Context length (num_ctx)</label>
+          <input id="chat-num-ctx" type="number" min="0" step="256" value="0" autocomplete="off" list="chat-num-ctx-presets" data-i18n-attr="title" data-i18n="chat.num_ctx_hint" title="Max tokens of context the model can use. 0 = use the model default. Lower it to fit in VRAM/RAM.">
+          <datalist id="chat-num-ctx-presets">
+            <option value="512"></option>
+            <option value="1024"></option>
+            <option value="2048"></option>
+            <option value="4096"></option>
+            <option value="8192"></option>
+            <option value="16384"></option>
+            <option value="32768"></option>
+          </datalist>
+          <small class="muted chat-opt-hint" data-i18n="chat.num_ctx_hint">—</small>
+        </div>
         <div id="chat-think-wrap" class="field" hidden>
           <label for="chat-think-level" data-i18n="chat.think_level">Thinking level</label>
           <select id="chat-think-level" autocomplete="off">
@@ -833,6 +847,10 @@
               <div class="field-compact">
                 <label for="set-default-top-p" data-i18n="chat.top_p">Top-p</label>
                 <input id="set-default-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
+              </div>
+              <div class="field-compact">
+                <label for="set-default-num-ctx" data-i18n="chat.num_ctx">Context length (num_ctx)</label>
+                <input id="set-default-num-ctx" type="number" min="0" step="256" value="0" autocomplete="off" data-i18n-attr="title" data-i18n="chat.num_ctx_hint" title="Max tokens of context the model can use. 0 = use the model default. Lower it to fit in VRAM/RAM.">
               </div>
             </div>
 

@@ -1,0 +1,3356 @@
+"use strict";
+
+// ---- SVG helpers ----
+
+function svgAttrs(el, attrs) {
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function svgEl(tag, attrs, text) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  if (attrs) svgAttrs(el, attrs);
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+function fmtAxis(v, kind) {
+  if (kind === "bytes") return fmtBytes(v);
+  if (kind === "tokens") return fmtCompactTokens(v);
+  if (kind === "ms") return v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`;
+  if (kind === "params") return `${(v / 1e9).toFixed(1)}B`;
+  return `${Math.round(v)}`;
+}
+
+function fmtCompactTokens(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return `${Math.round(n)}`;
+}
+
+function shortModelLabel(name, max = 22) {
+  const short = String(name || "").split("/").pop();
+  return short.length > max ? `${short.slice(0, max - 1)}…` : short;
+}
+
+// Build a horizontal (log-ish) scale. Charts use a linear scale but we give
+// each point a label tooltip. Returns {min,max} on the raw domain.
+function niceDomain(values) {
+  let min = Infinity, max = -Infinity;
+  values.forEach((v) => {
+    if (Number.isFinite(v) && v > 0) { if (v < min) min = v; if (v > max) max = v; }
+  });
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1 };
+  if (min === max) { max = min * 1.2 || 1; }
+  return { min: 0, max: max * 1.1 };
+}
+
+// scatterChart(container, data, opts): draws points with x and y axes.
+// opts: {xLabel, yLabel, xKind, yKind, xValue, yValue, color}
+function renderScatter(container, data, opts) {
+  const W = 640, H = 380, PAD = { l: 58, r: 18, t: 18, b: 44 };
+  const iw = W - PAD.l - PAD.r;
+  const ih = H - PAD.t - PAD.b;
+  const points = data
+    .map((m) => ({ m, x: opts.xValue(m), y: opts.yValue(m) }))
+    .filter((p) => Number.isFinite(p.x) && p.x > 0 && Number.isFinite(p.y) && p.y > 0)
+    .sort((a, b) => a.y - b.y);
+
+  if (!points.length) {
+    container.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("analytics.no_data"))}</div>`;
+    return;
+  }
+
+  const xDom = niceDomain(points.map((p) => p.x));
+  const yDom = niceDomain(points.map((p) => p.y));
+  const sx = (v) => PAD.l + (v - xDom.min) / (xDom.max - xDom.min) * iw;
+  const sy = (v) => PAD.t + ih - (v - yDom.min) / (yDom.max - yDom.min) * ih;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg", role: "img" });
+  // Grid + y labels
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = yDom.min + (yDom.max - yDom.min) * i / yTicks;
+    const y = sy(v);
+    svg.appendChild(svgEl("line", { x1: PAD.l, y1: y, x2: W - PAD.r, y2: y, class: "analytics-grid" }));
+    svg.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 4, "text-anchor": "end", class: "analytics-tick" }, fmtAxis(v, opts.yKind)));
+  }
+  // x labels
+  const xTicks = 6;
+  for (let i = 0; i <= xTicks; i++) {
+    const v = xDom.min + (xDom.max - xDom.min) * i / xTicks;
+    const x = sx(v);
+    svg.appendChild(svgEl("text", { x, y: H - PAD.b + 18, "text-anchor": "middle", class: "analytics-tick" }, fmtAxis(v, opts.xKind)));
+  }
+  // axes
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
+  svg.appendChild(svgEl("text", { x: W / 2, y: H - 6, "text-anchor": "middle", class: "analytics-axislabel" }, opts.xLabel));
+  svg.appendChild(svgEl("text", { x: 14, y: H / 2, "text-anchor": "middle", class: "analytics-axislabel analytics-axislabel--y", transform: `rotate(-90 14 ${H / 2})` }, opts.yLabel));
+
+  // Keep labels only where there is enough room. Every point still has a
+  // native SVG tooltip with the complete model name, so dense plots remain
+  // usable without a wall of overlapping text.
+  const placedLabels = [];
+  points.forEach((p, i) => {
+    const cx = sx(p.x), cy = sy(p.y);
+    const g = svgEl("g", { class: "analytics-pt" });
+    g.appendChild(svgEl("circle", { cx, cy, r: 6, fill: opts.color ? opts.color(p.m, i) : analyticsColor(i), class: "analytics-dot" }));
+    g.appendChild(svgEl("title", null, `${p.m.name}\n${opts.xTitle ? opts.xTitle(p.m) : opts.xLabel}: ${fmtAxis(p.x, opts.xKind)}\n${opts.yTitle ? opts.yTitle(p.m) : opts.yLabel}: ${fmtAxis(p.y, opts.yKind)}`));
+    // A 20-character label is roughly 130px at this font size. Reserve that
+    // width, otherwise labels that are merely close to their anchor still
+    // collide visually.
+    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < 136 && Math.abs(q.y - cy) < 22);
+    if (!tooClose) {
+      const label = shortModelLabel(p.m.name, 20);
+      const onRightEdge = cx > W - 145;
+      g.appendChild(svgEl("text", {
+        x: onRightEdge ? cx - 9 : cx + 9,
+        y: cy - 6,
+        "text-anchor": onRightEdge ? "end" : "start",
+        class: "analytics-ptlabel",
+      }, label));
+      placedLabels.push({ x: cx, y: cy });
+    }
+    svg.appendChild(g);
+  });
+
+  container.innerHTML = "";
+  container.appendChild(svg);
+}
+
+// barChart(container, data, opts): horizontal bars, one per model. Horizontal
+// bars keep model labels readable even when many models are selected.
+// opts: {value, label, kind, title}
+function renderBars(container, data, opts) {
+  const W = 640, PAD = { l: 170, r: 56, t: 18, b: 30 };
+  const iw = W - PAD.l - PAD.r;
+  const items = data
+    .map((m) => ({ m, v: opts.value(m) }))
+    .filter((p) => Number.isFinite(p.v) && p.v > 0)
+    .sort((a, b) => b.v - a.v);
+
+  if (!items.length) {
+    container.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("analytics.no_data"))}</div>`;
+    return;
+  }
+
+  const rowH = 28;
+  const H = Math.max(260, PAD.t + PAD.b + items.length * rowH);
+  const ih = H - PAD.t - PAD.b;
+  const xDom = niceDomain(items.map((p) => p.v));
+  const sx = (v) => PAD.l + (v - xDom.min) / (xDom.max - xDom.min) * iw;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg", role: "img" });
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = xDom.min + (xDom.max - xDom.min) * i / yTicks;
+    const x = sx(v);
+    svg.appendChild(svgEl("line", { x1: x, y1: PAD.t, x2: x, y2: H - PAD.b, class: "analytics-grid" }));
+    svg.appendChild(svgEl("text", { x, y: H - 8, "text-anchor": "middle", class: "analytics-tick" }, fmtAxis(v, opts.kind)));
+  }
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: PAD.t, x2: PAD.l, y2: H - PAD.b, class: "analytics-axis" }));
+  svg.appendChild(svgEl("line", { x1: PAD.l, y1: H - PAD.b, x2: W - PAD.r, y2: H - PAD.b, class: "analytics-axis" }));
+
+  items.forEach((it, i) => {
+    const y = PAD.t + i * rowH + (rowH - 18) / 2;
+    const x = PAD.l;
+    const barW = Math.max(1, sx(it.v) - PAD.l);
+    const g = svgEl("g", { class: "analytics-bar" });
+    g.appendChild(svgEl("rect", { x, y, width: barW, height: 18, rx: 2, fill: analyticsColor(i), class: "analytics-barrect" }));
+    g.appendChild(svgEl("title", null, `${it.m.name}\n${opts.label}: ${fmtAxis(it.v, opts.kind)}`));
+    g.appendChild(svgEl("text", { x: PAD.l - 8, y: y + 13, "text-anchor": "end", class: "analytics-barlabel" }, shortModelLabel(it.m.name, 25)));
+    g.appendChild(svgEl("text", { x: Math.min(W - PAD.r + 4, sx(it.v) + 6), y: y + 13, class: "analytics-barval" }, fmtAxis(it.v, opts.kind)));
+    svg.appendChild(g);
+  });
+
+  container.innerHTML = "";
+  container.appendChild(svg);
+}
+
+function renderTpsVsParams(all) {
+  const el = $("analytics-chart-tps");
+  if (!el) return;
+  renderScatter(el, all, {
+    xLabel: t("analytics.tps_x"), yLabel: t("analytics.params_y"),
+    xKind: "num", yKind: "params",
+    xValue: (m) => analyticsPoint(m).tps,
+    yValue: (m) => analyticsPoint(m).params,
+    xTitle: (m) => `${t("analytics.tps")}: ${analyticsPoint(m).tps.toFixed(1)} tok/s`,
+    yTitle: (m) => `${t("analytics.params")}: ${analyticsPoint(m).paramsLabel}`,
+    color: (m) => (m.is_ghost ? "#9aa4b1" : analyticsColor(0)),
+  });
+}
+
+function renderSizeVsParams(all) {
+  const el = $("analytics-chart-size");
+  if (!el) return;
+  renderScatter(el, all, {
+    xLabel: t("analytics.size_x"), yLabel: t("analytics.params_y"),
+    xKind: "bytes", yKind: "params",
+    xValue: (m) => analyticsPoint(m).sizeBytes,
+    yValue: (m) => analyticsPoint(m).params,
+    xTitle: (m) => `${t("analytics.size")}: ${fmtBytes(analyticsPoint(m).sizeBytes)}`,
+    yTitle: (m) => `${t("analytics.params")}: ${analyticsPoint(m).paramsLabel}`,
+    color: (m) => (m.is_ghost ? "#9aa4b1" : analyticsColor(1)),
+  });
+}
+
+function renderColdLoad(all) {
+  const el = $("analytics-chart-coldload");
+  if (!el) return;
+  renderBars(el, all, {
+    label: t("analytics.coldload"), kind: "ms",
+    value: (m) => analyticsPoint(m).coldLoadMs,
+  });
+}
+
+function renderTokensBar(all) {
+  const el = $("analytics-chart-tokens");
+  if (!el) return;
+  renderBars(el, all, {
+    label: t("analytics.tokens"), kind: "tokens",
+    value: (m) => analyticsPoint(m).totalTokens,
+  });
+}
+
+function renderCallsBar(all) {
+  const el = $("analytics-chart-calls");
+  if (!el) return;
+  renderBars(el, all, {
+    label: t("analytics.calls"), kind: "num",
+    value: (m) => analyticsPoint(m).totalCalls,
+  });
+}
+
+let analyticsMetaSearch = "";
+
+function renderMetaTable(all) {
+  const q = analyticsMetaSearch.toLowerCase();
+  const rows = all.filter((m) => {
+    if (!q) return true;
+    const p = analyticsPoint(m);
+    return p.name.toLowerCase().includes(q) || p.family.toLowerCase().includes(q) || p.architecture.toLowerCase().includes(q);
+  });
+  rows.sort((a, b) => analyticsPoint(b).parameterCount - analyticsPoint(a).parameterCount);
+  renderMetaTableBody($("analytics-meta-tbody-installed"), rows.filter((m) => !analyticsPoint(m).ghost), false, q);
+  renderMetaTableBody($("analytics-meta-tbody-uninstalled"), rows.filter((m) => analyticsPoint(m).ghost), true, q);
+}
+
+function renderMetaTableBody(tbody, rows, uninstalled, query) {
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr class="empty"><td colspan="${uninstalled ? 9 : 8}" class="muted">${escapeHtml(query ? t("analytics.no_data") : t("analytics.no_models"))}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((m) => {
+    const p = analyticsPoint(m);
+    const moeBadge = p.isMOE ? `<span class="badge badge-moe">MoE</span>` : "";
+    const remove = uninstalled
+      ? `<button type="button" class="ghost analytics-remove-ghost" data-name="${escapeHtml(p.name)}" title="${escapeHtml(t("analytics.remove_ghost"))}">🗑</button>`
+      : "";
+    return `<tr class="${uninstalled ? "ghost" : ""}">
+      <td class="analytics-meta-name">${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.paramsLabel)}</td>
+      <td class="mono">${p.parameterCount ? formatExactParams(p.parameterCount) : "—"}</td>
+      <td>${escapeHtml(p.architecture || "—")} ${moeBadge}</td>
+      <td class="mono">${p.fileType ? p.fileType : "—"}</td>
+      <td>${escapeHtml(p.quant || "—")}</td>
+      <td>${escapeHtml(p.family || "—")}</td>
+      <td class="mono">${p.sizeBytes ? fmtBytes(p.sizeBytes) : "—"}</td>
+      ${uninstalled ? `<td>${remove}</td>` : ""}
+    </tr>`;
+  }).join("");
+}
+
+function formatExactParams(n) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  return `${n}`;
+}
+
+function bindAnalyticsMetaSearch() {
+  const input = $("analytics-meta-search");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    analyticsMetaSearch = input.value.trim();
+    renderMetaTable(analyticsAllData.filter((m) => analyticsFilterMatches(analyticsPoint(m))));
+  });
+  document.querySelectorAll("#analytics-meta-tbody-installed, #analytics-meta-tbody-uninstalled").forEach((tbody) => {
+    tbody.addEventListener("click", (e) => {
+      const btn = e.target.closest(".analytics-remove-ghost");
+      if (btn) {
+        e.stopPropagation();
+        const name = btn.getAttribute("data-name");
+        if (name) void removeGhost(name);
+      }
+    });
+  });
+}
+
+async function removeGhost(name) {
+  const res = await askConfirm({
+    title: t("analytics.remove_ghost_title"),
+    text: t("analytics.remove_ghost_confirm", { name: "{__NAME__}" }).replace("{__NAME__}", name),
+    okText: t("analytics.remove_ghost"),
+    okClass: "danger",
+    mono: name,
+  });
+  if (!res || !res.ok) return;
+  try {
+    const res = await api("/api/models/ghost/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    toast(t("analytics.remove_ghost_done", { name }), "success");
+    analyticsAllData = analyticsAllData.filter((m) => m.name !== name);
+    renderAnalyticsFiltered();
+    void refreshModels();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+function showTestsView() {
+  hideAllMainViews();
+  stopSpeechPlayback();
+  currentView = "tests";
+  $("tests-view").hidden = false;
+  if (!window.location.pathname.startsWith("/tests")) {
+    history.pushState(null, "", "/tests");
+  }
+  void refreshTests();
+}
+
+async function showTestEditorView(id) {
+  hideAllMainViews();
+  currentView = "test-editor";
+  $("test-editor-view").hidden = false;
+  currentTestId = id;
+  if (id) {
+    let test = tests.find((x) => x.id === id);
+    if (!test && tests.length === 0) {
+      await refreshTests();
+      test = tests.find((x) => x.id === id);
+    }
+    populateTestEditorGroupSelect();
+    if (test) {
+      $("test-editor-title").textContent = t("tests.edit_test");
+      $("te-name").value = test.name || "";
+      $("te-description").value = test.description || "";
+      $("te-group").value = test.group_id || "";
+      $("te-active").checked = !!test.active;
+      $("te-prompt").value = test.prompt || "";
+      $("te-system").value = test.system_prompt || "";
+      $("te-eval-type").value = test.evaluation_type || "exact_match";
+      updateAgentSettingsVisibility();
+      updateEvalConfigVisibility();
+      const cfg = test.evaluation_config || {};
+      $("te-eval-expected").value = cfg.expected || "";
+      $("te-eval-pattern").value = cfg.pattern || "";
+      $("te-eval-config").value = test.evaluation_config ? JSON.stringify(test.evaluation_config, null, 2) : "";
+      if (test.evaluation_type === "agent" && test.evaluation_config) {
+        const cfg = test.evaluation_config;
+        $("te-agent-max-turns").value = String(cfg.max_turns || 10);
+        $("te-agent-initial-files").value = cfg.initial_files ? JSON.stringify(cfg.initial_files, null, 2) : "";
+        const toolChecks = $("te-agent-settings")?.querySelectorAll('input[type="checkbox"]');
+        if (toolChecks) {
+          const allowed = new Set(cfg.tools || []);
+          toolChecks.forEach((cb) => { cb.checked = allowed.has(cb.value); });
+        }
+      }
+      $("te-required-caps").value = (test.required_caps || []).join(", ");
+      $("te-order").value = String(test.order || 0);
+      testEditorAttachments = (test.attachments || []).map((a) => ({ ...a }));
+      renderTestEditorAttachments();
+      $("test-editor-delete").hidden = false;
+      if (window.location.pathname !== "/tests/edit/" + id) {
+        history.pushState(null, "", "/tests/edit/" + id);
+      }
+      return;
+    }
+  }
+  populateTestEditorGroupSelect();
+  $("test-editor-title").textContent = t("tests.new_test");
+  $("te-name").value = "";
+  $("te-description").value = "";
+  $("te-group").value = selectedGroupId || "";
+  $("te-active").checked = true;
+  $("te-prompt").value = "";
+  $("te-system").value = "";
+  $("te-eval-type").value = "exact_match";
+  $("te-eval-expected").value = "";
+  $("te-eval-pattern").value = "";
+  $("te-eval-config").value = "";
+  $("te-required-caps").value = "";
+  $("te-order").value = "0";
+  testEditorAttachments = [];
+  renderTestEditorAttachments();
+  $("test-editor-delete").hidden = true;
+  if (window.location.pathname !== "/tests/new") {
+    history.pushState(null, "", "/tests/new");
+  }
+}
+
+async function refreshTests() {
+  try {
+    const data = await api("/api/tests");
+    testsGroups = data.groups || [];
+    tests = data.tests || [];
+    renderTestsSidebar();
+    renderTestsList();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+function isSeedTestId(id) {
+  return /^t\d+$/.test(String(id || ""));
+}
+
+async function deleteTestById(id) {
+  const ok = await askConfirm({
+    title: t("tests.delete_title"),
+    text: isSeedTestId(id) ? t("tests.delete_seed_text") : t("tests.delete_text"),
+    okText: t("action.delete"),
+    okClass: "danger",
+  });
+  if (!ok.ok) return false;
+  const data = await api("/api/tests/" + encodeURIComponent(id), { method: "DELETE" });
+  if (data.reseeded) {
+    toast(t("tests.reseeded_toast"), "success");
+  }
+  await refreshTests();
+  return true;
+}
+
+function renderTestsSidebar() {
+  const container = $("tests-groups-list");
+  if (!container) return;
+  const allBtnClass = selectedGroupId === "" ? "tests-group-item active" : "tests-group-item";
+  let html = `<div class="${allBtnClass}" data-group-id="">
+    <span class="tests-group-name">${escapeHtml(t("tests.all_tests"))}</span>
+    <span class="tests-group-count">${tests.length}</span>
+  </div>`;
+  for (const g of testsGroups) {
+    const cls = selectedGroupId === g.id ? "tests-group-item active" : "tests-group-item";
+    const count = tests.filter((t) => t.group_id === g.id).length;
+    html += `<div class="${cls}" data-group-id="${escapeHtml(g.id)}">
+      <span class="tests-group-name">${escapeHtml(g.name)}</span>
+      <span class="tests-group-actions">
+        <button type="button" class="btn-icon te-group-rename" data-group-id="${escapeHtml(g.id)}" data-group-name="${escapeHtml(g.name)}" title="Rename">✎</button>
+        <button type="button" class="btn-icon te-group-delete" data-group-id="${escapeHtml(g.id)}" title="Delete">×</button>
+      </span>
+      <span class="tests-group-count">${count}</span>
+    </div>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll(".tests-group-item").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".te-group-rename") || e.target.closest(".te-group-delete")) return;
+      selectedGroupId = el.dataset.groupId;
+      const newPath = selectedGroupId ? "/tests/group/" + encodeURIComponent(selectedGroupId) : "/tests";
+      if (window.location.pathname !== newPath) {
+        history.pushState(null, "", newPath);
+      }
+      renderTestsSidebar();
+      renderTestsList();
+    });
+  });
+  container.querySelectorAll(".te-group-rename").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void renameGroup(btn.dataset.groupId, btn.dataset.groupName);
+    });
+  });
+  container.querySelectorAll(".te-group-delete").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void deleteGroup(btn.dataset.groupId);
+    });
+  });
+}
+
+function renderTestsList() {
+  const list = $("tests-list");
+  const empty = $("tests-empty");
+  const title = $("tests-group-title");
+  if (!list || !empty || !title) return;
+
+  let filtered = tests;
+  if (selectedGroupId !== "") {
+    filtered = tests.filter((t) => t.group_id === selectedGroupId);
+    const g = testsGroups.find((x) => x.id === selectedGroupId);
+    title.textContent = g ? g.name : t("tests.all_tests");
+  } else {
+    title.textContent = t("tests.all_tests");
+  }
+
+  const runBtn = $("tests-run-battery-btn");
+  if (runBtn) {
+    const hasActiveNonAgent = filtered.some((t) => t.active && t.evaluation_type !== "agent");
+    runBtn.hidden = selectedGroupId === "" || !hasActiveNonAgent;
+  }
+  const groupHistBtn = $("tests-group-history-btn");
+  if (groupHistBtn) {
+    groupHistBtn.hidden = selectedGroupId === "";
+  }
+
+  if (!filtered.length) {
+    list.innerHTML = "";
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+
+  list.innerHTML = filtered.map((test) => {
+    const activeClass = test.active ? "tests-item-active" : "tests-item-suspended";
+    const activeLabel = test.active ? t("tests.status_active") : t("tests.status_suspended");
+    const evalLabel = t("tests.eval_" + test.evaluation_type) || test.evaluation_type;
+    const caps = (test.required_caps || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
+    return `
+      <div class="tests-item" data-id="${escapeHtml(test.id)}">
+        <div class="tests-item-main">
+          <div class="tests-item-name">${escapeHtml(test.name)}</div>
+          <div class="tests-item-meta">
+            <span class="pill ${activeClass}">${escapeHtml(activeLabel)}</span>
+            <span class="pill">${escapeHtml(evalLabel)}</span>
+            ${caps}
+          </div>
+          ${test.description ? `<div class="tests-item-desc muted">${escapeHtml(test.description)}</div>` : ""}
+        </div>
+        <div class="tests-item-actions">
+          ${test.evaluation_type === "agent" ? `<button class="ghost tests-item-run" data-id="${escapeHtml(test.id)}">${t("tests.agent_run")}</button>` : ""}
+          <button class="ghost tests-item-history" data-id="${escapeHtml(test.id)}">${t("tests.history_short")}</button>
+          <button class="ghost tests-item-edit" data-i18n="action.edit">Edit</button>
+          <button class="ghost tests-item-toggle" data-id="${escapeHtml(test.id)}">${test.active ? t("tests.suspend") : t("tests.activate")}</button>
+          <button class="ghost danger-text tests-item-delete" data-id="${escapeHtml(test.id)}">×</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll(".tests-item").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      void showTestEditorView(el.dataset.id);
+    });
+  });
+  list.querySelectorAll(".tests-item-edit").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.closest(".tests-item")?.dataset?.id;
+      if (id) void showTestEditorView(id);
+    });
+  });
+  list.querySelectorAll(".tests-item-history").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (id) openTestHistoryModal(id);
+    });
+  });
+  list.querySelectorAll(".tests-item-toggle").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const test = tests.find((t) => t.id === id);
+      if (!test) return;
+      try {
+        await api("/api/tests/" + encodeURIComponent(id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...test, active: !test.active }),
+        });
+        await refreshTests();
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
+    });
+  });
+  list.querySelectorAll(".tests-item-delete").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      try {
+        await deleteTestById(id);
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
+    });
+  });
+  list.querySelectorAll(".tests-item-run").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      $("coming-soon-modal").hidden = false;
+    });
+  });
+}
+
+function getAutoCapsFromAttachments() {
+  const caps = new Set();
+  for (const a of testEditorAttachments) {
+    if (a.kind === "image") caps.add("vision");
+    if (a.kind === "audio") caps.add("audio");
+  }
+  return Array.from(caps);
+}
+
+function updateTestEditorAutoCaps() {
+  const el = $("te-auto-caps");
+  if (!el) return;
+  const auto = getAutoCapsFromAttachments();
+  const userRaw = $("te-required-caps")?.value || "";
+  const user = userRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const all = new Set([...user, ...auto]);
+  if (!all.size) {
+    el.innerHTML = "";
+    return;
+  }
+  const pills = Array.from(all).map((c) => {
+    const isAuto = auto.includes(c) && !user.includes(c);
+    return `<span class="pill${isAuto ? " te-auto-pill" : ""}" title="${isAuto ? "Auto-detected from attachments" : "Manually set"}">${escapeHtml(c)}</span>`;
+  }).join("");
+  el.innerHTML = `<div class="te-auto-caps-label">Effective capabilities:</div><div class="te-auto-caps-pills">${pills}</div>`;
+}
+
+function renderTestEditorAttachments() {
+  const list = $("te-attach-list");
+  if (!list) return;
+  if (!testEditorAttachments.length) {
+    list.innerHTML = "";
+    updateTestEditorAutoCaps();
+    return;
+  }
+  list.innerHTML = testEditorAttachments.map((a) => {
+    if (a.kind === "image") {
+      const src = `data:${a.mime};base64,${a.data}`;
+      return `<div class="te-attach-item" data-id="${escapeHtml(a.id)}">
+        <img src="${src}" alt="" class="te-attach-thumb">
+        <span class="te-attach-name mono">${escapeHtml(a.name)}</span>
+        <button type="button" class="btn-icon te-attach-remove" data-id="${escapeHtml(a.id)}" title="Remove">×</button>
+      </div>`;
+    }
+    if (a.kind === "audio") {
+      const src = `data:${a.mime};base64,${a.data}`;
+      return `<div class="te-attach-item te-attach-item-audio" data-id="${escapeHtml(a.id)}">
+        <span class="te-attach-name mono">${escapeHtml(a.name)}</span>
+        <audio controls preload="metadata" src="${src}" class="te-attach-audio"></audio>
+        <button type="button" class="btn-icon te-attach-remove" data-id="${escapeHtml(a.id)}" title="Remove">×</button>
+      </div>`;
+    }
+    return "";
+  }).join("");
+  list.querySelectorAll(".te-attach-remove").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      testEditorAttachments = testEditorAttachments.filter((x) => x.id !== btn.dataset.id);
+      renderTestEditorAttachments();
+    });
+  });
+  updateTestEditorAutoCaps();
+}
+
+async function handleTestEditorFileInput(files, kind) {
+  for (const file of files) {
+    const data = await toBase64(file);
+    testEditorAttachments.push({
+      id: nanoid(),
+      kind,
+      name: file.name,
+      mime: file.type || (kind === "image" ? "image/jpeg" : "audio/webm"),
+      data,
+    });
+  }
+  renderTestEditorAttachments();
+}
+
+function populateTestEditorGroupSelect() {
+  const sel = $("te-group");
+  if (!sel) return;
+  sel.innerHTML = `<option value="">${escapeHtml(t("tests.no_group"))}</option>` +
+    testsGroups.map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`).join("");
+}
+
+async function saveTestEditor() {
+  const evalType = $("te-eval-type").value;
+  let evalConfig = null;
+  if (evalType === "exact_match" || evalType === "contains") {
+    const expected = $("te-eval-expected").value.trim();
+    if (expected) evalConfig = { expected };
+  } else if (evalType === "regex") {
+    const pattern = $("te-eval-pattern").value.trim();
+    if (pattern) evalConfig = { pattern };
+  } else if (evalType === "json_schema") {
+    const raw = $("te-eval-config").value.trim();
+    if (raw) {
+      try { evalConfig = JSON.parse(raw); } catch {
+        toast(t("tests.invalid_json"), "error");
+        return;
+      }
+    }
+  }
+  let agentConfig = evalConfig;
+  if ($("te-eval-type").value === "agent") {
+    const maxTurns = Number($("te-agent-max-turns").value) || 10;
+    const initialFilesRaw = $("te-agent-initial-files").value.trim();
+    let initialFiles = [];
+    if (initialFilesRaw) {
+      try { initialFiles = JSON.parse(initialFilesRaw); } catch { /* ignore */ }
+    }
+    const toolChecks = $("te-agent-settings")?.querySelectorAll('input[type="checkbox"]');
+    const tools = [];
+    if (toolChecks) {
+      toolChecks.forEach((cb) => { if (cb.checked) tools.push(cb.value); });
+    }
+    agentConfig = {
+      max_turns: maxTurns,
+      initial_files: Array.isArray(initialFiles) ? initialFiles : [],
+      tools: tools,
+      human_review: true,
+    };
+  }
+
+  const autoCaps = getAutoCapsFromAttachments();
+  const userCaps = $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const payload = {
+    name: $("te-name").value.trim(),
+    description: $("te-description").value.trim(),
+    group_id: $("te-group").value,
+    active: $("te-active").checked,
+    prompt: $("te-prompt").value,
+    system_prompt: $("te-system").value,
+    evaluation_type: evalType,
+    evaluation_config: agentConfig,
+    required_caps: Array.from(new Set([...userCaps, ...autoCaps])),
+    attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
+    order: Number($("te-order").value) || 0,
+  };
+  try {
+    if (currentTestId) {
+      await api("/api/tests/" + encodeURIComponent(currentTestId), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    await refreshTests();
+    const groupId = payload.group_id;
+    selectedGroupId = groupId || "";
+    const newPath = selectedGroupId ? "/tests/group/" + encodeURIComponent(selectedGroupId) : "/tests";
+    if (window.location.pathname !== newPath) {
+      history.pushState(null, "", newPath);
+    }
+    showTestsView();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function deleteTestEditor() {
+  if (!currentTestId) return;
+  try {
+    const deleted = await deleteTestById(currentTestId);
+    if (deleted) showTestsView();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function createNewGroup() {
+  const name = prompt(t("tests.group_name_prompt"));
+  if (!name || !name.trim()) return;
+  try {
+    await api("/api/test-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), order: testsGroups.length }),
+    });
+    await refreshTests();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function renameGroup(id, currentName) {
+  const name = prompt("Rename group:", currentName);
+  if (!name || !name.trim() || name.trim() === currentName) return;
+  try {
+    await api("/api/test-groups/" + encodeURIComponent(id), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    await refreshTests();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+async function deleteGroup(id) {
+  const group = testsGroups.find((g) => g.id === id);
+  const name = group ? group.name : id;
+  const { ok } = await askConfirm({
+    title: "Delete group",
+    text: `Delete "${name}"? Tests in this group will become ungrouped.`,
+    okText: t("action.delete"),
+    okClass: "danger",
+  });
+  if (!ok) return;
+  try {
+    await api("/api/test-groups/" + encodeURIComponent(id), { method: "DELETE" });
+    if (selectedGroupId === id) {
+      selectedGroupId = "";
+      if (window.location.pathname !== "/tests") {
+        history.pushState(null, "", "/tests");
+      }
+    }
+    await refreshTests();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+function showChatViewWithModel(name) {
+  showChatView();
+  if (!$("chat-view") || $("chat-view").hidden) return;
+  $("chat-view")?.classList.remove("chat-options-open");
+  if (!name) return;
+  const sel = $("chat-model");
+  const exists = Array.from(sel?.options || []).some((o) => o.value === name);
+  if (!exists) return;
+  sel.value = name;
+  updateChatCapabilityUI();
+  updateChatContextMeter();
+  void applyChatDefaultsForModel(name, true);
+
+  const model = modelByName(name);
+  if (model && model.digest) {
+    const urlDigest = model.digest.replace(":", "-");
+    const newPath = "/chat/" + urlDigest;
+    if (window.location.pathname !== newPath) {
+      history.pushState(null, "", newPath);
+    }
+  }
+}
+
+async function handleRouting() {
+  const path = window.location.pathname;
+  if (path.startsWith("/chat/")) {
+    const urlDigest = path.substring(6);
+    const model = models.find(m => m.digest && m.digest.replace(":", "-") === urlDigest);
+    if (model) {
+      showChatViewWithModel(model.name);
+    } else {
+      showModelsView();
+    }
+  } else if (path === "/tests" || path === "/tests/") {
+    showTestsView();
+  } else if (path.startsWith("/tests/group/")) {
+    selectedGroupId = path.substring(13);
+    showTestsView();
+  } else if (path === "/tests/new") {
+    await showTestEditorView(null);
+  } else if (path.startsWith("/tests/edit/")) {
+    const id = path.substring(12);
+    await showTestEditorView(id);
+  } else if (path.startsWith("/tests/agent/")) {
+    const id = path.substring(13);
+    showAgentSessionView(id);
+  } else if (path.startsWith("/tests/battery/progress/")) {
+    const id = path.substring(24);
+    const saved = localStorage.getItem(BATTERY_KEY);
+    let modelIDs = [];
+    let groupId = "";
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.runID === id) {
+          modelIDs = data.modelIDs || [];
+          groupId = data.groupId || "";
+        }
+      } catch { }
+    }
+    showBatteryProgressView(modelIDs, id, groupId);
+  } else if (path.startsWith("/tests/battery/results/")) {
+    const id = path.substring(23);
+    void showBatteryResultsView(id);
+  } else if (path === "/tests/battery/history") {
+    showBatteryHistoryView();
+  } else if (path === "/analytics" || path === "/analytics/") {
+    showAnalyticsView();
+  } else if (path === "/") {
+    if (currentView !== "models") {
+      showModelsView();
+    }
+  }
+}
+
+function isGFMTableRow(s) {
+  s = s.trim();
+  return s.length > 2 && s.startsWith("|") && s.endsWith("|");
+}
+
+function isGFMTableSeparator(s) {
+  s = s.trim();
+  if (!s.includes("|") || !/[-:]{2,}/.test(s)) return false;
+  const parts = s.split("|").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length < 1) return false;
+  return parts.every((p) => /^:?-{2,}:?$/.test(p));
+}
+
+function gfmTableCell(s) {
+  if (!s) return "";
+  let t = escapeHtml(s);
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return t;
+}
+
+function gfmTableBlockToHTML(rows) {
+  if (rows.length < 2) return "";
+  const parseRow = (line) => {
+    const t = line.trim();
+    const inner = t.startsWith("|") ? t.slice(1) : t;
+    const core = inner.endsWith("|") ? inner.slice(0, -1) : inner;
+    return core.split("|").map((c) => c.trim());
+  };
+  const header = parseRow(rows[0]);
+  const body = rows.slice(2).map(parseRow);
+  const n = Math.max(
+    header.length,
+    body.reduce((m, r) => Math.max(m, r.length), 0),
+  );
+  const pad = (r) => {
+    const x = r.slice();
+    while (x.length < n) x.push("");
+    return x;
+  };
+  const th = pad(header);
+  const br = body.map(pad);
+  let h = "<div class=\"chat-md-table-wrap\"><table class=\"chat-md-table\"><thead><tr>";
+  th.forEach((c) => {
+    h += `<th>${gfmTableCell(c)}</th>`;
+  });
+  h += "</tr></thead><tbody>";
+  br.forEach((row) => {
+    h += "<tr>";
+    row.forEach((c) => {
+      h += `<td>${gfmTableCell(c)}</td>`;
+    });
+    h += "</tr>";
+  });
+  h += "</tbody></table></div>";
+  return h;
+}
+
+/** After fenced code: replace GFM tables with placeholders. */
+function extractGFMTables(text, outTables) {
+  const lines = text.split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (
+      i + 1 < lines.length
+      && isGFMTableRow(lines[i])
+      && isGFMTableSeparator(lines[i + 1])
+    ) {
+      const block = [lines[i], lines[i + 1]];
+      i += 2;
+      while (i < lines.length && isGFMTableRow(lines[i]) && !isGFMTableSeparator(lines[i])) {
+        block.push(lines[i]);
+        i += 1;
+      }
+      const idx = outTables.length;
+      outTables.push(gfmTableBlockToHTML(block));
+      out.push(`@@GFMTABLE_${idx}@@`);
+      continue;
+    }
+    out.push(lines[i]);
+    i += 1;
+  }
+  return out.join("\n");
+}
+
+function addFastTapListener(el, handler) {
+  if (!el) return;
+  let lastTriggerTime = 0;
+  const run = (e) => {
+    const now = Date.now();
+    if (now - lastTriggerTime < 300) return;
+    lastTriggerTime = now;
+    handler(e);
+  };
+  el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.pointerType === "touch" || e.pointerType === "pen") {
+      run(e);
+    }
+  }, { passive: true });
+  el.addEventListener("click", (e) => {
+    run(e);
+  });
+}
+
+function scheduleRenderChatMessages() {
+  if (chatRenderRaf != null) return;
+  chatRenderRaf = requestAnimationFrame(() => {
+    chatRenderRaf = null;
+    renderChatMessages();
+    scrollChatToBottom();
+    scrollActiveBlocks();
+  });
+}
+
+function flushChatRender() {
+  if (chatRenderRaf != null) {
+    cancelAnimationFrame(chatRenderRaf);
+    chatRenderRaf = null;
+  }
+  renderChatMessages();
+  scrollChatToBottom();
+  scrollActiveBlocks();
+}
+
+function renderMarkdownSafe(input) {
+  const text = String(input || "").replace(/\r\n/g, "\n");
+  const codeBlocks = [];
+  let work = text.replace(/```([\w-]+)?\n([\s\S]*?)```/g, (_m, _lang, code) => {
+    const key = `@@CODEBLOCK_${codeBlocks.length}@@`;
+    const langLabel = _lang ? escapeHtml(_lang) : "";
+    codeBlocks.push(`<div class="chat-code-wrap"><div class="chat-code-header"><span class="chat-code-lang">${langLabel}</span><button type="button" class="chat-code-copy-btn" data-code="${escapeHtml(code)}" title="${escapeHtml(t("chat.copy_code"))}">${escapeHtml(t("chat.copy_code"))}</button></div><pre class="chat-code"><code>${escapeHtml(code)}</code></pre></div>`);
+    return key;
+  });
+  const tableBlocks = [];
+  work = extractGFMTables(work, tableBlocks);
+
+  const mathBlocks = [];
+  work = work.replace(/\$\$([\s\S]*?)\$\$/g, (_m, math) => {
+    const key = `@@MATHDISP_${mathBlocks.length}@@`;
+    mathBlocks.push({ type: "display", math: math.trim() });
+    return key;
+  });
+  work = work.replace(/\$([^$\n]+?)\$/g, (_m, math) => {
+    const key = `@@MATHINLINE_${mathBlocks.length}@@`;
+    mathBlocks.push({ type: "inline", math: math.trim() });
+    return key;
+  });
+
+  let html = escapeHtml(work);
+  html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, `<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>`);
+  html = html.replace(/^###\s+(.+)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^##\s+(.+)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^#\s+(.+)$/gm, "<h2>$1</h2>");
+
+  const lines = html.split("\n");
+  const out = [];
+  let inList = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^[-*]\s+/.test(trimmed)) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${trimmed.replace(/^[-*]\s+/, "")}</li>`);
+      continue;
+    }
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+    if (trimmed === "") {
+      out.push("");
+    } else if (/^@@GFMTABLE_(\d+)@@$/.test(trimmed)) {
+      const m = trimmed.match(/^@@GFMTABLE_(\d+)@@$/);
+      const tIdx = m ? Number(m[1]) : -1;
+      if (tIdx >= 0 && tIdx < tableBlocks.length) {
+        out.push(tableBlocks[tIdx]);
+      } else {
+        out.push("<p></p>");
+      }
+    } else if (/^@@CODEBLOCK_\d+@@$/.test(trimmed)) {
+      out.push(trimmed);
+    } else if (/^<h[234]>/.test(trimmed)) {
+      out.push(trimmed);
+    } else {
+      out.push(`<p>${trimmed}</p>`);
+    }
+  }
+  if (inList) out.push("</ul>");
+  html = out.join("\n").replace(/\n{3,}/g, "\n\n");
+
+  codeBlocks.forEach((block, i) => {
+    html = html.replace(`@@CODEBLOCK_${i}@@`, block);
+  });
+  mathBlocks.forEach((block, i) => {
+    if (block.type === "display") {
+      html = html.replace(`@@MATHDISP_${i}@@`, `<span class="math-display">${escapeHtml(block.math)}</span>`);
+    } else {
+      html = html.replace(`@@MATHINLINE_${i}@@`, `<span class="math-inline">${escapeHtml(block.math)}</span>`);
+    }
+  });
+  return html;
+}
+
+function renderChatMath(container) {
+  if (typeof katex === "undefined") return;
+  container.querySelectorAll(".math-inline").forEach((el) => {
+    try {
+      katex.render(el.textContent, el, { throwOnError: false, displayMode: false });
+    } catch (e) { /* ignore */ }
+  });
+  container.querySelectorAll(".math-display").forEach((el) => {
+    try {
+      katex.render(el.textContent, el, { throwOnError: false, displayMode: true });
+    } catch (e) { /* ignore */ }
+  });
+}
+
+function splitThink(raw) {
+  const text = String(raw || "");
+  const open = text.indexOf("<think>");
+  if (open === -1) {
+    return { think: "", answer: text.replace(/<\/?think>/g, ""), inThink: false };
+  }
+  const close = text.indexOf("</think>", open + 7);
+  if (close === -1) {
+    return {
+      think: text.slice(open + 7),
+      answer: (text.slice(0, open)).replace(/<\/?think>/g, ""),
+      inThink: true,
+    };
+  }
+  const before = text.slice(0, open);
+  const think = text.slice(open + 7, close);
+  const after = text.slice(close + 8);
+  const sub = splitThink(after);
+  return {
+    think: think + (sub.think ? "\n" + sub.think : ""),
+    answer: (before).replace(/<\/?think>/g, "") + sub.answer,
+    inThink: sub.inThink,
+  };
+}
+
+function splitThinkSegment(seg, wasInThink) {
+  const text = String(seg || "");
+
+  if (wasInThink) {
+    const close = text.indexOf("</think>");
+    if (close === -1) {
+      return {
+        think: text,
+        answer: "",
+        inThink: true,
+        closePrevious: false,
+      };
+    } else {
+      const thinkPart = text.slice(0, close);
+      const remaining = text.slice(close + 8);
+      const sub = splitThinkSegment(remaining, false);
+      return {
+        think: thinkPart + (sub.think ? "\n" + sub.think : ""),
+        answer: sub.answer,
+        inThink: sub.inThink,
+        closePrevious: true,
+      };
+    }
+  }
+
+  const open = text.indexOf("<think>");
+  if (open === -1) {
+    return {
+      think: "",
+      answer: text.replace(/<\/?think>/g, ""),
+      inThink: false,
+      closePrevious: false,
+    };
+  }
+
+  const before = text.slice(0, open);
+  const close = text.indexOf("</think>", open + 7);
+  if (close === -1) {
+    return {
+      think: text.slice(open + 7),
+      answer: before.replace(/<\/?think>/g, ""),
+      inThink: true,
+      closePrevious: false,
+    };
+  } else {
+    const think = text.slice(open + 7, close);
+    const after = text.slice(close + 8);
+    const sub = splitThinkSegment(after, false);
+    return {
+      think: think + (sub.think ? "\n" + sub.think : ""),
+      answer: before.replace(/<\/?think>/g, "") + sub.answer,
+      inThink: sub.inThink,
+      closePrevious: false,
+    };
+  }
+}
+
+function thinkLabel(ms, streaming) {
+  const dur = formatMetaElapsed(ms || 0);
+  if (streaming) return t("chat.think_running", { t: dur });
+  return t("chat.think_done", { t: dur });
+}
+
+function formatDoneReason(reason) {
+  if (!reason) return "";
+  const r = String(reason).toLowerCase().trim();
+  if (r === "stop") return t("chat.done_reason.stop") || "stop";
+  if (r === "length") return t("chat.done_reason.length") || "length limit";
+  if (r === "abort" || r === "aborted" || r === "stopped") return t("chat.done_reason.aborted") || "stopped";
+  if (r === "tool_limit" || r === "tools_limit") return t("chat.done_reason.tool_limit") || "tool limit";
+  if (r === "error") return t("chat.done_reason.error") || "error";
+  return r;
+}
+
+function assistantMetricParts(m, opts = {}) {
+  if (!m || m.role !== "assistant") return [];
+  const parts = [];
+  const elapsed = Math.max(0, Number(m.elapsedMs) || 0);
+  const tokens = Math.max(0, Math.round(Number(m.completionTokens || m.tokens || 0)));
+  const tps = Number(m.tps);
+  if (elapsed > 0 || opts.showZero) parts.push(formatMetaElapsed(elapsed));
+  if (tokens > 0 || opts.showZero) parts.push(t("chat.meta_tokens", { n: tokens }));
+  if ((Number.isFinite(tps) && tps > 0) || opts.showZero) {
+    parts.push(t("chat.meta_tps", { rate: (Number.isFinite(tps) && tps > 0 ? tps : 0).toFixed(2) }));
+  }
+  if (!m.streaming && (m.doneReason || m.stopped)) {
+    const reason = m.stopped ? "aborted" : m.doneReason;
+    const label = formatDoneReason(reason);
+    if (label) parts.push(label);
+  }
+  if (opts.streaming) parts.push(t("chat.streaming"));
+  return parts;
+}
+
+function assistantMetricText(m, opts = {}) {
+  return assistantMetricParts(m, opts).join(" · ");
+}
+
+function assistantMetricHTML(m, opts = {}) {
+  if (!m || m.role !== "assistant") return "";
+  const parts = [];
+  const elapsed = Math.max(0, Number(m.elapsedMs) || 0);
+  const tokens = Math.max(0, Math.round(Number(m.completionTokens || m.tokens || 0)));
+  const tps = Number(m.tps);
+  if (elapsed > 0 || opts.showZero) {
+    const timeText = formatMetaElapsed(elapsed);
+    const timeTitle = formatMetaElapsedSecondsTitle(elapsed);
+    parts.push(`<span class="chat-meta-time" title="${escapeHtml(timeTitle)}">${escapeHtml(timeText)}</span>`);
+  }
+  if (tokens > 0 || opts.showZero) {
+    parts.push(`<span>${escapeHtml(t("chat.meta_tokens", { n: tokens }))}</span>`);
+  }
+  if ((Number.isFinite(tps) && tps > 0) || opts.showZero) {
+    parts.push(`<span>${escapeHtml(t("chat.meta_tps", { rate: (Number.isFinite(tps) && tps > 0 ? tps : 0).toFixed(2) }))}</span>`);
+  }
+  if (!m.streaming && (m.doneReason || m.stopped)) {
+    const reason = m.stopped ? "aborted" : m.doneReason;
+    const label = formatDoneReason(reason);
+    if (label) parts.push(`<span>${escapeHtml(label)}</span>`);
+  }
+  if (opts.streaming) parts.push(`<span>${escapeHtml(t("chat.streaming"))}</span>`);
+  return parts.join(" · ");
+}
+
+/**
+ * Añade al timeline el texto desde segmentFlushIndex hasta ahora, como think (y opcional bloque md).
+ * @param {object} assistantMsg
+ * @param {string} assistantRaw
+ * @param {boolean} isFinal - si true, es el ultimo flush antes de done
+ */
+function flushSegmentToTimeline(assistantMsg, assistantRaw, isFinal) {
+  const start = Number(assistantMsg.segmentFlushIndex) || 0;
+  if (assistantRaw.length <= start) return;
+  const seg = assistantRaw.slice(start);
+  assistantMsg.segmentFlushIndex = assistantRaw.length;
+  if (!assistantMsg.timeline) assistantMsg.timeline = [];
+
+  const wasInThink = assistantMsg._lastSegInThink || false;
+  const parts = splitThinkSegment(seg, wasInThink);
+  assistantMsg._lastSegInThink = parts.inThink;
+
+  if (parts.closePrevious) {
+    let lastThink = null;
+    for (let i = assistantMsg.timeline.length - 1; i >= 0; i--) {
+      if (assistantMsg.timeline[i].type === "think") {
+        lastThink = assistantMsg.timeline[i];
+        break;
+      }
+    }
+    if (lastThink) {
+      if (parts.think && parts.think.trim()) {
+        lastThink.think = (lastThink.think + "\n" + parts.think).trim();
+      }
+    } else if (parts.think && parts.think.trim()) {
+      assistantMsg.timeline.push({ type: "think", think: parts.think, segId: nanoid() });
+    }
+  } else {
+    if (parts.think && parts.think.trim()) {
+      assistantMsg.timeline.push({ type: "think", think: parts.think, segId: nanoid() });
+    }
+  }
+
+  if (parts.answer && parts.answer.trim()) {
+    assistantMsg.timeline.push({ type: "md", content: parts.answer });
+  }
+}
+
+/** Long tool error bodies (e.g. raw HTML) go inside a &lt;details&gt; with a one-line peek. */
+const TOOL_ERR_COLLAPSE_LEN = 360;
+
+function toolErrOneLinePeek(s, max) {
+  const t = String(s).replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max - 1) + "…";
+}
+
+function renderToolErrorBlock(err, toolIdx, msgId, open) {
+  const text = String(err);
+  if (text.length <= TOOL_ERR_COLLAPSE_LEN) {
+    return `<div class="chat-tool-err mono">${escapeHtml(text)}</div>`;
+  }
+  const peek = toolErrOneLinePeek(text, 96);
+  return `<details class="chat-tool-preview chat-tool-err-details" ${open ? "open" : ""} data-msg-id="${escapeHtml(msgId)}" data-tool-idx="${toolIdx}">
+  <summary class="chat-tool-err-summary">
+    <span class="chat-tool-err-peek mono">${escapeHtml(peek)}</span>
+    <span class="chat-tool-err-expand muted">${escapeHtml(t("chat.tool.error_expand", { n: String(text.length) }))}</span>
+  </summary>
+  <pre class="chat-tool-err-body mono">${escapeHtml(text)}</pre>
+</details>`;
+}
+
+function renderAssistantToolLogEntry(e, toolIdx, msgId) {
+  const isSearch = e.name === "web_search";
+  const isFetch = e.name === "web_fetch";
+  const isWrite = e.name === "write_file";
+  const isRead = e.name === "read_file";
+  const isList = e.name === "list_dir";
+  const isExec = e.name === "exec";
+  const isCreateArt = e.name === "create_artifact";
+  const isScreenshot = e.name === "take_artifact_screenshot";
+  const isEval = e.name === "eval_artifact_js";
+  const title = isSearch ? t("chat.tool.web_search")
+    : isFetch ? t("chat.tool.web_fetch")
+      : isWrite ? t("chat.tool.write_file")
+        : isRead ? t("chat.tool.read_file")
+          : isList ? t("chat.tool.list_dir")
+            : isExec ? t("chat.tool.exec")
+              : isCreateArt ? t("chat.tool.create_artifact")
+                : isScreenshot ? t("chat.tool.take_artifact_screenshot")
+                  : isEval ? t("chat.tool.eval_artifact_js")
+                    : escapeHtml(e.name);
+  let detailHtml = "";
+  if (isSearch && e.query) {
+    let d = escapeHtml(e.query);
+    if (e.max_results) d += ` · ${escapeHtml(t("chat.tool.max_results", { n: e.max_results }))}`;
+    detailHtml = `<div class="chat-tool-detail mono">${d}</div>`;
+  } else if (isFetch && e.url) {
+    const u = escapeHtml(e.url);
+    detailHtml = `<div class="chat-tool-detail"><a href="${u}" target="_blank" rel="noopener noreferrer" class="chat-tool-link mono">${u}</a></div>`;
+  } else if ((isWrite || isRead || isList) && e.path) {
+    detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.path)}</div>`;
+  } else if (isExec && e.command) {
+    detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.command)}</div>`;
+  } else if (isEval && e.code) {
+    detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.code)}</div>`;
+  } else if (isCreateArt && e.artifact_name) {
+    let d = escapeHtml(e.artifact_name);
+    if (e.description) d += ` — <span class="muted">${escapeHtml(e.description)}</span>`;
+    const msg = chatMessages.find((x) => x.id === msgId);
+    const timestamp = (msg && msg.artifactTimestamp) || activeArtifactTimestamp;
+    if (timestamp) {
+      d += ` <span class="chat-tool-runes mono" style="margin-left: 8px;">[folder: ${timestamp}]</span>`;
+    }
+    detailHtml = `<div class="chat-tool-detail">${d}</div>`;
+  }
+  if (e.image) {
+    const imgName = t("chat.tool.take_artifact_screenshot") || "Screenshot";
+    detailHtml += `<div class="chat-tool-img-wrap">
+      <button type="button" class="image-preview-open chat-tool-img-thumb" data-name="${escapeHtml(imgName)}" title="${escapeHtml(imgName)}">
+        <img src="${e.image}" alt="${escapeHtml(imgName)}" onload="if (typeof scrollChatToBottom === 'function') scrollChatToBottom();" />
+      </button>
+    </div>`;
+  }
+  const st = e.status || "unknown";
+  const icon = st === "generating" ? "✎" : st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
+  const titleText = title;
+  const labelSuffix = st === "generating" ? "…" : "";
+  let tail = "";
+  if (st === "error" && e.error) {
+    tail += renderToolErrorBlock(e.error, toolIdx, msgId, !!e.open);
+  }
+  if (st === "ok" && (e.result_preview || e.result_runes)) {
+    const metaBits = [];
+    if (e.result_runes) metaBits.push(t("chat.tool.chars", { n: e.result_runes }));
+    const meta = metaBits.length ? `<span class="chat-tool-runes mono">${escapeHtml(metaBits.join(" · "))}</span>` : "";
+    const prev = e.result_preview
+      ? `<details class="chat-tool-preview" ${e.open ? "open" : ""} data-msg-id="${escapeHtml(msgId)}" data-tool-idx="${toolIdx}"><summary>${escapeHtml(t("chat.tool.result_preview"))}</summary><pre>${escapeHtml(e.result_preview)}</pre></details>`
+      : "";
+    tail += `<div class="chat-tool-result-head">${meta}</div>${prev}`;
+  }
+  return `<div class="chat-tool-line chat-tool-line--${st}"><span class="chat-tool-ic" aria-hidden="true">${icon}</span><div class="chat-tool-main"><span class="chat-tool-name">${titleText}${labelSuffix}</span>${detailHtml}${tail}</div>${(st === "running" || st === "generating") ? "<span class=\"chat-tool-pulse\" aria-hidden=\"true\"></span>" : ""}</div>`;
+}
+
+function renderAssistantToolLog(m) {
+  const entries = m.toolLog || [];
+  if (!entries.length) return "";
+  const lines = entries.map((e, idx) => renderAssistantToolLogEntry(e, idx, m.id));
+  return `<div class="chat-tool-log" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${lines.join("")}</div>`;
+}
+
+function renderAssistantTimeline(m) {
+  const items = m.timeline || [];
+  if (!items.length) return "";
+  const segs = items.map((it) => {
+    if (it.type === "think") {
+      const o = it.thinkOpen !== false;
+      return `<details class="chat-think" ${o ? "open" : ""} data-id="${escapeHtml(m.id)}" data-tl-seg="${escapeHtml(it.segId || "")}">
+          <summary>${escapeHtml(t("chat.cap.thinking"))}</summary>
+          <pre>${escapeHtml(it.think)}</pre>
+        </details>`;
+    }
+    if (it.type === "md") {
+      return `<div class="chat-md chat-timeline-md">${renderMarkdownSafe(it.content || "")}</div>`;
+    }
+    if (it.type === "tool" && it.entry) {
+      const toolIdx = (m.toolLog || []).indexOf(it.entry);
+      return `<div class="chat-tool-log chat-tool-log--tl" role="region" aria-label="${escapeHtml(t("chat.tool.region_label"))}">${renderAssistantToolLogEntry(it.entry, toolIdx, m.id)}</div>`;
+    }
+    return "";
+  });
+  return `<div class="chat-timeline">${segs.join("")}</div>`;
+}
+
+function buildAssistantDebugFooter(m) {
+  if (m.role !== "assistant" || m.streaming || !m.hasDebug) return "";
+  const used = Math.max(0, Number(m.promptTokens) || 0);
+  if (!used) return "";
+  const maxCtx = Math.max(0, Number(m.contextMax) || 0);
+  let ctxLine;
+  if (maxCtx > 0) {
+    const pct = Math.min(999, Math.round((used / maxCtx) * 100));
+    ctxLine = t("chat.debug_context", { used: String(used), max: fmtCtx(maxCtx), pct });
+  } else {
+    ctxLine = t("chat.debug_context_plain", { used: String(used), max: "—" });
+  }
+  return `<footer class="chat-debug mono">${escapeHtml(ctxLine)}</footer>`;
+}
+
+function renderChatMessages() {
+  const host = $("chat-messages");
+  if (!chatMessages.length) {
+    host.innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
+    return;
+  }
+  let lastUserMsgIdx = -1;
+  for (let k = chatMessages.length - 1; k >= 0; k--) {
+    if (chatMessages[k].role === "user") {
+      lastUserMsgIdx = k;
+      break;
+    }
+  }
+  host.innerHTML = chatMessages.map((m, i) => {
+    const meta = [];
+    if (m.role === "assistant" && !m.streaming && m.stopped) {
+      meta.push(t("chat.stopped_badge_short"));
+    }
+
+    const files = (m.attachments || []).map((a) => {
+      if (a.kind === "image" && a.data) {
+        const src = attachmentImageSrc(a);
+        if (!src) {
+          return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+        }
+        return `<div class="chat-file-item chat-file-item-image">
+          <button type="button" class="image-preview-open chat-msg-file-thumb" data-name="${escapeHtml(a.name)}">
+            <img src="${src}" alt="" />
+          </button>
+          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+        </div>`;
+      }
+      if (a.kind === "audio" && a.data) {
+        const src = attachmentAudioSrc(a);
+        if (!src) {
+          return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+        }
+        return `<div class="chat-file-item chat-file-item-audio">
+          <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
+          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+        </div>`;
+      }
+      if (a.kind === "text") {
+        const prev = attachmentTextPreview(a);
+        return `<div class="chat-file-item chat-file-item-text">
+          <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
+          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+        </div>`;
+      }
+      return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+    }).join("");
+
+    const hasTl = m.role === "assistant" && m.timeline && m.timeline.length > 0;
+    const acc = m._accRaw || "";
+    const flushI = hasTl ? (Number(m.segmentFlushIndex) || 0) : 0;
+    const tailStr = hasTl && m.streaming && acc && acc.length > flushI ? acc.slice(flushI) : "";
+    const tailParts = tailStr ? splitThink(tailStr) : { think: "", inThink: false, answer: "" };
+    const showTailThink = hasTl && (Boolean((tailParts.think || "").trim()) || (m.streaming && tailParts.inThink));
+    const showTailMd = hasTl && m.streaming && Boolean((tailParts.answer || "").trim());
+
+    const thinkSecTitle = formatMetaElapsedSecondsTitle(m.thinkMs || 0);
+    const thinkBlock = hasTl || !m.thinkContent
+      ? ""
+      : `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
+          <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && !!m.inThink))}</summary>
+          <pre>${escapeHtml(m.thinkContent)}</pre>
+        </details>`;
+
+    const toolLogBlock = m.role === "assistant" && !hasTl && m.toolLog?.length
+      ? renderAssistantToolLog(m)
+      : "";
+    const timelineBlock = m.role === "assistant" && hasTl
+      ? renderAssistantTimeline(m)
+      : "";
+    const tailThinkBlock = showTailThink
+      ? `<details class="chat-think" ${m.tailThinkOpen !== false ? "open" : ""} data-id="${escapeHtml(m.id)}" data-tail="1">
+          <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && tailParts.inThink))}</summary>
+          <pre>${escapeHtml(tailParts.think || "")}</pre>
+        </details>`
+      : "";
+    const tailMdBlock = showTailMd
+      ? `<div class="chat-md chat-timeline-md">${renderMarkdownSafe(tailParts.answer || "")}</div>`
+      : "";
+
+    let bodyHTML = "";
+    const isImageModel = m.role === "assistant" && m.model && modelCaps(m.model).has("image");
+    if (m.role === "assistant") {
+      if (isImageModel) {
+        if (m.streaming) {
+          let progressInfo = "";
+          if (m.completedSteps != null && m.totalSteps) {
+            const pct = Math.min(100, Math.round((m.completedSteps / m.totalSteps) * 100));
+            progressInfo = `<div class="chat-image-progress-text">Step ${m.completedSteps}/${m.totalSteps} (${pct}%)</div>
+            <div class="chat-image-progress-bar-wrap">
+              <div class="chat-image-progress-bar" style="width: ${pct}%"></div>
+            </div>`;
+          }
+          bodyHTML = `<div class="chat-image-generating-card">
+            <div class="chat-image-generating">
+              <span class="chat-tool-ic chat-tool-pulse"></span>
+              <span>${escapeHtml(t("chat.generating_image"))}</span>
+            </div>
+            ${progressInfo}
+          </div>`;
+        } else {
+          const cleanedContent = String(m.content || "").replace(/\s+/g, "");
+          const isError = m.isError || String(m.content || "").startsWith("Error:") || String(m.content || "").startsWith("Error ");
+          if (isError) {
+            bodyHTML = renderMarkdownSafe(m.content || "");
+          } else if (cleanedContent) {
+            const imgSrc = `data:image/png;base64,${cleanedContent}`;
+            const imgName = `${m.model.replace(/[^a-zA-Z0-9]/g, "_")}_${m.id}.png`;
+            bodyHTML = `<div class="chat-generated-image-container">
+              <button type="button" class="image-preview-open chat-generated-image-thumb" data-name="${escapeHtml(imgName)}">
+                <img src="${imgSrc}" alt="${escapeHtml(imgName)}" class="chat-generated-image" />
+              </button>
+              <div class="chat-generated-image-actions">
+                <a href="${imgSrc}" download="${escapeHtml(imgName)}" class="btn-icon download-generated-image-btn" title="${escapeHtml(t("chat.download_image"))}">
+                  <svg class="chat-download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </a>
+              </div>
+            </div>`;
+          } else {
+            bodyHTML = `<p class="muted">${escapeHtml(t("state.error_prefix"))} Empty response</p>`;
+          }
+        }
+      } else if (m.isError) {
+        bodyHTML = `<div class="chat-msg-error"><span class="chat-msg-error-icon">⚠️</span><div class="chat-msg-error-text">${renderMarkdownSafe(m.content || "")}</div></div>`;
+        if (m.isOom && m.suggestedPct > 0) {
+          const curTokens = m.effectiveCtx > 0 ? ` (${fmtCtx(m.effectiveCtx)})` : "";
+          const sugTokens = m.suggestedCtx > 0 ? ` (${fmtCtx(m.suggestedCtx)})` : "";
+          bodyHTML += `<div class="chat-oom-hint">
+            <p class="chat-oom-hint-text">${escapeHtml(t("chat.oom_reduce_hint", {
+              pct: m.effectivePct,
+              tokens: curTokens,
+              suggestedPct: m.suggestedPct,
+              suggestedTokens: sugTokens,
+            }))}</p>
+            <button type="button" class="chat-oom-retry-btn" data-msg-id="${escapeHtml(m.id)}" data-suggested-pct="${m.suggestedPct}">${escapeHtml(t("chat.oom_retry", { pct: m.suggestedPct }))}</button>
+          </div>`;
+        }
+      } else {
+        bodyHTML = renderMarkdownSafe(m.content || "");
+      }
+    }
+    const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
+    const canEditUser = m.role === "user" && !chatStreamLock && i === lastUserMsgIdx;
+    if (isEditingUser) {
+      bodyHTML = `<div class="chat-edit-box">
+  <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(chatEditingDraft)}</textarea>
+  <div class="chat-edit-actions">
+    <button type="button" class="chat-edit-save primary" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(t("chat.edit_save"))}</button>
+    <button type="button" class="chat-edit-cancel ghost">${escapeHtml(t("chat.edit_cancel"))}</button>
+  </div>
+</div>`;
+    } else if (m.role === "user") {
+      bodyHTML = `<p>${escapeHtml(m.content || "")}</p>`;
+    }
+    const roleLabel = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
+    const modelLabel = m.role === "assistant" && m.model
+      ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
+      : "";
+    const hideActions = (m.role === "assistant" && m.streaming) || (m.role === "assistant" && isImageModel) || isEditingUser;
+    const ttsPlaying = m.id === speakingMsgId;
+    const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
+    const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
+<svg class="chat-tts-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M11 5L6 9H3v6h3l5 4V5z"/>
+<path d="M15.5 9.5a4 4 0 0 1 0 5"/>
+<path d="M18.5 7a8 8 0 0 1 0 10"/>
+</svg></button>`;
+    const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
+    const copyBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
+<svg class="chat-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<rect x="9" y="9" width="11" height="11" rx="2"/>
+<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+</svg></button>`;
+    const quoteLabel = t("chat.quote");
+    const quoteBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-quote-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(quoteLabel)}" aria-label="${escapeHtml(quoteLabel)}">
+<svg class="chat-quote-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2H4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 1.5 0 2 .5 2 2 0 2-2 3-5 4"/>
+  <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2h-4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 1.5 0 2 .5 2 2 0 2-2 3-5 4"/>
+</svg></button>`;
+    const editBtn = !hideActions && canEditUser
+      ? `<button type="button" class="btn-icon chat-edit-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.edit_title"))}" aria-label="${escapeHtml(t("chat.edit"))}">
+<svg class="chat-edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M12 20h9"/>
+  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+</svg></button>`
+      : "";
+    const isLast = i === chatMessages.length - 1;
+    const canRegen = m.role === "assistant" && isLast && !m.streaming;
+    const regenBtn = canRegen
+      ? `<button type="button" class="btn-icon chat-regenerate-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.regenerate_title"))}" aria-label="${escapeHtml(t("chat.regenerate"))}">
+<svg class="chat-regenerate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v7h-7"/>
+</svg></button>`
+      : "";
+
+    const footActions = `${editBtn}${regenBtn}${ttsBtn}${quoteBtn}${copyBtn}`;
+    const finalMetricsHTML = m.role === "assistant" && !m.streaming ? assistantMetricHTML(m) : "";
+    const finalMetricsTitle = m.role === "assistant" && !m.streaming && m.elapsedMs ? formatMetaElapsedSecondsTitle(m.elapsedMs) : "";
+    const footBlock = footActions || finalMetricsHTML
+      ? `<div class="chat-msg-foot">
+          ${finalMetricsHTML ? `<span class="chat-msg-final-meta mono"${finalMetricsTitle ? ` title="${escapeHtml(finalMetricsTitle)}"` : ""}>${finalMetricsHTML}</span>` : ""}
+          <div class="chat-msg-foot-actions">
+            ${footActions}
+          </div>
+        </div>`
+      : "";
+    const artifactBadge = m.role === "assistant" && (m.artifactUrl || m.artifactGenerating)
+      ? `<div class="chat-artifact-badge">
+           <span class="chat-artifact-badge-icon">✦</span>
+           <span class="chat-artifact-badge-name">${escapeHtml(m.artifactName || "Artifact")}</span>
+           ${m.artifactUrl ? `<button type="button" class="btn-icon chat-artifact-open-btn" data-artifact-url="${escapeHtml(m.artifactUrl)}" data-artifact-name="${escapeHtml(m.artifactName || "Artifact")}" title="${escapeHtml(t("chat.artifact.open"))}" aria-label="${escapeHtml(t("chat.artifact.open"))}">↗</button>` : ""}
+         </div>`
+      : "";
+    const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
+    let contentBlock;
+    if (hasTl) {
+      // Timeline mode: all think/md/tool segments are in the timeline in order.
+      // Add tail (streaming think + md) after the timeline.
+      contentBlock = `${timelineBlock}${tailThinkBlock}${tailMdBlock}`;
+    } else {
+      // Simple mode: no timeline, render think + toolLog + body in order.
+      contentBlock = `${thinkBlock}${toolLogBlock}<div class="chat-md">${bodyHTML || "<p></p>"}</div>`;
+    }
+    return `
+      <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
+        <header class="chat-msg-head">
+          <div class="chat-msg-head-main">
+            <span class="chat-role">${escapeHtml(roleLabel)}</span>
+            ${modelLabel}
+          </div>
+        </header>
+        ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
+        ${files ? `<div class="chat-file-list">${files}</div>` : ""}
+        ${contentBlock}
+        ${artifactBadge}
+        ${footBlock}
+      </article>
+    `;
+  }).join("");
+
+  host.querySelectorAll("details.chat-think").forEach((el) => {
+    el.addEventListener("toggle", () => {
+      const msg = chatMessages.find((x) => x.id === el.dataset.id);
+      if (!msg) return;
+      if (el.dataset.tail === "1") {
+        msg.tailThinkOpen = el.open;
+      } else if (el.dataset.tlSeg && msg.timeline) {
+        const item = msg.timeline.find((i) => i.segId === el.dataset.tlSeg);
+        if (item) item.thinkOpen = el.open;
+      } else {
+        msg.thinkOpen = el.open;
+      }
+    });
+  });
+
+  host.querySelectorAll("details.chat-tool-preview").forEach((el) => {
+    el.addEventListener("toggle", () => {
+      const msg = chatMessages.find((x) => x.id === el.dataset.msgId);
+      if (!msg) return;
+      const toolIdx = parseInt(el.dataset.toolIdx, 10);
+      if (msg.toolLog && msg.toolLog[toolIdx]) {
+        msg.toolLog[toolIdx].open = el.open;
+      }
+    });
+  });
+
+  renderChatMath(host);
+}
+
+function renderAttachments() {
+  const box = $("chat-attachments");
+  if (!chatAttachments.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = chatAttachments.map((a) => {
+    if (a.kind === "image") {
+      const src = attachmentImageSrc(a);
+      if (!src) {
+        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+      }
+      return `<div class="chat-attach-card">
+        <button type="button" class="image-preview-open chat-attach-thumb" data-name="${escapeHtml(a.name)}" title="${escapeHtml(t("chat.image_preview_title"))}">
+          <img src="${src}" alt="" />
+        </button>
+        <div class="chat-attach-foot">
+          <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+        </div>
+      </div>`;
+    }
+    if (a.kind === "audio" && a.data) {
+      const src = attachmentAudioSrc(a);
+      if (!src) {
+        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+      }
+      return `<div class="chat-attach-card chat-attach-card-audio">
+        <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
+        <div class="chat-attach-foot">
+          <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+        </div>
+      </div>`;
+    }
+    if (a.kind === "text") {
+      const prev = attachmentTextPreview(a);
+      return `<div class="chat-attach-card chat-attach-card-text">
+        <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
+        <div class="chat-attach-foot">
+          <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+        </div>
+      </div>`;
+    }
+    return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+  }).join("");
+  box.querySelectorAll(".chat-attach-x").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      chatAttachments = chatAttachments.filter((x) => x.id !== btn.dataset.id);
+      renderAttachments();
+    });
+  });
+}
+
+function renderChatQueue() {
+  const host = $("chat-queue");
+  if (!host) return;
+  if (!chatPendingQueue.length) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+  host.hidden = false;
+  const n = chatPendingQueue.length;
+  const rows = chatPendingQueue.map((q, i) => {
+    const hasText = String(q.text || "").trim().length > 0;
+    const preview = hasText ? String(q.text).trim() : t("chat.queue_attachments_only");
+    const short = preview.length > 100 ? `${preview.slice(0, 100)}…` : preview;
+    const nAtt = (q.attachments || []).length;
+    const fileLine = nAtt
+      ? `<div class="chat-queue-files mono">${escapeHtml(t("chat.queue_files", { n: nAtt }))}</div>`
+      : "";
+    return `
+      <div class="chat-queue-item" data-id="${escapeHtml(q.id)}">
+        <div class="chat-queue-row1">
+          <span class="chat-queue-n mono">${i + 1}</span>
+          <p class="chat-queue-preview">${escapeHtml(short)}</p>
+          <div class="chat-queue-item-actions">
+            <button type="button" class="btn-icon chat-queue-send-now" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_send_now"))}" aria-label="${escapeHtml(t("chat.queue_send_now"))}">
+              <span aria-hidden="true">⚡</span>
+            </button>
+            <button type="button" class="btn-icon chat-queue-x" data-id="${escapeHtml(q.id)}" title="${escapeHtml(t("chat.queue_remove"))}">×</button>
+          </div>
+        </div>
+        ${fileLine}
+      </div>`;
+  }).join("");
+  host.innerHTML = `
+    <details class="chat-queue-details" open>
+      <summary class="chat-queue-summary">
+        <span class="chat-queue-chev" aria-hidden="true">▾</span>
+        <span>${escapeHtml(t("chat.queue_title"))}</span>
+        <span class="chat-queue-count mono">${n}</span>
+      </summary>
+      <div class="chat-queue-list">${rows}</div>
+    </details>`;
+  host.querySelectorAll(".chat-queue-send-now").forEach((btn) => {
+    addFastTapListener(btn, (e) => {
+      e?.stopPropagation?.();
+      const id = btn.dataset.id;
+      const idx = chatPendingQueue.findIndex((q) => q.id === id);
+      if (idx < 0) return;
+      const [item] = chatPendingQueue.splice(idx, 1);
+      chatPendingQueue.unshift(item);
+      renderChatQueue();
+      if (chatStreamLock) {
+        stopChatGeneration();
+      } else {
+        const next = chatPendingQueue.shift();
+        renderChatQueue();
+        void runOneChatTurn(next.text, next.attachments);
+      }
+    });
+  });
+  host.querySelectorAll(".chat-queue-x").forEach((btn) => {
+    addFastTapListener(btn, (e) => {
+      e?.stopPropagation?.();
+      const item = chatPendingQueue.find((q) => q.id === btn.dataset.id);
+      if (item) {
+        const inputEl = $("chat-input");
+        if (inputEl) {
+          const currentVal = inputEl.value;
+          if (!currentVal.trim()) {
+            inputEl.value = item.text || "";
+          } else if (item.text) {
+            inputEl.value = currentVal + "\n" + item.text;
+          }
+          inputEl.focus();
+        }
+        if (item.attachments && item.attachments.length) {
+          chatAttachments = [...chatAttachments, ...item.attachments];
+          renderAttachments();
+        }
+      }
+      chatPendingQueue = chatPendingQueue.filter((q) => q.id !== btn.dataset.id);
+      renderChatQueue();
+    });
+  });
+}
+
+function stopThinkTicker() {
+  if (!chatThinkTicker) return;
+  clearInterval(chatThinkTicker);
+  chatThinkTicker = null;
+}
+
+function startThinkTicker(msg) {
+  stopThinkTicker();
+  chatThinkTicker = setInterval(() => {
+    if (!msg || !msg.inThink || !msg.thinkStartedAt) return;
+    msg.thinkMs = Date.now() - msg.thinkStartedAt;
+
+    document.querySelectorAll(`details.chat-think[data-id="${msg.id}"]`).forEach((details) => {
+      const summary = details.querySelector("summary");
+      if (summary) {
+        const isTail = details.dataset.tail === "1";
+        const tailStr = msg._accRaw || "";
+        const tailParts = splitThink(tailStr);
+        const inThink = isTail ? tailParts.inThink : msg.inThink;
+        summary.textContent = thinkLabel(msg.thinkMs, inThink);
+        summary.title = formatMetaElapsedSecondsTitle(msg.thinkMs || 0);
+      }
+    });
+  }, 250);
+}
+
+function stopStreamTicker() {
+  if (!chatStreamTicker) return;
+  clearInterval(chatStreamTicker);
+  chatStreamTicker = null;
+}
+
+function startStreamTicker(msg, turnStartedAt) {
+  stopStreamTicker();
+  msg.turnStartedAt = turnStartedAt;
+  msg.elapsedMs = 0;
+  msg.completionTokens = 0;
+  msg.tokens = 0;
+  msg.tps = null;
+  msg._firstTokenAt = null;
+  msg._chunkCount = 0;
+  msg._charCount = 0;
+
+  chatStreamTicker = setInterval(() => {
+    if (!msg) return;
+    // Total processed time: complete time from beginning to now
+    msg.elapsedMs = Math.max(0, Date.now() - turnStartedAt);
+    updateLiveAssistantTPS(msg);
+    updateStreamBar();
+  }, 100);
+}
+
+function updateLiveAssistantTPS(msg) {
+  if (!msg || !msg._firstTokenAt) {
+    msg.tps = null;
+    return;
+  }
+  const genDurationMs = Date.now() - msg._firstTokenAt;
+  const tokens = Number(msg.completionTokens || msg.tokens) || 0;
+  if (tokens > 0 && genDurationMs >= 150) {
+    msg.tps = tokens / (genDurationMs / 1000);
+  }
+}
+
+function resizeImageToBase64(file, maxDim = 1024) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("could not get canvas 2d context"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      const mime = file.type || "image/jpeg";
+      const dataUrl = canvas.toDataURL(mime);
+      resolve(dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("failed to load image for resizing"));
+    };
+    img.src = url;
+  });
+}
+
+function toBase64(file) {
+  if (file.type && file.type.startsWith("image/")) {
+    return resizeImageToBase64(file, 1024);
+  }
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const res = String(fr.result || "");
+      resolve(res.includes(",") ? res.split(",")[1] : res);
+    };
+    fr.onerror = () => reject(new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+}
+
+
+async function addFiles(files) {
+  const selectedModel = $("chat-model").value;
+  const caps = modelCaps(selectedModel);
+  const canVision = caps.has("vision");
+  const canAudio = caps.has("audio");
+  const accepted = [];
+  for (const file of files) {
+    const type = String(file.type || "");
+    if (type.startsWith("image/") && canVision) accepted.push({ file, kind: "image" });
+    if (type.startsWith("audio/") && canAudio) accepted.push({ file, kind: "audio" });
+    if (isTextAttachmentFile(file)) accepted.push({ file, kind: "text" });
+  }
+  if (!accepted.length) {
+    toast(t("chat.attach_not_supported"), "error");
+    return;
+  }
+
+  for (const item of accepted) {
+    if (item.file.size > 20 * 1024 * 1024) {
+      toast(t("chat.file_too_large", { name: item.file.name }), "error");
+      continue;
+    }
+    if (item.kind === "text") {
+      const text = await item.file.text();
+      chatAttachments.push({
+        id: nanoid(),
+        kind: item.kind,
+        name: item.file.name,
+        mime: item.file.type || "text/plain",
+        text,
+      });
+    } else {
+      const data = await toBase64(item.file);
+      chatAttachments.push({
+        id: nanoid(),
+        kind: item.kind,
+        name: item.file.name,
+        mime: item.file.type,
+        data,
+      });
+    }
+  }
+  renderAttachments();
+}
+
+function setRecordButtonState(isRecording) {
+  const btn = $("chat-record-btn");
+  if (!btn) return;
+  btn.classList.toggle("is-recording", !!isRecording);
+  const key = isRecording ? "chat.record_audio_stop" : "chat.record_audio_start";
+  const label = t(key);
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
+
+  const inputEl = $("chat-input");
+  if (inputEl) {
+    if (isRecording) {
+      inputEl.placeholder = t("chat.recording_placeholder") || "Recording audio... Speak now...";
+      inputEl.classList.add("recording-active");
+    } else {
+      inputEl.placeholder = t("chat.input_placeholder") || "Write your message...";
+      inputEl.classList.remove("recording-active");
+    }
+  }
+}
+
+function releaseAudioRecorder() {
+  if (chatAudioProcessor) {
+    try { chatAudioProcessor.disconnect(); } catch { }
+    chatAudioProcessor.onaudioprocess = null;
+    chatAudioProcessor = null;
+  }
+  if (chatAudioSource) {
+    try { chatAudioSource.disconnect(); } catch { }
+    chatAudioSource = null;
+  }
+  if (chatAudioContext) {
+    try { chatAudioContext.close(); } catch { }
+    chatAudioContext = null;
+  }
+  if (chatRecorderStream) {
+    for (const tr of chatRecorderStream.getTracks()) {
+      try { tr.stop(); } catch { }
+    }
+    chatRecorderStream = null;
+  }
+  chatAudioBuffers = [];
+  chatAudioSampleRate = 0;
+  chatIsRecording = false;
+  setRecordButtonState(false);
+}
+
+async function startAudioRecording() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast(t("chat.record_audio_unsupported"), "error");
+    return;
+  }
+  const caps = modelCaps($("chat-model").value);
+  if (!caps.has("audio")) {
+    toast(t("chat.attach_not_supported"), "error");
+    return;
+  }
+  if (chatIsRecording) return;
+  try {
+    chatRecorderStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    chatAudioContext = new AudioContextClass();
+    if (chatAudioContext.state === "suspended") {
+      await chatAudioContext.resume();
+    }
+    chatAudioSampleRate = chatAudioContext.sampleRate;
+    chatAudioBuffers = [];
+    chatAudioSource = chatAudioContext.createMediaStreamSource(chatRecorderStream);
+    chatAudioProcessor = chatAudioContext.createScriptProcessor(4096, 1, 1);
+    chatAudioProcessor.onaudioprocess = (event) => {
+      chatAudioBuffers.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    };
+    chatAudioSource.connect(chatAudioProcessor);
+    chatAudioProcessor.connect(chatAudioContext.destination);
+    chatIsRecording = true;
+    setRecordButtonState(true);
+  } catch (err) {
+    toast(t("toast.error", { msg: err?.message || t("chat.record_audio_error") }), "error");
+    releaseAudioRecorder();
+  }
+}
+
+function stopAudioRecording(silent = false) {
+  if (!chatIsRecording) return;
+  chatIsRecording = false;
+  setRecordButtonState(false);
+
+  if (silent) {
+    if (chatAudioProcessor) {
+      chatAudioProcessor.onaudioprocess = null;
+    }
+    releaseAudioRecorder();
+    return;
+  }
+
+  const buffers = chatAudioBuffers.slice();
+  const sampleRate = chatAudioSampleRate;
+  releaseAudioRecorder();
+
+  if (!buffers.length || !sampleRate) return;
+  const blob = createWavBlob(buffers, sampleRate);
+  if (blob.size === 0) return;
+
+  const file = new File([blob], `recording-${Date.now()}.wav`, { type: "audio/wav" });
+  addFiles([file]);
+}
+
+function createWavBlob(buffers, sampleRate) {
+  if (!buffers.length || !sampleRate) return new Blob([], { type: "audio/wav" });
+  const samples = mergeAudioBuffers(buffers);
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  writePcm16(view, 44, samples);
+  return new Blob([view], { type: "audio/wav" });
+}
+
+function mergeAudioBuffers(buffers) {
+  const length = buffers.reduce((sum, buffer) => sum + buffer.length, 0);
+  const merged = new Float32Array(length);
+  let offset = 0;
+  for (const buffer of buffers) {
+    merged.set(buffer, offset);
+    offset += buffer.length;
+  }
+  return merged;
+}
+
+function writePcm16(view, offset, samples) {
+  for (let i = 0; i < samples.length; i++) {
+    const sample = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+}
+
+function writeAscii(view, offset, value) {
+  for (let i = 0; i < value.length; i++) {
+    view.setUint8(offset + i, value.charCodeAt(i));
+  }
+}
+
+function buildOutboundMessages() {
+  const out = [];
+  const selectedModel = $("chat-model").value;
+  const selectedCaps = selectedModel ? modelCaps(selectedModel) : new Set();
+  const isImageModel = isImageGenerationOnlyCaps(selectedCaps);
+  const systemPrompt = isImageModel ? "" : $("chat-system").value.trim();
+  if (systemPrompt) out.push({ role: "system", content: systemPrompt });
+  for (const m of chatMessages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    if (m.role === "assistant") {
+      if (m.streaming) continue;
+      const text = String(m.content || "").trim();
+      if (!text) {
+        if (m.artifactUrl || m.artifactName || (m.toolLog && m.toolLog.length)) {
+          out.push({ role: "assistant", content: `I have updated the artifact ${m.artifactName || "project"}.` });
+        }
+        continue;
+      }
+      out.push({ role: "assistant", content: text });
+      continue;
+    }
+    const payload = { role: m.role, content: m.content || "" };
+    if (m.role === "user" && m.attachments?.length) {
+      const imgs = m.attachments.filter((a) => a.kind === "image").map((a) => a.data);
+      const auds = m.attachments.filter((a) => a.kind === "audio").map((a) => a.data);
+      const txts = m.attachments.filter((a) => a.kind === "text" && String(a.text || "").trim());
+      const media = [...imgs, ...auds];
+      if (media.length) payload.images = media;
+      if (auds.length) payload.audios = auds;
+      if (txts.length) {
+        const blocks = txts.map((a) =>
+          `--- ${a.name || "text"} ---\n${String(a.text || "").trim()}`).join("\n\n");
+        const prefix = t("chat.attached_text_files");
+        const extra = `${prefix}\n\n${blocks}`;
+        payload.content = payload.content
+          ? `${payload.content}\n\n${extra}`
+          : extra;
+      }
+    }
+    out.push(payload);
+  }
+  return out;
+}
+
+function readOptionNumber(id, fallback) {
+  const n = Number($(id).value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseModelChatOptionsText(text) {
+  const out = {};
+  const src = String(text || "");
+  if (!src.trim()) return out;
+  for (const rawLine of src.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    line = line.replace(/^parameter\s+/i, "");
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
+    const key = parts[0].toLowerCase();
+    const val = Number(parts[1]);
+    if (!Number.isFinite(val)) continue;
+    if (key === "temperature") out.temperature = val;
+    else if (key === "top_k" || key === "top-k" || key === "topk") out.top_k = val;
+    else if (key === "top_p" || key === "top-p" || key === "topp") out.top_p = val;
+  }
+  return out;
+}
+
+function extractModelChatDefaults(detail) {
+  const fromParams = parseModelChatOptionsText(detail?.parameters);
+  const fromModelfile = parseModelChatOptionsText(detail?.modelfile);
+  return { ...fromParams, ...fromModelfile };
+}
+
+const GLOBAL_CHAT_DEFAULTS_KEY = "ollama_manager_global_chat_defaults";
+const MODEL_CHAT_OPTIONS_KEY = "ollama_manager_model_chat_options";
+
+function getGlobalChatDefaults() {
+  const serverDefaults = currentConfig?.chat_defaults;
+  const fallback = {
+    system: serverDefaults?.system_prompt ?? "",
+    temperature: serverDefaults?.temperature ?? 0.7,
+    top_k: serverDefaults?.top_k ?? 40,
+    top_p: serverDefaults?.top_p ?? 0.9,
+    num_ctx: serverDefaults?.num_ctx ?? 100,
+    think_level: serverDefaults?.think_level ?? "auto",
+    web_tools: serverDefaults?.web_tools ?? false,
+    artifacts: serverDefaults?.artifacts ?? false,
+  };
+  try {
+    const raw = localStorage.getItem(GLOBAL_CHAT_DEFAULTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const merged = { ...fallback, ...parsed };
+      // Migrate the legacy no_think flag into think_level.
+      if (parsed.no_think !== undefined && merged.think_level === "auto") {
+        merged.think_level = parsed.no_think ? "off" : "auto";
+      }
+      return merged;
+    }
+  } catch (e) {
+    console.error("Error reading global chat defaults", e);
+  }
+  return fallback;
+}
+
+function saveGlobalChatDefaults(defaults) {
+  try {
+    localStorage.setItem(GLOBAL_CHAT_DEFAULTS_KEY, JSON.stringify(defaults));
+  } catch (e) {
+    console.error("Error saving global chat defaults", e);
+  }
+}
+
+function getAllModelChatOptions() {
+  try {
+    const raw = localStorage.getItem(MODEL_CHAT_OPTIONS_KEY);
+    if (raw) return JSON.parse(raw) || {};
+  } catch (e) {
+    console.error("Error reading model chat options", e);
+  }
+  return {};
+}
+
+function getModelChatOptions(modelName) {
+  if (!modelName) return null;
+  const all = getAllModelChatOptions();
+  return all[modelName] || null;
+}
+
+function updateChatCustomOptionsBadge() {
+  const modelName = $("chat-model")?.value;
+  const resetBtn = $("chat-options-reset-btn");
+  if (!resetBtn) return;
+  const hasCustom = !!(modelName && getModelChatOptions(modelName));
+  resetBtn.hidden = !hasCustom;
+}
+
+function saveChatOptionsForCurrentModel() {
+  const modelName = $("chat-model")?.value;
+  if (!modelName) return;
+
+  const currentOpts = {
+    system: $("chat-system")?.value ?? "",
+    temperature: $("chat-temperature")?.value ?? "0.7",
+    top_k: $("chat-top-k")?.value ?? "40",
+    top_p: $("chat-top-p")?.value ?? "0.9",
+    num_ctx: $("chat-num-ctx")?.value ?? "100",
+    think_level: $("chat-think-level")?.value ?? "auto",
+    web_tools: $("chat-web-tools")?.checked ?? false,
+    artifacts: $("chat-artifacts")?.checked ?? false,
+    image_width: $("chat-image-width")?.value ?? "512",
+    image_height: $("chat-image-height")?.value ?? "512",
+    image_steps: $("chat-image-steps")?.value ?? "4",
+    image_seed: $("chat-image-seed")?.value ?? "0",
+  };
+
+  const all = getAllModelChatOptions();
+  all[modelName] = currentOpts;
+  try {
+    localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
+  } catch (e) {
+    console.error("Error saving model chat options", e);
+  }
+  updateChatCustomOptionsBadge();
+}
+
+function resetModelChatOptionsToDefaults() {
+  const modelName = $("chat-model")?.value;
+  if (!modelName) return;
+
+  const all = getAllModelChatOptions();
+  if (all[modelName]) {
+    delete all[modelName];
+    try {
+      localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
+    } catch (e) {
+      console.error("Error resetting model chat options", e);
+    }
+  }
+
+  void applyChatDefaultsForModel(modelName, true);
+  updateChatCustomOptionsBadge();
+  toast(t("chat.reset_to_defaults_done"), "success");
+}
+
+function setChatOptionsValues(opts) {
+  if (!opts) return;
+  if (opts.system !== undefined && $("chat-system")) {
+    $("chat-system").value = opts.system || "";
+  }
+  if (opts.temperature != null && $("chat-temperature")) {
+    $("chat-temperature").value = String(opts.temperature);
+  }
+  if (opts.top_k != null && $("chat-top-k")) {
+    $("chat-top-k").value = String(Math.round(Number(opts.top_k)));
+  }
+  if (opts.top_p != null && $("chat-top-p")) {
+    $("chat-top-p").value = String(opts.top_p);
+  }
+  if (opts.num_ctx != null && $("chat-num-ctx")) {
+    const pct = Number(opts.num_ctx);
+    $("chat-num-ctx").value = String(normalizeNumCtxPct(pct));
+  }
+  if (opts.think_level !== undefined && $("chat-think-level")) {
+    $("chat-think-level").value = opts.think_level;
+  } else if (opts.no_think !== undefined && $("chat-think-level")) {
+    $("chat-think-level").value = opts.no_think ? "off" : "auto";
+  }
+  if (opts.web_tools !== undefined && $("chat-web-tools")) {
+    $("chat-web-tools").checked = !!opts.web_tools;
+  }
+  if (opts.artifacts !== undefined && $("chat-artifacts")) {
+    $("chat-artifacts").checked = !!opts.artifacts;
+  }
+  if (opts.image_width !== undefined && $("chat-image-width")) {
+    $("chat-image-width").value = opts.image_width;
+  }
+  if (opts.image_height !== undefined && $("chat-image-height")) {
+    $("chat-image-height").value = opts.image_height;
+  }
+  if (opts.image_steps !== undefined && $("chat-image-steps")) {
+    $("chat-image-steps").value = opts.image_steps;
+  }
+  if (opts.image_seed !== undefined && $("chat-image-seed")) {
+    $("chat-image-seed").value = opts.image_seed;
+  }
+}
+
+async function applyChatDefaultsForModel(name, force = false) {
+  const model = String(name || "").trim();
+  if (!model) return;
+  if (!force && lastChatDefaultsModel === model) return;
+
+  const reqSeq = ++chatDefaultsReqSeq;
+  let modelfileDefaults = chatModelDefaultsCache.get(model);
+  if (!modelfileDefaults) {
+    try {
+      const detail = await api(`/api/models/${encodeURIComponent(model)}`);
+      modelfileDefaults = extractModelChatDefaults(detail);
+      chatModelDefaultsCache.set(model, modelfileDefaults);
+    } catch {
+      modelfileDefaults = {};
+    }
+  }
+
+  if (reqSeq !== chatDefaultsReqSeq) return;
+  if ($("chat-model").value !== model) return;
+
+  lastChatDefaultsModel = model;
+
+  // Check if this model has custom saved options in localStorage:
+  const modelSavedOpts = getModelChatOptions(model);
+  if (modelSavedOpts) {
+    setChatOptionsValues(modelSavedOpts);
+    updateChatCustomOptionsBadge();
+    return;
+  }
+
+  // Model does not have custom options -> use Global Chat Defaults + Modelfile parameters
+  const globalDefaults = getGlobalChatDefaults();
+  const effectiveDefaults = {
+    ...CHAT_OPTION_FALLBACKS,
+    ...modelfileDefaults,
+    ...globalDefaults,
+  };
+
+  if (globalDefaults.system) {
+    effectiveDefaults.system = globalDefaults.system;
+  } else if (modelfileDefaults.system) {
+    effectiveDefaults.system = modelfileDefaults.system;
+  } else {
+    effectiveDefaults.system = "";
+  }
+
+  setChatOptionsValues(effectiveDefaults);
+  updateChatCustomOptionsBadge();
+}
+
+function isEmbeddingOnlyModel(modelName) {
+  const caps = modelCaps(modelName);
+  return caps.has("embedding") && !caps.has("completion");
+}
+
+function buildEmbeddingInputText() {
+  const outbound = buildOutboundMessages();
+  for (let i = outbound.length - 1; i >= 0; i -= 1) {
+    const m = outbound[i];
+    if (m.role === "user" && String(m.content || "").trim()) {
+      return String(m.content).trim();
+    }
+  }
+  return "";
+}
+
+function formatEmbeddingResult(vec) {
+  const dims = Array.isArray(vec) ? vec.length : 0;
+  const preview = (Array.isArray(vec) ? vec : [])
+    .slice(0, 24)
+    .map((n) => Number(n).toFixed(6))
+    .join(", ");
+  return t("chat.embed_result", {
+    dims,
+    preview: `[${preview}${dims > 24 ? ", ..." : ""}]`,
+  });
+}
+
+function stopSpeechPlayback() {
+  if (!window.speechSynthesis) return;
+  try { window.speechSynthesis.cancel(); } catch { }
+  speakingMsgId = "";
+}
+
+function speakMessage(msg) {
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+    toast(t("chat.tts_unsupported"), "error");
+    return;
+  }
+  const text = textForSpeech(msg?.content || "");
+  if (!text) return;
+  const isSame = speakingMsgId && speakingMsgId === msg.id;
+  if (isSame && window.speechSynthesis.speaking) {
+    stopSpeechPlayback();
+    renderChatMessages();
+    return;
+  }
+  stopSpeechPlayback();
+
+  const u = new SpeechSynthesisUtterance(text);
+  const lang = speechLangFromUi();
+  const voice = findBestVoice(lang);
+  u.lang = voice?.lang || lang;
+  if (voice) u.voice = voice;
+  u.rate = 1;
+  u.pitch = 1;
+  speakingMsgId = msg.id;
+  u.onend = () => {
+    speakingMsgId = "";
+    if (currentView === "chat") renderChatMessages();
+  };
+  u.onerror = () => {
+    speakingMsgId = "";
+    if (currentView === "chat") renderChatMessages();
+  };
+  window.speechSynthesis.speak(u);
+  renderChatMessages();
+}
+
+async function readSSEStream(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    while (true) {
+      const splitAt = buf.indexOf("\n\n");
+      if (splitAt < 0) break;
+      const block = buf.slice(0, splitAt);
+      buf = buf.slice(splitAt + 2);
+      let event = "message";
+      const dataLines = [];
+      for (const line of block.split("\n")) {
+        if (!line || line.startsWith(":")) continue;
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      }
+      if (!dataLines.length) continue;
+      let data = {};
+      try {
+        data = JSON.parse(dataLines.join("\n"));
+      } catch {
+        data = { raw: dataLines.join("\n") };
+      }
+      await onEvent(event, data);
+    }
+  }
+}
+
+function isAbortError(e) {
+  if (!e) return false;
+  if (e.name === "AbortError") return true;
+  if (e.code === 20) return true; // legacy DOMException
+  const msg = String(e.message || "").toLowerCase();
+  return msg.includes("aborted") || msg.includes("user aborted");
+}
+
+function isOomError(e) {
+  const msg = String(e && (e.message || e) || "").toLowerCase();
+  return (
+    msg.includes("out of memory") ||
+    msg.includes("ran out of memory") ||
+    msg.includes("sin memoria") ||
+    msg.includes("falta de memoria") ||
+    msg.includes("memory error") ||
+    msg.includes("vram") ||
+    msg.includes("cuda error") ||
+    msg.includes("compute error") ||
+    msg.includes("llama-server chat error") ||
+    msg.includes("metal: command buffer") ||
+    msg.includes("allocation failed") ||
+    msg.includes("failed to allocate")
+  );
+}
+
+const NUM_CTX_PRESETS = [10, 25, 50, 75, 100];
+
+/** Clamp a value to a valid context percentage (100/75/50/25/10), defaulting to 100. */
+function normalizeNumCtxPct(p) {
+  const n = Math.round(Number(p));
+  return NUM_CTX_PRESETS.includes(n) ? n : 100;
+}
+
+/** Token budget for a context percentage. 100% (or unknown model) returns 0 = use model default. */
+function numCtxTokensForPct(pct, modelName) {
+  const p = normalizeNumCtxPct(pct);
+  if (p >= 100) return 0;
+  const modelMax = Number(modelByName(modelName)?.context_length) || 0;
+  const base = modelMax > 0 ? modelMax : 32768;
+  return Math.max(256, Math.round((base * p) / 100));
+}
+
+/** Suggest the next lower context percentage to retry after an out-of-memory error. */
+function suggestLowerPct(currentPct) {
+  const order = [100, 75, 50, 25, 10];
+  for (let i = 0; i < order.length; i++) {
+    if (order[i] < currentPct) return order[i];
+  }
+  return 0; // already at the minimum
+}
+
+function updateStreamBar() {
+  const bar = $("chat-stream-bar");
+  const btn = $("chat-stop-btn");
+  const label = bar?.querySelector(".chat-stream-label");
+  if (bar) bar.hidden = !chatStreamLock;
+  if (label) {
+    const metrics = activeStreamMessage ? assistantMetricText(activeStreamMessage, { showZero: true }) : "";
+    label.textContent = metrics ? `${t("chat.generating")} ${metrics}` : t("chat.generating");
+    if (activeStreamMessage && activeStreamMessage.elapsedMs != null) {
+      const timeTitle = formatMetaElapsedSecondsTitle(activeStreamMessage.elapsedMs || 0);
+      label.title = timeTitle;
+      if (bar) bar.title = timeTitle;
+    } else {
+      label.title = "";
+      if (bar) bar.title = "";
+    }
+  }
+  if (btn) {
+    btn.disabled = !chatStreamLock;
+    btn.title = t("chat.stop_hint");
+  }
+  const sendBtn = $("chat-send-btn");
+  if (sendBtn) {
+    sendBtn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    sendBtn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+  }
+}
+
+function stopChatGeneration() {
+  if (!chatStreamLock || !chatAbortController) return;
+  try { chatAbortController.abort(); } catch (_) { }
+}
+
+function newAssistantMessage() {
+  return {
+    id: nanoid(),
+    role: "assistant",
+    model: "",
+    content: "",
+    thinkContent: "",
+    thinkOpen: true,
+    inThink: false,
+    thinkMs: 0,
+    thinkStartedAt: 0,
+    streaming: true,
+    elapsedMs: 0,
+    tokens: 0,
+    hasDebug: false,
+    promptTokens: 0,
+    completionTokens: 0,
+    evalDurationNs: 0,
+    contextMax: 0,
+    tps: null,
+    lastChunkEvalCount: null,
+    streamStartedAt: 0,
+    toolLog: [],
+    thinkBlockStarted: false,
+    thinkBlockClosed: false,
+    timeline: [],
+    segmentFlushIndex: 0,
+    tailThinkOpen: true,
+    _lastSegInThink: false,
+  };
+}
+
+/** Keep the chat pane pinned to the latest content (streaming + layout). */
+let chatUserScrolledUp = false;
+function scrollChatToBottom(force = false) {
+  const host = $("chat-scroll-shell") || $("chat-messages");
+  if (!host) return;
+  
+  if (force) {
+    chatUserScrolledUp = false;
+    host.scrollTop = host.scrollHeight;
+    return;
+  }
+
+  // If the user has explicitly scrolled up to read previous messages, do NOT auto-scroll down
+  if (chatUserScrolledUp) return;
+
+  host.scrollTop = host.scrollHeight;
+}
+
+/** Scroll thinking blocks of the currently streaming message to bottom without jumping. */
+function scrollActiveBlocks() {
+  const streamingMsg = document.querySelector("article.chat-msg.chat-streaming");
+  if (!streamingMsg) return;
+
+  streamingMsg.querySelectorAll("details.chat-think").forEach((details) => {
+    if (!details.open) details.open = true;
+    const pre = details.querySelector("pre");
+    if (pre && !chatUserScrolledUp) {
+      pre.scrollTop = pre.scrollHeight;
+    }
+  });
+}
+
+async function runChatRequest(assistantMsg) {
+  const modelName = $("chat-model").value;
+  assistantMsg.model = modelName;
+  if (isEmbeddingOnlyModel(modelName)) {
+    const input = buildEmbeddingInputText();
+    if (!input) {
+      throw new Error(t("chat.embed_empty_input"));
+    }
+    const started = Date.now();
+    const data = await api("/api/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName, input }),
+    });
+    assistantMsg.streaming = false;
+    assistantMsg.elapsedMs = Date.now() - started;
+    assistantMsg.hasDebug = false;
+    assistantMsg.content = formatEmbeddingResult(data.embedding || []);
+    flushChatRender();
+    return;
+  }
+
+  const caps = modelCaps(modelName);
+  const isImageModel = isImageGenerationOnlyCaps(caps);
+  const canThink = caps.has("thinking");
+  const canTools = caps.has("tools");
+  const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
+  const artifactsOn = !isImageModel && canTools && $("chat-artifacts").checked;
+
+  const options = {};
+  const imageParams = {};
+  if (isImageModel) {
+    imageParams.width = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-width", 512))));
+    imageParams.height = Math.min(1024, Math.max(128, Math.round(readOptionNumber("chat-image-height", 512))));
+    imageParams.steps = Math.max(1, Math.round(readOptionNumber("chat-image-steps", 4)));
+    const seedVal = Math.round(readOptionNumber("chat-image-seed", 0));
+    if (seedVal > 0) {
+      imageParams.seed = seedVal;
+    }
+  } else {
+    options.temperature = readOptionNumber("chat-temperature", CHAT_OPTION_FALLBACKS.temperature);
+    options.top_k = Math.round(readOptionNumber("chat-top-k", CHAT_OPTION_FALLBACKS.top_k));
+    options.top_p = readOptionNumber("chat-top-p", CHAT_OPTION_FALLBACKS.top_p);
+    const numCtx = numCtxTokensForPct(readOptionNumber("chat-num-ctx", CHAT_OPTION_FALLBACKS.num_ctx), modelName);
+    if (numCtx > 0) options.num_ctx = numCtx;
+  }
+
+  const thinkLevel = canThink ? ($("chat-think-level")?.value || "auto") : "auto";
+  let think;
+  if (canThink && thinkLevel !== "auto") {
+    think = thinkLevel === "off" ? false : thinkLevel;
+  }
+
+  const payload = {
+    model: modelName,
+    think,
+    options,
+    messages: buildOutboundMessages(),
+    ...imageParams,
+  };
+  if (webToolsOn) payload.web_tools = true;
+  if (artifactsOn) {
+    payload.artifacts = true;
+    if (activeArtifactTimestamp) {
+      payload.artifact_dir = activeArtifactTimestamp;
+    } else {
+      // Find the most recent artifact in chat history to iterate on it.
+      for (let i = chatMessages.length - 1; i >= 0; i--) {
+        const msg = chatMessages[i];
+        if (msg.artifactTimestamp) {
+          payload.artifact_dir = msg.artifactTimestamp;
+          break;
+        }
+        if (msg.artifactUrl) {
+          const match = String(msg.artifactUrl).match(/\/api\/artifacts\/(.+)\//);
+          if (match) {
+            payload.artifact_dir = match[1];
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  chatAbortController = new AbortController();
+  chatStreamLock = true;
+  activeStreamMessage = assistantMsg;
+  updateStreamBar();
+  const turnStartedAt = Date.now();
+  assistantMsg.streamStartedAt = turnStartedAt;
+  startStreamTicker(assistantMsg, turnStartedAt);
+  let assistantRaw = "";
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: chatAbortController.signal,
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try {
+        const j = await res.json();
+        if (j.error) msg = j.error;
+      } catch { }
+      throw new Error(msg || "chat failed");
+    }
+    await readSSEStream(res, async (event, data) => {
+      // Debug: log every SSE event with full data
+      if (event === "chunk") {
+        const thinkDelta = data?.message?.thinking || "";
+        const contentDelta = data?.message?.content || "";
+        const toolCalls = data?.message?.tool_calls;
+        if (thinkDelta || contentDelta || toolCalls) {
+          // console.log("[chat] chunk", {
+          //   thinking: thinkDelta ? thinkDelta.slice(0, 200) : "",
+          //   content: contentDelta ? contentDelta.slice(0, 200) : "",
+          //   tool_calls: toolCalls,
+          //   done: data?.done,
+          //   eval_count: data?.eval_count,
+          // });
+        }
+      } else {
+        console.log(`[chat] event:${event}`, data);
+      }
+      if (event === "artifact") {
+        if (data?.timestamp) {
+          assistantMsg.artifactTimestamp = data.timestamp;
+          activeArtifactTimestamp = data.timestamp;
+        }
+        if (data?.name) {
+          assistantMsg.artifactName = data.name;
+          activeArtifactName = data.name;
+        }
+        if (data?.url) {
+          assistantMsg.artifactUrl = data.url;
+          activeArtifactUrl = data.url;
+        }
+        if (data?.generating) {
+          // create_artifact was called — show loading screen, don't load URL yet.
+          assistantMsg.artifactUrl = data?.url || "";
+          assistantMsg.artifactName = data?.name || "Artifact";
+          assistantMsg.artifactDescription = data?.description || "";
+          assistantMsg.artifactGenerating = true;
+          activeArtifactName = assistantMsg.artifactName;
+          activeArtifactUrl = assistantMsg.artifactUrl;
+          showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName, true);
+          updateArtifactResourceBtn();
+          scheduleRenderChatMessages();
+        } else if (data?.loaded) {
+          // index.html was written — transition from loading screen to live preview.
+          assistantMsg.artifactGenerating = false;
+          const url = data?.url || assistantMsg.artifactUrl || "";
+          activeArtifactUrl = url;
+          const panel = $("chat-artifact-panel");
+          const frame = $("chat-artifact-frame");
+          if (panel) panel.hidden = false;
+          if (frame && url) {
+            frame.removeAttribute("srcdoc");
+            frame.src = url;
+            const match = String(url).match(/\/api\/artifacts\/(.+)\//);
+            if (match) {
+              activeArtifactTimestamp = match[1];
+            }
+          }
+          updateArtifactResourceBtn();
+          // Close options panel so artifact is visible on mobile
+          $("chat-view")?.classList.remove("chat-options-open");
+          syncChatPanels($("chat-view"));
+          scheduleRenderChatMessages();
+        } else if (data?.reload) {
+          // Reload the iframe if the artifact panel is already visible.
+          const panel = $("chat-artifact-panel");
+          const frame = $("chat-artifact-frame");
+          if (panel && !panel.hidden && frame && frame.src) {
+            frame.removeAttribute("srcdoc");
+            // Bypass browser cache and trigger immediate reload
+            const u = new URL(frame.src, window.location.href);
+            u.searchParams.set("_t", Date.now());
+            frame.src = u.toString();
+          }
+        } else {
+          assistantMsg.artifactUrl = data?.url || "";
+          assistantMsg.artifactName = data?.name || "Artifact";
+          assistantMsg.artifactDescription = data?.description || "";
+          activeArtifactName = assistantMsg.artifactName;
+          activeArtifactUrl = assistantMsg.artifactUrl;
+          showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName);
+          updateArtifactResourceBtn();
+          scheduleRenderChatMessages();
+        }
+      } else if (event === "artifact_screenshot_request") {
+        void handleArtifactScreenshotRequest(data);
+      } else if (event === "artifact_eval_request") {
+        void handleArtifactEvalRequest(data);
+      } else if (event === "tool") {
+        if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
+        if (data?.phase === "generating") {
+          // Model is generating tool call arguments — show early feedback.
+          let existing = assistantMsg.toolLog.find(
+            (e) => e.name === data.name && e.status === "generating"
+          );
+          if (!existing) {
+            flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+            existing = {
+              name: data.name,
+              path: data.path,
+              command: data.command,
+              code: data.code,
+              artifact_name: data.artifact_name,
+              status: "generating",
+            };
+            assistantMsg.toolLog.push(existing);
+            if (!assistantMsg.timeline) assistantMsg.timeline = [];
+            assistantMsg.timeline.push({ type: "tool", entry: existing });
+          } else {
+            // Update existing entry with any newly received fields.
+            if (data.path) existing.path = data.path;
+            if (data.command) existing.command = data.command;
+            if (data.code) existing.code = data.code;
+            if (data.artifact_name) existing.artifact_name = data.artifact_name;
+          }
+
+          if (data.name === "create_artifact") {
+            assistantMsg.artifactGenerating = true;
+            if (data.artifact_name) {
+              assistantMsg.artifactName = data.artifact_name;
+            }
+            showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
+          }
+        } else if (data?.phase === "start") {
+          if (!assistantMsg._toolActiveStart) {
+            assistantMsg._toolActiveStart = Date.now();
+          }
+          // Upgrade 'generating' entries to 'running', or add new if none.
+          let upgraded = false;
+          for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
+            const e = assistantMsg.toolLog[i];
+            if (e.name === data.name && e.status === "generating") {
+              e.status = "running";
+              e.query = data.query;
+              e.url = data.url;
+              e.max_results = data.max_results;
+              e.description = data.description;
+              if (data.path) e.path = data.path;
+              if (data.command) e.command = data.command;
+              if (data.code) e.code = data.code;
+              if (data.artifact_name) e.artifact_name = data.artifact_name;
+              upgraded = true;
+              break;
+            }
+          }
+          if (!upgraded) {
+            flushSegmentToTimeline(assistantMsg, assistantRaw, false);
+            const entry = {
+              name: data.name,
+              query: data.query,
+              url: data.url,
+              max_results: data.max_results,
+              path: data.path,
+              command: data.command,
+              code: data.code,
+              artifact_name: data.artifact_name,
+              description: data.description,
+              status: "running",
+            };
+            assistantMsg.toolLog.push(entry);
+            if (!assistantMsg.timeline) assistantMsg.timeline = [];
+            assistantMsg.timeline.push({ type: "tool", entry });
+          }
+
+          if (data.name === "create_artifact") {
+            assistantMsg.artifactGenerating = true;
+            if (data.artifact_name) {
+              assistantMsg.artifactName = data.artifact_name;
+            }
+            showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
+          }
+        } else if (data?.phase === "done") {
+          if (assistantMsg._toolActiveStart) {
+            const duration = Date.now() - assistantMsg._toolActiveStart;
+            assistantMsg._toolTotalTimeMs = (assistantMsg._toolTotalTimeMs || 0) + duration;
+            assistantMsg._toolActiveStart = null;
+          }
+          for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
+            const e = assistantMsg.toolLog[i];
+            if (e.name === data.name && (e.status === "running" || e.status === "generating")) {
+              e.status = data.ok ? "ok" : "error";
+              e.error = data.error || "";
+              e.result_preview = data.result_preview || "";
+              e.result_runes = data.result_runes;
+              if (data.image) e.image = data.image;
+              break;
+            }
+          }
+        }
+        assistantMsg._accRaw = assistantRaw;
+        scheduleRenderChatMessages();
+      } else if (event === "chunk") {
+        const thinkDelta = data?.message?.thinking || "";
+        const contentDelta = data?.message?.content || "";
+        if (thinkDelta || contentDelta) {
+          assistantMsg._lastChunkAt = Date.now();
+          if (!assistantMsg._firstTokenAt) {
+            assistantMsg._firstTokenAt = Date.now();
+          }
+          const chunkChars = (thinkDelta ? thinkDelta.length : 0) + (contentDelta ? contentDelta.length : 0);
+          assistantMsg._charCount = (assistantMsg._charCount || 0) + chunkChars;
+          assistantMsg._chunkCount = (assistantMsg._chunkCount || 0) + 1;
+
+          const tokenEst = Math.max(assistantMsg._chunkCount, Math.round(assistantMsg._charCount / 3.8));
+          assistantMsg.completionTokens = tokenEst;
+          assistantMsg.tokens = tokenEst;
+        }
+        if (data?.completed != null) {
+          assistantMsg.completedSteps = data.completed;
+        }
+        if (data?.total != null) {
+          assistantMsg.totalSteps = data.total;
+        }
+        if (thinkDelta) {
+          if (!assistantMsg.thinkBlockStarted) {
+            assistantRaw += "<think>\n";
+            assistantMsg.thinkBlockStarted = true;
+          } else if (assistantMsg.thinkBlockClosed) {
+            assistantRaw += "\n<think>\n";
+            assistantMsg.thinkBlockClosed = false;
+          }
+          assistantRaw += thinkDelta;
+        }
+        if (contentDelta) {
+          if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
+            assistantRaw += "\n</think>\n";
+            assistantMsg.thinkBlockClosed = true;
+          }
+          assistantRaw += contentDelta;
+        }
+        const parts = splitThink(assistantRaw);
+        assistantMsg.thinkContent = parts.think;
+        assistantMsg.content = parts.answer;
+        assistantMsg.inThink = parts.inThink;
+        assistantMsg.elapsedMs = Date.now() - turnStartedAt;
+        const chunkEval = Number(data?.eval_count);
+        if (Number.isFinite(chunkEval) && chunkEval > (assistantMsg.completionTokens || 0)) {
+          assistantMsg.completionTokens = chunkEval;
+          assistantMsg.tokens = chunkEval;
+        }
+        updateLiveAssistantTPS(assistantMsg);
+        if (parts.inThink && !assistantMsg.thinkStartedAt) {
+          assistantMsg.thinkStartedAt = Date.now();
+          startThinkTicker(assistantMsg);
+        }
+        if (!parts.inThink && assistantMsg.thinkStartedAt) {
+          assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
+          stopThinkTicker();
+        }
+        assistantMsg._accRaw = assistantRaw;
+        updateStreamBar();
+        scheduleRenderChatMessages();
+      } else if (event === "error") {
+        throw new Error(data?.error || "stream error");
+      } else if (event === "done") {
+        stopStreamTicker();
+        console.log("[chat] done event", {
+          toolLog: assistantMsg.toolLog || [],
+          artifactUrl: assistantMsg.artifactUrl || null,
+          artifactGenerating: assistantMsg.artifactGenerating || false,
+          contentPreview: (assistantMsg.content || "").slice(0, 300),
+          thinkPreview: (assistantMsg.thinkContent || "").slice(0, 300),
+          tokens: data?.total_tokens,
+          elapsed_ms: data?.elapsed_ms,
+        });
+        if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
+          assistantRaw += "\n</think>\n";
+          assistantMsg.thinkBlockClosed = true;
+        }
+        const p2 = splitThink(assistantRaw);
+        assistantMsg.thinkContent = p2.think;
+        assistantMsg.content = p2.answer;
+        assistantMsg.inThink = p2.inThink;
+        // Always flush remaining content to timeline for faithful chronological order.
+        // Skip image models — their content is base64 image data, not text.
+        const isImgModel = assistantMsg.model && modelCaps(assistantMsg.model).has("image");
+        if (!isImgModel) {
+          flushSegmentToTimeline(assistantMsg, assistantRaw, true);
+        }
+        if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {
+          // If the response ended without any real tool execution (only
+          // generating placeholders), remove the stale entries.
+          const hasRealTool = assistantMsg.toolLog.some(
+            (e) => e.status !== "generating"
+          );
+          if (!hasRealTool) {
+            assistantMsg.toolLog = [];
+          }
+          if (assistantMsg.timeline) {
+            assistantMsg.timeline = assistantMsg.timeline.filter(
+              (it) => it.type !== "tool" || (it.entry && it.entry.status !== "generating")
+            );
+          }
+        }
+        assistantMsg._accRaw = "";
+        assistantMsg.streaming = false;
+        assistantMsg.inThink = false;
+        assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - turnStartedAt);
+        assistantMsg.promptTokens = Number(data.prompt_tokens) || 0;
+        assistantMsg.completionTokens = Number(data.completion_tokens) || (assistantMsg.completionTokens || 0);
+        assistantMsg.tokens = Number(data.total_tokens) || (assistantMsg.promptTokens + assistantMsg.completionTokens);
+        assistantMsg.evalDurationNs = Number(data.eval_duration_ns) || 0;
+        assistantMsg.doneReason = data?.done_reason || assistantMsg.doneReason || "stop";
+        const mdl = modelByName(assistantMsg.model || modelName);
+        assistantMsg.contextMax = Number(mdl?.context_length) || 0;
+        const evNs = assistantMsg.evalDurationNs;
+        const comp = assistantMsg.completionTokens;
+        if (evNs > 0 && comp > 0) {
+          assistantMsg.tps = comp / (evNs / 1e9);
+        } else if (assistantMsg._firstTokenAt && comp > 0) {
+          const genSec = (Date.now() - assistantMsg._firstTokenAt) / 1000;
+          assistantMsg.tps = genSec > 0.1 ? (comp / genSec) : (comp / Math.max(0.001, assistantMsg.elapsedMs / 1000));
+        } else if (comp > 0 && assistantMsg.elapsedMs > 0) {
+          assistantMsg.tps = comp / (assistantMsg.elapsedMs / 1000);
+        } else {
+          assistantMsg.tps = null;
+        }
+        assistantMsg.hasDebug = true;
+        chatLastUsedTokens = assistantMsg.tokens || (assistantMsg.promptTokens + assistantMsg.completionTokens);
+        updateChatContextMeter();
+        flushChatRender();
+        refreshModels().catch(() => {});
+      }
+    });
+    assistantMsg.streaming = false;
+    if (assistantMsg.thinkStartedAt && assistantMsg.thinkMs === 0) {
+      assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
+    }
+    assistantMsg.elapsedMs = assistantMsg.elapsedMs || (Date.now() - turnStartedAt);
+  } catch (e) {
+    assistantMsg.streaming = false;
+    assistantMsg.inThink = false;
+    if (isAbortError(e)) {
+      assistantMsg.stopped = true;
+      assistantMsg.doneReason = "aborted";
+      const hasAnswer = String(assistantMsg.content || "").trim().length > 0;
+      const hasThink = String(assistantMsg.thinkContent || "").trim().length > 0;
+      if (!hasAnswer && !hasThink) {
+        assistantMsg.content = t("chat.stopped_empty");
+      }
+    } else {
+      let errMsg = e.message || "failed";
+      if (errMsg.includes("mlx runner failed") || errMsg.includes("failed to initialize MLX") || errMsg.includes("failed to load MLX")) {
+        errMsg = t("chat.error_mlx_unsupported");
+      } else if (
+        errMsg.includes("Compute error") ||
+        errMsg.includes("llama-server chat error") ||
+        errMsg.includes("out of memory") ||
+        errMsg.includes("CUDA error") ||
+        errMsg.includes("metal: command buffer")
+      ) {
+        errMsg = t("chat.error_compute_oom");
+      }
+      if (isOomError(errMsg)) {
+        assistantMsg.isOom = true;
+        const curPct = normalizeNumCtxPct(Number($("chat-num-ctx")?.value) || 100);
+        const modelMax = Number(modelByName(assistantMsg.model)?.context_length) || 0;
+        const base = modelMax > 0 ? modelMax : 32768;
+        const effective = curPct >= 100 ? (modelMax || 0) : Math.round((base * curPct) / 100);
+        const suggestedPct = suggestLowerPct(curPct);
+        const suggested = suggestedPct >= 100 ? (modelMax || 0) : Math.round((base * suggestedPct) / 100);
+        assistantMsg.effectiveCtx = effective;
+        assistantMsg.effectivePct = curPct;
+        assistantMsg.suggestedPct = suggestedPct;
+        assistantMsg.suggestedCtx = suggested;
+      }
+      assistantMsg.isError = true;
+      const isImg = assistantMsg.model && modelCaps(assistantMsg.model).has("image");
+      if (!assistantMsg.content || isImg) {
+        assistantMsg.content = t("chat.error_reply", { msg: errMsg });
+      }
+      toast(t("toast.error", { msg: errMsg }), "error");
+    }
+  } finally {
+    chatAbortController = null;
+    stopThinkTicker();
+    stopStreamTicker();
+    chatStreamLock = false;
+    activeStreamMessage = null;
+    updateStreamBar();
+    flushChatRender();
+    void refreshModelArtifactCount();
+    if (chatPendingQueue.length > 0) {
+      const next = chatPendingQueue.shift();
+      renderChatQueue();
+      setTimeout(() => { runOneChatTurn(next.text, next.attachments); }, 0);
+    } else {
+      renderChatQueue();
+    }
+  }
+}
+
+async function runOneChatTurn(text, attachments) {
+  chatEditingMessageId = "";
+  chatEditingDraft = "";
+  const userMsg = {
+    id: nanoid(),
+    role: "user",
+    content: text,
+    attachments: (attachments || []).map((a) => ({ ...a })),
+  };
+  chatMessages.push(userMsg);
+  const assistantMsg = newAssistantMessage();
+  assistantMsg.model = $("chat-model").value;
+  chatMessages.push(assistantMsg);
+  renderChatMessages();
+  scrollChatToBottom(true);
+  await runChatRequest(assistantMsg);
+}
+
+async function regenerateLastAssistantMessage(clickedId) {
+  if (chatStreamLock) {
+    toast(t("chat.regenerate_busy"), "error");
+    return;
+  }
+  if (!chatMessages.length) return;
+  const last = chatMessages[chatMessages.length - 1];
+  if (last.id !== clickedId || last.role !== "assistant" || last.streaming) return;
+  if (chatMessages.length < 2) return;
+  const prev = chatMessages[chatMessages.length - 2];
+  if (!prev || prev.role !== "user") return;
+  if ($("chat-send-btn")?.disabled) {
+    const why = $("chat-send-btn")?.title || t("status.unreachable");
+    toast(why, "error");
+    return;
+  }
+  if (!models.length) {
+    toast(t("chat.no_models"), "error");
+    return;
+  }
+  chatMessages.pop();
+  const assistantMsg = newAssistantMessage();
+  assistantMsg.model = $("chat-model").value;
+  chatMessages.push(assistantMsg);
+  renderChatMessages();
+  scrollChatToBottom(true);
+  await runChatRequest(assistantMsg);
+}
+
+async function reduceContextAndRetry(msgId, suggestedPct) {
+  if (chatStreamLock) {
+    toast(t("chat.regenerate_busy"), "error");
+    return;
+  }
+  const pct = normalizeNumCtxPct(suggestedPct);
+  if (pct <= 0) return;
+  const numCtxInput = $("chat-num-ctx");
+  if (numCtxInput) {
+    numCtxInput.value = String(pct);
+    saveChatOptionsForCurrentModel();
+    toast(t("chat.oom_ctx_set", { pct }), "success");
+  }
+  await regenerateLastAssistantMessage(msgId);
+}
+
+async function editAndResendUserMessage(userId, newText) {
+  if (chatStreamLock) {
+    toast(t("chat.edit_busy"), "error");
+    return;
+  }
+  const idx = chatMessages.findIndex((m) => m.id === userId && m.role === "user");
+  if (idx < 0) return;
+
+  let lastUserIdx = -1;
+  for (let k = chatMessages.length - 1; k >= 0; k--) {
+    if (chatMessages[k].role === "user") {
+      lastUserIdx = k;
+      break;
+    }
+  }
+  if (idx !== lastUserIdx) return;
+
+  if ($("chat-send-btn")?.disabled) {
+    const why = $("chat-send-btn")?.title || t("status.unreachable");
+    toast(why, "error");
+    return;
+  }
+  if (!models.length) {
+    toast(t("chat.no_models"), "error");
+    return;
+  }
+  const trimmed = newText.trim();
+  if (!trimmed && !(chatMessages[idx].attachments || []).length) return;
+  chatMessages[idx].content = trimmed;
+  chatMessages = chatMessages.slice(0, idx + 1);
+  const assistantMsg = newAssistantMessage();
+  assistantMsg.model = $("chat-model").value;
+  chatMessages.push(assistantMsg);
+  chatEditingMessageId = "";
+  chatEditingDraft = "";
+  renderChatMessages();
+  scrollChatToBottom(true);
+  await runChatRequest(assistantMsg);
+}
+
+async function sendChatMessage(interruptNow = false) {
+  if ($("chat-send-btn")?.disabled) return;
+  const text = $("chat-input").value.trim();
+  if (!text && chatAttachments.length === 0) return;
+  if (!models.length) {
+    toast(t("chat.no_models"), "error");
+    return;
+  }
+
+  const snapText = text;
+  const snapAtt = chatAttachments.map((a) => ({ ...a }));
+  $("chat-input").value = "";
+  chatAttachments = [];
+  renderAttachments();
+
+  if (chatStreamLock) {
+    if (interruptNow) {
+      chatPendingQueue.unshift({ id: nanoid(), text: snapText, attachments: snapAtt });
+      renderChatQueue();
+      stopChatGeneration();
+      return;
+    }
+    chatPendingQueue.push({ id: nanoid(), text: snapText, attachments: snapAtt });
+    renderChatQueue();
+    return;
+  }
+
+  await runOneChatTurn(snapText, snapAtt);
+}
+
+let chatArtifactWidthSet = false;
+

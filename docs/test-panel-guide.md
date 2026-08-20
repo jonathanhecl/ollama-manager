@@ -129,7 +129,7 @@ The SPA has three top-level `<main>` elements for tests (all `hidden` by default
 
 ### Routing
 
-`handleRouting()` in `app.js` handles:
+`handleRouting()` in `web/app-svg.js` handles:
 - `/tests` → `showTestsView()`
 - `/tests/new` → `showTestEditorView(null)`
 - `/tests/edit/{id}` → `showTestEditorView(id)`
@@ -238,7 +238,7 @@ When a battery runs (future feature), the runner will skip tests whose `required
 
 1. Add the field to the `Test` struct in `internal/tests/store.go`.
 2. Add a form field to the editor in `web/index.html`.
-3. Wire it in `showTestEditorView()` and `saveTestEditor()` in `web/app.js`.
+3. Wire it in `showTestEditorView()` and `saveTestEditor()` in `web/app-svg.js`.
 4. No migration needed — the JSON store simply ignores unknown fields on load.
 
 ### Wiring test execution (future)

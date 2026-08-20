@@ -1,0 +1,230 @@
+"use strict";
+
+// ---------- status ----------
+async function refreshStatus() {
+  try {
+    const s = await api("/api/status");
+    lastSystemStatus = s;
+    managerApiOk = true;
+    ollamaHostOk = !!s.ollama_reachable;
+    if (s.language && s.language !== window.I18n.getLang()) {
+      window.I18n.setLang(s.language);
+    }
+    const pill = $("status-pill");
+    if (s.ollama_reachable) {
+      pill.textContent = t("status.online");
+      pill.className = "pill pill-good";
+    } else {
+      pill.textContent = t("status.offline");
+      pill.className = "pill pill-bad";
+    }
+    $("settings-logout-btn").hidden = !s.has_password;
+    updateSystemWidgets(s);
+    updateChatSendEnabled();
+    if (Array.isArray(s.running)) {
+      runningModels = s.running;
+      applyRunning(s.running);
+      updateLoadedDotsOnly();
+      updateChatModelLoadDot();
+      patchDetailLoadedState();
+      if ($("running-modal") && !$("running-modal").hidden) {
+        renderRunningModalList();
+      }
+    }
+  } catch (e) {
+    lastSystemStatus = null;
+    managerApiOk = false;
+    ollamaHostOk = false;
+    $("status-pill").textContent = t("status.unreachable");
+    $("status-pill").className = "pill pill-bad";
+    updateSystemWidgets(null);
+    updateChatSendEnabled();
+  }
+}
+
+function updateSystemWidgets(status) {
+  const compact = window.matchMedia("(max-width: 900px)").matches;
+
+  updateMetricWidget({
+    wrapId: "cpu-widget",
+    fillId: "cpu-widget-fill",
+    textId: "cpu-widget-text",
+    pct: Number(status?.cpu_used_pct),
+    text: t("status.cpu_short", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
+    title: t("status.cpu_title", { pct: Math.round(Number(status?.cpu_used_pct) || 0) }),
+    warn: true,
+  });
+
+  updateMemoryWidget(status, compact);
+
+  updateDiskWidget(status, compact);
+}
+
+function installedModelsBytes() {
+  return models.reduce((acc, m) => {
+    const size = Number(m?.size);
+    if (!Number.isFinite(size) || size <= 0) return acc;
+    return acc + size;
+  }, 0);
+}
+
+function loadedModelsTotalEstimateBytes() {
+  return models.reduce((acc, m) => {
+    if (!m || !m.loaded) return acc;
+    const size = Number(m?.size);
+    const total = Number.isFinite(size) && size > 0 ? size : 0;
+    return acc + total;
+  }, 0);
+}
+
+function updateMemoryWidget(status, compact) {
+  const wrap = $("memory-widget");
+  const modelsFill = $("memory-widget-fill-models");
+  const otherFill = $("memory-widget-fill");
+  const textNode = $("memory-widget-text");
+  if (!wrap || !modelsFill || !otherFill || !textNode) return;
+
+  const memoryTotal = Number(status?.memory_total) || 0;
+  const memoryUsedRaw = Number(status?.memory_used) || 0;
+  const memoryPct = Number(status?.memory_used_pct);
+  if (memoryTotal <= 0 || !Number.isFinite(memoryPct)) {
+    wrap.hidden = true;
+    return;
+  }
+
+  const memoryUsed = Math.max(0, Math.min(memoryUsedRaw, memoryTotal));
+  const hasServerLoadedTotal = !!(status && Object.prototype.hasOwnProperty.call(status, "models_loaded_bytes"));
+  const loadedModelsApprox = hasServerLoadedTotal
+    ? (Number(status?.models_loaded_bytes) || 0)
+    : loadedModelsTotalEstimateBytes();
+  const modelUsed = Math.min(Math.max(0, loadedModelsApprox), memoryUsed);
+  const otherUsed = Math.max(0, memoryUsed - modelUsed);
+
+  const modelsPct = (modelUsed / memoryTotal) * 100;
+  const otherPct = (otherUsed / memoryTotal) * 100;
+  const freePct = ((memoryTotal - memoryUsed) / memoryTotal) * 100;
+
+  modelsFill.style.width = `${Math.max(0, Math.min(100, modelsPct)).toFixed(1)}%`;
+  otherFill.style.width = `${Math.max(0, Math.min(100, otherPct)).toFixed(1)}%`;
+  textNode.textContent = compact
+    ? t("status.percent_short", { pct: Math.round(memoryPct) })
+    : t("status.memory_short", { used: fmtBytes(memoryUsed), total: fmtBytes(memoryTotal) });
+  wrap.title = t("status.memory_breakdown_title", {
+    models: fmtBytes(modelUsed),
+    other: fmtBytes(otherUsed),
+    free: fmtBytes(Math.max(0, memoryTotal - memoryUsed)),
+    total: fmtBytes(memoryTotal),
+    pct: Math.round(freePct),
+  });
+  wrap.hidden = false;
+}
+
+function updateDiskWidget(status, compact) {
+  const wrap = $("disk-widget");
+  const modelsFill = $("disk-widget-fill-models");
+  const otherFill = $("disk-widget-fill");
+  const textNode = $("disk-widget-text");
+  if (!wrap || !modelsFill || !otherFill || !textNode) return;
+
+  const diskTotal = Number(status?.disk_total_bytes) || 0;
+  const diskFree = Number(status?.disk_free_bytes) || 0;
+  if (diskTotal <= 0) {
+    wrap.hidden = true;
+    return;
+  }
+
+  const clampedFree = Math.max(0, Math.min(diskFree, diskTotal));
+  const diskUsed = Math.max(0, diskTotal - clampedFree);
+  const modelUsed = Math.min(Math.max(0, installedModelsBytes()), diskUsed);
+  const otherUsed = Math.max(0, diskUsed - modelUsed);
+
+  const modelsPct = (modelUsed / diskTotal) * 100;
+  const otherPct = (otherUsed / diskTotal) * 100;
+  const freePct = (clampedFree / diskTotal) * 100;
+  modelsFill.style.width = `${Math.max(0, Math.min(100, modelsPct)).toFixed(1)}%`;
+  otherFill.style.width = `${Math.max(0, Math.min(100, otherPct)).toFixed(1)}%`;
+
+  textNode.textContent = compact
+    ? fmtBytes(clampedFree)
+    : t("status.disk_free_short", { free: fmtBytes(clampedFree), total: fmtBytes(diskTotal) });
+  wrap.title = t("status.disk_breakdown_title", {
+    models: fmtBytes(modelUsed),
+    other: fmtBytes(otherUsed),
+    free: fmtBytes(clampedFree),
+    total: fmtBytes(diskTotal),
+    pct: Math.round(freePct),
+  });
+  wrap.hidden = false;
+}
+
+function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = false, bad = false, hideWhenInvalid = true }) {
+  const wrap = $(wrapId);
+  const fill = $(fillId);
+  const textNode = $(textId);
+  if (!wrap || !fill || !textNode) return;
+
+  if (!Number.isFinite(pct)) {
+    if (hideWhenInvalid) {
+      wrap.hidden = true;
+      return;
+    }
+    fill.style.width = "0%";
+    fill.classList.remove("warn", "bad");
+    textNode.textContent = text || "—";
+    wrap.title = title || "";
+    wrap.hidden = false;
+    return;
+  }
+
+  const clampedPct = Math.max(0, Math.min(100, pct));
+  fill.style.width = `${clampedPct.toFixed(1)}%`;
+  fill.classList.toggle("warn", !!warn && !bad);
+  fill.classList.toggle("bad", !!bad);
+  textNode.textContent = text || "—";
+  wrap.title = title || "";
+  wrap.hidden = false;
+}
+
+function updateChatSendEnabled() {
+  const btn = $("chat-send-btn");
+  let ok = managerApiOk && ollamaHostOk;
+  if (btn) {
+    if (!ok) {
+      if (!managerApiOk) {
+        btn.title = t("chat.send_disabled_manager");
+      } else {
+        btn.title = t("chat.send_disabled_ollama");
+      }
+    } else {
+      btn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    }
+    btn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    btn.disabled = !ok;
+  }
+}
+
+async function copyTextToClipboard(text) {
+  const s = String(text || "");
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(s);
+      return true;
+    }
+  } catch {
+    // fall back
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = s;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const r = document.execCommand("copy");
+    ta.remove();
+    return r;
+  } catch {
+    return false;
+  }
+}
+

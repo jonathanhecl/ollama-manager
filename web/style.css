@@ -124,6 +124,13 @@ select { cursor: pointer; }
   color: var(--muted);
   white-space: nowrap;
 }
+.metric-widget--sm {
+  gap: 6px;
+  padding: 0 8px;
+}
+.metric-widget--sm .metric-widget-track {
+  width: 52px;
+}
 #cpu-widget-label {
   max-width: 140px;
   overflow: hidden;
@@ -177,6 +184,12 @@ select { cursor: pointer; }
   order: 1;
 }
 #disk-widget-fill-models {
+  order: 2;
+}
+#vram-widget-fill {
+  order: 1;
+}
+#vram-widget-fill-models {
   order: 2;
 }
 .metric-widget-text {
@@ -3935,6 +3948,9 @@ button.chat-send:disabled:hover {
     margin-right: 0;
     border-radius: 8px;
     gap: 6px;
+  }
+  #memory-widget {
+    display: none;
   }
   .metric-widget-track {
     display: block;

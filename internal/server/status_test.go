@@ -36,5 +36,11 @@ func TestHandleStatus(t *testing.T) {
 		t.Errorf("expected cpu_model in status response, got %v", data)
 	}
 
+	for _, key := range []string{"vram_total", "vram_used", "vram_used_pct", "memory_total"} {
+		if _, ok := data[key]; !ok {
+			t.Errorf("expected %s in status response, got %v", key, data)
+		}
+	}
+
 	t.Logf("cpu_model in /api/status: %v", data["cpu_model"])
 }

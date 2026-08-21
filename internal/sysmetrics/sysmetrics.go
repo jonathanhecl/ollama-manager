@@ -11,7 +11,7 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
-// Snapshot holds system-level CPU and memory usage.
+// Snapshot holds system-level CPU, memory, VRAM, and disk usage.
 type Snapshot struct {
 	CPUModel       string
 	CPUUsedPercent float64
@@ -19,6 +19,9 @@ type Snapshot struct {
 	MemoryFree     uint64
 	MemoryUsed     uint64
 	MemoryUsedPct  float64
+	VramTotal      uint64
+	VramUsed       uint64
+	VramUsedPct    float64
 	DiskTotal      uint64
 	DiskFree       uint64
 	DiskUsed       uint64
@@ -43,6 +46,12 @@ func Collect(parent context.Context, path string) Snapshot {
 		out.MemoryFree = vm.Available
 		out.MemoryUsed = vm.Used
 		out.MemoryUsedPct = clampPercent(vm.UsedPercent)
+	}
+
+	if vram := CollectVRAM(); vram.OK {
+		out.VramTotal = vram.Total
+		out.VramUsed = vram.Used
+		out.VramUsedPct = clampPercent((float64(vram.Used) / float64(vram.Total)) * 100)
 	}
 
 	if total, free, err := diskForPath(existingPathOrParent(path)); err == nil && total > 0 {

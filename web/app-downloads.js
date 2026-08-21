@@ -528,6 +528,15 @@ $("memory-widget")?.addEventListener("keydown", (e) => {
     openRunningModal();
   }
 });
+$("vram-widget")?.addEventListener("click", () => {
+  openRunningModal();
+});
+$("vram-widget")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    openRunningModal();
+  }
+});
 $("running-refresh")?.addEventListener("click", () => refreshRunningModalList());
 $("running-close")?.addEventListener("click", closeRunningModal);
 $("running-x")?.addEventListener("click", closeRunningModal);

@@ -23,13 +23,21 @@
           </div>
           <span id="cpu-widget-text" class="metric-widget-text mono">—</span>
         </div>
-        <div id="memory-widget" class="metric-widget metric-widget-clickable" hidden role="button" tabindex="0" data-i18n-attr="title" data-i18n="running.open_title" title="Loaded models in memory">
+        <div id="memory-widget" class="metric-widget metric-widget--sm metric-widget-clickable" hidden role="button" tabindex="0" data-i18n-attr="title" data-i18n="running.open_title" title="Loaded models in memory">
           <span class="metric-widget-label" data-i18n="status.memory">Memory</span>
           <div class="metric-widget-track metric-widget-track--stack" aria-hidden="true">
             <span id="memory-widget-fill-models" class="metric-widget-fill metric-widget-fill-models"></span>
             <span id="memory-widget-fill" class="metric-widget-fill"></span>
           </div>
           <span id="memory-widget-text" class="metric-widget-text mono">—</span>
+        </div>
+        <div id="vram-widget" class="metric-widget metric-widget-clickable" hidden role="button" tabindex="0" data-i18n-attr="title" data-i18n="running.open_title" title="Loaded models in memory">
+          <span class="metric-widget-label" data-i18n="status.vram">VRAM</span>
+          <div class="metric-widget-track metric-widget-track--stack" aria-hidden="true">
+            <span id="vram-widget-fill-models" class="metric-widget-fill metric-widget-fill-models"></span>
+            <span id="vram-widget-fill" class="metric-widget-fill"></span>
+          </div>
+          <span id="vram-widget-text" class="metric-widget-text mono">—</span>
         </div>
         <div id="disk-widget" class="metric-widget" hidden>
           <span class="metric-widget-label" data-i18n="status.disk">Disk</span>

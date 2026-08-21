@@ -77,6 +77,7 @@ function updateSystemWidgets(status) {
   });
 
   updateMemoryWidget(status, compact);
+  updateVramWidget(status, compact);
 
   updateDiskWidget(status, compact);
 }
@@ -115,8 +116,12 @@ function updateMemoryWidget(status, compact) {
 
   const memoryUsed = Math.max(0, Math.min(memoryUsedRaw, memoryTotal));
   const hasServerLoadedTotal = !!(status && Object.prototype.hasOwnProperty.call(status, "models_loaded_bytes"));
+  // Systems with a separate VRAM pool (Windows/Linux with a GPU) load models
+  // into VRAM, so the RAM widget shows no models segment there. On unified
+  // memory (macOS) models live in RAM.
+  const hasSeparateVram = Number(status?.vram_total) > 0;
   const loadedModelsApprox = hasServerLoadedTotal
-    ? (Number(status?.models_loaded_bytes) || 0)
+    ? (hasSeparateVram ? 0 : (Number(status?.models_loaded_bytes) || 0))
     : loadedModelsTotalEstimateBytes();
   const modelUsed = Math.min(Math.max(0, loadedModelsApprox), memoryUsed);
   const otherUsed = Math.max(0, memoryUsed - modelUsed);
@@ -136,6 +141,43 @@ function updateMemoryWidget(status, compact) {
     free: fmtBytes(Math.max(0, memoryTotal - memoryUsed)),
     total: fmtBytes(memoryTotal),
     pct: Math.round(freePct),
+  });
+  wrap.hidden = false;
+}
+
+function updateVramWidget(status, compact) {
+  const wrap = $("vram-widget");
+  const modelsFill = $("vram-widget-fill-models");
+  const otherFill = $("vram-widget-fill");
+  const textNode = $("vram-widget-text");
+  if (!wrap || !modelsFill || !otherFill || !textNode) return;
+
+  const vramTotal = Number(status?.vram_total) || 0;
+  const vramUsedRaw = Number(status?.vram_used) || 0;
+  const vramPct = Number(status?.vram_used_pct);
+  if (vramTotal <= 0 || !Number.isFinite(vramPct)) {
+    wrap.hidden = true;
+    return;
+  }
+
+  const vramUsed = Math.max(0, Math.min(vramUsedRaw, vramTotal));
+  const modelUsed = Math.min(Math.max(0, Number(status?.models_vram_loaded_bytes) || 0), vramUsed);
+  const otherUsed = Math.max(0, vramUsed - modelUsed);
+
+  const modelsPct = (modelUsed / vramTotal) * 100;
+  const otherPct = (otherUsed / vramTotal) * 100;
+
+  modelsFill.style.width = `${Math.max(0, Math.min(100, modelsPct)).toFixed(1)}%`;
+  otherFill.style.width = `${Math.max(0, Math.min(100, otherPct)).toFixed(1)}%`;
+  textNode.textContent = compact
+    ? t("status.percent_short", { pct: Math.round(vramPct) })
+    : t("status.vram_short", { used: fmtBytes(vramUsed), total: fmtBytes(vramTotal) });
+  wrap.title = t("status.vram_breakdown_title", {
+    models: fmtBytes(modelUsed),
+    other: fmtBytes(otherUsed),
+    free: fmtBytes(Math.max(0, vramTotal - vramUsed)),
+    total: fmtBytes(vramTotal),
+    pct: Math.round(vramPct),
   });
   wrap.hidden = false;
 }

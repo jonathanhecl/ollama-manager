@@ -243,7 +243,9 @@ function renderModernScatter(container, data, opts) {
   const xDom = niceDomain(points.map((pt) => pt.x));
   const yDom = niceDomain(points.map((pt) => pt.y));
   const sx = (v) => PAD.l + ((v - xDom.min) / (xDom.max - xDom.min)) * iw;
-  const sy = (v) => PAD.t + ih - ((v - yDom.min) / (yDom.max - yDom.min)) * ih;
+  const sy = opts.invertY
+    ? (v) => PAD.t + ((v - yDom.min) / (yDom.max - yDom.min)) * ih
+    : (v) => PAD.t + ih - ((v - yDom.min) / (yDom.max - yDom.min)) * ih;
 
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "analytics-svg modern-scatter", role: "img" });
 
@@ -499,6 +501,7 @@ function renderSizeVsParams(all) {
     xKind: "paramsB", yKind: "gb",
     xValue: (p) => p.paramsB,
     yValue: (p) => p.sizeGB,
+    invertY: true,
     showTrendline: true,
     showPareto: false,
     theme: "size",

@@ -3975,11 +3975,20 @@ button.chat-send:disabled:hover {
     min-width: 0;
     table-layout: auto;
   }
-  /* Simplify table on smaller screens so it uses the viewport instead of horizontal scrolling. */
-  #models-table th:nth-child(3), #models-table td:nth-child(3),
+  /* Simplify table on smaller screens so it uses the viewport instead of horizontal scrolling.
+     Keep Record Tok/s visible alongside Size. */
   #models-table th:nth-child(4), #models-table td:nth-child(4),
   #models-table th:nth-child(5), #models-table td:nth-child(5),
   #models-table th:nth-child(6), #models-table td:nth-child(6) { display: none; }
+  #models-table th:nth-child(3), #models-table td:nth-child(3) {
+    display: table-cell;
+    text-align: right;
+    white-space: nowrap;
+  }
+  #models-table th:nth-child(3) {
+    font-size: 10px;
+    letter-spacing: .2px;
+  }
   #models-table th,
   #models-table td { padding-left: 8px; padding-right: 8px; }
   .detail-panel {

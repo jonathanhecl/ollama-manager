@@ -1362,8 +1362,37 @@ function renderMarkdownSafe(input) {
   const lines = html.split("\n");
   const out = [];
   let inList = false;
+  let quoteLines = [];
+
+  function flushQuote() {
+    if (!quoteLines.length) return;
+    const cleanText = quoteLines.map((l) => String(l || "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+    ).join("\n").trim();
+    const innerHtml = quoteLines.map((l) => l.trim()).join("<br>");
+    out.push(`<div class="chat-quote-wrap"><div class="chat-quote-header"><span class="chat-quote-badge"><svg class="chat-quote-icon" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M4.583 17.321C3.553 16.227 3 15 3 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179zm10 0C13.553 16.227 13 15 13 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179z"/></svg><span>${escapeHtml(t("chat.quote"))}</span></span><button type="button" class="chat-quote-copy-btn" data-quote="${escapeHtml(cleanText)}" title="${escapeHtml(t("chat.copy_quote"))}"><svg class="chat-quote-copy-ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span>${escapeHtml(t("chat.copy_quote"))}</span></button></div><blockquote class="chat-quote-content">${innerHtml}</blockquote></div>`);
+    quoteLines = [];
+  }
+
   for (const line of lines) {
     const trimmed = line.trim();
+    if (/^&gt;\s?(.*)$/.test(trimmed)) {
+      if (inList) {
+        out.push("</ul>");
+        inList = false;
+      }
+      const match = trimmed.match(/^&gt;\s?(.*)$/);
+      quoteLines.push(match ? match[1] : "");
+      continue;
+    }
+    if (quoteLines.length) {
+      flushQuote();
+    }
     if (/^[-*]\s+/.test(trimmed)) {
       if (!inList) {
         out.push("<ul>");
@@ -1378,6 +1407,8 @@ function renderMarkdownSafe(input) {
     }
     if (trimmed === "") {
       out.push("");
+    } else if (/^([-*_]){3,}$/.test(trimmed)) {
+      out.push(`<hr class="chat-hr" />`);
     } else if (/^@@GFMTABLE_(\d+)@@$/.test(trimmed)) {
       const m = trimmed.match(/^@@GFMTABLE_(\d+)@@$/);
       const tIdx = m ? Number(m[1]) : -1;
@@ -1395,6 +1426,7 @@ function renderMarkdownSafe(input) {
     }
   }
   if (inList) out.push("</ul>");
+  if (quoteLines.length) flushQuote();
   html = out.join("\n").replace(/\n{3,}/g, "\n\n");
 
   codeBlocks.forEach((block, i) => {

@@ -2870,6 +2870,88 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   overflow-x: auto;
 }
 
+.chat-hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+  opacity: 0.7;
+}
+
+.chat-quote-wrap {
+  margin: 10px 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel, #0e1017));
+  overflow: hidden;
+}
+
+.chat-quote-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--accent) 8%, rgba(255, 255, 255, 0.02));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  font-size: 11px;
+}
+
+.chat-quote-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 11px;
+  opacity: 0.9;
+  user-select: none;
+}
+
+.chat-quote-icon {
+  flex-shrink: 0;
+}
+
+.chat-quote-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+
+.chat-quote-copy-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, .08);
+}
+
+.chat-quote-copy-ic {
+  flex-shrink: 0;
+}
+
+.chat-quote-content {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text);
+  font-style: normal;
+  line-height: 1.5;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.chat-quote-content p {
+  margin: 0 0 6px;
+}
+
+.chat-quote-content p:last-child {
+  margin-bottom: 0;
+}
+
 .chat-compose {
   border-top: 1px solid var(--border);
   background: var(--panel);

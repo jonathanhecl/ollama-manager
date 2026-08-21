@@ -971,6 +971,15 @@ function bindChatEvents() {
         const code = codeBtn.getAttribute("data-code") || "";
         const ok = await copyTextToClipboard(code);
         toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
+        return;
+      }
+      const quoteBtn = e.target.closest(".chat-quote-copy-btn");
+      if (quoteBtn) {
+        e.preventDefault();
+        const quote = quoteBtn.getAttribute("data-quote") || "";
+        const ok = await copyTextToClipboard(quote);
+        toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
+        return;
       }
       return;
     }

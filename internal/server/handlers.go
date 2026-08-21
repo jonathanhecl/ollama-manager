@@ -1394,6 +1394,32 @@ func estimateTextTokens(s string) int {
 	return n / 4
 }
 
+// recordCancelUsage records a cancelled streaming response as used when it was
+// progressing too slowly to wait for completion (< cancelRecordThreshold). Rates
+// below minRecordTPS are indexed at that floor so the model is registered as
+// functional but extremely slow. At or above the threshold nothing is saved;
+// the response must complete to count.
+func (s *Server) recordCancelUsage(model, content string, startedAt time.Time) {
+	if s.usage == nil {
+		return
+	}
+	est := estimateTextTokens(content)
+	if est <= 0 {
+		return
+	}
+	elapsed := time.Since(startedAt)
+	if elapsed <= 0 {
+		return
+	}
+	tps := float64(est) / elapsed.Seconds()
+	switch {
+	case tps < minRecordTPS:
+		_ = s.usage.RecordTPS(model, minRecordTPS, time.Now())
+	case tps < cancelRecordThreshold:
+		_ = s.usage.RecordTPS(model, tps, time.Now())
+	}
+}
+
 // estimatePromptTokens approximates prompt token usage from the request when
 // Ollama reports a zero prompt_eval_count (vision/OCR requests). Text counts
 // roughly one token per 4 characters plus a nominal allowance per image.
@@ -1662,6 +1688,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		err := s.ollama.Generate(r.Context(), genReq, func(chunk ollama.GenerateChunk) error {
 			if wasCold && firstTokenTime == 0 && (chunk.Response != "" || chunk.Image != "") {
 				firstTokenTime = time.Since(startedAt)
+				if s.usage != nil {
+					_ = s.usage.RecordColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
+				}
 			}
 			if chunk.Response != "" {
 				accContent.WriteString(chunk.Response)
@@ -1734,6 +1763,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			if r.Context().Err() != nil {
+				s.recordCancelUsage(body.Model, accContent.String(), startedAt)
 				return
 			}
 			errMsg := err.Error()
@@ -1773,12 +1803,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		totalTokens := promptEvalCount + evalCount
 		if s.usage != nil {
 			_ = s.usage.Record(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
-			if wasCold && firstTokenTime > 0 {
-				loadMs := firstTokenTime.Milliseconds()
-				if loadMs > 0 {
-					_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
-				}
-			}
 		}
 		send("done", map[string]any{
 			"elapsed_ms":         time.Since(startedAt).Milliseconds(),
@@ -1824,6 +1848,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	err := s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
 		if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 			firstTokenTime = time.Since(startedAt)
+			if s.usage != nil {
+				_ = s.usage.RecordColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
+			}
 		}
 		if chunk.Message.Content != "" {
 			accContent.WriteString(chunk.Message.Content)
@@ -1852,8 +1879,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		accContent.Reset()
 		accThinking.Reset()
 		err = s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
-			if firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
+			if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 				firstTokenTime = time.Since(startedAt)
+				if s.usage != nil {
+					_ = s.usage.RecordColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
+				}
 			}
 			if chunk.Message.Content != "" {
 				accContent.WriteString(chunk.Message.Content)
@@ -1871,6 +1901,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if r.Context().Err() != nil {
+			s.recordCancelUsage(body.Model, accContent.String()+"\n"+accThinking.String(), startedAt)
 			return
 		}
 		errMsg := err.Error()
@@ -1910,12 +1941,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	totalTokens := promptEvalCount + evalCount
 	if s.usage != nil {
 		_ = s.usage.Record(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
-		if wasCold && firstTokenTime > 0 {
-			loadMs := firstTokenTime.Milliseconds()
-			if loadMs > 0 {
-				_ = s.usage.RecordColdLoad(body.Model, loadMs, time.Now())
-			}
-		}
 	}
 	send("done", map[string]any{
 		"elapsed_ms":         time.Since(startedAt).Milliseconds(),

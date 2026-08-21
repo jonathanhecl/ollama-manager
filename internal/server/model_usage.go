@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+// minRecordTPS is the floor applied to a model's record tokens-per-second. A
+// model that completes (or is cancelled) below this rate is indexed at 0.1
+// tok/s so it is recorded as functional but extremely slow.
+const minRecordTPS = 0.1
+
+// cancelRecordThreshold is the rate above which a cancelled streaming response
+// is not recorded at all: at that speed the model is usable enough that the
+// response must complete normally to count.
+const cancelRecordThreshold = 1.0
+
 // ModelUsageRecord stores persistent telemetry and usage stats for an Ollama model.
 type ModelUsageRecord struct {
 	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
@@ -212,6 +222,9 @@ func (s *modelUsageStore) Record(name string, evalCount int, evalDurationNs int6
 
 	if evalCount > 0 && evalDurationNs > 0 {
 		tps := float64(evalCount) / (float64(evalDurationNs) / 1e9)
+		if tps < minRecordTPS {
+			tps = minRecordTPS
+		}
 		if tps > rec.RecordTokensPerSec {
 			rec.RecordTokensPerSec = tps
 			rec.RecordTokensPerSecAt = &usedAt

@@ -48,6 +48,11 @@ async function refreshStatus() {
 
 function updateSystemWidgets(status) {
   const compact = window.matchMedia("(max-width: 900px)").matches;
+  const hasSeparateVram = Number(status?.vram_total) > 0;
+  const metricsStrip = document.querySelector(".metrics-strip");
+  if (metricsStrip) {
+    metricsStrip.classList.toggle("has-vram", hasSeparateVram);
+  }
   const cpuPct = Number(status?.cpu_used_pct);
   const cpuModel = status?.cpu_model ? String(status.cpu_model).trim() : "";
   const cpuLabelEl = $("cpu-widget-label");

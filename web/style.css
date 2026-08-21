@@ -3949,7 +3949,7 @@ button.chat-send:disabled:hover {
     border-radius: 8px;
     gap: 6px;
   }
-  #memory-widget {
+  .metrics-strip.has-vram #memory-widget {
     display: none;
   }
   .metric-widget-track {

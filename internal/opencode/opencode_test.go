@@ -206,16 +206,19 @@ func TestSetEnabledModels(t *testing.T) {
 		t.Fatalf("custom name not applied: %v", a["name"])
 	}
 	c, _ := models["tag-c"].(map[string]any)
-	if c["name"] != "tag-c" {
-		t.Fatalf("new tag default name = %v", c["name"])
+	if _, has := c["name"]; has {
+		t.Fatalf("new tag without custom name should stay unnamed, got %v", c["name"])
 	}
 
-	// An empty name resets the entry back to the tag.
+	// An empty name resets the entry back to unnamed (auto-named by the UI).
 	doc.SetEnabledModels("ollama-local", []string{"tag-a"}, map[string]string{"tag-a": ""})
 	models, _ = doc.Raw["provider"].(map[string]any)["ollama-local"].(map[string]any)["models"].(map[string]any)
 	a, _ = models["tag-a"].(map[string]any)
-	if a["name"] != "tag-a" {
-		t.Fatalf("empty name should reset to tag, got %v", a["name"])
+	if _, has := a["name"]; has {
+		t.Fatalf("empty name should reset to unnamed, got %v", a["name"])
+	}
+	if doc.ModelDisplayName("ollama-local", "tag-a") != "tag-a" {
+		t.Fatal("unnamed entry should fall back to the short name")
 	}
 
 	// Unrelated provider untouched.
@@ -254,6 +257,37 @@ func TestModelDisplayNameFallsBackToShort(t *testing.T) {
 	}
 	if got := doc.ModelDisplayName("ollama-local", "smtek/Qwen:Q3_K_M"); got != "Qwen:Q3_K_M" {
 		t.Fatalf("expected short fallback, got %q", got)
+	}
+}
+
+func TestHasCustomName(t *testing.T) {
+	doc := &Document{Path: filepath.Join(t.TempDir(), "c.json"), Raw: map[string]any{
+		"provider": map[string]any{
+			"ollama-local": map[string]any{
+				"models": map[string]any{
+					"m1":            map[string]any{"name": "Friendly"},
+					"hf.co/x/m2:Q4": map[string]any{"name": "hf.co/x/m2:Q4"},
+					"smtek/m3:Q4":   map[string]any{"name": "m3:Q4"},
+					"m4":            map[string]any{"name": "  "},
+					"m5":            map[string]any{},
+				},
+			},
+		},
+	}}
+	cases := []struct {
+		tag  string
+		want bool
+	}{
+		{"m1", true},
+		{"hf.co/x/m2:Q4", false}, // mirrors the full tag
+		{"smtek/m3:Q4", false},   // mirrors the short name (legacy saves)
+		{"m4", false},            // blank
+		{"m5", false},            // missing
+	}
+	for _, tc := range cases {
+		if got := doc.HasCustomName("ollama-local", tc.tag); got != tc.want {
+			t.Errorf("HasCustomName(%q) = %v; want %v", tc.tag, got, tc.want)
+		}
 	}
 }
 
@@ -426,7 +460,7 @@ func TestSurgicalSaveInsertModelsWhenMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertLinesPreserved(t, config, string(after), []string{"ollama-local"})
-	if !strings.Contains(string(after), `"models": {`) || !strings.Contains(string(after), `"tag-z": {"name": "tag-z"}`) {
+	if !strings.Contains(string(after), `"models": {`) || !strings.Contains(string(after), `"tag-z": {}`) {
 		t.Fatalf("models block not inserted:\n%s", after)
 	}
 	var raw map[string]any
@@ -522,7 +556,7 @@ func TestSurgicalSaveJSONCPreservesComments(t *testing.T) {
 	if !strings.Contains(got, "// local ollama models") {
 		t.Fatalf("comment not preserved:\n%s", got)
 	}
-	if !strings.Contains(got, `"new": {"name": "new"}`) {
+	if !strings.Contains(got, `"new": {}`) {
 		t.Fatalf("models not updated:\n%s", got)
 	}
 	if strings.Contains(got, `"Old"`) {

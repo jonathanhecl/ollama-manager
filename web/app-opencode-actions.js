@@ -43,6 +43,13 @@ $("opencode-save-btn").addEventListener("click", async () => {
 $("opencode-models").addEventListener("change", renderOpenCodePreview);
 $("opencode-models").addEventListener("input", renderOpenCodePreview);
 
+$("opencode-name-style").value = openCodeNameStylePref;
+$("opencode-name-style").addEventListener("change", () => {
+  openCodeNameStylePref = $("opencode-name-style").value === "tps" ? "tps" : "plain";
+  localStorage.setItem("ollama_opencode_name_style", openCodeNameStylePref);
+  applyOpenCodeNameStyle();
+});
+
 $("opencode-copy-all-btn").addEventListener("click", () => {
   const ex = buildOpenCodeExport();
   if (ex.count === 0) {

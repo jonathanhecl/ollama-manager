@@ -193,7 +193,9 @@ func (d *Document) EnsureLocalProvider(baseURL string) (string, bool) {
 // SetEnabledModels replaces the models map of the given provider with exactly
 // the enabled tags. Metadata of entries that stay enabled (display name,
 // limits, modalities) is preserved. names maps a tag to a custom display name:
-// a non-empty value overrides it, an empty value resets it to the tag.
+// a non-empty value overrides it, an empty value resets it. Tags without a
+// custom name are left without a "name" key so they stay "not indexed" and the
+// UI can auto-name them on the fly.
 func (d *Document) SetEnabledModels(providerKey string, enabled []string, names map[string]string) {
 	providers, _ := d.Raw["provider"].(map[string]any)
 	entry, ok := providers[providerKey].(map[string]any)
@@ -213,9 +215,6 @@ func (d *Document) SetEnabledModels(providerKey string, enabled []string, names 
 			} else {
 				delete(model, "name")
 			}
-		}
-		if _, has := model["name"]; !has {
-			model["name"] = tag
 		}
 		models[tag] = model
 	}
@@ -249,6 +248,23 @@ func (d *Document) ModelDisplayName(providerKey, tag string) string {
 		return name
 	}
 	return shortName(tag)
+}
+
+// HasCustomName reports whether an explicit display name is stored for a tag
+// (i.e. the model is "indexed" with a friendly name in the config). Names that
+// just mirror the tag or its short form are not considered custom, so legacy
+// configs saved before auto-naming existed keep responding to style changes.
+func (d *Document) HasCustomName(providerKey, tag string) bool {
+	providers, _ := d.Raw["provider"].(map[string]any)
+	entry, _ := providers[providerKey].(map[string]any)
+	models, _ := entry["models"].(map[string]any)
+	m, _ := models[tag].(map[string]any)
+	name, _ := m["name"].(string)
+	name = strings.TrimSpace(name)
+	if name == "" || name == tag || name == shortName(tag) {
+		return false
+	}
+	return true
 }
 
 // shortName strips the namespace prefix from an Ollama tag, leaving just

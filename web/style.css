@@ -1387,6 +1387,28 @@ select:focus { border-color: var(--accent); }
   background: var(--panel);
 }
 .opencode-model-tag { flex: 0 0 auto; font-size: 11px; }
+.opencode-model-tag-text { display: inline-block; white-space: nowrap; }
+.opencode-model-tag.scrollable { overflow: hidden; }
+.opencode-model-tag.scrollable .opencode-model-tag-text {
+  animation: opencode-tag-scroll var(--tag-dur, 9s) linear infinite;
+}
+@keyframes opencode-tag-scroll {
+  0%, 15% { transform: translateX(0); }
+  60%, 85% { transform: translateX(var(--tag-shift, 0px)); }
+  100% { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .opencode-model-tag.scrollable .opencode-model-tag-text { animation: none; }
+}
+.opencode-name-style {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.opencode-name-style label { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
+.opencode-name-style select { flex: 0 1 auto; min-width: 0; }
 .opencode-actions { margin-top: 12px; }
 .opencode-actions button { width: 100%; }
 .opencode-preview {
@@ -4432,6 +4454,20 @@ button.chat-send:disabled:hover {
     box-sizing: border-box;
     overflow-x: hidden;
   }
+  .opencode-model-row { gap: 8px; padding: 7px 8px; }
+  .opencode-model-name {
+    flex: 0 0 50%;
+    width: 50%;
+    min-width: 50%;
+    max-width: 50%;
+    box-sizing: border-box;
+  }
+  .opencode-model-tag {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .opencode-name-style select { flex: 1 1 auto; }
   .opencode-card {
     padding: 12px 10px;
     width: 100%;

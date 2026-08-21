@@ -3,6 +3,10 @@
 // ---------- OpenCode integration ----------
 let openCodeState = null;
 
+// Auto-name style for models not indexed (custom-named) in OpenCode:
+// "plain" → "name model" · "tps" → "name model (45tok/s)".
+let openCodeNameStylePref = localStorage.getItem("ollama_opencode_name_style") === "tps" ? "tps" : "plain";
+
 async function refreshOpenCodeUI() {
   try {
     openCodeState = await api("/api/opencode");
@@ -76,10 +80,12 @@ function renderOpenCodeModels(st) {
     cb.checked = m.enabled;
     cb.disabled = !st.provider;
     cb.dataset.tag = m.name;
+    const auto = openCodeAutoName(m);
     const name = document.createElement("input");
     name.type = "text";
     name.className = "opencode-model-name";
-    name.value = m.display_name;
+    name.value = m.custom_name ? m.display_name : auto;
+    name.dataset.auto = auto;
     name.disabled = !st.provider;
     name.dataset.tag = m.name;
     name.title = m.name;
@@ -88,13 +94,35 @@ function renderOpenCodeModels(st) {
     name.spellcheck = false;
     const tag = document.createElement("span");
     tag.className = "opencode-model-tag mono muted";
-    tag.textContent = m.name;
+    tag.title = m.name;
+    const tagText = document.createElement("span");
+    tagText.className = "opencode-model-tag-text";
+    tagText.textContent = m.name;
+    tag.appendChild(tagText);
     row.appendChild(cb);
     row.appendChild(name);
     row.appendChild(tag);
     list.appendChild(row);
   }
   box.appendChild(list);
+  markOpenCodeTagOverflow(list);
+}
+
+// markOpenCodeTagOverflow flags tags whose text does not fit so CSS can run
+// the marquee animation, and stores the exact scroll distance per element.
+function markOpenCodeTagOverflow(root) {
+  root.querySelectorAll(".opencode-model-tag").forEach((el) => {
+    const inner = el.querySelector(".opencode-model-tag-text");
+    if (!inner || el.clientWidth === 0) return;
+    const over = Math.ceil(inner.scrollWidth - el.clientWidth);
+    if (over > 1) {
+      el.classList.add("scrollable");
+      el.style.setProperty("--tag-shift", `${-over}px`);
+      el.style.setProperty("--tag-dur", `${Math.min(16, Math.max(5, over / 25)).toFixed(1)}s`);
+    } else {
+      el.classList.remove("scrollable");
+    }
+  });
 }
 
 function openCodeEnabledTags() {
@@ -107,13 +135,45 @@ function openCodeEnabledTags() {
 function openCodeNamesMap() {
   const names = {};
   const inputs = $("opencode-models").querySelectorAll(".opencode-model-name");
-  for (const inp of inputs) names[inp.dataset.tag] = inp.value.trim();
+  for (const inp of inputs) {
+    const v = inp.value.trim();
+    // Untouched rows keep the auto-generated name: don't index them so the
+    // style selector keeps working on them.
+    if (!v || v === inp.dataset.auto) continue;
+    names[inp.dataset.tag] = v;
+  }
   return names;
 }
 
 function openCodeShortName(tag) {
   const i = tag.lastIndexOf("/");
   return i >= 0 ? tag.slice(i + 1) : tag;
+}
+
+// openCodeAutoName builds the display name for a model that has no custom
+// name stored in OpenCode, following the selected auto-name style.
+function openCodeAutoName(m) {
+  const short = openCodeShortName(m.name);
+  if (openCodeNameStylePref === "tps" && m.record_tps > 0) {
+    return `${short} (${Math.round(m.record_tps)}tok/s)`;
+  }
+  return short;
+}
+
+// applyOpenCodeNameStyle refreshes every untouched auto-named input after the
+// style selector changes, preserving user-typed names.
+function applyOpenCodeNameStyle() {
+  const st = openCodeState;
+  if (!st || !st.models || !$("opencode-view") || $("opencode-view").hidden) return;
+  const box = $("opencode-models");
+  for (const m of st.models) {
+    if (m.custom_name) continue;
+    const inp = box.querySelector(`.opencode-model-name[data-tag="${CSS.escape(m.name)}"]`);
+    if (!inp || inp.value.trim() !== inp.dataset.auto) continue;
+    inp.value = openCodeAutoName(m);
+    inp.dataset.auto = inp.value;
+  }
+  renderOpenCodePreview();
 }
 
 function openCodeFolderCommand() {
@@ -126,8 +186,13 @@ function openCodeFolderCommand() {
 function buildOpenCodeExport() {
   const tags = openCodeEnabledTags();
   const names = openCodeNamesMap();
+  const byTag = {};
+  for (const m of (openCodeState && openCodeState.models) || []) byTag[m.name] = m;
   const models = {};
-  for (const tag of tags) models[tag] = { name: (names[tag] || openCodeShortName(tag)) };
+  for (const tag of tags) {
+    const m = byTag[tag];
+    models[tag] = { name: names[tag] || (m ? openCodeAutoName(m) : openCodeShortName(tag)) };
+  }
   const provider = {
     ollama: {
       npm: "@ai-sdk/openai-compatible",

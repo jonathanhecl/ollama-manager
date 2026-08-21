@@ -21,10 +21,12 @@ type opencodeProviderView struct {
 
 // opencodeModelView is one installed model with its opencode visibility state.
 type opencodeModelView struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Enabled     bool   `json:"enabled"`
-	Size        int64  `json:"size"`
+	Name        string  `json:"name"`
+	DisplayName string  `json:"display_name"`
+	CustomName  bool    `json:"custom_name"`
+	RecordTPS   float64 `json:"record_tps,omitempty"`
+	Enabled     bool    `json:"enabled"`
+	Size        int64   `json:"size"`
 }
 
 // opencodeStateView is the full state of the OpenCode settings section.
@@ -175,9 +177,17 @@ func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeSt
 		if tag == "" {
 			tag = m.Model
 		}
+		tps := 0.0
+		if s.usage != nil {
+			if rec, ok := s.usage.Get(tag); ok {
+				tps = rec.RecordTokensPerSec
+			}
+		}
 		view.Models = append(view.Models, opencodeModelView{
 			Name:        tag,
 			DisplayName: doc.ModelDisplayName(providerKey, tag),
+			CustomName:  doc.HasCustomName(providerKey, tag),
+			RecordTPS:   tps,
 			Enabled:     enabled[tag],
 			Size:        m.Size,
 		})

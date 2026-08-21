@@ -9,6 +9,10 @@ async function refreshStatus() {
     ollamaHostOk = !!s.ollama_reachable;
     if (s.language && s.language !== window.I18n.getLang()) {
       window.I18n.setLang(s.language);
+      renderTable();
+      if (typeof currentView !== "undefined" && currentView === "analytics" && typeof renderAnalytics === "function") renderAnalytics();
+      if (typeof currentView !== "undefined" && currentView === "downloads" && typeof renderDownloads === "function") renderDownloads();
+      if (typeof activeName !== "undefined" && activeName && typeof openDetail === "function") openDetail(activeName);
     }
     const pill = $("status-pill");
     if (s.ollama_reachable) {

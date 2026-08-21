@@ -186,6 +186,8 @@ $("set-language").addEventListener("change", () => {
   refreshStatus();
   renderTable();
   if (activeName) openDetail(activeName);
+  if (typeof currentView !== "undefined" && currentView === "analytics" && typeof renderAnalytics === "function") renderAnalytics();
+  if (typeof currentView !== "undefined" && currentView === "downloads" && typeof renderDownloads === "function") renderDownloads();
   updateChatContextMeter();
   renderAttachments();
   renderChatMessages();

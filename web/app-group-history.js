@@ -182,7 +182,7 @@ $("agent-feedback-send")?.addEventListener("click", () => {
   void submitAgentFeedback();
 });
 
-window.I18n.setLang("en"); // applied immediately; refreshStatus may overwrite.
+window.I18n.setLang(window.I18n.getLang()); // applied immediately; refreshStatus may overwrite.
 bindModelsSearchEvents();
 refreshStatus();
 refreshModels().then(() => handleRouting());

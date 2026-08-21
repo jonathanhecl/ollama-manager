@@ -4,7 +4,7 @@
 
 const ANALYTICS_FILTER_KEY = "ollamaMgr.analyticsFilters";
 let analyticsAllData = [];
-let analyticsFilters = { source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
+let analyticsFilters = { name: "", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
 try {
   const saved = JSON.parse(localStorage.getItem(ANALYTICS_FILTER_KEY) || "null");
   if (saved) analyticsFilters = Object.assign(analyticsFilters, saved);
@@ -60,6 +60,11 @@ function syncAnalyticsFilterControls() {
     const el = $(map[k]);
     if (el) el.value = analyticsFilters[k];
   }
+  const text = { name: "analytics-filter-name" };
+  for (const k in text) {
+    const el = $(text[k]);
+    if (el) el.value = analyticsFilters[k] || "";
+  }
   const num = { paramsMin: "analytics-filter-params-min", paramsMax: "analytics-filter-params-max", tpsMin: "analytics-filter-tps-min" };
   for (const k in num) {
     const el = $(num[k]);
@@ -69,6 +74,7 @@ function syncAnalyticsFilterControls() {
 
 function analyticsFilterMatches(p) {
   const f = analyticsFilters;
+  if (f.name && !p.name.toLowerCase().includes(f.name.trim().toLowerCase())) return false;
   if (f.source === "installed" && p.ghost) return false;
   if (f.source === "ghost" && !p.ghost) return false;
   if (f.family !== "all" && p.family !== f.family) return false;
@@ -97,6 +103,7 @@ function bindAnalyticsFilters() {
       });
     }
   };
+  bind("analytics-filter-name", "name");
   bind("analytics-filter-source", "source");
   bind("analytics-filter-family", "family");
   bind("analytics-filter-type", "type");
@@ -106,7 +113,7 @@ function bindAnalyticsFilters() {
   const reset = $("analytics-filter-reset");
   if (reset) {
     reset.addEventListener("click", () => {
-      analyticsFilters = { source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
+      analyticsFilters = { name: "", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
       persistAnalyticsFilters();
       syncAnalyticsFilterControls();
       renderAnalyticsFiltered();

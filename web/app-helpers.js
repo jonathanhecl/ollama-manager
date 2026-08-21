@@ -18,9 +18,11 @@ const fmtDate = (s) => {
   if (isNaN(d)) return "—";
   const now = new Date();
   const diffDays = Math.floor((now - d) / 86400000);
-  if (diffDays < 1) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const lang = window.I18n?.getLang?.() || "en";
+  const locale = lang === "es" ? "es-AR" : "en-US";
+  if (diffDays < 1) return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   if (diffDays < 7) return getRelativeTimeFormatter().format(-diffDays, "day");
-  return d.toLocaleDateString();
+  return d.toLocaleDateString(locale);
 };
 const fmtColdLoad = (ms) => {
   if (!ms || ms <= 0) return "—";

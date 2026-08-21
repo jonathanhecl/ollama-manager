@@ -5605,6 +5605,7 @@ button.chat-send:disabled:hover {
 }
 .analytics-filter-select { min-width: 130px; }
 .analytics-filter-input { width: 76px; }
+.analytics-filter-input.analytics-filter-input-text { min-width: 140px; width: 160px; }
 .analytics-filter-range {
   display: flex;
   align-items: center;

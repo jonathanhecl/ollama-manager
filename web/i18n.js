@@ -471,7 +471,10 @@ const I18N = {
     "analytics.show_less": "Show top 10 only",
     "analytics.params_y": "Model parameters",
     "analytics.params": "Params",
+    "analytics.context": "Context",
     "analytics.no_data": "No data yet. Use the models and run some chats or tests to gather stats.",
+    "analytics.filter_name": "Model name",
+    "analytics.name_placeholder": "Search model name…",
     "analytics.filter_source": "Source",
     "analytics.source_all": "All",
     "analytics.source_installed": "Installed",
@@ -1107,7 +1110,10 @@ const I18N = {
     "analytics.show_less": "Mostrar solo el top 10",
     "analytics.params_y": "Parámetros del modelo",
     "analytics.params": "Parámetros",
+    "analytics.context": "Contexto",
     "analytics.no_data": "Aún no hay datos. Usa los modelos y ejecuta chats o tests para acumular estadísticas.",
+    "analytics.filter_name": "Nombre del modelo",
+    "analytics.name_placeholder": "Buscar por nombre…",
     "analytics.filter_source": "Origen",
     "analytics.source_all": "Todos",
     "analytics.source_installed": "Instalados",
@@ -1280,10 +1286,15 @@ const I18N = {
 };
 
 let _lang = "en";
+try {
+  const saved = localStorage.getItem("ollama_mgr_lang");
+  if (saved && I18N[saved]) _lang = saved;
+} catch { }
 
 function setLang(lang) {
   if (!I18N[lang]) lang = "en";
   _lang = lang;
+  try { localStorage.setItem("ollama_mgr_lang", lang); } catch { }
   document.documentElement.lang = lang;
   applyTranslations();
 }

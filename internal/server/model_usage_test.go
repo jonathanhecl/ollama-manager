@@ -239,6 +239,89 @@ func TestFixedInheritsMetadata(t *testing.T) {
 	}
 }
 
+func TestRecordCancelUsage(t *testing.T) {
+	newStore := func() *modelUsageStore {
+		store := newModelUsageStore(filepath.Join(t.TempDir(), "model_usage.json"))
+		if err := store.Load(); err != nil {
+			t.Fatalf("Load on empty store failed: %v", err)
+		}
+		return store
+	}
+
+	t.Run("no record and very slow saves floor", func(t *testing.T) {
+		s := &Server{usage: newStore()}
+		// 4 chars = 1 token over 20s = 0.05 tok/s -> floor 0.1
+		s.recordCancelUsage("slow:1b", "xxxx", time.Now().Add(-20*time.Second))
+		rec, ok := s.usage.Get("slow:1b")
+		if !ok {
+			t.Fatalf("expected a record after cancelled slow response")
+		}
+		if rec.RecordTokensPerSec != minRecordTPS {
+			t.Errorf("expected RecordTokensPerSec %.1f, got %f", minRecordTPS, rec.RecordTokensPerSec)
+		}
+		if rec.TotalCalls != 1 {
+			t.Errorf("expected TotalCalls 1, got %d", rec.TotalCalls)
+		}
+	})
+
+	t.Run("no record and medium slow saves average", func(t *testing.T) {
+		s := &Server{usage: newStore()}
+		// 8 chars = 2 tokens over 5s = 0.4 tok/s
+		s.recordCancelUsage("mid:1b", "xxxxxxxx", time.Now().Add(-5*time.Second))
+		rec, ok := s.usage.Get("mid:1b")
+		if !ok {
+			t.Fatalf("expected a record after cancelled medium response")
+		}
+		if rec.RecordTokensPerSec != 0.4 {
+			t.Errorf("expected RecordTokensPerSec 0.4, got %f", rec.RecordTokensPerSec)
+		}
+	})
+
+	t.Run("no record and fast cancel saves nothing", func(t *testing.T) {
+		s := &Server{usage: newStore()}
+		// 1 token over 0.5s = 2 tok/s >= threshold
+		s.recordCancelUsage("fast:1b", "xxxx", time.Now().Add(-500*time.Millisecond))
+		if _, ok := s.usage.Get("fast:1b"); ok {
+			t.Errorf("expected no record for fast cancelled response")
+		}
+	})
+
+	t.Run("existing record blocks cancel save", func(t *testing.T) {
+		s := &Server{usage: newStore()}
+		if err := s.usage.RecordTPS("used:1b", 5.0, time.Now()); err != nil {
+			t.Fatalf("RecordTPS failed: %v", err)
+		}
+		s.recordCancelUsage("used:1b", "xxxx", time.Now().Add(-20*time.Second))
+		rec, _ := s.usage.Get("used:1b")
+		if rec.RecordTokensPerSec != 5.0 {
+			t.Errorf("expected record to stay 5.0, got %f", rec.RecordTokensPerSec)
+		}
+		if rec.TotalCalls != 1 {
+			t.Errorf("expected TotalCalls 1 (no cancel save), got %d", rec.TotalCalls)
+		}
+	})
+
+	t.Run("cold load alone does not block cancel save", func(t *testing.T) {
+		s := &Server{usage: newStore()}
+		if err := s.usage.RecordColdLoad("cold:1b", 3000, time.Now()); err != nil {
+			t.Fatalf("RecordColdLoad failed: %v", err)
+		}
+		s.recordCancelUsage("cold:1b", "xxxx", time.Now().Add(-20*time.Second))
+		rec, _ := s.usage.Get("cold:1b")
+		if rec.RecordTokensPerSec != minRecordTPS {
+			t.Errorf("expected RecordTokensPerSec %.1f, got %f", minRecordTPS, rec.RecordTokensPerSec)
+		}
+	})
+
+	t.Run("no content saves nothing", func(t *testing.T) {
+		s := &Server{usage: newStore()}
+		s.recordCancelUsage("empty:1b", "", time.Now().Add(-10*time.Second))
+		if _, ok := s.usage.Get("empty:1b"); ok {
+			t.Errorf("expected no record with no content")
+		}
+	})
+}
+
 func TestDeleteRecord(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "model_usage.json")

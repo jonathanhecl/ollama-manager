@@ -1398,9 +1398,14 @@ func estimateTextTokens(s string) int {
 // progressing too slowly to wait for completion (< cancelRecordThreshold). Rates
 // below minRecordTPS are indexed at that floor so the model is registered as
 // functional but extremely slow. At or above the threshold nothing is saved;
-// the response must complete to count.
+// the response must complete to count. The cancellation is only registered when
+// the model has no record yet: once it has a recorded tokens-per-second, a
+// cancelled response is never saved.
 func (s *Server) recordCancelUsage(model, content string, startedAt time.Time) {
 	if s.usage == nil {
+		return
+	}
+	if rec, ok := s.usage.Get(model); ok && rec.RecordTokensPerSec > 0 {
 		return
 	}
 	est := estimateTextTokens(content)

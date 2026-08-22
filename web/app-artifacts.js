@@ -169,6 +169,7 @@ function loadExistingArtifact(id, label, name) {
 function applyArtifactWidth(cv, desiredWidth) {
   if (!cv) cv = $("chat-view");
   if (!cv) return 300;
+  if (window.innerWidth <= 1135) return 300;
   const rect = cv.getBoundingClientRect();
   const totalW = rect.width > 0 ? rect.width : (window.innerWidth - 36);
   // Chat shell can comfortably shrink down to 260px (or 35% on wider screens)
@@ -451,7 +452,7 @@ html, body {
   // Close options panel so the artifact gets the full right/top area.
   chatView?.classList.remove("chat-options-open");
   // Show splitter on desktop and set default width on open (clamped so chat has >= 35%).
-  if (chatView && splitter) {
+  if (chatView && splitter && window.innerWidth > 1135) {
     const savedWidth = localStorage.getItem("ollama_manager_artifact_width");
     applyArtifactWidth(chatView, savedWidth || "50%");
     chatArtifactWidthSet = true;
@@ -498,7 +499,7 @@ function swapToArtifact(cv) {
   cv.classList.remove("chat-options-open");
   if (chatArtifactVisibleBeforeOptions && artifactPanel) {
     artifactPanel.hidden = false;
-    if (splitter) splitter.hidden = false;
+    if (splitter && window.innerWidth > 1135) splitter.hidden = false;
     const savedWidth = localStorage.getItem("ollama_manager_artifact_width");
     applyArtifactWidth(cv, savedWidth || "50%");
   } else {

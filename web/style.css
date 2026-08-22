@@ -6984,6 +6984,7 @@ button.chat-send:disabled:hover {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
+.mf-details summary,
 .mf-details-summary {
   display: flex;
   justify-content: space-between;
@@ -6995,11 +6996,16 @@ button.chat-send:disabled:hover {
   user-select: none;
   outline: none;
   list-style: none;
+  list-style-type: none;
   padding: 2px 0;
 }
 
-.mf-details-summary::-webkit-details-marker {
+.mf-details summary::-webkit-details-marker,
+.mf-details-summary::-webkit-details-marker,
+.mf-details summary::marker,
+.mf-details-summary::marker {
   display: none;
+  content: "";
 }
 
 .mf-details-title-wrap {

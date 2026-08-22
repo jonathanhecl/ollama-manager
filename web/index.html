@@ -750,22 +750,54 @@
                 <span class="mf-step-badge">2</span>
                 <div>
                   <h3 class="mf-step-title" data-i18n="modelfile.step2_title">Personality & Role (System Prompt)</h3>
-                  <p class="mf-step-desc muted" data-i18n="modelfile.step2_desc">Define how your model acts, speaks, and responds.</p>
+                  <p class="mf-step-desc muted" data-i18n="modelfile.step2_desc">Define how your model acts, speaks, and responds or inject documentation.</p>
                 </div>
               </div>
               <div class="mf-step-body">
                 <div class="mf-field-vertical">
                   <div class="mf-label-row">
-                    <span class="muted mf-presets-label" data-i18n="modelfile.presets_label">Quick Templates:</span>
-                    <div class="mf-presets-row">
-                      <button type="button" class="mf-preset-btn" data-preset="coder" data-i18n="modelfile.preset_coder">💻 Coder</button>
-                      <button type="button" class="mf-preset-btn" data-preset="concise" data-i18n="modelfile.preset_concise">⚡ Concise</button>
-                      <button type="button" class="mf-preset-btn" data-preset="translator" data-i18n="modelfile.preset_translator">🌐 Translator</button>
-                      <button type="button" class="mf-preset-btn" data-preset="tutor" data-i18n="modelfile.preset_tutor">🎓 Tutor</button>
-                      <button type="button" class="mf-preset-btn mf-preset-btn--clear" data-preset="clear" data-i18n="modelfile.preset_clear">✕</button>
+                    <div class="mf-presets-wrap">
+                      <span class="muted mf-presets-label" data-i18n="modelfile.presets_label">Quick Templates:</span>
+                      <div class="mf-presets-row">
+                        <button type="button" class="mf-preset-btn" data-preset="coder" data-i18n="modelfile.preset_coder">💻 Coder</button>
+                        <button type="button" class="mf-preset-btn" data-preset="concise" data-i18n="modelfile.preset_concise">⚡ Concise</button>
+                        <button type="button" class="mf-preset-btn" data-preset="translator" data-i18n="modelfile.preset_translator">🌐 Translator</button>
+                        <button type="button" class="mf-preset-btn" data-preset="tutor" data-i18n="modelfile.preset_tutor">🎓 Tutor</button>
+                        <button type="button" class="mf-preset-btn mf-preset-btn--clear" data-preset="clear" data-i18n="modelfile.preset_clear">✕</button>
+                      </div>
+                    </div>
+                    <div class="mf-inject-wrap">
+                      <input id="mf-inject-file" type="file" accept=".txt,.md,.json,.csv,.log,.yaml,.yml,.py,.js,.html,.ts,.go,.rs,.c,.cpp,.h" hidden>
+                      <button id="mf-inject-btn" type="button" class="ghost mf-inject-btn" data-i18n="modelfile.inject_file" title="Import text or markdown file">📄 <span data-i18n="modelfile.inject_btn">Inyectar TXT / Archivo</span></button>
                     </div>
                   </div>
-                  <textarea id="mf-system-prompt" rows="5" data-i18n-attr="placeholder" data-i18n="modelfile.system_placeholder" placeholder="Instructions that define the model's persona, role, or behavior..." autocomplete="off"></textarea>
+                  <textarea id="mf-system-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="modelfile.system_placeholder" placeholder="Instructions that define the model's persona, role, or behavior, or paste your documentation here..." autocomplete="off"></textarea>
+                  
+                  <!-- Token Budget & Live Context Counter -->
+                  <div class="mf-token-budget">
+                    <div class="mf-token-stats">
+                      <div class="mf-token-stat-item">
+                        <span class="muted" data-i18n="modelfile.prompt_tokens">Tokens de Prompt:</span>
+                        <span id="mf-token-count" class="mono bold">~0</span>
+                        <span id="mf-token-percent" class="mf-token-pill pill-safe">0%</span>
+                      </div>
+                      <div class="mf-token-stat-item">
+                        <span class="muted" data-i18n="modelfile.remaining_tokens">Libres para Chat:</span>
+                        <span id="mf-token-remain" class="mono">~8,192</span>
+                      </div>
+                      <div class="mf-token-stat-item mf-token-stat-ctx">
+                        <span class="muted" data-i18n="modelfile.context_budget">Contexto:</span>
+                        <span id="mf-token-ctx-max" class="mono">8k</span>
+                      </div>
+                    </div>
+                    <div class="mf-token-bar-track">
+                      <div id="mf-token-bar-fill" class="mf-token-bar-fill fill-safe" style="width: 0%"></div>
+                    </div>
+                    <div id="mf-token-alert-row" class="mf-token-alert-row" hidden>
+                      <span id="mf-token-alert-msg" class="mf-token-alert-text">⚠️ El prompt ocupa más del 80% del contexto. Quedará poco espacio para chat.</span>
+                      <button id="mf-trim-excess-btn" type="button" class="danger mf-trim-btn" data-i18n="modelfile.trim_excess">✂️ Recortar Exceso</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>

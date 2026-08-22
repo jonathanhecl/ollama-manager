@@ -734,6 +734,15 @@ const I18N = {
     "modelfile.stop_tokens_sublabel": "Halt response when generating any of these token sequences",
     "modelfile.quick_add": "Quick suggestions (click to add/remove):",
     "modelfile.template_sublabel": "Go/Jinja template to structure prompt format",
+    "modelfile.inject_btn": "Inject TXT / File",
+    "modelfile.prompt_tokens": "Prompt Tokens:",
+    "modelfile.remaining_tokens": "Free for Chat:",
+    "modelfile.context_budget": "Context Limit:",
+    "modelfile.trim_excess": "✂️ Trim Excess",
+    "modelfile.token_warning_high": "⚠️ System prompt uses more than 80% of context. Very little space will remain for chat questions and answers.",
+    "modelfile.token_warning_overflow": "⛔ Token overflow! Exceeds model context. Ollama will truncate this prompt.",
+    "modelfile.trimmed_toast": "Prompt trimmed to fit within context limit.",
+    "modelfile.already_fits": "Prompt is already within recommended context limits.",
   },
 
   es: {
@@ -1466,6 +1475,15 @@ const I18N = {
     "modelfile.stop_tokens_placeholder": "Separados por coma (ej. <|im_end|>, User:, Assistant:)",
     "modelfile.quick_add": "Atajos rápidos (clic para añadir/quitar):",
     "modelfile.template_sublabel": "Plantilla Go/Jinja para definir el formato de prompt",
+    "modelfile.inject_btn": "Inyectar TXT / Archivo",
+    "modelfile.prompt_tokens": "Tokens de Prompt:",
+    "modelfile.remaining_tokens": "Libres para Chat:",
+    "modelfile.context_budget": "Contexto:",
+    "modelfile.trim_excess": "✂️ Recortar Exceso",
+    "modelfile.token_warning_high": "⚠️ El prompt ocupa más del 80% del contexto. Quedará poco espacio para preguntas y respuestas.",
+    "modelfile.token_warning_overflow": "⛔ ¡Exceso de tokens! Supera el contexto. Ollama recortará este prompt.",
+    "modelfile.trimmed_toast": "Prompt recortado para ajustarse al contexto.",
+    "modelfile.already_fits": "El prompt actual ya está dentro del límite recomendado.",
   },
 };
 

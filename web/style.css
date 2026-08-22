@@ -6559,6 +6559,13 @@ button.chat-send:disabled:hover {
   gap: 6px;
 }
 
+.mf-presets-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .mf-presets-row {
   display: flex;
   align-items: center;
@@ -6591,6 +6598,136 @@ button.chat-send:disabled:hover {
 .mf-preset-btn--clear {
   padding: 3px 7px;
   color: var(--muted);
+}
+
+.mf-inject-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.mf-inject-btn {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  color: var(--accent, #3b82f6);
+  background: rgba(59, 130, 246, 0.05);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mf-inject-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--accent, #3b82f6);
+  color: #60a5fa;
+}
+
+/* Token Budget Bar & Live Counter */
+.mf-token-budget {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 2px;
+}
+
+.mf-token-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.mf-token-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mf-token-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  line-height: 1.3;
+}
+
+.pill-safe {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.pill-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pill-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  font-weight: 700;
+}
+
+.mf-token-bar-track {
+  width: 100%;
+  height: 5px;
+  background: var(--bg, #0d0f14);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mf-token-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.fill-safe {
+  background: linear-gradient(90deg, #38bdf8, #10b981);
+}
+
+.fill-warning {
+  background: linear-gradient(90deg, #38bdf8, #f59e0b);
+}
+
+.fill-danger {
+  background: linear-gradient(90deg, #f59e0b, #ef4444);
+}
+
+.mf-token-alert-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.mf-token-alert-text {
+  font-size: 11px;
+  color: #f87171;
+  line-height: 1.4;
+  flex: 1 1 auto;
+}
+
+.mf-trim-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Param Box (Temperature & Context) */

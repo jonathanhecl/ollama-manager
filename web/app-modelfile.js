@@ -208,6 +208,15 @@
       });
     });
 
+    // System prompt & token budget input
+    const sysPromptEl = $("mf-system-prompt");
+    if (sysPromptEl) {
+      sysPromptEl.addEventListener("input", () => {
+        updateTokenBudgetUI();
+        updatePreview();
+      });
+    }
+
     // Presets buttons
     document.querySelectorAll(".mf-preset-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -216,11 +225,54 @@
           const sysEl = $("mf-system-prompt");
           if (sysEl) {
             sysEl.value = SYSTEM_PRESETS[presetKey];
+            updateTokenBudgetUI();
             updatePreview();
           }
         }
       });
     });
+
+    // File injector
+    const injectBtn = $("mf-inject-btn");
+    const injectFile = $("mf-inject-file");
+    if (injectBtn && injectFile) {
+      injectBtn.addEventListener("click", () => {
+        injectFile.value = "";
+        injectFile.click();
+      });
+
+      injectFile.addEventListener("change", () => {
+        const file = injectFile.files && injectFile.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const content = e.target.result;
+          const sysEl = $("mf-system-prompt");
+          if (sysEl) {
+            if (sysEl.value.trim()) {
+              sysEl.value += `\n\n### Documentación / Archivo (${file.name}):\n` + content;
+            } else {
+              sysEl.value = `### Documentación / Archivo (${file.name}):\n` + content;
+            }
+            updateTokenBudgetUI();
+            updatePreview();
+            const loadedTok = estimateTokens(content);
+            showToast(`Archivo "${file.name}" inyectado (~${loadedTok.toLocaleString()} tokens)`);
+          }
+        };
+        reader.onerror = () => {
+          showToast("Error al leer el archivo.");
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    // Trim excess button
+    const trimBtn = $("mf-trim-excess-btn");
+    if (trimBtn) {
+      trimBtn.addEventListener("click", trimPromptToContext);
+    }
 
     // Raw editor input
     const rawEl = $("mf-raw-modelfile");
@@ -331,6 +383,135 @@
       const chipVal = parseInt(chip.dataset.val, 10);
       chip.classList.toggle("active", chipVal === val);
     });
+
+    updateTokenBudgetUI();
+  }
+
+  function estimateTokens(text) {
+    if (!text || !text.trim()) return 0;
+    const matches = text.match(/[\w]+|[^\s\w]+/gu);
+    if (!matches) return 0;
+    let tokens = 0;
+    for (let i = 0; i < matches.length; i++) {
+      const len = matches[i].length;
+      tokens += Math.max(1, Math.ceil(len / 3.8));
+    }
+    return tokens;
+  }
+
+  function updateTokenBudgetUI() {
+    const sysEl = $("mf-system-prompt");
+    const countEl = $("mf-token-count");
+    const percentEl = $("mf-token-percent");
+    const remainEl = $("mf-token-remain");
+    const ctxMaxEl = $("mf-token-ctx-max");
+    const fillEl = $("mf-token-bar-fill");
+    const alertRow = $("mf-token-alert-row");
+    const alertMsg = $("mf-token-alert-msg");
+
+    if (!countEl || !percentEl || !remainEl || !fillEl) return;
+
+    const text = sysEl ? sysEl.value : "";
+    const estTokens = estimateTokens(text);
+
+    // Get context limit from mf-num-ctx
+    const ctxEl = $("mf-num-ctx");
+    let numCtx = 8192;
+    if (ctxEl && ctxEl.value) {
+      const parsed = parseInt(ctxEl.value, 10);
+      if (!isNaN(parsed) && parsed > 0) numCtx = parsed;
+    }
+
+    const pct = numCtx > 0 ? (estTokens / numCtx) * 100 : 0;
+    const remaining = Math.max(0, numCtx - estTokens);
+
+    countEl.textContent = `~${estTokens.toLocaleString()}`;
+    percentEl.textContent = `${pct.toFixed(0)}%`;
+    remainEl.textContent = `~${remaining.toLocaleString()}`;
+
+    if (ctxMaxEl) {
+      ctxMaxEl.textContent = numCtx >= 1024 ? `${Math.round(numCtx / 1024)}k` : `${numCtx}`;
+    }
+
+    fillEl.style.width = `${Math.min(100, pct)}%`;
+
+    if (pct < 50) {
+      percentEl.className = "mf-token-pill pill-safe";
+      fillEl.className = "mf-token-bar-fill fill-safe";
+      if (alertRow) alertRow.hidden = true;
+    } else if (pct <= 75) {
+      percentEl.className = "mf-token-pill pill-warning";
+      fillEl.className = "mf-token-bar-fill fill-warning";
+      if (alertRow) alertRow.hidden = true;
+    } else if (pct <= 100) {
+      percentEl.className = "mf-token-pill pill-danger";
+      fillEl.className = "mf-token-bar-fill fill-danger";
+      if (alertRow) {
+        alertRow.hidden = false;
+        if (alertMsg) {
+          alertMsg.textContent = t("modelfile.token_warning_high") || `⚠️ El prompt ocupa el ${pct.toFixed(0)}% del contexto. Quedan solo ~${remaining.toLocaleString()} tokens para las preguntas y respuestas.`;
+        }
+      }
+    } else {
+      // Overflow > 100%
+      percentEl.className = "mf-token-pill pill-danger";
+      fillEl.className = "mf-token-bar-fill fill-danger";
+      if (alertRow) {
+        alertRow.hidden = false;
+        const excess = estTokens - numCtx;
+        if (alertMsg) {
+          alertMsg.textContent = t("modelfile.token_warning_overflow") || `⛔ ¡Exceso de tokens! Supera el contexto en +${excess.toLocaleString()} tokens. Ollama recortará el prompt.`;
+        }
+      }
+    }
+  }
+
+  function trimPromptToContext() {
+    const sysEl = $("mf-system-prompt");
+    const ctxEl = $("mf-num-ctx");
+    if (!sysEl) return;
+    let numCtx = 8192;
+    if (ctxEl && ctxEl.value) {
+      const parsed = parseInt(ctxEl.value, 10);
+      if (!isNaN(parsed) && parsed > 0) numCtx = parsed;
+    }
+
+    // Target ~65% of context so at least 35% remains for conversation
+    const targetTokens = Math.max(500, Math.floor(numCtx * 0.65));
+    const text = sysEl.value;
+    const currentTokens = estimateTokens(text);
+    if (currentTokens <= targetTokens) {
+      showToast(t("modelfile.already_fits") || "El prompt actual ya está dentro del límite recomendado.");
+      return;
+    }
+
+    // Truncate to reach targetTokens
+    let low = 0;
+    let high = text.length;
+    let bestLength = high;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const sub = text.substring(0, mid);
+      const tok = estimateTokens(sub);
+      if (tok <= targetTokens) {
+        bestLength = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    // Find previous newline or period to cut cleanly
+    let cutPoint = bestLength;
+    const lastNl = text.lastIndexOf("\n", bestLength);
+    if (lastNl > bestLength * 0.8) {
+      cutPoint = lastNl;
+    }
+
+    sysEl.value = text.substring(0, cutPoint).trim();
+    updateTokenBudgetUI();
+    updatePreview();
+    showToast(t("modelfile.trimmed_toast") || `Prompt recortado a ~${estimateTokens(sysEl.value).toLocaleString()} tokens.`);
   }
 
   function updateTopPUI(val) {
@@ -734,6 +915,7 @@
       if (stopEl) stopEl.value = stopTokens.join(", ");
     }
     updateStopChipsUI();
+    updateTokenBudgetUI();
   }
 
   function updatePreview() {

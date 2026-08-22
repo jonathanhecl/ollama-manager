@@ -14,6 +14,10 @@ function openDetail(name) {
     $("detail-chat").hidden = false;
     $("detail-chat").dataset.name = name;
   }
+  if ($("detail-modelfile")) {
+    $("detail-modelfile").hidden = false;
+    $("detail-modelfile").dataset.name = name;
+  }
   if ($("detail-archive")) {
     $("detail-archive").hidden = false;
     $("detail-archive").dataset.name = name;
@@ -163,8 +167,20 @@ $("detail-close").addEventListener("click", () => {
     $("detail-chat").hidden = true;
     $("detail-chat").dataset.name = "";
   }
+  if ($("detail-modelfile")) {
+    $("detail-modelfile").hidden = true;
+    $("detail-modelfile").dataset.name = "";
+  }
   activeName = null;
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+});
+
+$("detail-modelfile")?.addEventListener("click", (e) => {
+  const name = e.currentTarget?.dataset?.name || activeName;
+  if (!name) return;
+  if (typeof openModelfileStudio === "function") {
+    openModelfileStudio(name);
+  }
 });
 
 $("detail-chat")?.addEventListener("click", (e) => {

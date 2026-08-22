@@ -1398,6 +1398,92 @@ func (s *Server) modelExists(ctx context.Context, name string) bool {
 	return false
 }
 
+// ---------- model create (modelfile studio) ----------
+
+type modelCreateRequestBody struct {
+	Name       string            `json:"name"`
+	From       string            `json:"from,omitempty"`
+	Modelfile  string            `json:"modelfile,omitempty"`
+	System     string            `json:"system,omitempty"`
+	Template   string            `json:"template,omitempty"`
+	Parameters map[string]any    `json:"parameters,omitempty"`
+	Files      map[string]string `json:"files,omitempty"`
+}
+
+func (s *Server) handleCreateModel(w http.ResponseWriter, r *http.Request) {
+	var body modelCreateRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+
+	createReq := ollama.CreateRequest{
+		Model:      name,
+		From:       strings.TrimSpace(body.From),
+		Modelfile:  strings.TrimSpace(body.Modelfile),
+		System:     strings.TrimSpace(body.System),
+		Template:   strings.TrimSpace(body.Template),
+		Parameters: body.Parameters,
+		Files:      body.Files,
+	}
+
+	isStream := strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+	var flusher http.Flusher
+	if isStream {
+		if f, ok := w.(http.Flusher); ok {
+			flusher = f
+		} else {
+			isStream = false
+		}
+	}
+	if isStream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+	}
+
+	sendSSE := func(event string, payload any) {
+		if !isStream {
+			return
+		}
+		buf, _ := json.Marshal(payload)
+		if event != "" {
+			fmt.Fprintf(w, "event: %s\n", event)
+		}
+		fmt.Fprintf(w, "data: %s\n\n", buf)
+		flusher.Flush()
+	}
+
+	if isStream {
+		sendSSE("status", map[string]any{
+			"status": "starting",
+			"model":  name,
+		})
+		err := s.ollama.CreateStream(r.Context(), createReq, func(ev ollama.CreateProgress) error {
+			sendSSE("progress", ev)
+			return nil
+		})
+		if err != nil {
+			sendSSE("error", map[string]any{"error": err.Error()})
+			return
+		}
+		sendSSE("done", map[string]any{"model": name, "success": true})
+		return
+	}
+
+	if err := s.ollama.Create(r.Context(), createReq); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"model": name, "success": true})
+}
+
 // ---------- chat ----------
 
 type chatRequestBody struct {
@@ -2247,7 +2333,7 @@ func (s *Server) handleListModelArtifacts(w http.ResponseWriter, r *http.Request
 					}
 				}
 				artifacts = append(artifacts, artifactEntry{
-					ID:          filepath.Join(digest, e.Name()),
+					ID:          digest + "/" + e.Name(),
 					Digest:      digest,
 					Date:        e.Name(),
 					Name:        artName,

@@ -94,6 +94,15 @@ type PullProgress struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// CreateProgress is one streamed event from POST /api/create.
+type CreateProgress struct {
+	Status    string `json:"status"`
+	Digest    string `json:"digest,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	Completed int64  `json:"completed,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 // ToolCall is one function call requested by the model (Ollama /api/chat).
 type ToolCall struct {
 	Type     string `json:"type"`
@@ -325,6 +334,49 @@ func (c *Client) Create(ctx context.Context, req CreateRequest) error {
 	}
 	defer resp.Body.Close()
 	return checkStatus(resp)
+}
+
+// CreateStream calls POST /api/create with stream:true and invokes onEvent for every NDJSON progress event.
+func (c *Client) CreateStream(ctx context.Context, req CreateRequest, onEvent func(CreateProgress) error) error {
+	req.Stream = true
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/api/create", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return err
+	}
+
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var ev CreateProgress
+		if err := json.Unmarshal(line, &ev); err != nil {
+			return fmt.Errorf("decode create event: %w (line=%q)", err, string(line))
+		}
+		if ev.Error != "" {
+			return fmt.Errorf("ollama: %s", ev.Error)
+		}
+		if err := onEvent(ev); err != nil {
+			return err
+		}
+	}
+	if err := sc.Err(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("read create stream: %w", err)
+	}
+	return nil
 }
 
 // Pull starts POST /api/pull and invokes onEvent for every NDJSON progress

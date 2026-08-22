@@ -6380,3 +6380,343 @@ button.chat-send:disabled:hover {
   .analytics-kpis { grid-template-columns: 1fr; }
   .analytics-bar-name { max-width: 130px; }
 }
+
+/* ==========================================================================
+   Modelfile Studio
+   ========================================================================== */
+
+.modelfile-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.modelfile-card {
+  width: 95vw;
+  max-width: 1100px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.modelfile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface, rgba(255, 255, 255, 0.02));
+}
+
+.modelfile-subtitle {
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.modelfile-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modelfile-tabs {
+  display: flex;
+  background: var(--bg, #12141a);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  gap: 2px;
+}
+
+.mf-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mf-tab-btn:hover {
+  color: var(--text);
+}
+
+.mf-tab-btn.active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.modelfile-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modelfile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 20px;
+  min-height: 440px;
+}
+
+.modelfile-left {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mf-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mf-base-picker-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mf-base-picker-row select,
+.mf-base-picker-row input {
+  flex: 1 1 auto;
+}
+
+.mf-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mf-presets-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.mf-presets-label {
+  font-size: 11px;
+  margin-right: 2px;
+}
+
+.mf-preset-btn {
+  background: var(--bg, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mf-preset-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.mf-preset-btn--clear {
+  padding: 2px 6px;
+  color: var(--muted);
+}
+
+.mf-chips-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.mf-chip-btn {
+  background: var(--bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mf-chip-btn:hover {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.mf-details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--surface, rgba(255, 255, 255, 0.01));
+}
+
+.mf-details summary {
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+  user-select: none;
+  outline: none;
+}
+
+.mf-params-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.field-full {
+  grid-column: 1 / -1;
+}
+
+.field-fill {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.field-fill textarea {
+  flex: 1 1 auto;
+}
+
+.modelfile-editor {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg, #0d0f14);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.modelfile-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mf-preview-box {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #0d0f14);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.mf-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mf-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mf-copy-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.modelfile-code {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 14px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7dd3fc;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.mf-status-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--surface, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.mf-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg, #161820);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mf-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #3b82f6, #10b981);
+  transition: width 0.2s ease;
+}
+
+.mf-status-text {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.modelfile-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface, rgba(255, 255, 255, 0.02));
+}
+
+.modelfile-foot-right {
+  display: flex;
+  gap: 10px;
+}
+
+@media (max-width: 860px) {
+  .modelfile-grid {
+    grid-template-columns: 1fr;
+  }
+  .mf-preview-box {
+    min-height: 200px;
+  }
+}
+

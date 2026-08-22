@@ -125,6 +125,11 @@ foreach ($target in $targets) {
     Remove-Item -Recurse -Force $tempDir
 }
 
+# Restore default environment
+Remove-Item env:GOOS -ErrorAction SilentlyContinue
+Remove-Item env:GOARCH -ErrorAction SilentlyContinue
+Remove-Item env:CGO_ENABLED -ErrorAction SilentlyContinue
+
 Write-Host ""
 Write-Host "Compilación y empaquetado completados exitosamente. Archivos en dist/:" -ForegroundColor Green
 Get-ChildItem $distDir | Select-Object Name, Length | Format-Table

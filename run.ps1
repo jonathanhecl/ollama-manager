@@ -7,6 +7,12 @@ $ErrorActionPreference = "Stop"
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location -Path $projectDir
 
+# Ensure we build for native Windows even if a previous build script set GOOS/GOARCH
+$env:GOOS = "windows"
+if (-not $env:GOARCH -or $env:GOARCH -eq "arm64") {
+    $env:GOARCH = "amd64"
+}
+
 $outputName = "ollama-manager.exe"
 $buildFlags = @()
 

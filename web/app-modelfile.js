@@ -27,26 +27,21 @@
   }
 
   function initModelfileStudio() {
-    const modal = $("modelfile-modal");
-    if (!modal) return;
-
-    // Open button from toolbar
-    const openBtn = $("models-modelfile-btn");
-    if (openBtn) {
-      openBtn.addEventListener("click", () => openModelfileStudio());
+    // Open button from topbar
+    const topbarBtn = $("modelfile-btn");
+    if (topbarBtn) {
+      topbarBtn.addEventListener("click", () => showModelfileView());
     }
 
-    // Close button & backdrop
-    const closeBtn = $("modelfile-x");
-    const cancelBtn = $("modelfile-cancel-btn");
-    if (closeBtn) closeBtn.addEventListener("click", closeModelfileStudio);
-    if (cancelBtn) cancelBtn.addEventListener("click", closeModelfileStudio);
-
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal && !isCreating) {
-        closeModelfileStudio();
-      }
-    });
+    // Back button from modelfile-view
+    const backBtn = $("modelfile-back-btn");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        if (typeof showModelsView === "function") {
+          showModelsView();
+        }
+      });
+    }
 
     // Tab switching
     const tabBuilder = $("mf-tab-builder");
@@ -168,8 +163,9 @@
     const testChatBtn = $("mf-test-chat-btn");
     if (testChatBtn) {
       testChatBtn.addEventListener("click", () => {
-        if (createdModelName && typeof selectChatModel === "function" && typeof showChatView === "function") {
-          closeModelfileStudio();
+        if (createdModelName && typeof showChatViewWithModel === "function") {
+          showChatViewWithModel(createdModelName);
+        } else if (createdModelName && typeof selectChatModel === "function" && typeof showChatView === "function") {
           selectChatModel(createdModelName);
           showChatView();
         }
@@ -177,9 +173,21 @@
     }
   }
 
-  function openModelfileStudio(baseModelName) {
-    const modal = $("modelfile-modal");
-    if (!modal) return;
+  function showModelfileView(baseModelName) {
+    if (typeof hideAllMainViews === "function") {
+      hideAllMainViews();
+    }
+    if (typeof stopSpeechPlayback === "function") {
+      stopSpeechPlayback();
+    }
+
+    currentView = "modelfile";
+    const view = $("modelfile-view");
+    if (view) view.hidden = false;
+
+    if (!window.location.pathname.startsWith("/modelfile")) {
+      history.pushState(null, "", "/modelfile");
+    }
 
     createdModelName = "";
     isCreating = false;
@@ -245,13 +253,7 @@
     switchTab("builder");
     updatePreview();
 
-    modal.hidden = false;
     if (nameInp) nameInp.focus();
-  }
-
-  function closeModelfileStudio() {
-    const modal = $("modelfile-modal");
-    if (modal) modal.hidden = true;
   }
 
   function switchTab(tab) {
@@ -626,8 +628,8 @@
   }
 
   // Hook into global scope
-  window.openModelfileStudio = openModelfileStudio;
-  window.closeModelfileStudio = closeModelfileStudio;
+  window.showModelfileView = showModelfileView;
+  window.openModelfileStudio = showModelfileView; // backwards compatibility alias
 
   // Initialize when DOM is ready
   if (document.readyState === "loading") {

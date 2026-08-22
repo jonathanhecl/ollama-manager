@@ -215,6 +215,7 @@ function showModelsView() {
   $("test-editor-view") && ($("test-editor-view").hidden = true);
   $("opencode-view") && ($("opencode-view").hidden = true);
   $("analytics-view") && ($("analytics-view").hidden = true);
+  $("modelfile-view") && ($("modelfile-view").hidden = true);
   $("chat-btn")?.classList.remove("active");
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");

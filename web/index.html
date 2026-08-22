@@ -56,6 +56,7 @@
           <span data-i18n="downloads.button">Downloads</span>
           <span id="downloads-count" class="count-badge" hidden>0</span>
         </button>
+        <button id="modelfile-btn" class="ghost" data-i18n-attr="title" data-i18n="modelfile.title" title="Modelfile Studio">🛠️</button>
         <button id="analytics-btn" class="ghost" data-i18n-attr="title" data-i18n="analytics.button" title="Analytics" hidden>📊</button>
         <button id="tests-btn" class="ghost" data-i18n-attr="title" data-i18n="tests.button" title="Tests" hidden>🧪</button>
         <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">⚙️</button>
@@ -79,10 +80,6 @@
         <button type="button" id="models-search-clear" class="btn-icon models-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
       </div>
       <div class="models-count-wrap">
-        <button id="models-modelfile-btn" type="button" class="primary modelfile-open-btn" data-i18n-attr="title" data-i18n="modelfile.title" title="Modelfile Studio">
-          <span aria-hidden="true">🛠️</span>
-          <span data-i18n="modelfile.btn_create_model">+ Create Model</span>
-        </button>
         <div id="models-count" class="models-count mono"></div>
         <button id="models-reload-btn" type="button" class="ghost models-reload-btn" data-i18n-attr="title" data-i18n="action.reload_models" title="Reload models">
           <svg class="chat-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -690,158 +687,154 @@
     </div>
   </aside>
 
-  <div id="modelfile-modal" class="modal" hidden>
-    <div class="modal-card modelfile-card">
-      <header class="modelfile-head">
-        <div>
-          <h2>
-            <span class="gear">🛠️</span>
-            <span data-i18n="modelfile.title">Modelfile Studio</span>
-          </h2>
-          <p class="modelfile-subtitle muted" data-i18n="modelfile.subtitle">Design, configure and build custom models or derive from GGUF / existing models.</p>
+  <main id="modelfile-view" class="modelfile-view" hidden>
+    <header class="modelfile-head">
+      <div class="modelfile-head-left">
+        <button id="modelfile-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+        <h2>
+          <span class="gear">🛠️</span>
+          <span data-i18n="modelfile.title">Modelfile Studio</span>
+        </h2>
+      </div>
+      <div class="modelfile-head-actions">
+        <div class="modelfile-tabs">
+          <button id="mf-tab-builder" type="button" class="mf-tab-btn active" data-i18n="modelfile.tab_builder">Visual Builder</button>
+          <button id="mf-tab-raw" type="button" class="mf-tab-btn" data-i18n="modelfile.tab_raw">Raw Modelfile</button>
         </div>
-        <div class="modelfile-head-actions">
-          <div class="modelfile-tabs">
-            <button id="mf-tab-builder" type="button" class="mf-tab-btn active" data-i18n="modelfile.tab_builder">Visual Builder</button>
-            <button id="mf-tab-raw" type="button" class="mf-tab-btn" data-i18n="modelfile.tab_raw">Raw Modelfile</button>
-          </div>
-          <button id="modelfile-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
-        </div>
-      </header>
+      </div>
+    </header>
 
-      <div class="modelfile-body">
-        <div class="modelfile-grid">
-          <!-- Left Column: Controls & Visual Form -->
-          <div class="modelfile-left">
-            <div id="mf-builder-pane" class="mf-pane">
-              <div class="field">
-                <label for="mf-model-name" data-i18n="modelfile.model_name">Model Name</label>
-                <input id="mf-model-name" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.model_name_placeholder" placeholder="e.g. my-assistant:v1" autocomplete="off" spellcheck="false">
+    <div class="modelfile-body">
+      <div class="modelfile-grid">
+        <!-- Left Column: Controls & Visual Form -->
+        <div class="modelfile-left">
+          <div id="mf-builder-pane" class="mf-pane">
+            <div class="field">
+              <label for="mf-model-name" data-i18n="modelfile.model_name">Model Name</label>
+              <input id="mf-model-name" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.model_name_placeholder" placeholder="e.g. my-assistant:v1" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="field">
+              <label for="mf-base-model" data-i18n="modelfile.base_model">Base Model (FROM)</label>
+              <div class="mf-base-picker-row">
+                <select id="mf-base-model-select" autocomplete="off"></select>
+                <input id="mf-base-model-custom" type="text" placeholder="Or type path / tag (e.g. C:/models/model.gguf)" autocomplete="off" spellcheck="false" hidden>
+                <button id="mf-base-toggle-custom" type="button" class="ghost" title="Toggle custom path / GGUF">📁</button>
               </div>
+            </div>
 
-              <div class="field">
-                <label for="mf-base-model" data-i18n="modelfile.base_model">Base Model (FROM)</label>
-                <div class="mf-base-picker-row">
-                  <select id="mf-base-model-select" autocomplete="off"></select>
-                  <input id="mf-base-model-custom" type="text" placeholder="Or type path / tag (e.g. C:/models/model.gguf)" autocomplete="off" spellcheck="false" hidden>
-                  <button id="mf-base-toggle-custom" type="button" class="ghost" title="Toggle custom path / GGUF">📁</button>
+            <div class="field">
+              <div class="mf-label-row">
+                <label for="mf-system-prompt" data-i18n="modelfile.system_prompt">System Prompt</label>
+                <div class="mf-presets-row">
+                  <span class="muted mf-presets-label" data-i18n="modelfile.presets_label">Quick Templates:</span>
+                  <button type="button" class="mf-preset-btn" data-preset="coder" data-i18n="modelfile.preset_coder">💻 Coder</button>
+                  <button type="button" class="mf-preset-btn" data-preset="concise" data-i18n="modelfile.preset_concise">⚡ Concise</button>
+                  <button type="button" class="mf-preset-btn" data-preset="translator" data-i18n="modelfile.preset_translator">🌐 Translator</button>
+                  <button type="button" class="mf-preset-btn" data-preset="tutor" data-i18n="modelfile.preset_tutor">🎓 Tutor</button>
+                  <button type="button" class="mf-preset-btn mf-preset-btn--clear" data-preset="clear" data-i18n="modelfile.preset_clear">✕</button>
                 </div>
               </div>
+              <textarea id="mf-system-prompt" rows="5" data-i18n-attr="placeholder" data-i18n="modelfile.system_placeholder" placeholder="Instructions that define the model's persona, role, or behavior..." autocomplete="off"></textarea>
+            </div>
 
-              <div class="field">
-                <div class="mf-label-row">
-                  <label for="mf-system-prompt" data-i18n="modelfile.system_prompt">System Prompt</label>
-                  <div class="mf-presets-row">
-                    <span class="muted mf-presets-label" data-i18n="modelfile.presets_label">Quick Templates:</span>
-                    <button type="button" class="mf-preset-btn" data-preset="coder" data-i18n="modelfile.preset_coder">💻 Coder</button>
-                    <button type="button" class="mf-preset-btn" data-preset="concise" data-i18n="modelfile.preset_concise">⚡ Concise</button>
-                    <button type="button" class="mf-preset-btn" data-preset="translator" data-i18n="modelfile.preset_translator">🌐 Translator</button>
-                    <button type="button" class="mf-preset-btn" data-preset="tutor" data-i18n="modelfile.preset_tutor">🎓 Tutor</button>
-                    <button type="button" class="mf-preset-btn mf-preset-btn--clear" data-preset="clear" data-i18n="modelfile.preset_clear">✕</button>
+            <details class="mf-details" open>
+              <summary><span data-i18n="modelfile.parameters">Inference Parameters</span></summary>
+              <div class="mf-params-grid">
+                <div class="field field-full">
+                  <div class="mf-label-row">
+                    <label for="mf-num-ctx" data-i18n="modelfile.num_ctx">Context Window (num_ctx)</label>
+                    <div class="mf-chips-row">
+                      <button type="button" class="mf-chip-btn" data-val="4096">4k</button>
+                      <button type="button" class="mf-chip-btn" data-val="8192">8k</button>
+                      <button type="button" class="mf-chip-btn" data-val="16384">16k</button>
+                      <button type="button" class="mf-chip-btn" data-val="32768">32k</button>
+                      <button type="button" class="mf-chip-btn" data-val="65536">64k</button>
+                      <button type="button" class="mf-chip-btn" data-val="131072">128k</button>
+                      <button type="button" class="mf-chip-btn" data-val="262144">256k</button>
+                    </div>
                   </div>
+                  <input id="mf-num-ctx" type="number" min="512" step="512" placeholder="e.g. 8192, 32768, 262144..." autocomplete="off">
                 </div>
-                <textarea id="mf-system-prompt" rows="4" data-i18n-attr="placeholder" data-i18n="modelfile.system_placeholder" placeholder="Instructions that define the model's persona, role, or behavior..." autocomplete="off"></textarea>
-              </div>
 
-              <details class="mf-details" open>
-                <summary><span data-i18n="modelfile.parameters">Inference Parameters</span></summary>
-                <div class="mf-params-grid">
-                  <div class="field field-full">
-                    <div class="mf-label-row">
-                      <label for="mf-num-ctx" data-i18n="modelfile.num_ctx">Context Window (num_ctx)</label>
-                      <div class="mf-chips-row">
-                        <button type="button" class="mf-chip-btn" data-val="4096">4k</button>
-                        <button type="button" class="mf-chip-btn" data-val="8192">8k</button>
-                        <button type="button" class="mf-chip-btn" data-val="16384">16k</button>
-                        <button type="button" class="mf-chip-btn" data-val="32768">32k</button>
-                        <button type="button" class="mf-chip-btn" data-val="65536">64k</button>
-                        <button type="button" class="mf-chip-btn" data-val="131072">128k</button>
-                        <button type="button" class="mf-chip-btn" data-val="262144">256k</button>
-                      </div>
-                    </div>
-                    <input id="mf-num-ctx" type="number" min="512" step="512" placeholder="e.g. 8192, 32768, 262144..." autocomplete="off">
-                  </div>
-
-                  <div class="field">
-                    <div class="mf-label-row">
-                      <label for="mf-temperature" data-i18n="modelfile.temperature">Temperature</label>
-                      <span id="mf-temperature-val" class="mono muted">0.7</span>
-                    </div>
-                    <input id="mf-temperature" type="range" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
-                  </div>
-
-                  <div class="field">
-                    <div class="mf-label-row">
-                      <label for="mf-top-p" data-i18n="modelfile.top_p">Top-P</label>
-                      <span id="mf-top-p-val" class="mono muted">0.9</span>
-                    </div>
-                    <input id="mf-top-p" type="range" min="0" max="1" step="0.05" value="0.9" autocomplete="off">
-                  </div>
-
-                  <div class="field">
-                    <label for="mf-top-k" data-i18n="modelfile.top_k">Top-K</label>
-                    <input id="mf-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
-                  </div>
-
-                  <div class="field">
-                    <label for="mf-repeat-penalty" data-i18n="modelfile.repeat_penalty">Repeat Penalty</label>
-                    <input id="mf-repeat-penalty" type="number" min="0" max="2" step="0.05" value="1.1" autocomplete="off">
-                  </div>
-
-                  <div class="field field-full">
-                    <label for="mf-stop-tokens" data-i18n="modelfile.stop_tokens">Stop Tokens</label>
-                    <input id="mf-stop-tokens" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.stop_tokens_placeholder" placeholder="Comma-separated (e.g. <|im_end|>, User:)" autocomplete="off">
-                  </div>
-                </div>
-              </details>
-
-              <details class="mf-details">
-                <summary><span data-i18n="modelfile.template">Custom Template (Optional)</span></summary>
                 <div class="field">
-                  <textarea id="mf-template" rows="3" data-i18n-attr="placeholder" data-i18n="modelfile.template_placeholder" placeholder="Optional Go/Jinja template (e.g. {{ .System }} {{ .Prompt }})" autocomplete="off" spellcheck="false"></textarea>
+                  <div class="mf-label-row">
+                    <label for="mf-temperature" data-i18n="modelfile.temperature">Temperature</label>
+                    <span id="mf-temperature-val" class="mono muted">0.7</span>
+                  </div>
+                  <input id="mf-temperature" type="range" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
                 </div>
-              </details>
-            </div>
 
-            <!-- Panel Raw Editor -->
-            <div id="mf-raw-pane" class="mf-pane" hidden>
-              <div class="field field-fill">
-                <textarea id="mf-raw-modelfile" class="modelfile-editor mono" rows="18" placeholder="FROM llama3.1:8b&#10;SYSTEM You are an assistant..." autocomplete="off" spellcheck="false"></textarea>
+                <div class="field">
+                  <div class="mf-label-row">
+                    <label for="mf-top-p" data-i18n="modelfile.top_p">Top-P</label>
+                    <span id="mf-top-p-val" class="mono muted">0.9</span>
+                  </div>
+                  <input id="mf-top-p" type="range" min="0" max="1" step="0.05" value="0.9" autocomplete="off">
+                </div>
+
+                <div class="field">
+                  <label for="mf-top-k" data-i18n="modelfile.top_k">Top-K</label>
+                  <input id="mf-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
+                </div>
+
+                <div class="field">
+                  <label for="mf-repeat-penalty" data-i18n="modelfile.repeat_penalty">Repeat Penalty</label>
+                  <input id="mf-repeat-penalty" type="number" min="0" max="2" step="0.05" value="1.1" autocomplete="off">
+                </div>
+
+                <div class="field field-full">
+                  <label for="mf-stop-tokens" data-i18n="modelfile.stop_tokens">Stop Tokens</label>
+                  <input id="mf-stop-tokens" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.stop_tokens_placeholder" placeholder="Comma-separated (e.g. <|im_end|>, User:)" autocomplete="off">
+                </div>
               </div>
-            </div>
+            </details>
+
+            <details class="mf-details">
+              <summary><span data-i18n="modelfile.template">Custom Template (Optional)</span></summary>
+              <div class="field">
+                <textarea id="mf-template" rows="3" data-i18n-attr="placeholder" data-i18n="modelfile.template_placeholder" placeholder="Optional Go/Jinja template (e.g. {{ .System }} {{ .Prompt }})" autocomplete="off" spellcheck="false"></textarea>
+              </div>
+            </details>
           </div>
 
-          <!-- Right Column: Live Modelfile Preview -->
-          <div class="modelfile-right">
-            <div class="mf-preview-box">
-              <div class="mf-preview-head">
-                <span class="mf-preview-title" data-i18n="modelfile.preview">Modelfile Preview</span>
-                <button id="mf-copy-btn" type="button" class="ghost mf-copy-btn" data-i18n-attr="title" data-i18n="modelfile.copy_modelfile" title="Copy Modelfile">📋 <span data-i18n="modelfile.copy_modelfile">Copy</span></button>
-              </div>
-              <pre id="mf-preview-code" class="modelfile-code mono"></pre>
+          <!-- Panel Raw Editor -->
+          <div id="mf-raw-pane" class="mf-pane" hidden>
+            <div class="field field-fill">
+              <textarea id="mf-raw-modelfile" class="modelfile-editor mono" rows="22" placeholder="FROM llama3.1:8b&#10;SYSTEM You are an assistant..." autocomplete="off" spellcheck="false"></textarea>
             </div>
           </div>
         </div>
 
-        <div id="mf-status-wrap" class="mf-status-wrap" hidden>
-          <div class="mf-progress-track">
-            <div id="mf-progress-fill" class="mf-progress-fill"></div>
+        <!-- Right Column: Live Modelfile Preview -->
+        <div class="modelfile-right">
+          <div class="mf-preview-box">
+            <div class="mf-preview-head">
+              <span class="mf-preview-title" data-i18n="modelfile.preview">Modelfile Preview</span>
+              <button id="mf-copy-btn" type="button" class="ghost mf-copy-btn" data-i18n-attr="title" data-i18n="modelfile.copy_modelfile" title="Copy Modelfile">📋 <span data-i18n="modelfile.copy_modelfile">Copy</span></button>
+            </div>
+            <pre id="mf-preview-code" class="modelfile-code mono"></pre>
           </div>
-          <div id="mf-status-text" class="mf-status-text mono"></div>
         </div>
       </div>
 
-      <footer class="modelfile-foot">
-        <div class="modelfile-foot-left">
-          <button id="mf-test-chat-btn" type="button" class="ghost" data-i18n="modelfile.test_in_chat" hidden>💬 Test in Chat</button>
+      <div id="mf-status-wrap" class="mf-status-wrap" hidden>
+        <div class="mf-progress-track">
+          <div id="mf-progress-fill" class="mf-progress-fill"></div>
         </div>
-        <div class="modelfile-foot-right">
-          <button id="modelfile-cancel-btn" class="ghost" data-i18n="action.cancel">Cancel</button>
+        <div id="mf-status-text" class="mf-status-text mono"></div>
+      </div>
+
+      <div class="modelfile-actions-bar">
+        <div class="modelfile-actions-left">
+          <button id="mf-test-chat-btn" type="button" class="primary" data-i18n="modelfile.test_in_chat" hidden>💬 Test in Chat</button>
+        </div>
+        <div class="modelfile-actions-right">
           <button id="mf-create-btn" class="primary" data-i18n="modelfile.btn_create">Build & Create Model</button>
         </div>
-      </footer>
+      </div>
     </div>
-  </div>
+  </main>
 
   <div id="running-modal" class="modal" hidden>
     <div class="modal-card running-card">

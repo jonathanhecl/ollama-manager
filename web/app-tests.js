@@ -13,6 +13,7 @@ function hideAllMainViews() {
   $("battery-history-view").hidden = true;
   $("opencode-view").hidden = true;
   $("analytics-view").hidden = true;
+  $("modelfile-view") && ($("modelfile-view").hidden = true);
   $("detail-panel").hidden = true;
 }
 

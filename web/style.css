@@ -4038,12 +4038,12 @@ button.chat-send:disabled:hover {
   button.with-badge span[data-i18n="downloads.button"] { display: none; }
   .chat-view,
   .chat-view.artifact-open {
-    display: flex !important;
-    flex-direction: column !important;
-    grid-template-columns: none !important;
-    grid-template-rows: none !important;
-    padding: 0 !important;
-    gap: 0 !important;
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+    grid-template-rows: none;
+    padding: 0;
+    gap: 0;
     position: relative;
     overflow: hidden;
     height: calc(100vh - 100px);
@@ -4053,6 +4053,10 @@ button.chat-send:disabled:hover {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--panel);
+  }
+  .chat-view[hidden],
+  .chat-view.artifact-open[hidden] {
+    display: none !important;
   }
   .chat-splitter {
     display: none !important;

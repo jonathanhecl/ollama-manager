@@ -1150,6 +1150,33 @@
     if (progressFill) progressFill.style.width = "0%";
     if (statusText) statusText.textContent = "Connecting to Ollama…";
 
+    const payload = {
+      name: targetName,
+      from: baseModel,
+      modelfile: modelfileContent,
+    };
+    const sysPrompt = $("mf-system-prompt")?.value?.trim();
+    if (sysPrompt) payload.system = sysPrompt;
+    const tmpl = $("mf-template")?.value?.trim();
+    if (tmpl) payload.template = tmpl;
+
+    const params = {};
+    const tempVal = parseFloat($("mf-temperature")?.value);
+    if (!isNaN(tempVal)) params.temperature = tempVal;
+    const topPVal = parseFloat($("mf-top-p")?.value);
+    if (!isNaN(topPVal)) params.top_p = topPVal;
+    const repVal = parseFloat($("mf-repeat-penalty")?.value);
+    if (!isNaN(repVal)) params.repeat_penalty = repVal;
+    const ctxVal = parseInt($("mf-num-ctx")?.value, 10);
+    if (!isNaN(ctxVal) && ctxVal > 0) params.num_ctx = ctxVal;
+    const stopTokens = ($("mf-stop-tokens")?.value || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (stopTokens.length > 0) params.stop = stopTokens;
+    if (Object.keys(params).length > 0) payload.parameters = params;
+
+    let sseError = null;
     try {
       const res = await fetch("/api/models/create", {
         method: "POST",
@@ -1157,10 +1184,7 @@
           "Content-Type": "application/json",
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({
-          name: targetName,
-          modelfile: modelfileContent,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -1199,10 +1223,17 @@
             const rawData = trimmed.slice(5).trim();
             try {
               const data = JSON.parse(rawData);
+              if (currentEvent === "error" || data.error) {
+                sseError = data.error || "Model creation failed";
+              }
               handleCreateSSEEvent(currentEvent, data);
             } catch (_) {}
           }
         }
+      }
+
+      if (sseError) {
+        throw new Error(sseError);
       }
 
       createdModelName = targetName;

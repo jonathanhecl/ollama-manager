@@ -1425,16 +1425,13 @@ func (s *Server) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	createReq := ollama.CreateRequest{
-		Model: name,
-		Files: body.Files,
-	}
-	if strings.TrimSpace(body.Modelfile) != "" {
-		createReq.Modelfile = strings.TrimSpace(body.Modelfile)
-	} else {
-		createReq.From = strings.TrimSpace(body.From)
-		createReq.System = strings.TrimSpace(body.System)
-		createReq.Template = strings.TrimSpace(body.Template)
-		createReq.Parameters = body.Parameters
+		Model:      name,
+		From:       strings.TrimSpace(body.From),
+		System:     strings.TrimSpace(body.System),
+		Template:   strings.TrimSpace(body.Template),
+		Parameters: body.Parameters,
+		Modelfile:  strings.TrimSpace(body.Modelfile),
+		Files:      body.Files,
 	}
 
 	isStream := strings.Contains(r.Header.Get("Accept"), "text/event-stream")

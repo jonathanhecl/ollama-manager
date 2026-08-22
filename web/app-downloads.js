@@ -544,6 +544,8 @@ $("running-modal")?.addEventListener("click", (e) => {
   if (e.target === $("running-modal")) closeRunningModal();
 });
 $("running-unload-all")?.addEventListener("click", async () => {
+  const btn = $("running-unload-all");
+  if (btn?.disabled) return;
   const { ok } = await askConfirm({
     title: t("running.unload_all"),
     text: t("running.unload_all_confirm"),
@@ -551,6 +553,7 @@ $("running-unload-all")?.addEventListener("click", async () => {
     okClass: "danger",
   });
   if (!ok) return;
+  if (btn) btn.disabled = true;
   try {
     const res = await api("/api/running/unload-all", { method: "POST" });
     const unloaded = Array.isArray(res?.unloaded) ? res.unloaded : [];
@@ -564,6 +567,8 @@ $("running-unload-all")?.addEventListener("click", async () => {
     }
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
   await refreshRunningModalList({ silent: true });
   refreshLoadedState();

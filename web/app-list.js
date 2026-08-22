@@ -70,6 +70,7 @@ function renderRunningModalList() {
   const list = $("running-list");
   const empty = $("running-empty");
   const badge = $("running-count-badge");
+  const unloadAllBtn = $("running-unload-all");
   if (!list || !empty || !badge) return;
 
   const rows = [...(runningModels || [])]
@@ -78,6 +79,9 @@ function renderRunningModalList() {
   badge.textContent = String(rows.length);
   badge.hidden = rows.length === 0;
   empty.hidden = rows.length !== 0;
+  if (unloadAllBtn) {
+    unloadAllBtn.disabled = rows.length === 0;
+  }
 
   if (!rows.length) {
     list.innerHTML = "";
@@ -151,6 +155,7 @@ function closeRunningModal() {
 
 function openRunningModal() {
   $("running-modal").hidden = false;
+  renderRunningModalList();
   refreshRunningModalList();
   if (runningRefreshTimer) clearInterval(runningRefreshTimer);
   runningRefreshTimer = setInterval(() => {

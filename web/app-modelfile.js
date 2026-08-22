@@ -78,8 +78,18 @@
     ].forEach((id) => {
       const el = $(id);
       if (el) {
-        el.addEventListener("input", updatePreview);
-        el.addEventListener("change", updatePreview);
+        el.addEventListener("input", () => {
+          if (id === "mf-base-model-select" || id === "mf-base-model-custom") {
+            updateEmbeddingModelNotice();
+          }
+          updatePreview();
+        });
+        el.addEventListener("change", () => {
+          if (id === "mf-base-model-select" || id === "mf-base-model-custom") {
+            updateEmbeddingModelNotice();
+          }
+          updatePreview();
+        });
       }
     });
 
@@ -606,6 +616,24 @@
     });
   }
 
+  function isModelEmbeddingOnly(modelName) {
+    if (!modelName) return false;
+    if (typeof modelCaps === "function") {
+      const caps = modelCaps(modelName);
+      if (caps.has("embedding") && !caps.has("completion")) return true;
+    }
+    const clean = modelName.toLowerCase();
+    return clean.includes("embed") || clean.includes("bge-") || clean.includes("minilm");
+  }
+
+  function updateEmbeddingModelNotice() {
+    const baseVal = getBaseModelValue();
+    const noticeEl = $("mf-embed-notice");
+    if (!noticeEl) return;
+    const isEmbed = isModelEmbeddingOnly(baseVal);
+    noticeEl.hidden = !isEmbed;
+  }
+
   function updateStopChipsUI() {
     const stopInp = $("mf-stop-tokens");
     if (!stopInp) return;
@@ -667,7 +695,9 @@
         installed.forEach((m) => {
           const opt = document.createElement("option");
           opt.value = m.name;
-          opt.textContent = m.name + (m.parameter_size ? ` (${m.parameter_size})` : "");
+          const isEmbed = isModelEmbeddingOnly(m.name);
+          const embedTag = isEmbed ? " · 🔢 Embedding" : "";
+          opt.textContent = m.name + (m.parameter_size ? ` (${m.parameter_size})` : "") + embedTag;
           sel.appendChild(opt);
         });
       }
@@ -682,6 +712,7 @@
           sel.hidden = true;
         }
       }
+      updateEmbeddingModelNotice();
     }
 
     // Set default target name if empty or derived

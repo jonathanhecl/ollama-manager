@@ -744,6 +744,8 @@ const I18N = {
     "modelfile.token_warning_overflow": "⛔ Token overflow! Exceeds model context. Ollama will truncate this prompt.",
     "modelfile.trimmed_toast": "Prompt trimmed to fit within context limit.",
     "modelfile.already_fits": "Prompt is already within recommended context limits.",
+    "modelfile.embed_notice_title": "Embedding Model (Vectorization):",
+    "modelfile.embed_notice_body": "This model generates numerical vectors and does not produce text. SYSTEM, TEMPLATE, Temperature, and Stop Tokens have no effect. Only context window (num_ctx) applies.",
   },
 
   es: {
@@ -1486,6 +1488,8 @@ const I18N = {
     "modelfile.token_warning_overflow": "⛔ ¡Exceso de tokens! Supera el contexto. Ollama recortará este prompt.",
     "modelfile.trimmed_toast": "Prompt recortado para ajustarse al contexto.",
     "modelfile.already_fits": "El prompt actual ya está dentro del límite recomendado.",
+    "modelfile.embed_notice_title": "Modelo de Embeddings (Vectorización):",
+    "modelfile.embed_notice_body": "Este modelo produce vectores numéricos y no genera texto. SYSTEM, TEMPLATE, Temperatura y Stop Tokens no tienen efecto. Solo se utiliza la ventana de contexto (num_ctx).",
   },
 };
 

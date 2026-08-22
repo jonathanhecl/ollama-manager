@@ -6550,6 +6550,39 @@ button.chat-send:disabled:hover {
   flex: 1 1 auto;
 }
 
+.mf-embed-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
+.mf-embed-notice-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.mf-embed-notice-text {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mf-embed-notice-text code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #818cf8;
+}
+
 .mf-label-row {
   display: flex;
   justify-content: space-between;

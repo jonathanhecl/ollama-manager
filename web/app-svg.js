@@ -1477,13 +1477,17 @@ async function deleteGroup(id) {
   }
 }
 
-function showChatViewWithModel(name) {
+async function showChatViewWithModel(name) {
   showChatView();
   if (!$("chat-view") || $("chat-view").hidden) return;
   $("chat-view")?.classList.remove("chat-options-open");
   if (!name) return;
 
-  if (typeof syncChatModelOptions === "function") {
+  if (typeof refreshModels === "function" && (!modelByName(name) || !modelByName(name)?.capabilities?.length)) {
+    try {
+      await refreshModels();
+    } catch (_) {}
+  } else if (typeof syncChatModelOptions === "function") {
     syncChatModelOptions();
   }
 

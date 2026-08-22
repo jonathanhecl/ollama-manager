@@ -321,8 +321,11 @@
     // Test in chat button
     const testChatBtn = $("mf-test-chat-btn");
     if (testChatBtn) {
-      testChatBtn.addEventListener("click", () => {
+      testChatBtn.addEventListener("click", async () => {
         const target = createdModelName || $("mf-model-name")?.value.trim();
+        if (typeof refreshModels === "function") {
+          await refreshModels();
+        }
         if (target && typeof showChatViewWithModel === "function") {
           showChatViewWithModel(target);
         } else if (target && typeof selectChatModel === "function" && typeof showChatView === "function") {
@@ -1242,9 +1245,9 @@
       if (testChatBtn) testChatBtn.hidden = false;
       toast(t("modelfile.success") || "Model created successfully!", "success");
 
-      // Refresh global model list
-      if (typeof fetchModels === "function") {
-        fetchModels();
+      // Refresh global model list & capabilities
+      if (typeof refreshModels === "function") {
+        await refreshModels();
       }
     } catch (e) {
       if (statusText) statusText.textContent = `Error: ${e.message}`;

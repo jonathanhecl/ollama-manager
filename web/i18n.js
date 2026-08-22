@@ -729,7 +729,11 @@ const I18N = {
     "modelfile.step2_desc": "Define how your model acts, speaks, and responds.",
     "modelfile.step3_title": "Behavior & Fine-Tuning",
     "modelfile.step3_desc": "Adjust creativity, memory size, and sampling.",
-    "modelfile.advanced_params": "Advanced Parameters (Top-P, Penalty, Stop)",
+    "modelfile.advanced_params": "Advanced Parameters",
+    "modelfile.advanced_hint": "Top-P, Repeat Penalty, Stop Tokens & Template",
+    "modelfile.stop_tokens_sublabel": "Halt response when generating any of these token sequences",
+    "modelfile.quick_add": "Quick suggestions (click to add/remove):",
+    "modelfile.template_sublabel": "Go/Jinja template to structure prompt format",
   },
 
   es: {
@@ -1455,7 +1459,13 @@ const I18N = {
     "modelfile.step2_desc": "Definí cómo actúa, habla y responde tu modelo.",
     "modelfile.step3_title": "Comportamiento y Ajuste Fino",
     "modelfile.step3_desc": "Ajustá la creatividad, tamaño de memoria y muestreo.",
-    "modelfile.advanced_params": "Parámetros Avanzados (Top-P, Penalización, Stop)",
+    "modelfile.advanced_params": "Parámetros Avanzados",
+    "modelfile.advanced_hint": "Top-P, Penalización, Tokens de Parada y Plantilla",
+    "modelfile.stop_tokens": "Tokens de Parada (Stop Tokens)",
+    "modelfile.stop_tokens_sublabel": "Detiene la respuesta al generar cualquiera de estas secuencias",
+    "modelfile.stop_tokens_placeholder": "Separados por coma (ej. <|im_end|>, User:, Assistant:)",
+    "modelfile.quick_add": "Atajos rápidos (clic para añadir/quitar):",
+    "modelfile.template_sublabel": "Plantilla Go/Jinja para definir el formato de prompt",
   },
 };
 

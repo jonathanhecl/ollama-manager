@@ -123,38 +123,87 @@
       });
     });
 
-    // Top-P slider
+    // Top-P slider & chips
     const topPEl = $("mf-top-p");
-    const topPVal = $("mf-top-p-val");
-    if (topPEl && topPVal) {
+    if (topPEl) {
       topPEl.addEventListener("input", () => {
-        topPVal.textContent = parseFloat(topPEl.value).toFixed(2);
+        updateTopPUI(parseFloat(topPEl.value));
         updatePreview();
       });
     }
 
-    // Repeat penalty slider
+    document.querySelectorAll(".mf-top-p-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const val = parseFloat(chip.dataset.val);
+        if (!isNaN(val) && topPEl) {
+          topPEl.value = val;
+          updateTopPUI(val);
+          updatePreview();
+        }
+      });
+    });
+
+    // Repeat penalty slider & chips
     const repEl = $("mf-repeat-penalty");
-    const repVal = $("mf-repeat-val");
-    if (repEl && repVal) {
+    if (repEl) {
       repEl.addEventListener("input", () => {
-        repVal.textContent = parseFloat(repEl.value).toFixed(2);
+        updateRepeatPenaltyUI(parseFloat(repEl.value));
         updatePreview();
       });
     }
 
-    // Stop token chips
+    document.querySelectorAll(".mf-rep-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const val = parseFloat(chip.dataset.val);
+        if (!isNaN(val) && repEl) {
+          repEl.value = val;
+          updateRepeatPenaltyUI(val);
+          updatePreview();
+        }
+      });
+    });
+
+    // Stop token chips & input
+    const stopInp = $("mf-stop-tokens");
+    if (stopInp) {
+      stopInp.addEventListener("input", () => {
+        updateStopChipsUI();
+        updatePreview();
+      });
+    }
+
     document.querySelectorAll(".mf-stop-chip").forEach((chip) => {
       chip.addEventListener("click", () => {
         const stopToken = chip.dataset.stop;
-        const stopInp = $("mf-stop-tokens");
         if (stopToken && stopInp) {
-          const current = stopInp.value.split(",").map((s) => s.trim()).filter(Boolean);
-          if (!current.includes(stopToken)) {
+          let current = stopInp.value.split(",").map((s) => s.trim()).filter(Boolean);
+          if (current.includes(stopToken)) {
+            // Toggle off
+            current = current.filter((s) => s !== stopToken);
+          } else {
+            // Toggle on
             current.push(stopToken);
-            stopInp.value = current.join(", ");
-            updatePreview();
           }
+          stopInp.value = current.join(", ");
+          updateStopChipsUI();
+          updatePreview();
+        }
+      });
+    });
+
+    // Template helper chips
+    document.querySelectorAll(".mf-tpl-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const tplToken = chip.dataset.tpl;
+        const tmplEl = $("mf-template");
+        if (tplToken && tmplEl) {
+          const start = tmplEl.selectionStart || tmplEl.value.length;
+          const end = tmplEl.selectionEnd || tmplEl.value.length;
+          const val = tmplEl.value;
+          tmplEl.value = val.substring(0, start) + tplToken + val.substring(end);
+          tmplEl.focus();
+          tmplEl.selectionStart = tmplEl.selectionEnd = start + tplToken.length;
+          updatePreview();
         }
       });
     });
@@ -284,6 +333,96 @@
     });
   }
 
+  function updateTopPUI(val) {
+    if (isNaN(val)) val = 0.9;
+    const badge = $("mf-top-p-val");
+    const desc = $("mf-top-p-desc");
+
+    let label = `🎯 ${val.toFixed(2)}`;
+    let pillClass = "pill-balanced";
+    let explanation = "";
+
+    if (val <= 0.6) {
+      label = `🎯 Preciso (${val.toFixed(2)})`;
+      pillClass = "pill-precise";
+      explanation = "<strong>🎯 Enfoque Alto (Preciso):</strong> Selecciona solo las palabras de mayor probabilidad. Respuestas más concisas, lógicas y estructuradas.";
+    } else if (val <= 0.95) {
+      label = `⚖️ Estándar (${val.toFixed(2)})`;
+      pillClass = "pill-balanced";
+      explanation = "<strong>⚖️ Enfoque Balanceado:</strong> Balance ideal entre coherencia y fluidez natural. (0.90 recomendado para la mayoría de tareas).";
+    } else {
+      label = `🌐 Abierto (${val.toFixed(2)})`;
+      pillClass = "pill-creative";
+      explanation = "<strong>🌐 Muestreo Libre (Diverso):</strong> Considera casi la totalidad del vocabulario. Mayor variedad expresiva e inventiva.";
+    }
+
+    if (badge) {
+      badge.textContent = label;
+      badge.className = `mf-status-pill ${pillClass}`;
+    }
+    if (desc) {
+      desc.innerHTML = explanation;
+    }
+
+    document.querySelectorAll(".mf-top-p-chip").forEach((chip) => {
+      const chipVal = parseFloat(chip.dataset.val);
+      chip.classList.toggle("active", Math.abs(chipVal - val) < 0.04);
+    });
+  }
+
+  function updateRepeatPenaltyUI(val) {
+    if (isNaN(val)) val = 1.1;
+    const badge = $("mf-repeat-val");
+    const desc = $("mf-repeat-desc");
+
+    let label = `🔁 ${val.toFixed(2)}`;
+    let pillClass = "pill-balanced";
+    let explanation = "";
+
+    if (val <= 1.02) {
+      label = `⚪ Sin Penalizar (${val.toFixed(2)})`;
+      pillClass = "pill-precise";
+      explanation = "<strong>⚪ Desactivado (1.0):</strong> El modelo puede repetir palabras o frases libremente sin restricción.";
+    } else if (val <= 1.2) {
+      label = `⚖️ Normal (${val.toFixed(2)})`;
+      pillClass = "pill-balanced";
+      explanation = "<strong>⚖️ Penalización Estándar (1.10):</strong> Evita muletillas y frases redundantes sin alterar la gramática natural.";
+    } else if (val <= 1.5) {
+      label = `⚠️ Moderado (${val.toFixed(2)})`;
+      pillClass = "pill-creative";
+      explanation = "<strong>⚠️ Penalización Moderada:</strong> Fuerza al modelo a usar vocabulario alternativo y sinónimos continuos.";
+    } else {
+      label = `🚫 Agresivo (${val.toFixed(2)})`;
+      pillClass = "pill-chaotic";
+      explanation = "<strong>🚫 Penalización Fuerte:</strong> Desalienta fuertemente cualquier repetición; puede provocar construcciones inusuales.";
+    }
+
+    if (badge) {
+      badge.textContent = label;
+      badge.className = `mf-status-pill ${pillClass}`;
+    }
+    if (desc) {
+      desc.innerHTML = explanation;
+    }
+
+    document.querySelectorAll(".mf-rep-chip").forEach((chip) => {
+      const chipVal = parseFloat(chip.dataset.val);
+      chip.classList.toggle("active", Math.abs(chipVal - val) < 0.04);
+    });
+  }
+
+  function updateStopChipsUI() {
+    const stopInp = $("mf-stop-tokens");
+    if (!stopInp) return;
+    const current = stopInp.value.split(",").map((s) => s.trim()).filter(Boolean);
+    document.querySelectorAll(".mf-stop-chip").forEach((chip) => {
+      const token = chip.dataset.stop;
+      const isActive = current.includes(token);
+      chip.classList.toggle("active", isActive);
+      chip.textContent = (isActive ? "✓ " : "+ ") + token;
+    });
+  }
+
   function showModelfileView(baseModelName) {
     if (typeof hideAllMainViews === "function") {
       hideAllMainViews();
@@ -366,6 +505,11 @@
     if (tempEl) updateTemperatureUI(parseFloat(tempEl.value));
     const ctxEl = $("mf-num-ctx");
     if (ctxEl) updateContextUI(parseInt(ctxEl.value, 10));
+    const topPEl = $("mf-top-p");
+    if (topPEl) updateTopPUI(parseFloat(topPEl.value));
+    const repEl = $("mf-repeat-penalty");
+    if (repEl) updateRepeatPenaltyUI(parseFloat(repEl.value));
+    updateStopChipsUI();
 
     switchTab("builder");
     updatePreview();
@@ -563,9 +707,10 @@
           }
         } else if (param === "top_p") {
           const el = $("mf-top-p");
-          const valEl = $("mf-top-p-val");
-          if (el) el.value = val;
-          if (valEl) valEl.textContent = parseFloat(val).toFixed(2);
+          if (el) {
+            el.value = val;
+            updateTopPUI(parseFloat(val));
+          }
         } else if (param === "num_ctx") {
           const el = $("mf-num-ctx");
           if (el) {
@@ -574,9 +719,10 @@
           }
         } else if (param === "repeat_penalty") {
           const el = $("mf-repeat-penalty");
-          const valEl = $("mf-repeat-val");
-          if (el) el.value = val;
-          if (valEl) valEl.textContent = parseFloat(val).toFixed(2);
+          if (el) {
+            el.value = val;
+            updateRepeatPenaltyUI(parseFloat(val));
+          }
         } else if (param === "stop") {
           stopTokens.push(val);
         }
@@ -587,6 +733,7 @@
       const stopEl = $("mf-stop-tokens");
       if (stopEl) stopEl.value = stopTokens.join(", ");
     }
+    updateStopChipsUI();
   }
 
   function updatePreview() {

@@ -754,7 +754,7 @@
                 </div>
               </div>
               <div class="mf-step-body">
-                <div class="field">
+                <div class="mf-field-vertical">
                   <div class="mf-label-row">
                     <span class="muted mf-presets-label" data-i18n="modelfile.presets_label">Quick Templates:</span>
                     <div class="mf-presets-row">
@@ -831,45 +831,109 @@
                 </div>
 
                 <!-- Advanced Accordion -->
-                <details class="mf-details">
-                  <summary><span data-i18n="modelfile.advanced_params">Advanced Parameters (Top-P, Penalty, Stop)</span></summary>
+                <details class="mf-details" open>
+                  <summary class="mf-details-summary">
+                    <div class="mf-details-title-wrap">
+                      <span class="mf-details-chevron">▸</span>
+                      <span class="mf-details-title" data-i18n="modelfile.advanced_params">Advanced Parameters</span>
+                    </div>
+                    <span class="mf-details-hint muted" data-i18n="modelfile.advanced_hint">Top-P, Repeat Penalty, Stop Tokens & Template</span>
+                  </summary>
+
                   <div class="mf-params-grid">
                     
-                    <div class="field">
-                      <div class="mf-label-row">
-                        <label for="mf-top-p" data-i18n="modelfile.top_p">Top-P (Nucleus)</label>
-                        <span id="mf-top-p-val" class="mono muted">0.90</span>
+                    <!-- Top-P Card -->
+                    <div class="mf-adv-card">
+                      <div class="mf-adv-head">
+                        <div class="mf-adv-title-wrap">
+                          <label for="mf-top-p" class="mf-adv-label" data-i18n="modelfile.top_p">Top-P (Nucleus Sampling)</label>
+                          <span id="mf-top-p-val" class="mf-status-pill pill-balanced">🎯 0.90</span>
+                        </div>
+                        <div class="mf-chips-row">
+                          <button type="button" class="mf-top-p-chip" data-val="0.5">0.5</button>
+                          <button type="button" class="mf-top-p-chip" data-val="0.8">0.8</button>
+                          <button type="button" class="mf-top-p-chip active" data-val="0.9">0.9</button>
+                          <button type="button" class="mf-top-p-chip" data-val="0.95">0.95</button>
+                          <button type="button" class="mf-top-p-chip" data-val="1.0">1.0</button>
+                        </div>
                       </div>
-                      <input id="mf-top-p" type="range" min="0.05" max="1.0" step="0.05" value="0.9" autocomplete="off">
-                      <small class="muted mf-field-hint">Descarta palabras poco probables. (0.9 recomendado).</small>
+                      <div class="mf-slider-wrap">
+                        <input id="mf-top-p" type="range" min="0.05" max="1.0" step="0.05" value="0.9" autocomplete="off">
+                        <div class="mf-slider-scale">
+                          <span>🎯 0.1 Preciso</span>
+                          <span>⚖️ 0.9 Estándar</span>
+                          <span>🌐 1.0 Abierto</span>
+                        </div>
+                      </div>
+                      <div id="mf-top-p-desc" class="mf-adv-desc"></div>
                     </div>
 
-                    <div class="field">
-                      <div class="mf-label-row">
-                        <label for="mf-repeat-penalty" data-i18n="modelfile.repeat_penalty">Repeat Penalty</label>
-                        <span id="mf-repeat-val" class="mono muted">1.10</span>
+                    <!-- Repeat Penalty Card -->
+                    <div class="mf-adv-card">
+                      <div class="mf-adv-head">
+                        <div class="mf-adv-title-wrap">
+                          <label for="mf-repeat-penalty" class="mf-adv-label" data-i18n="modelfile.repeat_penalty">Repeat Penalty</label>
+                          <span id="mf-repeat-val" class="mf-status-pill pill-balanced">🔁 1.10</span>
+                        </div>
+                        <div class="mf-chips-row">
+                          <button type="button" class="mf-rep-chip" data-val="1.0">1.0</button>
+                          <button type="button" class="mf-rep-chip active" data-val="1.1">1.1</button>
+                          <button type="button" class="mf-rep-chip" data-val="1.2">1.2</button>
+                          <button type="button" class="mf-rep-chip" data-val="1.5">1.5</button>
+                        </div>
                       </div>
-                      <input id="mf-repeat-penalty" type="range" min="0.8" max="2.0" step="0.05" value="1.1" autocomplete="off">
-                      <small class="muted mf-field-hint">Penaliza la repetición de palabras idénticas (1.1 estándar).</small>
+                      <div class="mf-slider-wrap">
+                        <input id="mf-repeat-penalty" type="range" min="0.8" max="2.0" step="0.05" value="1.1" autocomplete="off">
+                        <div class="mf-slider-scale">
+                          <span>1.0 Off</span>
+                          <span>1.1 Normal</span>
+                          <span>1.5 Fuerte</span>
+                          <span>2.0 Max</span>
+                        </div>
+                      </div>
+                      <div id="mf-repeat-desc" class="mf-adv-desc"></div>
                     </div>
 
-                    <div class="field field-full">
-                      <div class="mf-label-row">
-                        <label for="mf-stop-tokens" data-i18n="modelfile.stop_tokens">Stop Tokens</label>
+                    <!-- Stop Tokens Card -->
+                    <div class="mf-adv-card mf-adv-card--full">
+                      <div class="mf-adv-head">
+                        <div class="mf-adv-title-wrap">
+                          <label for="mf-stop-tokens" class="mf-adv-label" data-i18n="modelfile.stop_tokens">Stop Tokens</label>
+                          <span class="mf-adv-sublabel muted" data-i18n="modelfile.stop_tokens_sublabel">Detiene la respuesta al generar cualquiera de estas secuencias</span>
+                        </div>
+                      </div>
+                      <div class="mf-stop-input-wrap">
+                        <input id="mf-stop-tokens" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.stop_tokens_placeholder" placeholder="Separados por coma (ej. <|im_end|>, User:, Assistant:)" autocomplete="off">
+                      </div>
+                      <div class="mf-quick-stops-section">
+                        <span class="muted mf-quick-stops-label" data-i18n="modelfile.quick_add">Atajos rápidos (clic para añadir/quitar):</span>
                         <div class="mf-quick-stops">
                           <button type="button" class="mf-stop-chip" data-stop="<|im_end|>">+ &lt;|im_end|&gt;</button>
                           <button type="button" class="mf-stop-chip" data-stop="<|end_of_text|>">+ &lt;|end_of_text|&gt;</button>
+                          <button type="button" class="mf-stop-chip" data-stop="<|eot_id|>">+ &lt;|eot_id|&gt;</button>
                           <button type="button" class="mf-stop-chip" data-stop="User:">+ User:</button>
                           <button type="button" class="mf-stop-chip" data-stop="Assistant:">+ Assistant:</button>
+                          <button type="button" class="mf-stop-chip" data-stop="###">+ ###</button>
                         </div>
                       </div>
-                      <input id="mf-stop-tokens" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.stop_tokens_placeholder" placeholder="Comma-separated (e.g. <|im_end|>, User:)" autocomplete="off">
                     </div>
 
-                    <div class="field field-full">
-                      <label for="mf-template" data-i18n="modelfile.template">Custom Template (Optional)</label>
-                      <textarea id="mf-template" rows="2" data-i18n-attr="placeholder" data-i18n="modelfile.template_placeholder" placeholder="Optional Go/Jinja template (e.g. {{ .System }} {{ .Prompt }})" autocomplete="off" spellcheck="false"></textarea>
+                    <!-- Custom Template Card -->
+                    <div class="mf-adv-card mf-adv-card--full">
+                      <div class="mf-adv-head">
+                        <div class="mf-adv-title-wrap">
+                          <label for="mf-template" class="mf-adv-label" data-i18n="modelfile.template">Custom Template (Optional)</label>
+                          <span class="mf-adv-sublabel muted" data-i18n="modelfile.template_sublabel">Plantilla Go/Jinja para definir el formato de prompt</span>
+                        </div>
+                        <div class="mf-template-helpers">
+                          <button type="button" class="mf-tpl-chip" data-tpl="{{ .System }}">+ {{ .System }}</button>
+                          <button type="button" class="mf-tpl-chip" data-tpl="{{ .Prompt }}">+ {{ .Prompt }}</button>
+                          <button type="button" class="mf-tpl-chip" data-tpl="{{ .Response }}">+ {{ .Response }}</button>
+                        </div>
+                      </div>
+                      <textarea id="mf-template" rows="3" data-i18n-attr="placeholder" data-i18n="modelfile.template_placeholder" placeholder="Optional Go/Jinja template (e.g. {{ .System }} {{ .Prompt }})" autocomplete="off" spellcheck="false"></textarea>
                     </div>
+
                   </div>
                 </details>
               </div>

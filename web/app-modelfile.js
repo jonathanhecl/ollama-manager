@@ -212,6 +212,7 @@
     const sysPromptEl = $("mf-system-prompt");
     if (sysPromptEl) {
       sysPromptEl.addEventListener("input", () => {
+        autoResizeSystemPrompt();
         updateTokenBudgetUI();
         updatePreview();
       });
@@ -225,6 +226,7 @@
           const sysEl = $("mf-system-prompt");
           if (sysEl) {
             sysEl.value = SYSTEM_PRESETS[presetKey];
+            autoResizeSystemPrompt();
             updateTokenBudgetUI();
             updatePreview();
           }
@@ -255,6 +257,7 @@
             } else {
               sysEl.value = `### Documentación / Archivo (${file.name}):\n` + content;
             }
+            autoResizeSystemPrompt();
             updateTokenBudgetUI();
             updatePreview();
             const loadedTok = estimateTokens(content);
@@ -509,9 +512,20 @@
     }
 
     sysEl.value = text.substring(0, cutPoint).trim();
+    autoResizeSystemPrompt();
     updateTokenBudgetUI();
     updatePreview();
     showToast(t("modelfile.trimmed_toast") || `Prompt recortado a ~${estimateTokens(sysEl.value).toLocaleString()} tokens.`);
+  }
+
+  function autoResizeSystemPrompt() {
+    const sysEl = $("mf-system-prompt");
+    if (!sysEl) return;
+    sysEl.style.height = "auto";
+    const needed = sysEl.scrollHeight;
+    const target = Math.min(300, Math.max(120, needed));
+    sysEl.style.height = `${target}px`;
+    sysEl.style.overflowY = needed > 300 ? "auto" : "hidden";
   }
 
   function updateTopPUI(val) {
@@ -681,7 +695,8 @@
       }
     }
 
-    // Initialize explanations
+    // Initialize explanations & layout
+    autoResizeSystemPrompt();
     const tempEl = $("mf-temperature");
     if (tempEl) updateTemperatureUI(parseFloat(tempEl.value));
     const ctxEl = $("mf-num-ctx");
@@ -915,6 +930,7 @@
       if (stopEl) stopEl.value = stopTokens.join(", ");
     }
     updateStopChipsUI();
+    autoResizeSystemPrompt();
     updateTokenBudgetUI();
   }
 

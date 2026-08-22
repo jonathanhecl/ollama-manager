@@ -6879,6 +6879,14 @@ button.chat-send:disabled:hover {
 
 .mf-field-vertical textarea {
   width: 100%;
+  resize: vertical;
+}
+
+#mf-system-prompt {
+  min-height: 120px;
+  max-height: none;
+  line-height: 1.55;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .mf-temp-chip,

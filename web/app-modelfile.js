@@ -827,7 +827,7 @@
 
     const systemPrompt = $("mf-system-prompt")?.value?.trim();
     if (systemPrompt) {
-      lines.push(`\nSYSTEM """${systemPrompt}"""`);
+      lines.push(`\nSYSTEM """\n${systemPrompt}\n"""`);
     }
 
     const tempEl = $("mf-temperature");
@@ -872,7 +872,7 @@
 
     const tmplEl = $("mf-template")?.value?.trim();
     if (tmplEl) {
-      lines.push(`\nTEMPLATE """${tmplEl}"""`);
+      lines.push(`\nTEMPLATE """\n${tmplEl}\n"""`);
     }
 
     return lines.join("\n").trim();
@@ -1159,7 +1159,6 @@
         },
         body: JSON.stringify({
           name: targetName,
-          from: baseModel,
           modelfile: modelfileContent,
         }),
       });

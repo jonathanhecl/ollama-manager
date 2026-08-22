@@ -322,10 +322,11 @@
     const testChatBtn = $("mf-test-chat-btn");
     if (testChatBtn) {
       testChatBtn.addEventListener("click", () => {
-        if (createdModelName && typeof showChatViewWithModel === "function") {
-          showChatViewWithModel(createdModelName);
-        } else if (createdModelName && typeof selectChatModel === "function" && typeof showChatView === "function") {
-          selectChatModel(createdModelName);
+        const target = createdModelName || $("mf-model-name")?.value.trim();
+        if (target && typeof showChatViewWithModel === "function") {
+          showChatViewWithModel(target);
+        } else if (target && typeof selectChatModel === "function" && typeof showChatView === "function") {
+          selectChatModel(target);
           showChatView();
         }
       });

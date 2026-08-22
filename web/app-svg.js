@@ -1482,13 +1482,26 @@ function showChatViewWithModel(name) {
   if (!$("chat-view") || $("chat-view").hidden) return;
   $("chat-view")?.classList.remove("chat-options-open");
   if (!name) return;
+
+  if (typeof syncChatModelOptions === "function") {
+    syncChatModelOptions();
+  }
+
   const sel = $("chat-model");
-  const exists = Array.from(sel?.options || []).some((o) => o.value === name);
-  if (!exists) return;
-  sel.value = name;
-  updateChatCapabilityUI();
-  updateChatContextMeter();
-  void applyChatDefaultsForModel(name, true);
+  if (sel) {
+    const exists = Array.from(sel.options || []).some((o) => o.value === name);
+    if (!exists) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+    sel.value = name;
+    updateChatModelLoadDot();
+    updateChatCapabilityUI();
+    updateChatContextMeter();
+    void applyChatDefaultsForModel(name, true);
+  }
 
   const model = modelByName(name);
   if (model && model.digest) {

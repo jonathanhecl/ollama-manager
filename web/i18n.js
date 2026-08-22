@@ -723,6 +723,13 @@ const I18N = {
     "modelfile.error": "Failed to create model",
     "modelfile.missing_name": "Please enter a model name.",
     "modelfile.missing_base": "Please select or enter a base model (FROM).",
+    "modelfile.step1_title": "Model Identity",
+    "modelfile.step1_desc": "Choose a name and the base model to build upon.",
+    "modelfile.step2_title": "Personality & Role (System Prompt)",
+    "modelfile.step2_desc": "Define how your model acts, speaks, and responds.",
+    "modelfile.step3_title": "Behavior & Fine-Tuning",
+    "modelfile.step3_desc": "Adjust creativity, memory size, and sampling.",
+    "modelfile.advanced_params": "Advanced Parameters (Top-P, Penalty, Stop)",
   },
 
   es: {
@@ -1442,6 +1449,13 @@ const I18N = {
     "modelfile.error": "Error al crear el modelo",
     "modelfile.missing_name": "Por favor ingresa un nombre para el modelo.",
     "modelfile.missing_base": "Por favor selecciona o ingresa un modelo base (FROM).",
+    "modelfile.step1_title": "Identidad del Modelo",
+    "modelfile.step1_desc": "Elegí un nombre y el modelo base sobre el cual construir.",
+    "modelfile.step2_title": "Personalidad y Rol (System Prompt)",
+    "modelfile.step2_desc": "Definí cómo actúa, habla y responde tu modelo.",
+    "modelfile.step3_title": "Comportamiento y Ajuste Fino",
+    "modelfile.step3_desc": "Ajustá la creatividad, tamaño de memoria y muestreo.",
+    "modelfile.advanced_params": "Parámetros Avanzados (Top-P, Penalización, Stop)",
   },
 };
 

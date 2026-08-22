@@ -709,44 +709,106 @@
         <!-- Left Column: Controls & Visual Form -->
         <div class="modelfile-left">
           <div id="mf-builder-pane" class="mf-pane">
-            <div class="field">
-              <label for="mf-model-name" data-i18n="modelfile.model_name">Model Name</label>
-              <input id="mf-model-name" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.model_name_placeholder" placeholder="e.g. my-assistant:v1" autocomplete="off" spellcheck="false">
-            </div>
-
-            <div class="field">
-              <label for="mf-base-model" data-i18n="modelfile.base_model">Base Model (FROM)</label>
-              <div class="mf-base-picker-row">
-                <select id="mf-base-model-select" autocomplete="off"></select>
-                <input id="mf-base-model-custom" type="text" placeholder="Or type path / tag (e.g. C:/models/model.gguf)" autocomplete="off" spellcheck="false" hidden>
-                <button id="mf-base-toggle-custom" type="button" class="ghost" title="Toggle custom path / GGUF">📁</button>
-              </div>
-            </div>
-
-            <div class="field">
-              <div class="mf-label-row">
-                <label for="mf-system-prompt" data-i18n="modelfile.system_prompt">System Prompt</label>
-                <div class="mf-presets-row">
-                  <span class="muted mf-presets-label" data-i18n="modelfile.presets_label">Quick Templates:</span>
-                  <button type="button" class="mf-preset-btn" data-preset="coder" data-i18n="modelfile.preset_coder">💻 Coder</button>
-                  <button type="button" class="mf-preset-btn" data-preset="concise" data-i18n="modelfile.preset_concise">⚡ Concise</button>
-                  <button type="button" class="mf-preset-btn" data-preset="translator" data-i18n="modelfile.preset_translator">🌐 Translator</button>
-                  <button type="button" class="mf-preset-btn" data-preset="tutor" data-i18n="modelfile.preset_tutor">🎓 Tutor</button>
-                  <button type="button" class="mf-preset-btn mf-preset-btn--clear" data-preset="clear" data-i18n="modelfile.preset_clear">✕</button>
+            
+            <!-- Step 1: Identity -->
+            <section class="mf-step-card">
+              <div class="mf-step-head">
+                <span class="mf-step-badge">1</span>
+                <div>
+                  <h3 class="mf-step-title" data-i18n="modelfile.step1_title">Model Identity</h3>
+                  <p class="mf-step-desc muted" data-i18n="modelfile.step1_desc">Choose a name and the base model to build upon.</p>
                 </div>
               </div>
-              <textarea id="mf-system-prompt" rows="5" data-i18n-attr="placeholder" data-i18n="modelfile.system_placeholder" placeholder="Instructions that define the model's persona, role, or behavior..." autocomplete="off"></textarea>
-            </div>
+              <div class="mf-step-body">
+                <div class="field">
+                  <label for="mf-model-name" data-i18n="modelfile.model_name">Model Name</label>
+                  <input id="mf-model-name" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.model_name_placeholder" placeholder="e.g. my-assistant:v1" autocomplete="off" spellcheck="false">
+                </div>
 
-            <details class="mf-details" open>
-              <summary><span data-i18n="modelfile.parameters">Inference Parameters</span></summary>
-              <div class="mf-params-grid">
-                <div class="field field-full">
+                <div class="field">
+                  <label for="mf-base-model" data-i18n="modelfile.base_model">Base Model (FROM)</label>
+                  <div class="mf-base-picker-row">
+                    <select id="mf-base-model-select" autocomplete="off"></select>
+                    <input id="mf-base-model-custom" type="text" placeholder="Or type path / tag (e.g. C:/models/model.gguf)" autocomplete="off" spellcheck="false" hidden>
+                    <button id="mf-base-toggle-custom" type="button" class="ghost" title="Toggle custom path / GGUF">📁</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Step 2: Personality & System Prompt -->
+            <section class="mf-step-card">
+              <div class="mf-step-head">
+                <span class="mf-step-badge">2</span>
+                <div>
+                  <h3 class="mf-step-title" data-i18n="modelfile.step2_title">Personality & Role (System Prompt)</h3>
+                  <p class="mf-step-desc muted" data-i18n="modelfile.step2_desc">Define how your model acts, speaks, and responds.</p>
+                </div>
+              </div>
+              <div class="mf-step-body">
+                <div class="field">
                   <div class="mf-label-row">
-                    <label for="mf-num-ctx" data-i18n="modelfile.num_ctx">Context Window (num_ctx)</label>
+                    <span class="muted mf-presets-label" data-i18n="modelfile.presets_label">Quick Templates:</span>
+                    <div class="mf-presets-row">
+                      <button type="button" class="mf-preset-btn" data-preset="coder" data-i18n="modelfile.preset_coder">💻 Coder</button>
+                      <button type="button" class="mf-preset-btn" data-preset="concise" data-i18n="modelfile.preset_concise">⚡ Concise</button>
+                      <button type="button" class="mf-preset-btn" data-preset="translator" data-i18n="modelfile.preset_translator">🌐 Translator</button>
+                      <button type="button" class="mf-preset-btn" data-preset="tutor" data-i18n="modelfile.preset_tutor">🎓 Tutor</button>
+                      <button type="button" class="mf-preset-btn mf-preset-btn--clear" data-preset="clear" data-i18n="modelfile.preset_clear">✕</button>
+                    </div>
+                  </div>
+                  <textarea id="mf-system-prompt" rows="5" data-i18n-attr="placeholder" data-i18n="modelfile.system_placeholder" placeholder="Instructions that define the model's persona, role, or behavior..." autocomplete="off"></textarea>
+                </div>
+              </div>
+            </section>
+
+            <!-- Step 3: Behavior & Temperature Controls -->
+            <section class="mf-step-card">
+              <div class="mf-step-head">
+                <span class="mf-step-badge">3</span>
+                <div>
+                  <h3 class="mf-step-title" data-i18n="modelfile.step3_title">Behavior & Fine-Tuning</h3>
+                  <p class="mf-step-desc muted" data-i18n="modelfile.step3_desc">Adjust creativity, memory size, and sampling.</p>
+                </div>
+              </div>
+              <div class="mf-step-body mf-step-body--params">
+                
+                <!-- Temperature Card -->
+                <div class="mf-param-box">
+                  <div class="mf-param-head">
+                    <div>
+                      <span class="mf-param-name" data-i18n="modelfile.temperature">Temperature (Creativity)</span>
+                      <span id="mf-temp-badge" class="mf-status-pill pill-balanced">⚖️ Balanced (0.70)</span>
+                    </div>
+                    <div class="mf-chips-row">
+                      <button type="button" class="mf-temp-chip" data-val="0.2">🎯 0.2</button>
+                      <button type="button" class="mf-temp-chip" data-val="0.7">⚖️ 0.7</button>
+                      <button type="button" class="mf-temp-chip" data-val="1.0">💡 1.0</button>
+                      <button type="button" class="mf-temp-chip" data-val="1.3">🎨 1.3</button>
+                    </div>
+                  </div>
+                  <div class="mf-slider-wrap">
+                    <input id="mf-temperature" type="range" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
+                    <div class="mf-slider-scale">
+                      <span>🎯 0.0 Preciso</span>
+                      <span>⚖️ 0.7 Balanceado</span>
+                      <span>💡 1.2 Creativo</span>
+                      <span>🧪 2.0 Caótico</span>
+                    </div>
+                  </div>
+                  <div id="mf-temp-desc" class="mf-param-desc"></div>
+                </div>
+
+                <!-- Context Window Card -->
+                <div class="mf-param-box">
+                  <div class="mf-param-head">
+                    <div>
+                      <span class="mf-param-name" data-i18n="modelfile.num_ctx">Context Window (num_ctx)</span>
+                      <span id="mf-ctx-badge" class="mf-status-pill pill-ctx">8k Tokens</span>
+                    </div>
                     <div class="mf-chips-row">
                       <button type="button" class="mf-chip-btn" data-val="4096">4k</button>
-                      <button type="button" class="mf-chip-btn" data-val="8192">8k</button>
+                      <button type="button" class="mf-chip-btn active" data-val="8192">8k</button>
                       <button type="button" class="mf-chip-btn" data-val="16384">16k</button>
                       <button type="button" class="mf-chip-btn" data-val="32768">32k</button>
                       <button type="button" class="mf-chip-btn" data-val="65536">64k</button>
@@ -754,48 +816,57 @@
                       <button type="button" class="mf-chip-btn" data-val="262144">256k</button>
                     </div>
                   </div>
-                  <input id="mf-num-ctx" type="number" min="512" step="512" placeholder="e.g. 8192, 32768, 262144..." autocomplete="off">
-                </div>
-
-                <div class="field">
-                  <div class="mf-label-row">
-                    <label for="mf-temperature" data-i18n="modelfile.temperature">Temperature</label>
-                    <span id="mf-temperature-val" class="mono muted">0.7</span>
+                  <div class="mf-input-row">
+                    <input id="mf-num-ctx" type="number" min="512" step="512" value="8192" placeholder="e.g. 8192, 32768, 262144..." autocomplete="off">
                   </div>
-                  <input id="mf-temperature" type="range" min="0" max="2" step="0.05" value="0.7" autocomplete="off">
+                  <div id="mf-ctx-desc" class="mf-param-desc"></div>
                 </div>
 
-                <div class="field">
-                  <div class="mf-label-row">
-                    <label for="mf-top-p" data-i18n="modelfile.top_p">Top-P</label>
-                    <span id="mf-top-p-val" class="mono muted">0.9</span>
+                <!-- Advanced Accordion -->
+                <details class="mf-details">
+                  <summary><span data-i18n="modelfile.advanced_params">Advanced Parameters (Top-P, Penalty, Stop)</span></summary>
+                  <div class="mf-params-grid">
+                    
+                    <div class="field">
+                      <div class="mf-label-row">
+                        <label for="mf-top-p" data-i18n="modelfile.top_p">Top-P (Nucleus)</label>
+                        <span id="mf-top-p-val" class="mono muted">0.90</span>
+                      </div>
+                      <input id="mf-top-p" type="range" min="0.05" max="1.0" step="0.05" value="0.9" autocomplete="off">
+                      <small class="muted mf-field-hint">Descarta palabras poco probables. (0.9 recomendado).</small>
+                    </div>
+
+                    <div class="field">
+                      <div class="mf-label-row">
+                        <label for="mf-repeat-penalty" data-i18n="modelfile.repeat_penalty">Repeat Penalty</label>
+                        <span id="mf-repeat-val" class="mono muted">1.10</span>
+                      </div>
+                      <input id="mf-repeat-penalty" type="range" min="0.8" max="2.0" step="0.05" value="1.1" autocomplete="off">
+                      <small class="muted mf-field-hint">Penaliza la repetición de palabras idénticas (1.1 estándar).</small>
+                    </div>
+
+                    <div class="field field-full">
+                      <div class="mf-label-row">
+                        <label for="mf-stop-tokens" data-i18n="modelfile.stop_tokens">Stop Tokens</label>
+                        <div class="mf-quick-stops">
+                          <button type="button" class="mf-stop-chip" data-stop="<|im_end|>">+ &lt;|im_end|&gt;</button>
+                          <button type="button" class="mf-stop-chip" data-stop="<|end_of_text|>">+ &lt;|end_of_text|&gt;</button>
+                          <button type="button" class="mf-stop-chip" data-stop="User:">+ User:</button>
+                          <button type="button" class="mf-stop-chip" data-stop="Assistant:">+ Assistant:</button>
+                        </div>
+                      </div>
+                      <input id="mf-stop-tokens" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.stop_tokens_placeholder" placeholder="Comma-separated (e.g. <|im_end|>, User:)" autocomplete="off">
+                    </div>
+
+                    <div class="field field-full">
+                      <label for="mf-template" data-i18n="modelfile.template">Custom Template (Optional)</label>
+                      <textarea id="mf-template" rows="2" data-i18n-attr="placeholder" data-i18n="modelfile.template_placeholder" placeholder="Optional Go/Jinja template (e.g. {{ .System }} {{ .Prompt }})" autocomplete="off" spellcheck="false"></textarea>
+                    </div>
                   </div>
-                  <input id="mf-top-p" type="range" min="0" max="1" step="0.05" value="0.9" autocomplete="off">
-                </div>
-
-                <div class="field">
-                  <label for="mf-top-k" data-i18n="modelfile.top_k">Top-K</label>
-                  <input id="mf-top-k" type="number" min="0" step="1" value="40" autocomplete="off">
-                </div>
-
-                <div class="field">
-                  <label for="mf-repeat-penalty" data-i18n="modelfile.repeat_penalty">Repeat Penalty</label>
-                  <input id="mf-repeat-penalty" type="number" min="0" max="2" step="0.05" value="1.1" autocomplete="off">
-                </div>
-
-                <div class="field field-full">
-                  <label for="mf-stop-tokens" data-i18n="modelfile.stop_tokens">Stop Tokens</label>
-                  <input id="mf-stop-tokens" type="text" data-i18n-attr="placeholder" data-i18n="modelfile.stop_tokens_placeholder" placeholder="Comma-separated (e.g. <|im_end|>, User:)" autocomplete="off">
-                </div>
+                </details>
               </div>
-            </details>
+            </section>
 
-            <details class="mf-details">
-              <summary><span data-i18n="modelfile.template">Custom Template (Optional)</span></summary>
-              <div class="field">
-                <textarea id="mf-template" rows="3" data-i18n-attr="placeholder" data-i18n="modelfile.template_placeholder" placeholder="Optional Go/Jinja template (e.g. {{ .System }} {{ .Prompt }})" autocomplete="off" spellcheck="false"></textarea>
-              </div>
-            </details>
           </div>
 
           <!-- Panel Raw Editor -->

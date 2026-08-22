@@ -73,9 +73,6 @@
       "mf-base-model-select",
       "mf-base-model-custom",
       "mf-system-prompt",
-      "mf-num-ctx",
-      "mf-top-k",
-      "mf-repeat-penalty",
       "mf-stop-tokens",
       "mf-template",
     ].forEach((id) => {
@@ -86,16 +83,47 @@
       }
     });
 
-    // Sliders with value display
+    // Temperature slider & chips
     const tempEl = $("mf-temperature");
-    const tempVal = $("mf-temperature-val");
-    if (tempEl && tempVal) {
+    if (tempEl) {
       tempEl.addEventListener("input", () => {
-        tempVal.textContent = parseFloat(tempEl.value).toFixed(2);
+        updateTemperatureUI(parseFloat(tempEl.value));
         updatePreview();
       });
     }
 
+    document.querySelectorAll(".mf-temp-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const val = parseFloat(chip.dataset.val);
+        if (!isNaN(val) && tempEl) {
+          tempEl.value = val;
+          updateTemperatureUI(val);
+          updatePreview();
+        }
+      });
+    });
+
+    // Num_ctx input & chips
+    const ctxEl = $("mf-num-ctx");
+    if (ctxEl) {
+      ctxEl.addEventListener("input", () => {
+        updateContextUI(parseInt(ctxEl.value, 10));
+        updatePreview();
+      });
+    }
+
+    document.querySelectorAll(".mf-chip-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const val = parseInt(btn.dataset.val, 10);
+        if (!isNaN(val) && ctxEl) {
+          ctxEl.value = val;
+          updateContextUI(val);
+          updatePreview();
+        }
+      });
+    });
+
+    // Top-P slider
     const topPEl = $("mf-top-p");
     const topPVal = $("mf-top-p-val");
     if (topPEl && topPVal) {
@@ -104,6 +132,32 @@
         updatePreview();
       });
     }
+
+    // Repeat penalty slider
+    const repEl = $("mf-repeat-penalty");
+    const repVal = $("mf-repeat-val");
+    if (repEl && repVal) {
+      repEl.addEventListener("input", () => {
+        repVal.textContent = parseFloat(repEl.value).toFixed(2);
+        updatePreview();
+      });
+    }
+
+    // Stop token chips
+    document.querySelectorAll(".mf-stop-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const stopToken = chip.dataset.stop;
+        const stopInp = $("mf-stop-tokens");
+        if (stopToken && stopInp) {
+          const current = stopInp.value.split(",").map((s) => s.trim()).filter(Boolean);
+          if (!current.includes(stopToken)) {
+            current.push(stopToken);
+            stopInp.value = current.join(", ");
+            updatePreview();
+          }
+        }
+      });
+    });
 
     // Presets buttons
     document.querySelectorAll(".mf-preset-btn").forEach((btn) => {
@@ -115,17 +169,6 @@
             sysEl.value = SYSTEM_PRESETS[presetKey];
             updatePreview();
           }
-        }
-      });
-    });
-
-    // Num_ctx quick chips
-    document.querySelectorAll(".mf-chip-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const ctxEl = $("mf-num-ctx");
-        if (ctxEl) {
-          ctxEl.value = btn.dataset.val;
-          updatePreview();
         }
       });
     });
@@ -171,6 +214,74 @@
         }
       });
     }
+  }
+
+  function updateTemperatureUI(val) {
+    if (isNaN(val)) val = 0.7;
+    const badge = $("mf-temp-badge");
+    const desc = $("mf-temp-desc");
+
+    let label = "";
+    let explanation = "";
+    let pillClass = "pill-balanced";
+
+    if (val <= 0.25) {
+      label = `🎯 Modo Preciso (${val.toFixed(2)})`;
+      explanation = "<strong>🎯 Modo Preciso & Determinista:</strong> El modelo siempre elegirá la palabra más lógica y probable. Ideal para <em>código estricto, matemáticas, extracción de datos y respuestas estructuradas en JSON</em>.";
+      pillClass = "pill-precise";
+    } else if (val <= 0.65) {
+      label = `⚖️ Modo Balanceado (${val.toFixed(2)})`;
+      explanation = "<strong>⚖️ Modo Balanceado & Enfocado:</strong> Respuestas directas, consistentes y con mínima divagación. Excelente para <em>programación diaria, soporte técnico y análisis</em>.";
+      pillClass = "pill-balanced";
+    } else if (val <= 0.95) {
+      label = `💡 Modo Creativo (${val.toFixed(2)})`;
+      explanation = "<strong>💡 Modo Creativo & Conversacional:</strong> Flujo natural de ideas con variedad lingüística. El valor estándar para <em>chats, lluvia de ideas y redacción general</em>.";
+      pillClass = "pill-creative";
+    } else if (val <= 1.45) {
+      label = `🎨 Modo Muy Creativo (${val.toFixed(2)})`;
+      explanation = "<strong>🎨 Modo Expresivo & Artístico:</strong> Mayor libertad asociativa y vocabulario variado. Genial para <em>historias, poesía, roleplay y generación conceptual</em>.";
+      pillClass = "pill-artistic";
+    } else {
+      label = `🧪 Modo Experimental (${val.toFixed(2)})`;
+      explanation = "<strong>🧪 Modo Experimental & Caótico:</strong> Máxima aleatoriedad. Puede generar giros sorprendentes o perder coherencia en tareas lógicas.";
+      pillClass = "pill-chaotic";
+    }
+
+    if (badge) {
+      badge.textContent = label;
+      badge.className = `mf-status-pill ${pillClass}`;
+    }
+    if (desc) {
+      desc.innerHTML = explanation;
+    }
+
+    // Highlight matching chip
+    document.querySelectorAll(".mf-temp-chip").forEach((chip) => {
+      const chipVal = parseFloat(chip.dataset.val);
+      chip.classList.toggle("active", Math.abs(chipVal - val) < 0.05);
+    });
+  }
+
+  function updateContextUI(val) {
+    if (isNaN(val) || val <= 0) val = 8192;
+    const badge = $("mf-ctx-badge");
+    const desc = $("mf-ctx-desc");
+
+    let formattedK = val >= 1024 ? `${Math.round(val / 1024)}k Tokens` : `${val} Tokens`;
+    const pages = Math.max(1, Math.round(val / 600));
+
+    if (badge) {
+      badge.textContent = formattedK;
+    }
+    if (desc) {
+      desc.innerHTML = `<strong>Memoria de Contexto (~${pages} páginas de texto):</strong> Capacidad para recordar historial de chat o documentos extensos en una sola consulta. <em>(A mayor valor, más memoria VRAM/RAM consumirá el modelo al cargarse)</em>.`;
+    }
+
+    // Highlight matching chip
+    document.querySelectorAll(".mf-chip-btn").forEach((chip) => {
+      const chipVal = parseInt(chip.dataset.val, 10);
+      chip.classList.toggle("active", chipVal === val);
+    });
   }
 
   function showModelfileView(baseModelName) {
@@ -249,6 +360,12 @@
         nameInp.value = "my-custom-model:latest";
       }
     }
+
+    // Initialize explanations
+    const tempEl = $("mf-temperature");
+    if (tempEl) updateTemperatureUI(parseFloat(tempEl.value));
+    const ctxEl = $("mf-num-ctx");
+    if (ctxEl) updateContextUI(parseInt(ctxEl.value, 10));
 
     switchTab("builder");
     updatePreview();
@@ -330,11 +447,11 @@
       }
     }
 
-    const topKEl = $("mf-top-k");
-    if (topKEl && topKEl.value !== "") {
-      const v = parseInt(topKEl.value, 10);
-      if (!isNaN(v) && v !== 40) {
-        lines.push(`PARAMETER top_k ${v}`);
+    const repEl = $("mf-repeat-penalty");
+    if (repEl && repEl.value !== "") {
+      const v = parseFloat(repEl.value);
+      if (!isNaN(v) && v !== 1.1) {
+        lines.push(`PARAMETER repeat_penalty ${v.toFixed(2)}`);
       }
     }
 
@@ -343,14 +460,6 @@
       const v = parseInt(ctxEl.value, 10);
       if (!isNaN(v) && v > 0) {
         lines.push(`PARAMETER num_ctx ${v}`);
-      }
-    }
-
-    const repEl = $("mf-repeat-penalty");
-    if (repEl && repEl.value !== "") {
-      const v = parseFloat(repEl.value);
-      if (!isNaN(v) && v !== 1.1) {
-        lines.push(`PARAMETER repeat_penalty ${v.toFixed(2)}`);
       }
     }
 
@@ -448,23 +557,26 @@
         const val = parts.slice(1).join(" ").replace(/^"|"$/g, "");
         if (param === "temperature") {
           const el = $("mf-temperature");
-          const valEl = $("mf-temperature-val");
-          if (el) el.value = val;
-          if (valEl) valEl.textContent = parseFloat(val).toFixed(2);
+          if (el) {
+            el.value = val;
+            updateTemperatureUI(parseFloat(val));
+          }
         } else if (param === "top_p") {
           const el = $("mf-top-p");
           const valEl = $("mf-top-p-val");
           if (el) el.value = val;
           if (valEl) valEl.textContent = parseFloat(val).toFixed(2);
-        } else if (param === "top_k") {
-          const el = $("mf-top-k");
-          if (el) el.value = val;
         } else if (param === "num_ctx") {
           const el = $("mf-num-ctx");
-          if (el) el.value = val;
+          if (el) {
+            el.value = val;
+            updateContextUI(parseInt(val, 10));
+          }
         } else if (param === "repeat_penalty") {
           const el = $("mf-repeat-penalty");
+          const valEl = $("mf-repeat-val");
           if (el) el.value = val;
+          if (valEl) valEl.textContent = parseFloat(val).toFixed(2);
         } else if (param === "stop") {
           stopTokens.push(val);
         }
@@ -629,7 +741,7 @@
 
   // Hook into global scope
   window.showModelfileView = showModelfileView;
-  window.openModelfileStudio = showModelfileView; // backwards compatibility alias
+  window.openModelfileStudio = showModelfileView; // alias
 
   // Initialize when DOM is ready
   if (document.readyState === "loading") {

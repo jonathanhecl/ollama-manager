@@ -80,12 +80,14 @@
       if (el) {
         el.addEventListener("input", () => {
           if (id === "mf-base-model-select" || id === "mf-base-model-custom") {
+            applyBaseModelDefaults(getBaseModelValue());
             updateEmbeddingModelNotice();
           }
           updatePreview();
         });
         el.addEventListener("change", () => {
           if (id === "mf-base-model-select" || id === "mf-base-model-custom") {
+            applyBaseModelDefaults(getBaseModelValue());
             updateEmbeddingModelNotice();
           }
           updatePreview();
@@ -384,11 +386,20 @@
     let formattedK = val >= 1024 ? `${Math.round(val / 1024)}k Tokens` : `${val} Tokens`;
     const pages = Math.max(1, Math.round(val / 600));
 
+    const baseVal = getBaseModelValue();
+    const baseModelObj = typeof modelByName === "function" ? modelByName(baseVal) : (Array.isArray(models) ? models.find((x) => x.name === baseVal) : null);
+    const nativeMax = baseModelObj && baseModelObj.context_length ? Number(baseModelObj.context_length) : 0;
+    let nativeNote = "";
+    if (nativeMax > 0) {
+      const nativeLabel = nativeMax >= 1024 ? `${Math.round(nativeMax / 1024)}k` : `${nativeMax}`;
+      nativeNote = ` <span class="muted" style="display:inline-block; margin-top: 4px;">(🎯 Máx. nativo del modelo base: <strong>${nativeLabel} / ${nativeMax.toLocaleString()} tokens</strong>)</span>`;
+    }
+
     if (badge) {
       badge.textContent = formattedK;
     }
     if (desc) {
-      desc.innerHTML = `<strong>Memoria de Contexto (~${pages} páginas de texto):</strong> Capacidad para recordar historial de chat o documentos extensos en una sola consulta. <em>(A mayor valor, más memoria VRAM/RAM consumirá el modelo al cargarse)</em>.`;
+      desc.innerHTML = `<strong>Memoria de Contexto (~${pages} páginas de texto):</strong> Capacidad para recordar historial de chat o documentos extensos en una sola consulta. <em>(A mayor valor, más memoria VRAM/RAM consumirá el modelo al cargarse)</em>.${nativeNote}`;
     }
 
     // Highlight matching chip
@@ -398,6 +409,21 @@
     });
 
     updateTokenBudgetUI();
+  }
+
+  function applyBaseModelDefaults(modelName) {
+    if (!modelName) return;
+    const m = typeof modelByName === "function" ? modelByName(modelName) : (Array.isArray(models) ? models.find((x) => x.name === modelName) : null);
+    if (!m) return;
+
+    if (m.context_length && Number(m.context_length) > 0) {
+      const targetCtx = Number(m.context_length);
+      const ctxInp = $("mf-num-ctx");
+      if (ctxInp) {
+        ctxInp.value = targetCtx;
+        updateContextUI(targetCtx);
+      }
+    }
   }
 
   function estimateTokens(text) {
@@ -712,6 +738,7 @@
           sel.hidden = true;
         }
       }
+      applyBaseModelDefaults(getBaseModelValue());
       updateEmbeddingModelNotice();
     }
 

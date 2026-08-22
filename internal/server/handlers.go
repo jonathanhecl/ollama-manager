@@ -1066,6 +1066,38 @@ func (s *Server) handleDeleteGhost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "name": name})
 }
 
+func (s *Server) handleGetModelUsage(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	var rec ModelUsageRecord
+	var found bool
+	if s.usage != nil {
+		rec, found = s.usage.Get(name)
+		if !found {
+			if strings.HasSuffix(name, ":latest") {
+				rec, found = s.usage.Get(strings.TrimSuffix(name, ":latest"))
+			} else {
+				rec, found = s.usage.Get(name + ":latest")
+			}
+		}
+	}
+	var uninstRec any
+	if s.uninst != nil {
+		if u, uok := s.uninst.Get(name); uok {
+			uninstRec = u
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":      name,
+		"found":     found,
+		"usage":     rec,
+		"uninstall": uninstRec,
+	})
+}
+
 func (s *Server) handleRepairPreview(w http.ResponseWriter, r *http.Request) {
 	var body modelRepairRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

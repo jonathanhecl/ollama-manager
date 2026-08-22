@@ -1,6 +1,9 @@
 package server
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -349,5 +352,40 @@ func TestDeleteRecord(t *testing.T) {
 	_ = store2.Load()
 	if _, ok := store2.Get("ghost:7b"); ok {
 		t.Errorf("deleted record persisted across reload")
+	}
+}
+
+func TestHandleGetModelUsage(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+	store := newModelUsageStore(path)
+	_ = store.Load()
+	_ = store.RecordTPS("test:model", 55.5, time.Now())
+	_ = store.SetMeta("test:model", modelUsageMeta{
+		ParameterSize: "8.0B",
+		Size:          5000000000,
+		Quantization:  "Q4_K_M",
+		Family:        "llama",
+	})
+
+	srv := &Server{usage: store}
+	req := httptest.NewRequest(http.MethodGet, "/api/usage/test:model", nil)
+	req.SetPathValue("name", "test:model")
+	w := httptest.NewRecorder()
+	srv.handleGetModelUsage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var res struct {
+		Name  string           `json:"name"`
+		Found bool             `json:"found"`
+		Usage ModelUsageRecord `json:"usage"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if !res.Found || res.Usage.RecordTokensPerSec != 55.5 || res.Usage.ParameterSize != "8.0B" {
+		t.Fatalf("unexpected usage payload: %#v", res)
 	}
 }

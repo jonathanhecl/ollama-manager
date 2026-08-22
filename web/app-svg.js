@@ -558,8 +558,8 @@ function renderMetaTableBody(tbody, rows, uninstalled, query) {
     const remove = uninstalled
       ? `<button type="button" class="ghost analytics-remove-ghost" data-name="${escapeHtml(p.name)}" title="${escapeHtml(t("analytics.remove_ghost"))}">🗑</button>`
       : "";
-    return `<tr class="${uninstalled ? "ghost" : ""}">
-      <td class="analytics-meta-name">${escapeHtml(p.name)}</td>
+    return `<tr class="analytics-meta-row${uninstalled ? " ghost" : ""}" data-name="${escapeHtml(p.name)}">
+      <td class="analytics-meta-name" title="${escapeHtml(t("analytics.usage_view_details"))}">${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.paramsLabel)}</td>
       <td class="mono">${p.parameterCount ? formatExactParams(p.parameterCount) : "—"}</td>
       <td>${escapeHtml(p.architecture || "—")} ${moeBadge}</td>
@@ -578,6 +578,7 @@ function formatExactParams(n) {
   return `${n}`;
 }
 
+let modelUsageModalBound = false;
 function bindAnalyticsMetaSearch() {
   const input = $("analytics-meta-search");
   if (!input) return;
@@ -592,6 +593,354 @@ function bindAnalyticsMetaSearch() {
         e.stopPropagation();
         const name = btn.getAttribute("data-name");
         if (name) void removeGhost(name);
+        return;
+      }
+      const row = e.target.closest(".analytics-meta-row");
+      if (row) {
+        const name = row.getAttribute("data-name");
+        if (name) void openModelUsageModal(name);
+      }
+    });
+  });
+
+  if (!modelUsageModalBound) {
+    modelUsageModalBound = true;
+    $("model-usage-modal-close")?.addEventListener("click", () => {
+      $("model-usage-modal").hidden = true;
+    });
+    $("model-usage-modal-done")?.addEventListener("click", () => {
+      $("model-usage-modal").hidden = true;
+    });
+    $("model-usage-modal")?.addEventListener("click", (e) => {
+      if (e.target === $("model-usage-modal")) {
+        $("model-usage-modal").hidden = true;
+      }
+    });
+  }
+}
+
+async function openModelUsageModal(name) {
+  if (!name) return;
+  const modal = $("model-usage-modal");
+  const body = $("model-usage-modal-body");
+  if (!modal || !body) return;
+
+  modal.hidden = false;
+  body.innerHTML = `<div class="muted" style="padding: 24px 0; text-align: center;">${escapeHtml(t("state.loading"))}</div>`;
+
+  const m = (analyticsAllData || []).find((x) => x.name === name) || {};
+  const installedModel = (typeof models !== "undefined" && Array.isArray(models))
+    ? models.find((x) => x.name === name)
+    : null;
+
+  const chatBtn = $("model-usage-modal-chat-btn");
+  const detailBtn = $("model-usage-modal-detail-btn");
+  if (chatBtn) {
+    if (installedModel && !installedModel.archived) {
+      chatBtn.hidden = false;
+      chatBtn.onclick = () => {
+        modal.hidden = true;
+        if (typeof openChat === "function") openChat(name);
+      };
+    } else {
+      chatBtn.hidden = true;
+    }
+  }
+  if (detailBtn) {
+    if (installedModel) {
+      detailBtn.hidden = false;
+      detailBtn.onclick = () => {
+        modal.hidden = true;
+        if (typeof showModelsView === "function") showModelsView();
+        if (typeof openDetail === "function") openDetail(name);
+      };
+    } else {
+      detailBtn.hidden = true;
+    }
+  }
+
+  try {
+    const [usageRes, detailRes] = await Promise.allSettled([
+      api("/api/usage/" + encodeURIComponent(name)),
+      api("/api/models/" + encodeURIComponent(name)),
+    ]);
+    const usagePayload = usageRes.status === "fulfilled" ? usageRes.value : null;
+    const detailData = detailRes.status === "fulfilled" ? detailRes.value : null;
+
+    renderModelUsageModalContent(
+      m,
+      usagePayload?.usage || m,
+      usagePayload?.uninstall,
+      installedModel,
+      detailData
+    );
+  } catch (err) {
+    renderModelUsageModalContent(m, m, null, installedModel, null);
+  }
+}
+
+function renderUsageCodeBlock(title, content) {
+  const val = String(content || "");
+  if (!val.trim()) return "";
+  return `
+    <div class="model-usage-section" data-copy-target>
+      <div class="model-usage-json-header">
+        <h4 class="model-usage-section-title">${escapeHtml(title)}</h4>
+        <button type="button" class="ghost model-usage-copy-section-btn" style="padding: 3px 8px; font-size: 11px;">📋 ${escapeHtml(t("detail.copy"))}</button>
+      </div>
+      <pre class="model-usage-json-box" style="color: var(--text);">${escapeHtml(val)}</pre>
+    </div>
+  `;
+}
+
+function renderModelUsageModalContent(m, u, uninst, installedModel, detail) {
+  const body = $("model-usage-modal-body");
+  if (!body) return;
+
+  const rawRecord = Object.assign({}, m, u || {});
+  const p = analyticsPoint(rawRecord);
+  const name = p.name || m?.name || u?.name || detail?.name || "—";
+  const isGhost = p.ghost;
+
+  const statusBadge = isGhost
+    ? `<span class="badge badge-muted">${escapeHtml(t("analytics.usage_status_ghost"))}</span>`
+    : `<span class="badge badge-good">${escapeHtml(t("analytics.usage_status_installed"))}</span>`;
+  const loadedBadge = installedModel?.loaded
+    ? `<span class="badge badge-good">${escapeHtml(t("analytics.usage_status_loaded"))} (${fmtBytes(installedModel.size_vram)})</span>`
+    : "";
+  const archivedBadge = installedModel?.archived
+    ? `<span class="badge badge-warn">${escapeHtml(t("analytics.usage_status_archived"))}</span>`
+    : "";
+  const moeBadge = p.isMOE ? `<span class="badge badge-moe">MoE</span>` : "";
+
+  // Capabilities
+  const rawCaps = (detail?.capabilities && detail.capabilities.length)
+    ? detail.capabilities
+    : (m?.capabilities || []);
+  const capsPills = typeof renderCapabilityPills === "function" ? renderCapabilityPills(rawCaps) : "";
+
+  // Site link
+  const siteUrl = typeof modelHomepageUrl === "function" ? modelHomepageUrl(name) : "";
+  const hostLabel = siteUrl ? (siteUrl.startsWith("https://huggingface.co") ? "Hugging Face" : "Ollama") : "";
+
+  // KPI calculations
+  const tpsVal = p.tps > 0 ? `${p.tps.toFixed(1)} tok/s` : "—";
+  const tpsDate = (u?.record_tokens_per_sec_at || m?.record_tokens_per_sec_at)
+    ? fmtDateTimeFull(u?.record_tokens_per_sec_at || m?.record_tokens_per_sec_at)
+    : (p.tps > 0 ? "Benchmark recorded" : "—");
+
+  const coldLoadVal = p.coldLoadMs > 0 ? `${(p.coldLoadMs / 1000).toFixed(2)}s` : "—";
+  const coldLoadSub = p.coldLoadMs > 0
+    ? `${p.coldLoadMs.toLocaleString()} ms · ${(u?.min_cold_load_at || m?.min_cold_load_at) ? fmtDate(u?.min_cold_load_at || m?.min_cold_load_at) : ""}`
+    : "—";
+
+  const throughputVal = p.loadThroughputMBs > 0 ? `${p.loadThroughputMBs.toFixed(1)} MB/s` : "—";
+  const throughputSub = (p.coldLoadMs > 0 && p.sizeBytes > 0)
+    ? `${fmtBytes(p.sizeBytes)} / ${(p.coldLoadMs / 1000).toFixed(1)}s`
+    : "—";
+
+  const effVal = p.efficiencyTokPerGB > 0 ? `${p.efficiencyTokPerGB.toFixed(1)} tok/s/GB` : "—";
+  const effSub = p.sizeGB > 0 ? `${p.sizeGB.toFixed(1)} GB model size` : "—";
+
+  const lastUsedVal = (u?.last_used_at || m?.last_used_at)
+    ? fmtDateTimeFull(u?.last_used_at || m?.last_used_at)
+    : "—";
+  const lastUsedSub = (u?.last_used_at || m?.last_used_at)
+    ? fmtRelativeTime(u?.last_used_at || m?.last_used_at)
+    : "—";
+
+  const totalCallsVal = (p.totalCalls || 0).toLocaleString();
+  const totalTokensVal = (p.totalTokens || 0).toLocaleString();
+  const sizeVal = p.sizeBytes > 0 ? fmtBytes(p.sizeBytes) : "—";
+  const sizeSub = p.sizeBytes > 0 ? `${p.sizeBytes.toLocaleString()} bytes` : "—";
+
+  // Families
+  const families = (detail?.details?.families && detail.details.families.length)
+    ? detail.details.families.join(", ")
+    : (m?.families && m.families.length ? m.families.join(", ") : p.family);
+
+  const format = detail?.details?.format || m?.format || "gguf";
+  const parentModel = detail?.details?.parent_model || "";
+  const digest = m?.digest || detail?.digest || "";
+  const artifactCount = detail?.artifact_count || 0;
+  const artifactBytes = detail?.artifact_bytes || 0;
+  const license = detail?.license || "";
+  const system = detail?.system || "";
+  const parameters = detail?.parameters || "";
+  const template = detail?.template || "";
+  const modelfile = detail?.modelfile || "";
+  const modelInfo = detail?.model_info || null;
+
+  // Technical specifications table rows
+  const specRows = [
+    [t("detail.family"), families || p.family || "—"],
+    [t("detail.architecture"), p.architecture || detail?.architecture || "—"],
+    [t("detail.params"), p.paramsLabel || detail?.details?.parameter_size || (p.parameterCount ? `${(p.parameterCount / 1e9).toFixed(2)}B` : "—")],
+    [t("analytics.usage_param_count"), p.parameterCount ? `${p.parameterCount.toLocaleString()} (${formatExactParams(p.parameterCount)})` : "—"],
+    [t("analytics.usage_size_label"), p.sizeLabel || "—"],
+    [t("detail.quant"), p.quant || detail?.details?.quantization_level || "—"],
+    [t("detail.format"), format || "—"],
+    [t("analytics.usage_file_type"), p.fileType ? String(p.fileType) : "—"],
+    [t("detail.context"), (p.contextLength || detail?.context_length) ? `${fmtCtx(p.contextLength || detail?.context_length)} (${(p.contextLength || detail?.context_length).toLocaleString()} tokens)` : "—"],
+    [t("analytics.usage_is_moe"), p.isMOE ? "Yes (Mixture of Experts)" : "No"],
+    [t("detail.size"), p.sizeBytes > 0 ? `${fmtBytes(p.sizeBytes)} (${p.sizeBytes.toLocaleString()} bytes)` : "—"],
+    [t("analytics.usage_status"), `${isGhost ? t("analytics.usage_status_ghost") : t("analytics.usage_status_installed")}${installedModel?.loaded ? ` (${t("analytics.usage_status_loaded")})` : ""}${installedModel?.archived ? ` (${t("analytics.usage_status_archived")})` : ""}`],
+  ];
+
+  if (parentModel) {
+    specRows.push(["Parent Model", parentModel]);
+  }
+  if (digest) {
+    specRows.push([t("detail.digest"), `<span class="mono" title="${escapeHtml(digest)}">${escapeHtml(digest.slice(0, 16))}…</span>`]);
+  }
+  if (artifactCount > 0) {
+    const artSize = artifactBytes ? ` · ${fmtBytes(artifactBytes)}` : "";
+    specRows.push([t("detail.artifacts"), `${artifactCount}${artSize}`]);
+  }
+  if (siteUrl) {
+    specRows.push([t("detail.site"), `<a class="detail-site-link" href="${siteUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(hostLabel)} ↗</a>`]);
+  }
+  if (license) {
+    specRows.push(["License", license]);
+  }
+  if (m?.modified_at || u?.modified_at || detail?.modified_at) {
+    specRows.push([t("detail.modified"), fmtDateTimeFull(m?.modified_at || u?.modified_at || detail?.modified_at)]);
+  }
+  if (uninst && typeof uninst === "object") {
+    if (uninst.reason) specRows.push([t("analytics.usage_uninstall_reason"), uninst.reason]);
+    if (uninst.last_uninstall_at) specRows.push([t("analytics.usage_uninstall_at"), fmtDateTimeFull(uninst.last_uninstall_at)]);
+  }
+
+  // Model Info section (GGUF tensors and architectural hyperparameters)
+  let modelInfoBlock = "";
+  if (modelInfo && typeof modelInfo === "object" && Object.keys(modelInfo).length) {
+    const sortedKeys = Object.keys(modelInfo).sort();
+    const infoRows = sortedKeys.map((k) => {
+      const val = typeof modelInfo[k] === "object" ? JSON.stringify(modelInfo[k]) : String(modelInfo[k]);
+      return `<tr><td class="mono" style="font-size: 11px;">${escapeHtml(k)}</td><td class="mono" style="font-size: 11px; word-break: break-all;">${escapeHtml(val)}</td></tr>`;
+    }).join("");
+    modelInfoBlock = `
+      <div class="model-usage-section">
+        <h4 class="model-usage-section-title">GGUF Model Info & Tensors (${sortedKeys.length})</h4>
+        <div style="max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius);">
+          <table class="model-usage-specs-table" style="margin: 0; border: none;">
+            <tbody>${infoRows}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  const capsSection = capsPills ? `
+    <div class="model-usage-section">
+      <h4 class="model-usage-section-title">${escapeHtml(t("detail.capabilities"))}</h4>
+      <div class="cap-list">${capsPills}</div>
+    </div>
+  ` : "";
+
+  const systemBlock = system ? renderUsageCodeBlock(t("detail.system"), system) : "";
+  const paramsBlock = parameters ? renderUsageCodeBlock(t("detail.parameters_section"), parameters) : "";
+  const tmplBlock = template ? renderUsageCodeBlock(t("detail.template"), template) : "";
+  const modelfileBlock = modelfile ? renderUsageCodeBlock("Modelfile", modelfile) : "";
+
+  body.innerHTML = `
+    <div class="model-usage-hero">
+      <div class="model-usage-hero-top">
+        <div class="model-usage-name-wrap">
+          <span class="model-usage-name mono">${escapeHtml(name)}</span>
+          <button type="button" class="ghost model-usage-copy-btn" id="model-usage-copy-name-btn" title="Copy name">📋</button>
+        </div>
+        <div class="model-usage-badges">
+          ${statusBadge}
+          ${loadedBadge}
+          ${archivedBadge}
+          ${moeBadge}
+        </div>
+      </div>
+    </div>
+
+    <div class="model-usage-section">
+      <h4 class="model-usage-section-title">${escapeHtml(t("analytics.usage_metrics_title"))}</h4>
+      <div class="model-usage-grid">
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">⚡</span>${escapeHtml(t("analytics.usage_stat_speed"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(tpsVal)}</div>
+          <div class="model-usage-metric-sub" title="${escapeHtml(tpsDate)}">${escapeHtml(tpsDate)}</div>
+        </div>
+
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">⏱️</span>${escapeHtml(t("analytics.usage_stat_coldload"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(coldLoadVal)}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(coldLoadSub)}</div>
+        </div>
+
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🚀</span>${escapeHtml(t("analytics.usage_stat_throughput"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(throughputVal)}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(throughputSub)}</div>
+        </div>
+
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">📈</span>${escapeHtml(t("analytics.usage_stat_efficiency"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(effVal)}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(effSub)}</div>
+        </div>
+
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">💬</span>${escapeHtml(t("analytics.usage_stat_calls"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(totalCallsVal)}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(t("downloads.reenqueue_stat_total_calls"))}</div>
+        </div>
+
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🔤</span>${escapeHtml(t("analytics.usage_stat_tokens"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(totalTokensVal)}</div>
+          <div class="model-usage-metric-sub">Lifetime generated tokens</div>
+        </div>
+
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🕒</span>${escapeHtml(t("analytics.usage_stat_last_used"))}</div>
+          <div class="model-usage-metric-val" style="font-size: 13px;">${escapeHtml(lastUsedVal)}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(lastUsedSub)}</div>
+        </div>
+
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">📦</span>${escapeHtml(t("analytics.usage_stat_size"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(sizeVal)}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(sizeSub)}</div>
+        </div>
+      </div>
+    </div>
+
+    ${capsSection}
+
+    <div class="model-usage-section">
+      <h4 class="model-usage-section-title">${escapeHtml(t("analytics.usage_specs_title"))}</h4>
+      <table class="model-usage-specs-table">
+        <tbody>
+          ${specRows.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${v.startsWith("<") ? v : `<span class="mono">${escapeHtml(v)}</span>`}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+
+    ${systemBlock}
+    ${paramsBlock}
+    ${tmplBlock}
+    ${modelfileBlock}
+    ${modelInfoBlock}
+  `;
+
+  $("model-usage-copy-name-btn")?.addEventListener("click", () => {
+    navigator.clipboard?.writeText(name);
+    toast(name, "info");
+  });
+
+  body.querySelectorAll(".model-usage-copy-section-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pre = btn.closest("[data-copy-target]")?.querySelector("pre");
+      if (pre) {
+        navigator.clipboard?.writeText(pre.textContent);
+        toast(t("chat.copied") || "Copied", "success");
       }
     });
   });

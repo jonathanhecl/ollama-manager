@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260821_03">
+  <link rel="stylesheet" href="/static/style.css?v=20260821_05">
 </head>
 <body>
   <header class="topbar">
@@ -1060,6 +1060,25 @@
           <div class="hr-label" data-i18n="chat.response">Response</div>
           <div id="response-view-content" class="hr-block hr-eval-config" style="white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow-y:auto;"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model usage & telemetry modal -->
+  <div id="model-usage-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card model-usage-modal-card">
+      <div class="model-usage-modal-header">
+        <div class="model-usage-modal-title-wrap">
+          <span class="gear">📊</span>
+          <h3 id="model-usage-modal-title" data-i18n="analytics.usage_modal_title">Model Usage & Telemetry</h3>
+        </div>
+        <button type="button" id="model-usage-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div id="model-usage-modal-body" class="model-usage-modal-body"></div>
+      <div class="modal-actions model-usage-modal-actions">
+        <button type="button" id="model-usage-modal-chat-btn" class="ghost" data-i18n="analytics.usage_open_chat" hidden>Open in Chat</button>
+        <button type="button" id="model-usage-modal-detail-btn" class="ghost" data-i18n="analytics.usage_view_details" hidden>View Model Details</button>
+        <button type="button" id="model-usage-modal-done" class="primary" data-i18n="action.close">Close</button>
       </div>
     </div>
   </div>

@@ -6143,13 +6143,12 @@ button.chat-send:disabled:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 .analytics-meta-name {
-  color: var(--accent);
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  transition: text-decoration-color 0.15s;
+  color: var(--text);
+  text-decoration: none;
 }
 .analytics-meta-row:hover .analytics-meta-name {
-  text-decoration-color: var(--accent);
+  color: var(--text);
+  text-decoration: none;
 }
 
 .model-usage-modal-card {

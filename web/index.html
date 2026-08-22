@@ -701,10 +701,18 @@
           <button id="mf-tab-builder" type="button" class="mf-tab-btn active" data-i18n="modelfile.tab_builder">Visual Builder</button>
           <button id="mf-tab-raw" type="button" class="mf-tab-btn" data-i18n="modelfile.tab_raw">Raw Modelfile</button>
         </div>
+        <button id="mf-test-chat-btn" type="button" class="primary" data-i18n="modelfile.test_in_chat" hidden>💬 Test in Chat</button>
+        <button id="mf-create-btn" class="primary" data-i18n="modelfile.btn_create">Build & Create Model</button>
       </div>
     </header>
 
     <div class="modelfile-body">
+      <div id="mf-status-wrap" class="mf-status-wrap" hidden>
+        <div class="mf-progress-track">
+          <div id="mf-progress-fill" class="mf-progress-fill"></div>
+        </div>
+        <div id="mf-status-text" class="mf-status-text mono"></div>
+      </div>
       <div class="modelfile-grid">
         <!-- Left Column: Controls & Visual Form -->
         <div class="modelfile-left">
@@ -886,22 +894,6 @@
             </div>
             <pre id="mf-preview-code" class="modelfile-code mono"></pre>
           </div>
-        </div>
-      </div>
-
-      <div id="mf-status-wrap" class="mf-status-wrap" hidden>
-        <div class="mf-progress-track">
-          <div id="mf-progress-fill" class="mf-progress-fill"></div>
-        </div>
-        <div id="mf-status-text" class="mf-status-text mono"></div>
-      </div>
-
-      <div class="modelfile-actions-bar">
-        <div class="modelfile-actions-left">
-          <button id="mf-test-chat-btn" type="button" class="primary" data-i18n="modelfile.test_in_chat" hidden>💬 Test in Chat</button>
-        </div>
-        <div class="modelfile-actions-right">
-          <button id="mf-create-btn" class="primary" data-i18n="modelfile.btn_create">Build & Create Model</button>
         </div>
       </div>
     </div>

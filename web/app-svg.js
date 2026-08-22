@@ -1545,6 +1545,10 @@ async function handleRouting() {
     showBatteryHistoryView();
   } else if (path === "/analytics" || path === "/analytics/") {
     showAnalyticsView();
+  } else if (path === "/modelfile" || path === "/modelfile/") {
+    if (typeof showModelfileView === "function") {
+      showModelfileView();
+    }
   } else if (path === "/") {
     if (currentView !== "models") {
       showModelsView();

@@ -6876,19 +6876,6 @@ button.chat-send:disabled:hover {
   color: var(--text);
 }
 
-.modelfile-actions-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 0 24px;
-}
-
-.modelfile-actions-right {
-  display: flex;
-  gap: 10px;
-  margin-left: auto;
-}
-
 @media (max-width: 900px) {
   .modelfile-view {
     padding: 14px 16px 40px;

@@ -283,7 +283,7 @@
       rawEl.addEventListener("input", () => {
         if (activeTab === "raw") {
           const codeEl = $("mf-preview-code");
-          if (codeEl) codeEl.textContent = rawEl.value;
+          if (codeEl) codeEl.innerHTML = highlightModelfile(rawEl.value);
         }
       });
     }
@@ -934,11 +934,121 @@
     updateTokenBudgetUI();
   }
 
+  function highlightTemplateVars(text) {
+    return text.replace(/(\{\{\s*[\.\w]+\s*\}\})/g, '<span class="mf-tpl-var">$1</span>');
+  }
+
+  function highlightModelfile(code) {
+    if (!code || !code.trim()) {
+      return `<span class="mf-comment"># Complete the fields to preview Modelfile</span>`;
+    }
+
+    const lines = code.split("\n");
+    let inTripleQuote = false;
+    const output = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (inTripleQuote) {
+        if (line.includes('"""')) {
+          const endIdx = line.indexOf('"""');
+          const before = escapeHtml(line.substring(0, endIdx));
+          const after = escapeHtml(line.substring(endIdx + 3));
+          inTripleQuote = false;
+          output.push(`<span class="mf-str">${highlightTemplateVars(before)}</span><span class="mf-quote">"""</span>${after}`);
+        } else {
+          output.push(`<span class="mf-str">${highlightTemplateVars(escapeHtml(line))}</span>`);
+        }
+        continue;
+      }
+
+      if (!trimmed) {
+        output.push("");
+        continue;
+      }
+
+      if (trimmed.startsWith("#") || trimmed.startsWith("//")) {
+        output.push(`<span class="mf-comment">${escapeHtml(line)}</span>`);
+        continue;
+      }
+
+      if (trimmed.startsWith("FROM ")) {
+        const fromIdx = line.indexOf("FROM ");
+        const indent = escapeHtml(line.substring(0, fromIdx));
+        const rest = escapeHtml(line.substring(fromIdx + 5));
+        output.push(`${indent}<span class="mf-kw">FROM</span> <span class="mf-model-ref">${rest}</span>`);
+        continue;
+      }
+
+      if (trimmed.startsWith("PARAMETER ")) {
+        const paramIdx = line.indexOf("PARAMETER ");
+        const indent = escapeHtml(line.substring(0, paramIdx));
+        const rest = line.substring(paramIdx + 10).trim();
+        const parts = rest.split(/\s+/);
+        const paramKey = escapeHtml(parts[0] || "");
+        const rawVal = rest.substring(parts[0]?.length || 0).trim();
+
+        let formattedVal = escapeHtml(rawVal);
+        if (/^".*"$/.test(rawVal)) {
+          const innerStr = escapeHtml(rawVal.slice(1, -1));
+          formattedVal = `<span class="mf-quote">&quot;</span><span class="mf-str">${innerStr}</span><span class="mf-quote">&quot;</span>`;
+        } else if (!isNaN(Number(rawVal)) && rawVal !== "") {
+          formattedVal = `<span class="mf-num">${escapeHtml(rawVal)}</span>`;
+        }
+
+        output.push(`${indent}<span class="mf-kw">PARAMETER</span> <span class="mf-param-key">${paramKey}</span> ${formattedVal}`);
+        continue;
+      }
+
+      if (trimmed.startsWith("SYSTEM ") || trimmed.startsWith("TEMPLATE ") || trimmed.startsWith("LICENSE ") || trimmed.startsWith("MESSAGE ")) {
+        const kwMatch = line.match(/^(\s*)(SYSTEM|TEMPLATE|LICENSE|MESSAGE)(\s+)(.*)$/s);
+        if (kwMatch) {
+          const [, indent, kw, space, rest] = kwMatch;
+          const escIndent = escapeHtml(indent);
+          const escSpace = escapeHtml(space);
+          if (rest.startsWith('"""')) {
+            const restContent = rest.substring(3);
+            if (restContent.includes('"""')) {
+              const closeIdx = restContent.indexOf('"""');
+              const inner = restContent.substring(0, closeIdx);
+              const after = restContent.substring(closeIdx + 3);
+              output.push(`${escIndent}<span class="mf-kw">${kw}</span>${escSpace}<span class="mf-quote">"""</span><span class="mf-str">${highlightTemplateVars(escapeHtml(inner))}</span><span class="mf-quote">"""</span>${escapeHtml(after)}`);
+            } else {
+              inTripleQuote = true;
+              output.push(`${escIndent}<span class="mf-kw">${kw}</span>${escSpace}<span class="mf-quote">"""</span><span class="mf-str">${highlightTemplateVars(escapeHtml(restContent))}</span>`);
+            }
+            continue;
+          } else if (rest.startsWith('"') && rest.endsWith('"') && rest.length >= 2) {
+            output.push(`${escIndent}<span class="mf-kw">${kw}</span>${escSpace}<span class="mf-quote">&quot;</span><span class="mf-str">${highlightTemplateVars(escapeHtml(rest.slice(1, -1)))}</span><span class="mf-quote">&quot;</span>`);
+            continue;
+          } else {
+            output.push(`${escIndent}<span class="mf-kw">${kw}</span>${escSpace}<span class="mf-str">${highlightTemplateVars(escapeHtml(rest))}</span>`);
+            continue;
+          }
+        }
+      }
+
+      if (trimmed.startsWith("ADAPTER ")) {
+        const adIdx = line.indexOf("ADAPTER ");
+        const indent = escapeHtml(line.substring(0, adIdx));
+        const rest = escapeHtml(line.substring(adIdx + 8));
+        output.push(`${indent}<span class="mf-kw">ADAPTER</span> <span class="mf-model-ref">${rest}</span>`);
+        continue;
+      }
+
+      output.push(escapeHtml(line));
+    }
+
+    return output.join("\n");
+  }
+
   function updatePreview() {
     const codeEl = $("mf-preview-code");
     if (codeEl) {
       const text = getGeneratedModelfile();
-      codeEl.textContent = text || "# Complete the fields to preview Modelfile";
+      codeEl.innerHTML = highlightModelfile(text);
     }
   }
 

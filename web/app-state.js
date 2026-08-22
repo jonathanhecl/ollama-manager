@@ -47,6 +47,10 @@ const CHAT_OPTION_FALLBACKS = {
   think_level: "auto",
   web_tools: false,
   artifacts: false,
+  image_width: 512,
+  image_height: 512,
+  image_steps: 4,
+  image_seed: 0,
 };
 const STATUS_REFRESH_MS = 1000;
 const chatModelDefaultsCache = new Map();

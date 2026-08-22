@@ -3495,7 +3495,18 @@ button.chat-send:disabled:hover {
   padding: 6px 8px;
 }
 
+.chat-options-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 2px;
+}
+.chat-options-title-row h3 {
+  margin: 0;
+}
 .chat-options-reset-link {
+  margin-left: auto;
   background: none;
   border: none;
   padding: 0;
@@ -3504,6 +3515,7 @@ button.chat-send:disabled:hover {
   cursor: pointer;
   font-size: 0.78rem;
   font-weight: 500;
+  white-space: nowrap;
   transition: opacity 0.15s ease;
 }
 .chat-options-reset-link:hover {

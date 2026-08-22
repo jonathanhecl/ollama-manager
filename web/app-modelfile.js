@@ -273,11 +273,11 @@
             updateTokenBudgetUI();
             updatePreview();
             const loadedTok = estimateTokens(content);
-            showToast(`Archivo "${file.name}" inyectado (~${loadedTok.toLocaleString()} tokens)`);
+            toast(`Archivo "${file.name}" inyectado (~${loadedTok.toLocaleString()} tokens)`, "info");
           }
         };
         reader.onerror = () => {
-          showToast("Error al leer el archivo.");
+          toast("Error al leer el archivo.", "error");
         };
         reader.readAsText(file);
       });
@@ -307,7 +307,7 @@
         const text = getGeneratedModelfile();
         if (!text) return;
         navigator.clipboard.writeText(text).then(() => {
-          showToast(t("modelfile.copied") || "Copied!");
+          toast(t("modelfile.copied") || "Copied!", "success");
         });
       });
     }
@@ -520,7 +520,7 @@
     const text = sysEl.value;
     const currentTokens = estimateTokens(text);
     if (currentTokens <= targetTokens) {
-      showToast(t("modelfile.already_fits") || "El prompt actual ya está dentro del límite recomendado.");
+      toast(t("modelfile.already_fits") || "El prompt actual ya está dentro del límite recomendado.", "info");
       return;
     }
 
@@ -551,7 +551,7 @@
     autoResizeSystemPrompt();
     updateTokenBudgetUI();
     updatePreview();
-    showToast(t("modelfile.trimmed_toast") || `Prompt recortado a ~${estimateTokens(sysEl.value).toLocaleString()} tokens.`);
+    toast(t("modelfile.trimmed_toast") || `Prompt recortado a ~${estimateTokens(sysEl.value).toLocaleString()} tokens.`, "info");
   }
 
   function autoResizeSystemPrompt() {
@@ -1116,20 +1116,20 @@
     const nameInp = $("mf-model-name");
     const targetName = nameInp ? nameInp.value.trim() : "";
     if (!targetName) {
-      showToast(t("modelfile.missing_name") || "Please enter a model name.");
+      toast(t("modelfile.missing_name") || "Please enter a model name.", "error");
       if (nameInp) nameInp.focus();
       return;
     }
 
     const baseModel = getBaseModelValue();
     if (!baseModel && activeTab === "builder") {
-      showToast(t("modelfile.missing_base") || "Please select or enter a base model (FROM).");
+      toast(t("modelfile.missing_base") || "Please select or enter a base model (FROM).", "error");
       return;
     }
 
     const modelfileContent = getGeneratedModelfile();
     if (!modelfileContent) {
-      showToast("Modelfile is empty.");
+      toast("Modelfile is empty.", "error");
       return;
     }
 
@@ -1209,7 +1209,7 @@
       if (progressFill) progressFill.style.width = "100%";
       if (statusText) statusText.textContent = t("modelfile.success") || "Model created successfully!";
       if (testChatBtn) testChatBtn.hidden = false;
-      showToast(t("modelfile.success") || "Model created successfully!");
+      toast(t("modelfile.success") || "Model created successfully!", "success");
 
       // Refresh global model list
       if (typeof fetchModels === "function") {
@@ -1217,7 +1217,7 @@
       }
     } catch (e) {
       if (statusText) statusText.textContent = `Error: ${e.message}`;
-      showToast(`${t("modelfile.error") || "Error"}: ${e.message}`);
+      toast(`${t("modelfile.error") || "Error"}: ${e.message}`, "error");
     } finally {
       isCreating = false;
       if (createBtn) {

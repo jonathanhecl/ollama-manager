@@ -1556,9 +1556,9 @@ async function showChatViewWithModel(name) {
   }
 
   const model = modelByName(name);
-  if (model && model.digest) {
-    const urlDigest = model.digest.replace(":", "-");
-    const newPath = "/chat/" + urlDigest;
+  if (model) {
+    const urlKey = getModelUrlKey(model);
+    const newPath = "/chat/" + urlKey;
     if (window.location.pathname !== newPath) {
       history.pushState(null, "", newPath);
     }
@@ -1568,13 +1568,15 @@ async function showChatViewWithModel(name) {
 async function handleRouting() {
   const path = window.location.pathname;
   if (path.startsWith("/chat/")) {
-    const urlDigest = path.substring(6);
-    const model = models.find(m => m.digest && m.digest.replace(":", "-") === urlDigest);
+    const key = path.substring(6);
+    const model = findModelByUrlKey(key);
     if (model) {
       showChatViewWithModel(model.name);
     } else {
       showModelsView();
     }
+  } else if (path === "/chat" || path === "/chat/") {
+    showChatView();
   } else if (path === "/tests" || path === "/tests/") {
     showTestsView();
   } else if (path.startsWith("/tests/group/")) {

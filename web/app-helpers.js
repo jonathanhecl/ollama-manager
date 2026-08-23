@@ -269,3 +269,18 @@ function updateMarquee(trackEl, textEl) {
   });
 }
 
+function getModelUrlKey(model) {
+  if (!model) return "";
+  if (model.digest) return model.digest.replace(":", "-");
+  return encodeURIComponent(model.name || "");
+}
+
+function findModelByUrlKey(key) {
+  if (!key || typeof models === "undefined" || !Array.isArray(models)) return null;
+  const decoded = decodeURIComponent(key);
+  return models.find((m) => m.digest && m.digest.replace(":", "-") === key) ||
+         models.find((m) => m.name === decoded || m.name === key) ||
+         models.find((m) => m.name.toLowerCase() === decoded.toLowerCase() || m.name.toLowerCase() === key.toLowerCase()) ||
+         null;
+}
+

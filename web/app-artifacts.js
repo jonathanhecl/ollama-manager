@@ -845,9 +845,9 @@ function bindChatEvents() {
 
     const name = $("chat-model").value;
     const model = modelByName(name);
-    if (model && model.digest) {
-      const urlDigest = model.digest.replace(":", "-");
-      const newPath = "/chat/" + urlDigest;
+    if (model) {
+      const urlKey = getModelUrlKey(model);
+      const newPath = "/chat/" + urlKey;
       if (window.location.pathname !== newPath) {
         history.replaceState(null, "", newPath);
       }

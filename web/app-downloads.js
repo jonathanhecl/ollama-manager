@@ -238,6 +238,11 @@ function jobCardHTML(j) {
     etaHTML = `<span class="dl-eta muted">~${fmtETA(remaining)}</span>`;
   }
 
+  const siteUrl = typeof modelHomepageUrl === "function" ? modelHomepageUrl(j.name) : "";
+  const siteBtn = siteUrl
+    ? `<a class="btn-icon dl-site-btn" href="${siteUrl}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("detail.site"))}" aria-label="${escapeHtml(t("detail.site"))}"><span class="ghost-site-glyph" aria-hidden="true">↗</span></a>`
+    : "";
+
   let actionBtn = "";
   if (j.status === "running" || j.status === "queued") {
     const promoteBtn = j.status === "queued"
@@ -245,19 +250,24 @@ function jobCardHTML(j) {
       : "";
     actionBtn = `
       ${promoteBtn}
+      ${siteBtn}
       <button class="ghost dl-pause" data-action="pause" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.pause"))}">⏸</button>
       <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "paused") {
     actionBtn = `
+      ${siteBtn}
       <button class="ghost dl-resume" data-action="resume" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.resume"))}">▶</button>
       <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "error" || j.status === "cancelled") {
     actionBtn = `
+      ${siteBtn}
       <button class="ghost dl-retry" data-action="retry" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.retry"))}">↻</button>
       <button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
   } else {
     // done
-    actionBtn = `<button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
+    actionBtn = `
+      ${siteBtn}
+      <button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
   }
 
   const errBlock = j.error ? `<div class="dl-error">${escapeHtml(j.error)}</div>` : "";
@@ -365,8 +375,12 @@ $("downloads-modal").addEventListener("click", async (e) => {
     }
     return;
   }
-  // Click on a finished download card opens chat with that model.
-  const card = e.target.closest(".dl-item");
+  if (e.target.closest(".dl-site-btn")) {
+    return;
+  }
+  // Click on a finished download card opens chat with that model (only if done).
+  // Clicking on running, queued, paused or failed downloads does not trigger any action.
+  const card = e.target.closest(".dl-item.dl-done");
   if (!card) return;
   const id = card.dataset.id;
   if (!id) return;

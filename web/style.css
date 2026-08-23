@@ -1787,6 +1787,25 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   flex-shrink: 0;
 }
 .dl-actions .btn-icon { width: 26px; height: 26px; font-size: 14px; }
+.dl-actions .dl-site-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-decoration: none;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: all 0.15s ease;
+}
+.dl-actions .dl-site-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(14, 165, 233, 0.1);
+}
 .dl-actions .dl-pause,
 .dl-actions .dl-resume,
 .dl-actions .dl-retry {

@@ -40,12 +40,23 @@ function openDetail(name) {
 
 function modelHomepageUrl(name, isCustom) {
   if (!name) return "";
-  let base = name.split(":")[0];
+  let cleanName = String(name).trim();
+  if (cleanName.startsWith("https://ollama.com/library/")) {
+    cleanName = cleanName.slice("https://ollama.com/library/".length);
+  } else if (cleanName.startsWith("https://ollama.com/")) {
+    cleanName = cleanName.slice("https://ollama.com/".length);
+  } else if (cleanName.startsWith("http://ollama.com/library/")) {
+    cleanName = cleanName.slice("http://ollama.com/library/".length);
+  } else if (cleanName.startsWith("http://ollama.com/")) {
+    cleanName = cleanName.slice("http://ollama.com/".length);
+  }
+
+  let base = cleanName.split(":")[0];
   if (base.startsWith("hf.co/")) {
     const repo = base.slice("hf.co/".length);
     return repo ? "https://huggingface.co/" + repo : "";
   }
-  if (isCustom || isFixedModelName(name)) {
+  if (isCustom || (typeof isFixedModelName === "function" && isFixedModelName(cleanName))) {
     return "";
   }
   if (base.includes("/")) {
@@ -53,6 +64,7 @@ function modelHomepageUrl(name, isCustom) {
   }
   return base ? "https://ollama.com/library/" + base : "";
 }
+window.modelHomepageUrl = modelHomepageUrl;
 
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};

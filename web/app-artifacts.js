@@ -792,7 +792,6 @@ function bindChatEvents() {
   $("chat-btn")?.addEventListener("click", showChatView);
   addFastTapListener($("chat-back-btn"), () => {
     showModelsView();
-    resetChatState();
     refreshModels().catch(() => {});
   });
   addFastTapListener($("chat-options-toggle"), () => {

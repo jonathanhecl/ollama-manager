@@ -208,6 +208,9 @@ function showModelsView() {
   chatView?.classList.remove("chat-options-open");
   syncChatPanels(chatView);
   stopSpeechPlayback();
+  if (typeof resetChatState === "function") {
+    resetChatState();
+  }
   currentView = "models";
   if (modelsView) modelsView.hidden = false;
   if (chatView) chatView.hidden = true;
@@ -248,12 +251,17 @@ function resetChatState() {
   activeArtifactUrl = null;
   updateArtifactResourceBtn();
   updateChatContextMeter();
-  $("chat-dropzone").hidden = true;
-  $("chat-attachments").hidden = true;
-  $("chat-attachments").innerHTML = "";
+  if ($("chat-dropzone")) $("chat-dropzone").hidden = true;
+  if ($("chat-attachments")) {
+    $("chat-attachments").hidden = true;
+    $("chat-attachments").innerHTML = "";
+  }
   renderChatQueue();
-  $("chat-messages").innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
-  $("chat-input").value = "";
+  if ($("chat-messages")) $("chat-messages").innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
+  if ($("chat-input")) $("chat-input").value = "";
+  if (typeof updateChatSendEnabled === "function") {
+    updateChatSendEnabled();
+  }
 }
 
 function showChatView() {
@@ -262,6 +270,9 @@ function showChatView() {
   if (!chatView || !modelsView) {
     toast(t("toast.error", { msg: "chat UI is not available; refresh the page" }), "error");
     return;
+  }
+  if (currentView !== "chat") {
+    resetChatState();
   }
   currentView = "chat";
   chatView.classList.remove("chat-options-open");
@@ -279,7 +290,7 @@ function showChatView() {
   updateChatContextMeter();
   updateChatSendEnabled();
   void applyChatDefaultsForModel($("chat-model").value);
-  setTimeout(() => $("chat-input").focus(), 20);
+  setTimeout(() => $("chat-input")?.focus(), 20);
 }
 
 if (typeof ResizeObserver !== "undefined") {

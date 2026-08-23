@@ -3,6 +3,11 @@
 // ---------- tests views ----------
 
 function hideAllMainViews() {
+  if (typeof currentView !== "undefined" && currentView === "chat") {
+    if (typeof resetChatState === "function") {
+      resetChatState();
+    }
+  }
   $("models-view").hidden = true;
   $("chat-view").hidden = true;
   $("tests-view").hidden = true;

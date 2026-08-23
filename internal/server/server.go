@@ -64,6 +64,13 @@ type Server struct {
 
 	artifactEvalMu sync.Mutex
 	artifactEvalCh map[string]chan artifactEvalResponse
+
+	versionInfo string
+}
+
+// SetVersionInfo sets the version and build time string reported in API responses.
+func (s *Server) SetVersionInfo(v string) {
+	s.versionInfo = v
 }
 
 // New builds a Server. webRoot is the embedded "web/" directory.

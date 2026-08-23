@@ -28,6 +28,11 @@ async function openSettings() {
   updatePasswordSection();
   updateExposeWarning();
   updateBindPreview();
+  const buildEl = $("settings-build-info");
+  if (buildEl) {
+    buildEl.textContent = currentConfig.version ? `v${currentConfig.version}` : "";
+    buildEl.title = currentConfig.version || "";
+  }
   loadExternalModels();
   bindExternalModelsEvents();
   $("settings-modal").hidden = false;

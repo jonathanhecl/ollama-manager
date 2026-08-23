@@ -7624,6 +7624,29 @@ button.chat-send:disabled:hover {
   text-overflow: ellipsis;
 }
 
+.input-masked {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
+
+.settings-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-foot-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-build-info {
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
 
 
 

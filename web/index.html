@@ -1296,17 +1296,17 @@
 
             <div class="field">
               <label for="ext-model-name" data-i18n="settings.ext_model_name">Model Name</label>
-              <input id="ext-model-name" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.ext_model_name_placeholder" placeholder="e.g. Qwen2.5-Coder-32B or llama-3.3-70b">
+              <input id="ext-model-name" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_name_placeholder" placeholder="e.g. Qwen2.5-Coder-32B or llama-3.3-70b">
             </div>
 
             <div class="field">
               <label for="ext-model-url" data-i18n="settings.ext_model_url">Endpoint URL</label>
-              <input id="ext-model-url" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.ext_model_url_placeholder" placeholder="e.g. http://localhost:8000/v1">
+              <input id="ext-model-url" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_url_placeholder" placeholder="e.g. http://localhost:8000/v1">
             </div>
 
             <div class="field">
               <label for="ext-model-apikey" data-i18n="settings.ext_model_apikey">API Key (optional)</label>
-              <input id="ext-model-apikey" type="password" autocomplete="new-password" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.ext_model_apikey_placeholder" placeholder="Bearer token or secret key">
+              <input id="ext-model-apikey" type="text" class="input-masked" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_apikey_placeholder" placeholder="Bearer token or secret key">
             </div>
 
             <div class="ext-model-actions">
@@ -1336,8 +1336,11 @@
       </div>
 
       <footer class="settings-foot">
-        <button id="settings-close" class="ghost" data-i18n="action.close">Close</button>
-        <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
+        <div id="settings-build-info" class="settings-build-info muted mono"></div>
+        <div class="settings-foot-actions">
+          <button id="settings-close" class="ghost" data-i18n="action.close">Close</button>
+          <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
+        </div>
       </footer>
     </div>
   </div>

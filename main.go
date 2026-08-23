@@ -120,6 +120,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("server: %v", err)
 	}
+	srv.SetVersionInfo(getVersionInfo())
 
 	// Windows solo soporta os.Interrupt (Ctrl+C) en Notify/NotifyContext;
 	// añadir SIGTERM u otras hace que el cierre por señal falle o se ignore.

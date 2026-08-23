@@ -251,6 +251,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"has_password":   s.cfg.HasPassword(),
 		"bind_address":   s.cfg.BindAddress(),
 		"chat_defaults":  s.cfg.ChatDefaults,
+		"version":        s.versionInfo,
 	})
 }
 

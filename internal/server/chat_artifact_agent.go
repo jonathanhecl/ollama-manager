@@ -1100,40 +1100,41 @@ func artifactRelID(artifactDir string) string {
 }
 
 // artifactModelDigest returns the unique digest of modelName (without the
-// "sha256:" prefix), or "" if it cannot be resolved. Artifact folders are
-// grouped under this digest because it uniquely identifies the model.
+// "sha256:" prefix) for Ollama models, or a sanitized model identifier for
+// external models, or "" if modelName is empty.
 func (s *Server) artifactModelDigest(ctx context.Context, modelName string) string {
 	name := strings.TrimSpace(modelName)
 	if name == "" {
 		return ""
 	}
-	models, err := s.ollama.List(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, m := range models {
-		if m.Name == name || m.Model == name {
-			if m.Digest != "" {
-				return strings.TrimPrefix(m.Digest, "sha256:")
+	if s.ollama != nil {
+		models, err := s.ollama.List(ctx)
+		if err == nil {
+			for _, m := range models {
+				if m.Name == name || m.Model == name {
+					if m.Digest != "" {
+						return strings.TrimPrefix(m.Digest, "sha256:")
+					}
+				}
+			}
+			nameNorm := strings.ToLower(name)
+			if !strings.Contains(nameNorm, ":") {
+				nameNorm += ":latest"
+			}
+			for _, m := range models {
+				mNorm := strings.ToLower(m.Name)
+				if !strings.Contains(mNorm, ":") {
+					mNorm += ":latest"
+				}
+				if mNorm == nameNorm || strings.ToLower(m.Model) == nameNorm {
+					if m.Digest != "" {
+						return strings.TrimPrefix(m.Digest, "sha256:")
+					}
+				}
 			}
 		}
 	}
-	nameNorm := strings.ToLower(name)
-	if !strings.Contains(nameNorm, ":") {
-		nameNorm += ":latest"
-	}
-	for _, m := range models {
-		mNorm := strings.ToLower(m.Name)
-		if !strings.Contains(mNorm, ":") {
-			mNorm += ":latest"
-		}
-		if mNorm == nameNorm || strings.ToLower(m.Model) == nameNorm {
-			if m.Digest != "" {
-				return strings.TrimPrefix(m.Digest, "sha256:")
-			}
-		}
-	}
-	return ""
+	return cleanModelName(name)
 }
 
 // artifactInfoForModel reports how many artifact projects belong to modelName
@@ -1210,8 +1211,12 @@ func cleanModelName(model string) string {
 	for _, char := range invalid {
 		s = strings.ReplaceAll(s, char, "-")
 	}
-	if len(s) > 32 {
-		s = s[:32]
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
 	}
-	return strings.Trim(s, "-")
+	s = strings.Trim(s, "-._")
+	if s == "" {
+		s = "ext-model"
+	}
+	return s
 }

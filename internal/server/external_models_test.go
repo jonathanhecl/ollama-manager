@@ -246,3 +246,21 @@ func TestChatExternalThinkingLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestExternalModelArtifacts(t *testing.T) {
+	srv := &Server{
+		externalModels: newExternalModelsStore(""),
+	}
+	_ = srv.externalModels.Register("qwen38-27b-ablitEXT", "http://localhost:8000/v1", "key", []string{"completion", "tools"})
+
+	ctx := context.Background()
+	digest := srv.artifactModelDigest(ctx, "qwen38-27b-ablitEXT")
+	if digest != "qwen38-27b-ablitEXT" {
+		t.Fatalf("expected digest 'qwen38-27b-ablitEXT', got %q", digest)
+	}
+
+	count, bytes := srv.artifactInfoForModel(ctx, "qwen38-27b-ablitEXT")
+	if count != 0 || bytes != 0 {
+		t.Errorf("expected 0 artifacts initially, got count=%d bytes=%d", count, bytes)
+	}
+}

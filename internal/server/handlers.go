@@ -3240,10 +3240,15 @@ func (s *Server) handleDeleteExternalModel(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, errors.New("external models store unavailable"))
 		return
 	}
+	deletedArtifacts := s.deleteArtifactsForModel(r.Context(), name)
 	if err := s.externalModels.Unregister(name); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name})
+	resp := map[string]any{"status": "ok", "name": name}
+	if deletedArtifacts > 0 {
+		resp["deleted_artifacts"] = deletedArtifacts
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 

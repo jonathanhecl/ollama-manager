@@ -214,13 +214,18 @@ func (s *externalModelsStore) save() error {
 // ---------- OpenAI API Protocol Types ----------
 
 type openAIChatRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	Stream      bool            `json:"stream"`
-	Temperature *float64        `json:"temperature,omitempty"`
-	TopP        *float64        `json:"top_p,omitempty"`
-	MaxTokens   *int            `json:"max_tokens,omitempty"`
-	Tools       any             `json:"tools,omitempty"`
+	Model            string          `json:"model"`
+	Messages         []openAIMessage `json:"messages"`
+	Stream           bool            `json:"stream"`
+	Temperature      *float64        `json:"temperature,omitempty"`
+	TopP             *float64        `json:"top_p,omitempty"`
+	TopK             *int            `json:"top_k,omitempty"`
+	MaxTokens        *int            `json:"max_tokens,omitempty"`
+	Stop             any             `json:"stop,omitempty"`
+	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64        `json:"presence_penalty,omitempty"`
+	ReasoningEffort  string          `json:"reasoning_effort,omitempty"`
+	Tools            any             `json:"tools,omitempty"`
 }
 
 type openAIMessage struct {
@@ -583,6 +588,13 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 		Tools:    req.Tools,
 	}
 
+	if req.Think != nil {
+		switch string(*req.Think) {
+		case "low", "medium", "high":
+			payload.ReasoningEffort = string(*req.Think)
+		}
+	}
+
 	if req.Options != nil {
 		if v, ok := req.Options["temperature"].(float64); ok {
 			payload.Temperature = &v
@@ -590,12 +602,31 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 		if v, ok := req.Options["top_p"].(float64); ok {
 			payload.TopP = &v
 		}
+		if v, ok := req.Options["top_k"].(float64); ok && v > 0 {
+			vi := int(v)
+			payload.TopK = &vi
+		} else if v, ok := req.Options["top_k"].(int); ok && v > 0 {
+			payload.TopK = &v
+		}
 		if v, ok := req.Options["num_predict"].(float64); ok && v > 0 {
 			vi := int(v)
 			payload.MaxTokens = &vi
 		} else if v, ok := req.Options["max_tokens"].(float64); ok && v > 0 {
 			vi := int(v)
 			payload.MaxTokens = &vi
+		}
+		if v, ok := req.Options["stop"]; ok && v != nil {
+			payload.Stop = v
+		}
+		if v, ok := req.Options["presence_penalty"].(float64); ok {
+			payload.PresencePenalty = &v
+		}
+		if v, ok := req.Options["frequency_penalty"].(float64); ok {
+			payload.FrequencyPenalty = &v
+		} else if v, ok := req.Options["repeat_penalty"].(float64); ok && v > 1.0 {
+			// Convert repeat_penalty (~1.1) to frequency_penalty (~0.1-0.2)
+			fp := (v - 1.0) * 2.0
+			payload.FrequencyPenalty = &fp
 		}
 	}
 

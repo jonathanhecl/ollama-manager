@@ -179,6 +179,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /login", s.handleLoginPage)
 	mux.HandleFunc("POST /login", s.handleLoginSubmit)
+	mux.HandleFunc("POST /api/login", s.handleAPILogin)
 	mux.HandleFunc("POST /logout", s.handleLogout)
 
 	mux.HandleFunc("GET /", s.handleIndex)

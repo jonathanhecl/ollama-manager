@@ -12,3 +12,10 @@ window.addEventListener("resize", () => {
   const abtn = $("analytics-btn");
   if (abtn) abtn.hidden = false;
 });
+
+// Restore active chat session if page was refreshed or reloaded during chat
+if (typeof restoreActiveChatSession === "function" && restoreActiveChatSession()) {
+  if (typeof showChatView === "function") {
+    showChatView();
+  }
+}

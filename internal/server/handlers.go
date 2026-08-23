@@ -113,6 +113,45 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func (s *Server) handleAPILogin(w http.ResponseWriter, r *http.Request) {
+	s.cfgMu.RLock()
+	hasPwd := s.cfg.HasPassword()
+	hash := s.cfg.PasswordHash
+	s.cfgMu.RUnlock()
+
+	if !hasPwd {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+
+	var body struct {
+		Password string `json:"password"`
+	}
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, errors.New("invalid request body"))
+			return
+		}
+	} else {
+		if err := r.ParseForm(); err != nil {
+			writeError(w, http.StatusBadRequest, errors.New("bad form"))
+			return
+		}
+		body.Password = r.FormValue("password")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(body.Password)); err != nil {
+		writeError(w, http.StatusUnauthorized, errors.New("incorrect password"))
+		return
+	}
+
+	s.cfgMu.RLock()
+	s.setSessionCookie(w)
+	s.cfgMu.RUnlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // loginViewData builds the data map passed to login.html.
 func loginViewData(lang, errMsg string) map[string]any {
 	t := loginStrings(lang)

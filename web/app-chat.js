@@ -263,6 +263,73 @@ function resetChatState() {
   if (typeof updateChatSendEnabled === "function") {
     updateChatSendEnabled();
   }
+  try {
+    sessionStorage.removeItem("ollama_manager_active_chat_session");
+  } catch (_) { }
+}
+
+const CHAT_SESSION_STORAGE_KEY = "ollama_manager_active_chat_session";
+
+function saveActiveChatSession() {
+  try {
+    if (typeof chatMessages === "undefined") return;
+    const model = $("chat-model")?.value || "";
+    const input = $("chat-input")?.value || "";
+    const hasData = (chatMessages && chatMessages.length > 0) || (input && input.trim()) || (chatAttachments && chatAttachments.length > 0);
+    if (!hasData) {
+      sessionStorage.removeItem(CHAT_SESSION_STORAGE_KEY);
+      return;
+    }
+    const sessionData = {
+      model,
+      messages: chatMessages,
+      input,
+      attachments: chatAttachments,
+      activeArtifactTimestamp,
+      activeArtifactName,
+      activeArtifactUrl,
+      chatLastUsedTokens,
+      savedAt: Date.now(),
+    };
+    sessionStorage.setItem(CHAT_SESSION_STORAGE_KEY, JSON.stringify(sessionData));
+  } catch (_) { }
+}
+
+function restoreActiveChatSession() {
+  try {
+    const raw = sessionStorage.getItem(CHAT_SESSION_STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || ((!data.messages || !data.messages.length) && !data.input && (!data.attachments || !data.attachments.length))) {
+      sessionStorage.removeItem(CHAT_SESSION_STORAGE_KEY);
+      return false;
+    }
+    if (data.model && $("chat-model")) {
+      $("chat-model").value = data.model;
+    }
+    if (Array.isArray(data.messages) && data.messages.length) {
+      chatMessages = data.messages;
+    }
+    if (data.input && $("chat-input")) {
+      $("chat-input").value = data.input;
+    }
+    if (Array.isArray(data.attachments)) {
+      chatAttachments = data.attachments;
+    }
+    if (data.activeArtifactTimestamp) activeArtifactTimestamp = data.activeArtifactTimestamp;
+    if (data.activeArtifactName) activeArtifactName = data.activeArtifactName;
+    if (data.activeArtifactUrl) activeArtifactUrl = data.activeArtifactUrl;
+    if (data.chatLastUsedTokens) chatLastUsedTokens = data.chatLastUsedTokens;
+
+    if (typeof renderChatMessages === "function") renderChatMessages();
+    if (typeof renderAttachments === "function") renderAttachments();
+    if (typeof updateArtifactResourceBtn === "function") updateArtifactResourceBtn();
+    if (typeof updateChatContextMeter === "function") updateChatContextMeter();
+    if (typeof updateChatSendEnabled === "function") updateChatSendEnabled();
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function showChatView() {
@@ -272,7 +339,7 @@ function showChatView() {
     toast(t("toast.error", { msg: "chat UI is not available; refresh the page" }), "error");
     return;
   }
-  if (currentView !== "chat") {
+  if (currentView !== "chat" && !chatMessages.length && !$("chat-input")?.value?.trim()) {
     resetChatState();
   }
   currentView = "chat";
@@ -293,6 +360,10 @@ function showChatView() {
   void applyChatDefaultsForModel($("chat-model").value);
   setTimeout(() => $("chat-input")?.focus(), 20);
 }
+
+$("chat-input")?.addEventListener("input", () => {
+  saveActiveChatSession();
+});
 
 if (typeof ResizeObserver !== "undefined") {
   const chatMarqueeRO = new ResizeObserver(() => {

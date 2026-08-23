@@ -2499,6 +2499,9 @@ function renderChatMessages() {
   });
 
   renderChatMath(host);
+  if (typeof saveActiveChatSession === "function") {
+    saveActiveChatSession();
+  }
 }
 
 function renderAttachments() {
@@ -2506,6 +2509,9 @@ function renderAttachments() {
   if (!chatAttachments.length) {
     box.hidden = true;
     box.innerHTML = "";
+    if (typeof saveActiveChatSession === "function") {
+      saveActiveChatSession();
+    }
     return;
   }
   box.hidden = false;

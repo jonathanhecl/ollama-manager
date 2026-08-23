@@ -807,6 +807,12 @@ const I18N = {
     "modelfile.already_fits": "Prompt is already within recommended context limits.",
     "modelfile.embed_notice_title": "Embedding Model (Vectorization):",
     "modelfile.embed_notice_body": "This model generates numerical vectors and does not produce text. SYSTEM, TEMPLATE, Temperature, and Stop Tokens have no effect. Only context window (num_ctx) applies.",
+    "auth.title": "Authentication required",
+    "auth.session_expired_hint": "Your session has expired. Enter your access code to continue without losing your work.",
+    "auth.password": "Access code / password",
+    "auth.submit": "Unlock",
+    "auth.error": "Incorrect password",
+    "auth.unlocked": "Session restored",
   },
 
   es: {
@@ -1612,6 +1618,12 @@ const I18N = {
     "modelfile.already_fits": "El prompt actual ya está dentro del límite recomendado.",
     "modelfile.embed_notice_title": "Modelo de Embeddings (Vectorización):",
     "modelfile.embed_notice_body": "Este modelo produce vectores numéricos y no genera texto. SYSTEM, TEMPLATE, Temperatura y Stop Tokens no tienen efecto. Solo se utiliza la ventana de contexto (num_ctx).",
+    "auth.title": "Autenticación requerida",
+    "auth.session_expired_hint": "Tu sesión ha expirado o se reinició. Ingresa el código de acceso para continuar sin perder tu trabajo.",
+    "auth.password": "Código de acceso / contraseña",
+    "auth.submit": "Desbloquear",
+    "auth.error": "Contraseña incorrecta",
+    "auth.unlocked": "Sesión restaurada",
   },
 };
 

@@ -1085,6 +1085,23 @@
     </div>
   </div>
 
+  <div id="auth-modal" class="modal" hidden>
+    <div class="modal-card small">
+      <h2 id="auth-modal-title" data-i18n="auth.title">Authentication required</h2>
+      <p class="muted" data-i18n="auth.session_expired_hint" style="margin: 0 0 12px; font-size: 13px; line-height: 1.45;">Your session has expired. Enter your access code to continue without losing your work.</p>
+      <form id="auth-modal-form" autocomplete="off" onsubmit="return false;">
+        <div class="field" style="margin-top: 6px;">
+          <label for="auth-modal-password" data-i18n="auth.password">Password / Access Code</label>
+          <input id="auth-modal-password" type="password" required autocomplete="off">
+        </div>
+        <p id="auth-modal-error" class="error" style="margin-top: 8px; color: var(--bad); font-size: 13px;" hidden></p>
+        <div class="modal-actions" style="margin-top: 14px;">
+          <button id="auth-modal-submit" type="submit" class="primary" data-i18n="auth.submit">Unlock</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="confirm-modal" class="modal" hidden>
     <div class="modal-card small">
       <h2 id="confirm-title" data-i18n="confirm.title">Confirm</h2>

@@ -222,10 +222,13 @@ type openAIChatRequest struct {
 	TopK             *int            `json:"top_k,omitempty"`
 	MaxTokens        *int            `json:"max_tokens,omitempty"`
 	Stop             any             `json:"stop,omitempty"`
-	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
-	PresencePenalty  *float64        `json:"presence_penalty,omitempty"`
-	ReasoningEffort  string          `json:"reasoning_effort,omitempty"`
-	Tools            any             `json:"tools,omitempty"`
+	FrequencyPenalty   *float64        `json:"frequency_penalty,omitempty"`
+	PresencePenalty    *float64        `json:"presence_penalty,omitempty"`
+	ReasoningEffort    string          `json:"reasoning_effort,omitempty"`
+	EnableThinking     *bool           `json:"enable_thinking,omitempty"`
+	ChatTemplateKwargs map[string]any  `json:"chat_template_kwargs,omitempty"`
+	Thinking           any             `json:"thinking,omitempty"`
+	Tools              any             `json:"tools,omitempty"`
 }
 
 type openAIMessage struct {
@@ -635,9 +638,68 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 	}
 
 	if req.Think != nil {
-		switch string(*req.Think) {
-		case "low", "medium", "high":
-			payload.ReasoningEffort = string(*req.Think)
+		lvl := string(*req.Think)
+		switch lvl {
+		case "off":
+			disabled := false
+			payload.EnableThinking = &disabled
+			payload.ReasoningEffort = "none"
+			payload.ChatTemplateKwargs = map[string]any{
+				"enable_thinking":  false,
+				"reasoning_effort": "none",
+			}
+			payload.Thinking = map[string]any{
+				"type":          "disabled",
+				"budget_tokens": 0,
+			}
+		case "low":
+			enabled := true
+			payload.EnableThinking = &enabled
+			payload.ReasoningEffort = "low"
+			payload.ChatTemplateKwargs = map[string]any{
+				"enable_thinking":  true,
+				"reasoning_effort": "low",
+			}
+			payload.Thinking = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": 2048,
+			}
+		case "medium":
+			enabled := true
+			payload.EnableThinking = &enabled
+			payload.ReasoningEffort = "medium"
+			payload.ChatTemplateKwargs = map[string]any{
+				"enable_thinking":  true,
+				"reasoning_effort": "medium",
+			}
+			payload.Thinking = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": 8192,
+			}
+		case "high":
+			enabled := true
+			payload.EnableThinking = &enabled
+			payload.ReasoningEffort = "high"
+			payload.ChatTemplateKwargs = map[string]any{
+				"enable_thinking":  true,
+				"reasoning_effort": "high",
+			}
+			payload.Thinking = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": 24576,
+			}
+		case "max":
+			enabled := true
+			payload.EnableThinking = &enabled
+			payload.ReasoningEffort = "high"
+			payload.ChatTemplateKwargs = map[string]any{
+				"enable_thinking":  true,
+				"reasoning_effort": "xhigh",
+			}
+			payload.Thinking = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": 65536,
+			}
 		}
 	}
 

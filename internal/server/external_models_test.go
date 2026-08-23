@@ -165,3 +165,84 @@ func TestChatExternalStreaming(t *testing.T) {
 		t.Errorf("last chunk expected done=true")
 	}
 }
+
+func TestChatExternalThinkingLevels(t *testing.T) {
+	var receivedReq openAIChatRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedReq)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer ts.Close()
+
+	srv := &Server{
+		externalModels: newExternalModelsStore(""),
+	}
+	_ = srv.externalModels.Register("ext-thinking-model", ts.URL, "api-key", []string{"completion", "thinking"})
+
+	cases := []struct {
+		thinkLevel   ollama.ThinkLevel
+		wantEnabled  *bool
+		wantReason   string
+		wantKwargsOn bool
+	}{
+		{
+			thinkLevel:   "off",
+			wantEnabled:  func() *bool { b := false; return &b }(),
+			wantReason:   "none",
+			wantKwargsOn: false,
+		},
+		{
+			thinkLevel:   "low",
+			wantEnabled:  func() *bool { b := true; return &b }(),
+			wantReason:   "low",
+			wantKwargsOn: true,
+		},
+		{
+			thinkLevel:   "medium",
+			wantEnabled:  func() *bool { b := true; return &b }(),
+			wantReason:   "medium",
+			wantKwargsOn: true,
+		},
+		{
+			thinkLevel:   "high",
+			wantEnabled:  func() *bool { b := true; return &b }(),
+			wantReason:   "high",
+			wantKwargsOn: true,
+		},
+		{
+			thinkLevel:   "max",
+			wantEnabled:  func() *bool { b := true; return &b }(),
+			wantReason:   "high",
+			wantKwargsOn: true,
+		},
+	}
+
+	for _, tc := range cases {
+		lvl := tc.thinkLevel
+		err := srv.chatWithModel(context.Background(), ollama.ChatRequest{
+			Model: "ext-thinking-model",
+			Think: &lvl,
+			Messages: []ollama.ChatMessage{
+				{Role: "user", Content: "Hi"},
+			},
+		}, func(c ollama.ChatChunk) error { return nil })
+
+		if err != nil {
+			t.Fatalf("level %s failed: %v", tc.thinkLevel, err)
+		}
+
+		if receivedReq.EnableThinking == nil || *receivedReq.EnableThinking != *tc.wantEnabled {
+			t.Errorf("level %s: enable_thinking = %v, want %v", tc.thinkLevel, receivedReq.EnableThinking, *tc.wantEnabled)
+		}
+		if receivedReq.ReasoningEffort != tc.wantReason {
+			t.Errorf("level %s: reasoning_effort = %q, want %q", tc.thinkLevel, receivedReq.ReasoningEffort, tc.wantReason)
+		}
+		if receivedReq.ChatTemplateKwargs == nil {
+			t.Errorf("level %s: missing chat_template_kwargs", tc.thinkLevel)
+		} else if receivedReq.ChatTemplateKwargs["enable_thinking"] != tc.wantKwargsOn {
+			t.Errorf("level %s: chat_template_kwargs.enable_thinking = %v, want %v", tc.thinkLevel, receivedReq.ChatTemplateKwargs["enable_thinking"], tc.wantKwargsOn)
+		}
+	}
+}

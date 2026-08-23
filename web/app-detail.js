@@ -17,6 +17,9 @@ function openDetail(name) {
   if ($("detail-modelfile")) {
     $("detail-modelfile").hidden = false;
     $("detail-modelfile").dataset.name = name;
+    const m = models.find(x => x.name === name);
+    const isCustom = !!(m && m.is_custom || (typeof isFixedModelName === "function" && isFixedModelName(name)));
+    $("detail-modelfile").title = isCustom ? (t("modelfile.edit_title", { name }) || `Edit Modelfile (${name})`) : t("modelfile.derive_title");
   }
   if ($("detail-archive")) {
     $("detail-archive").hidden = false;
@@ -188,6 +191,25 @@ $("detail-close").addEventListener("click", () => {
 $("detail-modelfile")?.addEventListener("click", (e) => {
   const name = e.currentTarget?.dataset?.name || activeName;
   if (!name) return;
+  $("detail-panel").hidden = true;
+  if ($("detail-delete")) {
+    $("detail-delete").hidden = true;
+    $("detail-delete").dataset.name = "";
+  }
+  if ($("detail-archive")) {
+    $("detail-archive").hidden = true;
+    $("detail-archive").dataset.name = "";
+  }
+  if ($("detail-chat")) {
+    $("detail-chat").hidden = true;
+    $("detail-chat").dataset.name = "";
+  }
+  if ($("detail-modelfile")) {
+    $("detail-modelfile").hidden = true;
+    $("detail-modelfile").dataset.name = "";
+  }
+  activeName = null;
+  document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
   if (typeof openModelfileStudio === "function") {
     openModelfileStudio(name);
   }

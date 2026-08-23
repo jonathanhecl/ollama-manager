@@ -3,6 +3,8 @@
 (function () {
   let activeTab = "builder"; // "builder" | "raw"
   let isCreating = false;
+  let isEditingModel = false;
+  let editingModelName = "";
   let createdModelName = "";
 
   const SYSTEM_PRESETS = {
@@ -676,7 +678,7 @@
     });
   }
 
-  function showModelfileView(baseModelName) {
+  function showModelfileView(baseModelName, options = {}) {
     if (typeof hideAllMainViews === "function") {
       hideAllMainViews();
     }
@@ -694,6 +696,8 @@
 
     createdModelName = "";
     isCreating = false;
+    isEditingModel = !!options.isEdit;
+    editingModelName = isEditingModel ? (baseModelName || "") : "";
 
     // Reset status & buttons
     const statusWrap = $("mf-status-wrap");
@@ -703,19 +707,29 @@
     const createBtn = $("mf-create-btn");
     if (createBtn) {
       createBtn.disabled = false;
-      createBtn.textContent = t("modelfile.btn_create");
+      createBtn.textContent = isEditingModel
+        ? (t("modelfile.btn_save") || "Save Changes")
+        : (t("modelfile.btn_create") || "Build & Create Model");
+    }
+
+    const headTitle = $("mf-head-title-text");
+    if (headTitle) {
+      headTitle.textContent = isEditingModel
+        ? (t("modelfile.edit_title", { name: editingModelName }) || `Edit Modelfile (${editingModelName})`)
+        : (t("modelfile.title") || "Modelfile Studio");
     }
 
     // Populate base model select
     const sel = $("mf-base-model-select");
     const customInp = $("mf-base-model-custom");
+    const installed = Array.isArray(models) ? models.filter((m) => !m.archived) : [];
+
     if (sel && customInp) {
       sel.innerHTML = "";
       customInp.hidden = true;
       customInp.value = "";
       sel.hidden = false;
 
-      const installed = Array.isArray(models) ? models.filter((m) => !m.archived) : [];
       if (installed.length === 0) {
         const opt = document.createElement("option");
         opt.value = "";
@@ -731,8 +745,62 @@
           sel.appendChild(opt);
         });
       }
+    }
 
-      if (baseModelName) {
+    const nameInp = $("mf-model-name");
+
+    if (isEditingModel && options.detail) {
+      const d = options.detail;
+      if (nameInp) nameInp.value = baseModelName;
+
+      // Extract base model from detail
+      let baseVal = d.base_model || "";
+      if (!baseVal && typeof isFixedModelName === "function" && isFixedModelName(baseModelName)) {
+        baseVal = fixedBaseName(baseModelName);
+      }
+      if (!baseVal && d.modelfile) {
+        const match = d.modelfile.match(/^FROM\s+(.+)$/m);
+        if (match) {
+          const raw = match[1].trim();
+          if (!raw.includes("/") && !raw.includes("\\") && !raw.startsWith("sha256:")) {
+            baseVal = raw;
+          }
+        }
+      }
+
+      if (sel && customInp && baseVal) {
+        const exists = installed.some((m) => m.name === baseVal);
+        if (exists) {
+          sel.value = baseVal;
+          sel.hidden = false;
+          customInp.hidden = true;
+        } else {
+          customInp.hidden = false;
+          customInp.value = baseVal;
+          sel.hidden = true;
+        }
+      }
+
+      // Pre-fill system prompt
+      const sysEl = $("mf-system-prompt");
+      if (sysEl) {
+        sysEl.value = d.system || "";
+      }
+
+      // Pre-fill template
+      const tmplEl = $("mf-template");
+      if (tmplEl) {
+        tmplEl.value = d.template || "";
+      }
+
+      // Pre-fill parameters / raw modelfile
+      if (d.modelfile) {
+        parseRawModelfileToForm(d.modelfile);
+        const rawEl = $("mf-raw-modelfile");
+        if (rawEl) rawEl.value = d.modelfile;
+      }
+    } else {
+      if (sel && customInp && baseModelName) {
         const exists = installed.some((m) => m.name === baseModelName);
         if (exists) {
           sel.value = baseModelName;
@@ -742,20 +810,19 @@
           sel.hidden = true;
         }
       }
+
+      if (nameInp) {
+        if (baseModelName) {
+          const baseClean = baseModelName.split(":")[0];
+          nameInp.value = `${baseClean}-custom:latest`;
+        } else if (!nameInp.value) {
+          nameInp.value = "my-custom-model:latest";
+        }
+      }
       applyBaseModelDefaults(getBaseModelValue());
-      updateEmbeddingModelNotice();
     }
 
-    // Set default target name if empty or derived
-    const nameInp = $("mf-model-name");
-    if (nameInp) {
-      if (baseModelName) {
-        const baseClean = baseModelName.split(":")[0];
-        nameInp.value = `${baseClean}-custom:latest`;
-      } else if (!nameInp.value) {
-        nameInp.value = "my-custom-model:latest";
-      }
-    }
+    updateEmbeddingModelNotice();
 
     // Initialize explanations & layout
     autoResizeSystemPrompt();
@@ -1241,9 +1308,12 @@
 
       createdModelName = targetName;
       if (progressFill) progressFill.style.width = "100%";
-      if (statusText) statusText.textContent = t("modelfile.success") || "Model created successfully!";
+      const successMsg = isEditingModel
+        ? (t("modelfile.update_success") || "Model updated successfully!")
+        : (t("modelfile.success") || "Model created successfully!");
+      if (statusText) statusText.textContent = successMsg;
       if (testChatBtn) testChatBtn.hidden = false;
-      toast(t("modelfile.success") || "Model created successfully!", "success");
+      toast(successMsg, "success");
 
       // Refresh global model list & capabilities
       if (typeof refreshModels === "function") {
@@ -1256,7 +1326,9 @@
       isCreating = false;
       if (createBtn) {
         createBtn.disabled = false;
-        createBtn.textContent = t("modelfile.btn_create");
+        createBtn.textContent = isEditingModel
+          ? (t("modelfile.btn_save") || "Save Changes")
+          : (t("modelfile.btn_create") || "Build & Create Model");
       }
     }
   }
@@ -1286,9 +1358,29 @@
     }
   }
 
+  async function openModelfileStudio(targetModelName) {
+    if (!targetModelName) {
+      showModelfileView();
+      return;
+    }
+    const m = Array.isArray(models) ? models.find((x) => x.name === targetModelName) : null;
+    const isCustom = !!((m && m.is_custom) || (typeof isFixedModelName === "function" && isFixedModelName(targetModelName)));
+
+    if (isCustom) {
+      try {
+        const detail = await api("/api/models/" + encodeURIComponent(targetModelName));
+        showModelfileView(targetModelName, { isEdit: true, detail });
+        return;
+      } catch (e) {
+        console.warn("could not fetch model detail for modelfile edit:", e);
+      }
+    }
+    showModelfileView(targetModelName);
+  }
+
   // Hook into global scope
   window.showModelfileView = showModelfileView;
-  window.openModelfileStudio = showModelfileView; // alias
+  window.openModelfileStudio = openModelfileStudio;
 
   // Initialize when DOM is ready
   if (document.readyState === "loading") {

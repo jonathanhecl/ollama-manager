@@ -141,18 +141,20 @@ function renderDetail(d) {
   const caps = renderCapabilityPills(d.capabilities);
   const capsBlock = caps ? `<div class="detail-section"><h3>${escapeHtml(t("detail.capabilities"))}</h3><div class="cap-list">${caps}</div></div>` : "";
 
-  const paramsBlock = d.parameters ? detailCodeSection(t("detail.parameters_section"), d.parameters) : "";
-  const tmplBlock = d.template ? detailCodeSection(t("detail.template"), d.template) : "";
-  const systemBlock = detailCodeSection(t("detail.system"), d.system || "", true);
-  const repairBlock = renderRepairEntry(d);
+  const paramsBlock = !isExternal && d.parameters ? detailCodeSection(t("detail.parameters_section"), d.parameters) : "";
+  const tmplBlock = !isExternal && d.template ? detailCodeSection(t("detail.template"), d.template) : "";
+  const systemBlock = !isExternal ? detailCodeSection(t("detail.system"), d.system || "", true) : "";
+  const repairBlock = !isExternal ? renderRepairEntry(d) : "";
 
-  const updateBlock = `<div class="detail-section detail-update-section">
+  const updateBlock = !isExternal ? `<div class="detail-section detail-update-section">
     <button type="button" class="ghost detail-update-btn" id="detail-update-btn" data-name="${escapeHtml(d.name)}">⟳ ${escapeHtml(t("detail.update_btn"))}</button>
-  </div>`;
+  </div>` : "";
 
   $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${updateBlock}${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}${systemBlock}`;
-  bindRepairEntry(d);
-  bindUpdateButton();
+  if (!isExternal) {
+    bindRepairEntry(d);
+    bindUpdateButton();
+  }
 }
 
 function detailCodeSection(title, text, alwaysShow) {

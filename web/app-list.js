@@ -458,12 +458,18 @@ function renderTable() {
       ? `<button type="button" class="btn-icon reinstall-ghost-btn" title="${escapeHtml(t("models.reinstall_title"))}" data-name="${escapeHtml(m.name)}">📥</button>`
       : (!m.isPending ? `<button type="button" class="btn-icon delete-btn" title="${escapeHtml(m.is_external ? t("detail.delete_external_title") : deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
 
+    const baseModel = m.base_model || (typeof isFixedModelName === "function" && isFixedModelName(m.name) ? fixedBaseName(m.name) : "");
+    const parentHtml = (!m.isGhost && !m.is_external && m.is_custom && baseModel)
+      ? `<div class="model-parent-name mono muted" title="${escapeHtml(t("models.custom_based_on", { base: baseModel }))}"><span class="model-parent-arrow">↳</span> ${escapeHtml(baseModel)}</div>`
+      : "";
+
     return `
       <td class="col-state">${stateDotHtml}</td>
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
             <div class="model-name model-name-track"><span class="model-name-text">${escapeHtml(m.name)}</span>${extTag}${customTag}${ghostTag}</div>
+            ${parentHtml}
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>

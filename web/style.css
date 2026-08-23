@@ -470,6 +470,21 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
   margin-left: 6px;
   opacity: 0.85;
 }
+.model-parent-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.model-parent-arrow {
+  color: var(--muted);
+  margin-right: 2px;
+  user-select: none;
+}
 .info-btn { flex-shrink: 0; }
 .info-glyph {
   display: inline-grid; place-items: center;
@@ -638,7 +653,25 @@ tbody tr.row.active .btn-icon.info-btn:hover {
   align-items: center;
   gap: 6px;
 }
-.detail-head h2 { margin: 0; font-size: 14px; font-family: var(--mono); }
+.detail-head-title-wrap {
+  min-width: 0;
+  flex: 1;
+  margin-right: 12px;
+}
+.detail-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+.detail-parent-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .detail-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
 .detail-grid {
   display: grid;

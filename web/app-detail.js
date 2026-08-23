@@ -73,6 +73,19 @@ function renderDetail(d) {
   const isExternal = !!(d.is_external || m.is_external);
   const isCustom = !!(!isExternal && (d.is_custom || m.is_custom || isFixedModelName(d.name)));
   const baseModel = d.base_model || m.base_model || (isFixedModelName(d.name) ? fixedBaseName(d.name) : "");
+
+  const parentNameEl = $("detail-parent-name");
+  if (parentNameEl) {
+    if (isCustom && baseModel) {
+      parentNameEl.textContent = `↳ ${baseModel}`;
+      parentNameEl.title = t("models.custom_based_on", { base: baseModel });
+      parentNameEl.hidden = false;
+    } else {
+      parentNameEl.textContent = "";
+      parentNameEl.hidden = true;
+    }
+  }
+
   const stateText = isExternal
     ? `<span class="badge" style="background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.4);">${escapeHtml(t("models.external_badge"))}</span>`
     : (m.loaded ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) }) : t("detail.not_loaded"));

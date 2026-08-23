@@ -399,6 +399,8 @@ type modelView struct {
 	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
 	Archived             bool       `json:"archived"`
 	IsGhost              bool       `json:"is_ghost,omitempty"`
+	IsCustom             bool       `json:"is_custom,omitempty"`
+	BaseModel            string     `json:"base_model,omitempty"`
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -425,6 +427,16 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]modelView, 0, len(models))
 	for _, m := range models {
+		isCustom := false
+		baseModel := ""
+		if s.customModels != nil && s.customModels.IsCustom(m.Name) {
+			isCustom = true
+			baseModel = s.customModels.GetBase(m.Name)
+		} else if isFixedModelName(m.Name) {
+			isCustom = true
+			baseModel = fixedBaseName(m.Name)
+		}
+
 		v := modelView{
 			Name:           m.Name,
 			Size:           m.Size,
@@ -443,6 +455,8 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			SizeLabel:      modelMeta[m.Digest].SizeLabel,
 			IsMOE:          modelMeta[m.Digest].IsMOE,
 			Archived:       s.archived.IsArchived(m.Name),
+			IsCustom:       isCustom,
+			BaseModel:      baseModel,
 		}
 		if s.usage != nil {
 			if rec, ok := s.usage.Get(m.Name); ok {
@@ -490,6 +504,12 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			installedSet[strings.TrimSuffix(m.Name, ":latest")] = struct{}{}
 		}
 		for name, rec := range s.usage.All() {
+			if s.customModels != nil && s.customModels.IsCustom(name) {
+				continue
+			}
+			if isFixedModelName(name) {
+				continue
+			}
 			if _, ok := installedSet[name]; ok {
 				continue
 			}
@@ -886,6 +906,8 @@ type modelDetail struct {
 	RecordTokensPerSecAt *time.Time          `json:"record_tokens_per_sec_at,omitempty"`
 	MinColdLoadMs        int64               `json:"min_cold_load_ms,omitempty"`
 	MinColdLoadAt        *time.Time          `json:"min_cold_load_at,omitempty"`
+	IsCustom             bool                `json:"is_custom,omitempty"`
+	BaseModel            string              `json:"base_model,omitempty"`
 }
 
 func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
@@ -900,6 +922,25 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isCustom := false
+	baseModel := ""
+	if s.customModels != nil && s.customModels.IsCustom(name) {
+		isCustom = true
+		baseModel = s.customModels.GetBase(name)
+	} else if isFixedModelName(name) {
+		isCustom = true
+		baseModel = fixedBaseName(name)
+	} else if show.Modelfile != "" {
+		from := extractLineDirective(show.Modelfile, "FROM")
+		if from != "" && !strings.Contains(from, "/") && !strings.Contains(from, "\\") && !strings.HasPrefix(from, "sha256:") && from != name {
+			isCustom = true
+			baseModel = from
+			if s.customModels != nil {
+				_ = s.customModels.Register(name, baseModel)
+			}
+		}
+	}
+
 	detail := modelDetail{
 		Name:         name,
 		License:      show.License,
@@ -910,6 +951,8 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		Details:      show.Details,
 		Capabilities: show.Capabilities,
 		ModifiedAt:   show.ModifiedAt,
+		IsCustom:     isCustom,
+		BaseModel:    baseModel,
 	}
 	if detail.System == "" {
 		// Older Ollama versions do not return a resolved system prompt in
@@ -1012,6 +1055,9 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 			log.Printf("uninstall-history: save failed for %q: %v", name, err)
 		}
 	}
+	if s.customModels != nil {
+		_ = s.customModels.Unregister(name)
+	}
 	resp := map[string]any{"deleted": name}
 	deletedArtifacts := s.deleteArtifactsForModel(r.Context(), name)
 	if !isFixedModelName(name) {
@@ -1022,6 +1068,9 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 			} else {
 				resp["deleted_fixed"] = fixed
 			}
+		}
+		if s.customModels != nil {
+			_ = s.customModels.Unregister(fixed)
 		}
 		deletedArtifacts += s.deleteArtifactsForModel(r.Context(), fixed)
 	}
@@ -1263,6 +1312,9 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if s.customModels != nil {
+		_ = s.customModels.Register(preview.TargetName, preview.BaseName)
+	}
 	if s.usage != nil {
 		_ = s.usage.InheritUsage(preview.BaseName, preview.TargetName)
 	}
@@ -1462,6 +1514,22 @@ func (s *Server) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
+	onSuccess := func() {
+		baseModel := strings.TrimSpace(body.From)
+		if baseModel == "" && body.Modelfile != "" {
+			baseModel = extractLineDirective(body.Modelfile, "FROM")
+		}
+		if baseModel != "" && (strings.Contains(baseModel, "/") || strings.Contains(baseModel, "\\") || strings.HasPrefix(baseModel, "sha256:")) {
+			baseModel = ""
+		}
+		if s.customModels != nil {
+			_ = s.customModels.Register(name, baseModel)
+		}
+		if s.usage != nil && baseModel != "" {
+			_ = s.usage.InheritUsage(baseModel, name)
+		}
+	}
+
 	if isStream {
 		sendSSE("status", map[string]any{
 			"status": "starting",
@@ -1475,6 +1543,7 @@ func (s *Server) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			sendSSE("error", map[string]any{"error": err.Error()})
 			return
 		}
+		onSuccess()
 		sendSSE("done", map[string]any{"model": name, "success": true})
 		return
 	}
@@ -1483,6 +1552,7 @@ func (s *Server) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
+	onSuccess()
 	writeJSON(w, http.StatusOK, map[string]any{"model": name, "success": true})
 }
 
@@ -1514,6 +1584,53 @@ func estimateTextTokens(s string) int {
 	return n / 4
 }
 
+// recordModelUsage records token telemetry, delegating / attributing metrics to the
+// referent base model if the model is custom and based on an installed model.
+func (s *Server) recordModelUsage(name string, evalCount int, evalDurationNs int64, promptEvalCount int, usedAt time.Time) {
+	if s.usage == nil || name == "" {
+		return
+	}
+	target := name
+	if s.customModels != nil {
+		if base := s.customModels.GetBase(name); base != "" {
+			target = base
+		}
+	} else if isFixedModelName(name) {
+		target = fixedBaseName(name)
+	}
+	_ = s.usage.Record(target, evalCount, evalDurationNs, promptEvalCount, usedAt)
+}
+
+func (s *Server) recordModelTPS(name string, tps float64, usedAt time.Time) {
+	if s.usage == nil || name == "" {
+		return
+	}
+	target := name
+	if s.customModels != nil {
+		if base := s.customModels.GetBase(name); base != "" {
+			target = base
+		}
+	} else if isFixedModelName(name) {
+		target = fixedBaseName(name)
+	}
+	_ = s.usage.RecordTPS(target, tps, usedAt)
+}
+
+func (s *Server) recordModelColdLoad(name string, durationMs int64, at time.Time) {
+	if s.usage == nil || name == "" {
+		return
+	}
+	target := name
+	if s.customModels != nil {
+		if base := s.customModels.GetBase(name); base != "" {
+			target = base
+		}
+	} else if isFixedModelName(name) {
+		target = fixedBaseName(name)
+	}
+	_ = s.usage.RecordColdLoad(target, durationMs, at)
+}
+
 // recordCancelUsage records a cancelled streaming response as used when it was
 // progressing too slowly to wait for completion (< cancelRecordThreshold). Rates
 // below minRecordTPS are indexed at that floor so the model is registered as
@@ -1539,9 +1656,9 @@ func (s *Server) recordCancelUsage(model, content string, startedAt time.Time) {
 	tps := float64(est) / elapsed.Seconds()
 	switch {
 	case tps < minRecordTPS:
-		_ = s.usage.RecordTPS(model, minRecordTPS, time.Now())
+		s.recordModelTPS(model, minRecordTPS, time.Now())
 	case tps < cancelRecordThreshold:
-		_ = s.usage.RecordTPS(model, tps, time.Now())
+		s.recordModelTPS(model, tps, time.Now())
 	}
 }
 
@@ -1610,17 +1727,15 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.usage != nil {
-		evalCount := out.EvalCount
-		evalDuration := out.EvalDuration
-		if evalCount <= 0 || evalDuration <= 0 {
-			evalCount = out.PromptEvalCount
-			evalDuration = out.PromptEvalDuration
-		}
-		_ = s.usage.Record(body.Model, evalCount, evalDuration, out.PromptEvalCount, time.Now())
-		if wasCold && out.LoadDuration > 0 {
-			_ = s.usage.RecordColdLoad(body.Model, out.LoadDuration/1e6, time.Now())
-		}
+	evalCount := out.EvalCount
+	evalDuration := out.EvalDuration
+	if evalCount <= 0 || evalDuration <= 0 {
+		evalCount = out.PromptEvalCount
+		evalDuration = out.PromptEvalDuration
+	}
+	s.recordModelUsage(body.Model, evalCount, evalDuration, out.PromptEvalCount, time.Now())
+	if wasCold && out.LoadDuration > 0 {
+		s.recordModelColdLoad(body.Model, out.LoadDuration/1e6, time.Now())
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -1813,9 +1928,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		err := s.ollama.Generate(r.Context(), genReq, func(chunk ollama.GenerateChunk) error {
 			if wasCold && firstTokenTime == 0 && (chunk.Response != "" || chunk.Image != "") {
 				firstTokenTime = time.Since(startedAt)
-				if s.usage != nil {
-					_ = s.usage.RecordColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
-				}
+				s.recordModelColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
 			}
 			if chunk.Response != "" {
 				accContent.WriteString(chunk.Response)
@@ -1926,9 +2039,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			evalDuration = int64(time.Since(startedAt))
 		}
 		totalTokens := promptEvalCount + evalCount
-		if s.usage != nil {
-			_ = s.usage.Record(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
-		}
+		s.recordModelUsage(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
 		send("done", map[string]any{
 			"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 			"prompt_tokens":      promptEvalCount,
@@ -1973,9 +2084,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	err := s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
 		if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 			firstTokenTime = time.Since(startedAt)
-			if s.usage != nil {
-				_ = s.usage.RecordColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
-			}
+			s.recordModelColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
 		}
 		if chunk.Message.Content != "" {
 			accContent.WriteString(chunk.Message.Content)
@@ -2006,9 +2115,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		err = s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
 			if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 				firstTokenTime = time.Since(startedAt)
-				if s.usage != nil {
-					_ = s.usage.RecordColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
-				}
+				s.recordModelColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
 			}
 			if chunk.Message.Content != "" {
 				accContent.WriteString(chunk.Message.Content)
@@ -2064,9 +2171,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		evalDuration = int64(time.Since(startedAt))
 	}
 	totalTokens := promptEvalCount + evalCount
-	if s.usage != nil {
-		_ = s.usage.Record(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
-	}
+	s.recordModelUsage(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
 	send("done", map[string]any{
 		"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 		"prompt_tokens":      promptEvalCount,

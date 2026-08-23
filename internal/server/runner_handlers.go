@@ -62,13 +62,13 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	bgCtx := context.Background()
 	runID := s.runner.ExecuteBatteryAsync(bgCtx, group, testsList, body.ModelIDs, modelCaps, sysInfo, func(run *runner.BatteryRun) {
 		_ = s.runnerStore.SaveRun(run)
-		if s.usage != nil && run != nil {
+		if run != nil {
 			for _, testRes := range run.Results {
 				if testRes.Model != "" {
 					if testRes.TokensPerSec > 0 {
-						_ = s.usage.RecordTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
+						s.recordModelTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
 					} else {
-						_ = s.usage.RecordTPS(testRes.Model, 0, run.Timestamp)
+						s.recordModelTPS(testRes.Model, 0, run.Timestamp)
 					}
 				}
 			}

@@ -38,7 +38,8 @@ type Server struct {
 	agentStore  *agent.SessionStore
 	runnerStore *runner.ResultStore
 	runner      *runner.Client
-	usage       *modelUsageStore
+	usage        *modelUsageStore
+	customModels *customModelsStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -114,6 +115,12 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		log.Printf("model-usage: could not load %s: %v", usagePath, err)
 	}
 
+	customPath := filepath.Join(filepath.Dir(cfg.Path()), "custom_models.json")
+	customStore := newCustomModelsStore(customPath)
+	if err := customStore.Load(); err != nil {
+		log.Printf("custom-models: could not load %s: %v", customPath, err)
+	}
+
 	return &Server{
 		cfg:                  cfg,
 		ollama:               ollamaClient,
@@ -127,6 +134,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		runnerStore:          runnerStore,
 		runner:               runner.NewClient(ollamaClient),
 		usage:                usageStore,
+		customModels:         customStore,
 		ctxCache:             make(map[string]int64),
 		capsCache:            make(map[string][]string),
 		metaCache:            make(map[string]modelMetaCache),

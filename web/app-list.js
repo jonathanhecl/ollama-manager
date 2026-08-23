@@ -430,6 +430,9 @@ function renderTable() {
   const unarchiveTitle = t("detail.unarchive_title");
   function getRowInnerHtml(m, capsHtml, progressHtml) {
     const ghostTag = m.isGhost ? `<span class="model-ghost-tag">(${escapeHtml(t("models.ghost_badge"))})</span>` : "";
+    const customTag = (!m.isGhost && m.is_custom)
+      ? `<span class="model-custom-tag" title="${m.base_model ? escapeHtml(t("models.custom_based_on", { base: m.base_model })) : escapeHtml(t("models.custom_tooltip"))}">${escapeHtml(t("models.custom_badge"))}</span>`
+      : "";
     const tokColor = getToksRecordColor(m.record_tokens_per_sec);
     const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
@@ -457,7 +460,7 @@ function renderTable() {
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name model-name-track"><span class="model-name-text">${escapeHtml(m.name)}</span>${ghostTag}</div>
+            <div class="model-name model-name-track"><span class="model-name-text">${escapeHtml(m.name)}</span>${customTag}${ghostTag}</div>
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
@@ -519,6 +522,7 @@ function renderTable() {
       if (
         tr._m_isPending !== !!m.isPending ||
         tr._m_isGhost !== !!m.isGhost ||
+        tr._m_isCustom !== !!m.is_custom ||
         tr._m_caps !== capsStr ||
         tr._m_size !== m.size ||
         tr._m_modified !== m.modified_at ||
@@ -589,6 +593,7 @@ function renderTable() {
       // Save properties to track state
       newTr._m_isPending = !!m.isPending;
       newTr._m_isGhost = !!m.isGhost;
+      newTr._m_isCustom = !!m.is_custom;
       newTr._m_loaded = !!m.loaded;
       newTr._m_active = isActive;
       newTr._m_pct = pct;
@@ -601,8 +606,8 @@ function renderTable() {
       newTr._m_min_cold_load = m.min_cold_load_ms;
       newTr._m_ctx = m.context_length;
       newTr._m_family = m.family;
-       newTr._m_param = m.parameter_size;
-       newTr._m_param_count = m.parameter_count;
+      newTr._m_param = m.parameter_size;
+      newTr._m_param_count = m.parameter_count;
       newTr._m_quant = modelQuantLabel(m);
 
       if (tr) {

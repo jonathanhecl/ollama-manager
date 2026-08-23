@@ -795,9 +795,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 			if strings.TrimSpace(assistant.Content) == "" && strings.TrimSpace(assistant.Thinking) == "" {
 				log.Printf("[artifact] round %d: empty response (no content, no tool calls), stopping", round)
 			}
-			if s.usage != nil {
-				_ = s.usage.Record(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
-			}
+			s.recordModelUsage(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
 			send("done", map[string]any{
 				"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 				"prompt_tokens":      last.PromptEvalCount,

@@ -218,9 +218,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 		accEvalNS += last.EvalDuration
 
 		if len(assistant.ToolCalls) == 0 {
-			if s.usage != nil {
-				_ = s.usage.Record(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
-			}
+			s.recordModelUsage(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
 			send("done", map[string]any{
 				"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 				"prompt_tokens":      last.PromptEvalCount,

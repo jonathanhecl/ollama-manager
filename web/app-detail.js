@@ -35,12 +35,15 @@ function openDetail(name) {
   });
 }
 
-function modelHomepageUrl(name) {
+function modelHomepageUrl(name, isCustom) {
   if (!name) return "";
   let base = name.split(":")[0];
   if (base.startsWith("hf.co/")) {
     const repo = base.slice("hf.co/".length);
     return repo ? "https://huggingface.co/" + repo : "";
+  }
+  if (isCustom || isFixedModelName(name)) {
+    return "";
   }
   if (base.includes("/")) {
     return "https://ollama.com/" + base;
@@ -50,6 +53,8 @@ function modelHomepageUrl(name) {
 
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};
+  const isCustom = !!(d.is_custom || m.is_custom || isFixedModelName(d.name));
+  const baseModel = d.base_model || m.base_model || (isFixedModelName(d.name) ? fixedBaseName(d.name) : "");
   const stateText = m.loaded
     ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) })
     : t("detail.not_loaded");
@@ -62,9 +67,14 @@ function renderDetail(d) {
   const minColdLoadVal = (d.min_cold_load_ms || m.min_cold_load_ms) > 0
     ? `${fmtColdLoad(d.min_cold_load_ms || m.min_cold_load_ms)}${(d.min_cold_load_at || m.min_cold_load_at) ? ` (${fmtDate(d.min_cold_load_at || m.min_cold_load_at)})` : ""}`
     : "—";
-  const siteUrl = modelHomepageUrl(d.name);
+  const siteUrl = modelHomepageUrl(d.name, isCustom);
   const hostLabel = siteUrl ? (siteUrl.startsWith("https://huggingface.co") ? "Hugging Face" : "Ollama") : "";
-  const rows = [
+  const rows = [];
+  if (isCustom) {
+    const customDesc = baseModel ? t("detail.custom_from_base", { base: baseModel }) : t("detail.type_custom");
+    rows.push([t("detail.custom_model"), `<span class="model-custom-tag">${escapeHtml(t("models.custom_badge"))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(customDesc)}</span>`, false]);
+  }
+  rows.push(
     [t("detail.family"), d.details?.family || "—", false],
     [t("detail.architecture"), d.architecture || "—", false],
     [t("detail.params"), d.details?.parameter_size || (d.parameter_count ? `${(d.parameter_count / 1e9).toFixed(2)}B` : "—"), false],
@@ -77,8 +87,8 @@ function renderDetail(d) {
     [t("detail.last_used"), lastUsedVal, false],
     [t("detail.state"), stateText, true],
     [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
-    [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false],
-  ];
+    [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false]
+  );
   if (siteUrl) {
     rows.push([t("detail.site"), `<a class="detail-site-link" href="${siteUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(hostLabel)}</a>`, false]);
   }

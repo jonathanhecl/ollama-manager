@@ -16,12 +16,13 @@ async function renderAnalytics() {
   if (charts.every((c) => !c)) return;
   try {
     const data = await api("/api/models");
-    // Archived models remain available in their archive view and history, but
-    // must not influence analytics or comparison filters.
-    const installed = (data.models || []).filter((m) => !m.archived);
-    analyticsAllData = installed.concat(data.ghost_models || []);
+    // Archived and custom models must not influence analytics or comparison filters.
+    // Custom models have their stats attributed directly to their base models.
+    const installed = (data.models || []).filter((m) => !m.archived && !m.is_custom);
+    const ghosts = (data.ghost_models || []).filter((m) => !m.is_custom);
+    analyticsAllData = installed.concat(ghosts);
     if (countEl) {
-      const ghostCount = (data.ghost_models || []).length;
+      const ghostCount = ghosts.length;
       countEl.textContent = t("analytics.count", { models: analyticsAllData.length, ghosts: ghostCount });
     }
     populateAnalyticsFamilyFilter(analyticsAllData);

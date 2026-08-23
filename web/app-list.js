@@ -430,7 +430,8 @@ function renderTable() {
   const unarchiveTitle = t("detail.unarchive_title");
   function getRowInnerHtml(m, capsHtml, progressHtml) {
     const ghostTag = m.isGhost ? `<span class="model-ghost-tag">(${escapeHtml(t("models.ghost_badge"))})</span>` : "";
-    const customTag = (!m.isGhost && m.is_custom)
+    const extTag = m.is_external ? `<span class="model-external-tag" title="${escapeHtml(t("models.external_tooltip"))}">${escapeHtml(t("models.external_badge"))}</span>` : "";
+    const customTag = (!m.isGhost && !m.is_external && m.is_custom)
       ? `<span class="model-custom-tag" title="${m.base_model ? escapeHtml(t("models.custom_based_on", { base: m.base_model })) : escapeHtml(t("models.custom_tooltip"))}">${escapeHtml(t("models.custom_badge"))}</span>`
       : "";
     const tokColor = getToksRecordColor(m.record_tokens_per_sec);
@@ -438,7 +439,7 @@ function renderTable() {
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
       ? `<span class="cell-record-tok" title="${m.record_tokens_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })) : ""}"><span class="record-num"${colorStyle}>${m.record_tokens_per_sec.toFixed(1)}</span> <span class="unit">tok/s</span></span>`
       : "—";
-    const minLoadHtml = (m.min_cold_load_ms && m.min_cold_load_ms > 0)
+    const minLoadHtml = (!m.is_external && m.min_cold_load_ms && m.min_cold_load_ms > 0)
       ? `<div class="cell-min-load mono" title="${m.min_cold_load_at ? escapeHtml(t("detail.min_load_at", { date: fmtDateTimeFull(m.min_cold_load_at) })) : ""}">${escapeHtml(t("col.min_load"))}: ${fmtColdLoad(m.min_cold_load_ms)}</div>`
       : "";
     
@@ -449,18 +450,20 @@ function renderTable() {
 
     const stateDotHtml = m.isGhost
       ? `<span class="state-dot ghost" title="${escapeHtml(t("models.ghost_badge"))}">👻</span>`
-      : `<span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span>`;
+      : (m.is_external
+        ? `<span class="state-dot loaded" title="${escapeHtml(t("models.external_tooltip"))}" style="background:#c084fc;box-shadow:0 0 6px rgba(192,132,252,0.8);"></span>`
+        : `<span class="state-dot${m.loaded ? " loaded" : ""}" title="${m.loaded ? dotLoadedTxt : dotNotLoadedTxt}"></span>`);
 
     const actionsHtml = m.isGhost
       ? `<button type="button" class="btn-icon reinstall-ghost-btn" title="${escapeHtml(t("models.reinstall_title"))}" data-name="${escapeHtml(m.name)}">📥</button>`
-      : (!m.isPending ? `<button type="button" class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
+      : (!m.isPending ? `<button type="button" class="btn-icon delete-btn" title="${escapeHtml(m.is_external ? t("detail.delete_external_title") : deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
 
     return `
       <td class="col-state">${stateDotHtml}</td>
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name model-name-track"><span class="model-name-text">${escapeHtml(m.name)}</span>${customTag}${ghostTag}</div>
+            <div class="model-name model-name-track"><span class="model-name-text">${escapeHtml(m.name)}</span>${extTag}${customTag}${ghostTag}</div>
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}
           </div>
@@ -474,10 +477,10 @@ function renderTable() {
           ${m.isPending ? "" : minLoadHtml}
         </div>
       </td>
-      <td class="cell-params">${escapeHtml(modelParameterLabel(m))}</td>
-      <td class="cell-quant">${escapeHtml(modelQuantLabel(m))}</td>
-      <td class="cell-ctx">${m.isPending ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
-      <td class="cell-size">${m.isPending ? "—" : (m.size > 0 ? fmtBytes(m.size) : "—")}</td>
+      <td class="cell-params">${escapeHtml(m.is_external ? "—" : modelParameterLabel(m))}</td>
+      <td class="cell-quant">${escapeHtml(m.is_external ? "—" : modelQuantLabel(m))}</td>
+      <td class="cell-ctx">${m.isPending || m.is_external ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
+      <td class="cell-size">${m.isPending || m.is_external ? "—" : (m.size > 0 ? fmtBytes(m.size) : "—")}</td>
       <td class="cell-modified">
         <div class="cell-dates">
           <div class="date-primary" title="${escapeHtml(lastUsedTitle)}">${m.isPending ? "—" : lastUsedDisplay}</div>
@@ -523,6 +526,7 @@ function renderTable() {
         tr._m_isPending !== !!m.isPending ||
         tr._m_isGhost !== !!m.isGhost ||
         tr._m_isCustom !== !!m.is_custom ||
+        tr._m_isExternal !== !!m.is_external ||
         tr._m_caps !== capsStr ||
         tr._m_size !== m.size ||
         tr._m_modified !== m.modified_at ||
@@ -594,6 +598,7 @@ function renderTable() {
       newTr._m_isPending = !!m.isPending;
       newTr._m_isGhost = !!m.isGhost;
       newTr._m_isCustom = !!m.is_custom;
+      newTr._m_isExternal = !!m.is_external;
       newTr._m_loaded = !!m.loaded;
       newTr._m_active = isActive;
       newTr._m_pct = pct;

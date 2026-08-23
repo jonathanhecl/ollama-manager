@@ -185,7 +185,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter,
 		// to decide the real assistant turn (same as the client-side += on content).
 		var acc ollama.ChatMessage
 		acc.Role = "assistant"
-		err := s.ollama.Chat(ctx, req, func(ev ollama.ChatChunk) error {
+		err := s.chatWithModel(ctx, req, func(ev ollama.ChatChunk) error {
 			last = ev
 			m := ev.Message
 			if m.Thinking != "" {

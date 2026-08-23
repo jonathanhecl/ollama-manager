@@ -706,7 +706,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		acc.Role = "assistant"
 		sentTools := make(map[int]*toolSentState)
 
-		err := s.ollama.Chat(ctx, req, func(ev ollama.ChatChunk) error {
+		err := s.chatWithModel(ctx, req, func(ev ollama.ChatChunk) error {
 			last = ev
 			m := ev.Message
 			if m.Thinking != "" {

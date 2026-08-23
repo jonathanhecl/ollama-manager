@@ -40,6 +40,7 @@ type Server struct {
 	runner      *runner.Client
 	usage        *modelUsageStore
 	customModels *customModelsStore
+	externalModels *externalModelsStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -121,6 +122,12 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		log.Printf("custom-models: could not load %s: %v", customPath, err)
 	}
 
+	extPath := filepath.Join(filepath.Dir(cfg.Path()), "external_models.json")
+	extStore := newExternalModelsStore(extPath)
+	if err := extStore.Load(); err != nil {
+		log.Printf("external-models: could not load %s: %v", extPath, err)
+	}
+
 	return &Server{
 		cfg:                  cfg,
 		ollama:               ollamaClient,
@@ -135,6 +142,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		runner:               runner.NewClient(ollamaClient),
 		usage:                usageStore,
 		customModels:         customStore,
+		externalModels:       extStore,
 		ctxCache:             make(map[string]int64),
 		capsCache:            make(map[string][]string),
 		metaCache:            make(map[string]modelMetaCache),
@@ -186,6 +194,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/embed", s.requireAuth(s.handleEmbed))
 	mux.Handle("POST /api/pull", s.requireAuth(s.handlePull))
 	mux.Handle("GET /api/status", s.requireAuth(s.handleStatus))
+	mux.Handle("GET /api/external-models", s.requireAuth(s.handleListExternalModels))
+	mux.Handle("POST /api/external-models", s.requireAuth(s.handleCreateExternalModel))
+	mux.Handle("POST /api/external-models/test", s.requireAuth(s.handleTestExternalModel))
+	mux.Handle("DELETE /api/external-models/{name...}", s.requireAuth(s.handleDeleteExternalModel))
 
 	mux.Handle("GET /api/jobs", s.requireAuth(s.handleJobsList))
 	mux.Handle("GET /api/jobs/events", s.requireAuth(s.handleJobsEvents))

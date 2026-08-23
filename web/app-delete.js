@@ -46,6 +46,34 @@ function askConfirm({ title, text, html = "", okText, okClass = "primary", mono 
 
 async function confirmDelete(name) {
   pendingDelete = name;
+  const m = models.find(x => x.name === name);
+  const isExternal = !!(m && m.is_external);
+
+  if (isExternal) {
+    askConfirm({
+      title: t("detail.delete_external_title"),
+      text: t("confirm.delete_external_text", { name: "{__NAME__}" }).replace("{__NAME__}", name),
+      okText: t("action.delete"),
+      okClass: "danger",
+      mono: name,
+      showDeleteReason: false,
+    }).then(async ({ ok }) => {
+      const delName = pendingDelete;
+      pendingDelete = null;
+      if (!ok || !delName) return;
+      try {
+        await api("/api/external-models/" + encodeURIComponent(delName), { method: "DELETE" });
+        toast(t("settings.ext_model_removed", { name: delName }), "success");
+        if (activeName === delName) { $("detail-panel").hidden = true; activeName = null; }
+        refreshModels();
+        if (typeof loadExternalModels === "function") loadExternalModels();
+      } catch (e) {
+        toast(t("toast.delete_error", { msg: e.message }), "error");
+      }
+    });
+    return;
+  }
+
   // Let the user know how many artifacts this model generated; they will be
   // removed together with the model so no remnants are left behind.
   let artifactNote = "";

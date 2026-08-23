@@ -1282,6 +1282,49 @@
           </div>
         </details>
 
+        <details class="settings-section settings-collapse" id="settings-ext-models-collapse">
+          <summary class="settings-collapse-head">
+            <span data-i18n="settings.ext_models_section">External Models (oMLX, OpenAI...)</span>
+            <span class="badge" id="ext-models-badge">0</span>
+          </summary>
+
+          <div class="settings-collapse-body">
+            <p class="form-hint" data-i18n="settings.ext_models_hint">Connect models hosted on other servers (oMLX, vLLM, LM Studio, OpenAI-compatible).</p>
+
+            <div class="field">
+              <label for="ext-model-name" data-i18n="settings.ext_model_name">Model Name</label>
+              <input id="ext-model-name" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.ext_model_name_placeholder" placeholder="e.g. Qwen2.5-Coder-32B or llama-3.3-70b">
+            </div>
+
+            <div class="field">
+              <label for="ext-model-url" data-i18n="settings.ext_model_url">Endpoint URL</label>
+              <input id="ext-model-url" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.ext_model_url_placeholder" placeholder="e.g. http://localhost:8000/v1">
+            </div>
+
+            <div class="field">
+              <label for="ext-model-apikey" data-i18n="settings.ext_model_apikey">API Key (optional)</label>
+              <input id="ext-model-apikey" type="password" autocomplete="new-password" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.ext_model_apikey_placeholder" placeholder="Bearer token or secret key">
+            </div>
+
+            <div class="ext-model-actions">
+              <button type="button" id="ext-model-test-btn" class="ghost ext-test-btn" data-i18n="settings.ext_model_test_btn">Test &amp; Detect Capabilities</button>
+              <button type="button" id="ext-model-add-btn" class="primary" data-i18n="settings.ext_model_add_btn">Add Model</button>
+            </div>
+
+            <div id="ext-test-result" class="ext-test-result" hidden></div>
+
+            <hr class="settings-sep">
+
+            <div class="section-head">
+              <h4 data-i18n="settings.ext_models_list_title">Configured External Models</h4>
+            </div>
+
+            <div id="ext-models-list" class="ext-models-list">
+              <div class="muted small" data-i18n="settings.ext_models_none">No external models configured yet.</div>
+            </div>
+          </div>
+        </details>
+
         <section class="settings-section settings-stack">
           <button id="settings-archived-btn" class="primary settings-wide-btn" data-i18n="settings.go_to_archived">Go to Archived Models</button>
           <button id="settings-opencode-btn" class="primary settings-wide-btn" data-i18n="settings.opencode_manage">Manage OpenCode models</button>

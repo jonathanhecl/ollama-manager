@@ -400,6 +400,8 @@ type modelView struct {
 	Archived             bool       `json:"archived"`
 	IsGhost              bool       `json:"is_ghost,omitempty"`
 	IsCustom             bool       `json:"is_custom,omitempty"`
+	IsExternal           bool       `json:"is_external,omitempty"`
+	URL                  string     `json:"url,omitempty"`
 	BaseModel            string     `json:"base_model,omitempty"`
 }
 
@@ -496,6 +498,34 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		out = append(out, v)
 	}
 
+	if s.externalModels != nil {
+		for _, ext := range s.externalModels.All() {
+			caps := ext.Capabilities
+			if len(caps) == 0 {
+				caps = []string{"completion", "tools", "thinking", "vision"}
+			}
+			ev := modelView{
+				Name:         ext.Name,
+				Family:       "external",
+				Format:       "external",
+				Capabilities: caps,
+				IsExternal:   true,
+				URL:          cleanURLDisplay(ext.URL),
+				ModifiedAt:   ext.CreatedAt,
+			}
+			if s.usage != nil {
+				if rec, ok := s.usage.Get(ext.Name); ok {
+					ev.LastUsedAt = rec.LastUsedAt
+					ev.RecordTokensPerSec = rec.RecordTokensPerSec
+					ev.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+					ev.TotalTokens = rec.TotalTokens
+					ev.TotalCalls = rec.TotalCalls
+				}
+			}
+			out = append(out, ev)
+		}
+	}
+
 	var ghostOut []modelView
 	if s.usage != nil {
 		installedSet := make(map[string]struct{}, len(models)*2)
@@ -504,6 +534,9 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			installedSet[strings.TrimSuffix(m.Name, ":latest")] = struct{}{}
 		}
 		for name, rec := range s.usage.All() {
+			if s.externalModels != nil && s.externalModels.IsExternal(name) {
+				continue
+			}
 			if s.customModels != nil && s.customModels.IsCustom(name) {
 				continue
 			}
@@ -615,6 +648,10 @@ func (s *Server) handleArchiveModel(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
 		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if s.externalModels != nil && s.externalModels.IsExternal(name) {
+		writeError(w, http.StatusBadRequest, errors.New("cannot archive external model"))
 		return
 	}
 	if err := s.archived.Archive(name); err != nil {
@@ -907,6 +944,8 @@ type modelDetail struct {
 	MinColdLoadMs        int64               `json:"min_cold_load_ms,omitempty"`
 	MinColdLoadAt        *time.Time          `json:"min_cold_load_at,omitempty"`
 	IsCustom             bool                `json:"is_custom,omitempty"`
+	IsExternal           bool                `json:"is_external,omitempty"`
+	URL                  string              `json:"url,omitempty"`
 	BaseModel            string              `json:"base_model,omitempty"`
 }
 
@@ -914,6 +953,34 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if s.externalModels != nil && s.externalModels.IsExternal(name) {
+		rec, _ := s.externalModels.Get(name)
+		caps := rec.Capabilities
+		if len(caps) == 0 {
+			caps = []string{"completion", "tools", "thinking", "vision"}
+		}
+		detail := modelDetail{
+			Name:         rec.Name,
+			IsExternal:   true,
+			URL:          cleanURLDisplay(rec.URL),
+			Capabilities: caps,
+			Details: ollama.ModelDetails{
+				Format: "external",
+				Family: "external",
+			},
+			ModifiedAt: rec.CreatedAt,
+		}
+		if s.usage != nil {
+			if urec, ok := s.usage.Get(name); ok {
+				detail.LastUsedAt = urec.LastUsedAt
+				detail.RecordTokensPerSec = urec.RecordTokensPerSec
+				detail.RecordTokensPerSecAt = urec.RecordTokensPerSecAt
+			}
+		}
+		detail.ArtifactCount, detail.ArtifactBytes = s.artifactInfoForModel(r.Context(), name)
+		writeJSON(w, http.StatusOK, detail)
 		return
 	}
 	show, err := s.ollama.Show(r.Context(), name)
@@ -1007,6 +1074,11 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if s.externalModels != nil && s.externalModels.IsExternal(name) {
+		_ = s.externalModels.Unregister(name)
+		writeJSON(w, http.StatusOK, map[string]any{"status": "deleted", "external": true})
 		return
 	}
 	var body struct {
@@ -1844,12 +1916,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			strings.Contains(s, "llama-server chat error")
 	}
 
-	var wasCold bool = true
-	if running, err := s.ollama.PS(r.Context()); err == nil {
-		for _, rm := range running {
-			if isSameModelName(rm.Name, body.Model) || isSameModelName(rm.Model, body.Model) {
-				wasCold = false
-				break
+	isExternal := s.externalModels != nil && s.externalModels.IsExternal(body.Model)
+	var wasCold bool = !isExternal
+	if !isExternal {
+		if running, err := s.ollama.PS(r.Context()); err == nil {
+			for _, rm := range running {
+				if isSameModelName(rm.Name, body.Model) || isSameModelName(rm.Model, body.Model) {
+					wasCold = false
+					break
+				}
 			}
 		}
 	}
@@ -2081,7 +2156,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	var final ollama.ChatChunk
 	var accContent strings.Builder
 	var accThinking strings.Builder
-	err := s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
+	err := s.chatWithModel(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
 		if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 			firstTokenTime = time.Since(startedAt)
 			s.recordModelColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
@@ -2112,7 +2187,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		final = ollama.ChatChunk{}
 		accContent.Reset()
 		accThinking.Reset()
-		err = s.ollama.Chat(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
+		err = s.chatWithModel(r.Context(), chatReq, func(chunk ollama.ChatChunk) error {
 			if wasCold && firstTokenTime == 0 && (chunk.Message.Content != "" || chunk.Message.Thinking != "") {
 				firstTokenTime = time.Since(startedAt)
 				s.recordModelColdLoad(body.Model, firstTokenTime.Milliseconds(), time.Now())
@@ -3067,3 +3142,107 @@ func (s *statusRecorder) Flush() {
 		f.Flush()
 	}
 }
+
+// ---------- external models API ----------
+
+func (s *Server) handleListExternalModels(w http.ResponseWriter, r *http.Request) {
+	if s.externalModels == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"models": []any{}})
+		return
+	}
+	all := s.externalModels.All()
+	list := make([]ExternalModelRecord, 0, len(all))
+	for _, m := range all {
+		safeM := m
+		if safeM.APIKey != "" {
+			safeM.APIKey = "••••••••"
+		}
+		list = append(list, safeM)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": list})
+}
+
+func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name         string   `json:"name"`
+		URL          string   `json:"url"`
+		APIKey       string   `json:"api_key"`
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	targetURL := strings.TrimSpace(body.URL)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("nombre del modelo requerido"))
+		return
+	}
+	if targetURL == "" {
+		writeError(w, http.StatusBadRequest, errors.New("URL requerida"))
+		return
+	}
+	if s.externalModels == nil {
+		writeError(w, http.StatusInternalServerError, errors.New("external models store unavailable"))
+		return
+	}
+	if err := s.externalModels.Register(name, targetURL, body.APIKey, body.Capabilities); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name})
+}
+
+func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name   string `json:"name"`
+		URL    string `json:"url"`
+		APIKey string `json:"api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	targetURL := strings.TrimSpace(body.URL)
+	if name == "" || targetURL == "" {
+		writeError(w, http.StatusBadRequest, errors.New("nombre y URL requeridos para el test"))
+		return
+	}
+	res, err := ProbeExternalModel(r.Context(), targetURL, body.APIKey, name)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"connected":    res.Connected,
+		"vision":       res.Vision,
+		"tools":        res.Tools,
+		"thinking":     res.Thinking,
+		"capabilities": res.Capabilities,
+		"latency_ms":   res.LatencyMs,
+	})
+}
+
+func (s *Server) handleDeleteExternalModel(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if s.externalModels == nil {
+		writeError(w, http.StatusInternalServerError, errors.New("external models store unavailable"))
+		return
+	}
+	if err := s.externalModels.Unregister(name); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name})
+}
+

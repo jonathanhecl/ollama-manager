@@ -6,25 +6,27 @@ function openDetail(name) {
   const panel = $("detail-panel");
   panel.hidden = false;
   $("detail-name").textContent = name;
+  const m = models.find(x => x.name === name);
+  const isExternal = !!(m && m.is_external);
+
   if ($("detail-delete")) {
     $("detail-delete").hidden = false;
     $("detail-delete").dataset.name = name;
+    $("detail-delete").title = isExternal ? t("detail.delete_external_title") : t("detail.delete_title");
   }
   if ($("detail-chat")) {
     $("detail-chat").hidden = false;
     $("detail-chat").dataset.name = name;
   }
   if ($("detail-modelfile")) {
-    $("detail-modelfile").hidden = false;
+    $("detail-modelfile").hidden = isExternal;
     $("detail-modelfile").dataset.name = name;
-    const m = models.find(x => x.name === name);
     const isCustom = !!(m && m.is_custom || (typeof isFixedModelName === "function" && isFixedModelName(name)));
     $("detail-modelfile").title = isCustom ? (t("modelfile.edit_title", { name }) || `Edit Modelfile (${name})`) : t("modelfile.derive_title");
   }
   if ($("detail-archive")) {
-    $("detail-archive").hidden = false;
+    $("detail-archive").hidden = isExternal;
     $("detail-archive").dataset.name = name;
-    const m = models.find(x => x.name === name);
     const isArchived = !!(m && m.archived);
     $("detail-archive").textContent = isArchived ? "📥" : "📦";
     $("detail-archive").title = isArchived ? t("detail.unarchive_title") : t("detail.archive_title");
@@ -68,42 +70,51 @@ window.modelHomepageUrl = modelHomepageUrl;
 
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};
-  const isCustom = !!(d.is_custom || m.is_custom || isFixedModelName(d.name));
+  const isExternal = !!(d.is_external || m.is_external);
+  const isCustom = !!(!isExternal && (d.is_custom || m.is_custom || isFixedModelName(d.name)));
   const baseModel = d.base_model || m.base_model || (isFixedModelName(d.name) ? fixedBaseName(d.name) : "");
-  const stateText = m.loaded
-    ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) })
-    : t("detail.not_loaded");
+  const stateText = isExternal
+    ? `<span class="badge" style="background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.4);">${escapeHtml(t("models.external_badge"))}</span>`
+    : (m.loaded ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) }) : t("detail.not_loaded"));
   const lastUsedVal = (d.last_used_at || m.last_used_at)
     ? fmtDateTimeFull(d.last_used_at || m.last_used_at)
     : "—";
   const recordToksVal = (d.record_tokens_per_sec || m.record_tokens_per_sec) > 0
     ? `${(d.record_tokens_per_sec || m.record_tokens_per_sec).toFixed(1)} tok/s${(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at) ? ` (${fmtDate(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at)})` : ""}`
     : "—";
-  const minColdLoadVal = (d.min_cold_load_ms || m.min_cold_load_ms) > 0
+  const minColdLoadVal = (!isExternal && (d.min_cold_load_ms || m.min_cold_load_ms) > 0)
     ? `${fmtColdLoad(d.min_cold_load_ms || m.min_cold_load_ms)}${(d.min_cold_load_at || m.min_cold_load_at) ? ` (${fmtDate(d.min_cold_load_at || m.min_cold_load_at)})` : ""}`
     : "—";
-  const siteUrl = modelHomepageUrl(d.name, isCustom);
+  const siteUrl = !isExternal ? modelHomepageUrl(d.name, isCustom) : "";
   const hostLabel = siteUrl ? (siteUrl.startsWith("https://huggingface.co") ? "Hugging Face" : "Ollama") : "";
   const rows = [];
-  if (isCustom) {
-    const customDesc = baseModel ? t("detail.custom_from_base", { base: baseModel }) : t("detail.type_custom");
-    rows.push([t("detail.custom_model"), `<span class="model-custom-tag">${escapeHtml(t("models.custom_badge"))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(customDesc)}</span>`, false]);
+  if (isExternal) {
+    rows.push([t("detail.external_model"), `<span class="model-external-tag">${escapeHtml(t("models.external_badge"))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(t("detail.external_desc"))}</span>`, false]);
+    rows.push([t("detail.endpoint_url"), `<span class="mono">${escapeHtml(d.url || m.url || "—")}</span>`, false]);
+    rows.push([t("detail.record_tokens"), recordToksVal, false]);
+    rows.push([t("detail.last_used"), lastUsedVal, false]);
+    rows.push([t("detail.modified"), d.modified_at ? new Date(d.modified_at).toLocaleString() : "—", false]);
+  } else {
+    if (isCustom) {
+      const customDesc = baseModel ? t("detail.custom_from_base", { base: baseModel }) : t("detail.type_custom");
+      rows.push([t("detail.custom_model"), `<span class="model-custom-tag">${escapeHtml(t("models.custom_badge"))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(customDesc)}</span>`, false]);
+    }
+    rows.push(
+      [t("detail.family"), d.details?.family || "—", false],
+      [t("detail.architecture"), d.architecture || "—", false],
+      [t("detail.params"), d.details?.parameter_size || (d.parameter_count ? `${(d.parameter_count / 1e9).toFixed(2)}B` : "—"), false],
+      [t("detail.quant"), d.details?.quantization_level || "—", false],
+      [t("detail.format"), d.details?.format || "—", false],
+      [t("detail.context"), fmtCtx(d.context_length), false],
+      [t("detail.size"), fmtBytes(m.size), false],
+      [t("detail.record_tokens"), recordToksVal, false],
+      [t("detail.min_cold_load"), minColdLoadVal, false],
+      [t("detail.last_used"), lastUsedVal, false],
+      [t("detail.state"), stateText, true],
+      [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
+      [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false]
+    );
   }
-  rows.push(
-    [t("detail.family"), d.details?.family || "—", false],
-    [t("detail.architecture"), d.architecture || "—", false],
-    [t("detail.params"), d.details?.parameter_size || (d.parameter_count ? `${(d.parameter_count / 1e9).toFixed(2)}B` : "—"), false],
-    [t("detail.quant"), d.details?.quantization_level || "—", false],
-    [t("detail.format"), d.details?.format || "—", false],
-    [t("detail.context"), fmtCtx(d.context_length), false],
-    [t("detail.size"), fmtBytes(m.size), false],
-    [t("detail.record_tokens"), recordToksVal, false],
-    [t("detail.min_cold_load"), minColdLoadVal, false],
-    [t("detail.last_used"), lastUsedVal, false],
-    [t("detail.state"), stateText, true],
-    [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
-    [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false]
-  );
   if (siteUrl) {
     rows.push([t("detail.site"), `<a class="detail-site-link" href="${siteUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(hostLabel)}</a>`, false]);
   }

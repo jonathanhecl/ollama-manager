@@ -28,7 +28,199 @@ async function openSettings() {
   updatePasswordSection();
   updateExposeWarning();
   updateBindPreview();
+  loadExternalModels();
+  bindExternalModelsEvents();
   $("settings-modal").hidden = false;
+}
+
+let lastTestedExtModel = null;
+let lastTestedCapabilities = null;
+
+async function loadExternalModels() {
+  const listEl = $("ext-models-list");
+  const badge = $("ext-models-badge");
+  if (!listEl) return;
+  try {
+    const data = await api("/api/external-models");
+    const list = data.models || [];
+    if (badge) badge.textContent = String(list.length);
+    if (!list.length) {
+      listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.ext_models_none"))}</div>`;
+      return;
+    }
+    listEl.innerHTML = list.map((m) => {
+      const caps = (m.capabilities || ["completion", "tools", "thinking", "vision"])
+        .map((c) => `<span class="ext-cap-pill active">${escapeHtml(c)}</span>`)
+        .join("");
+      return `
+        <div class="ext-model-card" data-name="${escapeHtml(m.name)}">
+          <div class="ext-model-card-info">
+            <div class="ext-model-card-name">
+              ${escapeHtml(m.name)}
+              <span class="model-external-tag">${escapeHtml(t("models.external_badge"))}</span>
+            </div>
+            <div class="ext-model-card-url" title="${escapeHtml(m.url)}">${escapeHtml(m.url)}</div>
+            <div class="ext-caps-pills" style="margin-top:2px;">${caps}</div>
+          </div>
+          <button type="button" class="btn-icon danger-text ext-model-del-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.delete_external_title"))}">×</button>
+        </div>
+      `;
+    }).join("");
+
+    listEl.querySelectorAll(".ext-model-del-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.name;
+        if (!name) return;
+        const conf = await askConfirm({
+          title: t("detail.delete_external_title"),
+          text: t("settings.ext_model_remove_confirm", { name }),
+          okText: t("action.delete"),
+          okClass: "danger",
+          mono: name,
+        });
+        if (conf.ok) {
+          try {
+            await api("/api/external-models/" + encodeURIComponent(name), { method: "DELETE" });
+            toast(t("settings.ext_model_removed", { name }), "success");
+            loadExternalModels();
+            refreshModels();
+          } catch (err) {
+            toast(t("toast.error", { msg: err.message }), "error");
+          }
+        }
+      });
+    });
+  } catch (e) {
+    if (listEl) listEl.innerHTML = `<div class="muted small">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function testExternalModel() {
+  const nameInput = $("ext-model-name");
+  const urlInput = $("ext-model-url");
+  const keyInput = $("ext-model-apikey");
+  const resultEl = $("ext-test-result");
+  const testBtn = $("ext-model-test-btn");
+
+  const name = nameInput ? nameInput.value.trim() : "";
+  const url = urlInput ? urlInput.value.trim() : "";
+  const apiKey = keyInput ? keyInput.value.trim() : "";
+
+  if (!name || !url) {
+    toast(t("settings.ext_model_name") + " & " + t("settings.ext_model_url") + " required", "error");
+    return;
+  }
+
+  if (testBtn) testBtn.disabled = true;
+  if (resultEl) {
+    resultEl.hidden = false;
+    resultEl.className = "ext-test-result";
+    resultEl.innerHTML = `<div class="muted">${escapeHtml(t("settings.ext_test_testing"))}</div>`;
+  }
+
+  try {
+    const res = await api("/api/external-models/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, api_key: apiKey }),
+    });
+
+    if (!res.ok) {
+      if (resultEl) {
+        resultEl.className = "ext-test-result error";
+        resultEl.innerHTML = `<div>${escapeHtml(t("settings.ext_test_failed", { error: res.error || "unknown" }))}</div>`;
+      }
+      lastTestedExtModel = null;
+      lastTestedCapabilities = null;
+      return;
+    }
+
+    lastTestedExtModel = name;
+    lastTestedCapabilities = res.capabilities || ["completion", "tools", "thinking", "vision"];
+
+    const visionPill = `<span class="ext-cap-pill ${res.vision ? 'active' : 'inactive'}">👁️ ${escapeHtml(t("settings.ext_cap_vision"))}</span>`;
+    const thinkPill = `<span class="ext-cap-pill ${res.thinking ? 'active' : 'inactive'}">🧠 ${escapeHtml(t("settings.ext_cap_thinking"))}</span>`;
+    const toolsPill = `<span class="ext-cap-pill ${res.tools ? 'active' : 'inactive'}">🛠️ ${escapeHtml(t("settings.ext_cap_tools"))}</span>`;
+
+    if (resultEl) {
+      resultEl.className = "ext-test-result success";
+      resultEl.innerHTML = `
+        <div class="ext-test-header">
+          <span>✓ ${escapeHtml(t("settings.ext_test_success", { latency: res.latency_ms || 0 }))}</span>
+        </div>
+        <div class="ext-caps-pills">
+          ${visionPill}
+          ${thinkPill}
+          ${toolsPill}
+        </div>
+      `;
+    }
+  } catch (e) {
+    if (resultEl) {
+      resultEl.className = "ext-test-result error";
+      resultEl.innerHTML = `<div>${escapeHtml(t("settings.ext_test_failed", { error: e.message }))}</div>`;
+    }
+    lastTestedExtModel = null;
+    lastTestedCapabilities = null;
+  } finally {
+    if (testBtn) testBtn.disabled = false;
+  }
+}
+
+async function addExternalModel() {
+  const nameInput = $("ext-model-name");
+  const urlInput = $("ext-model-url");
+  const keyInput = $("ext-model-apikey");
+  const resultEl = $("ext-test-result");
+
+  const name = nameInput ? nameInput.value.trim() : "";
+  const url = urlInput ? urlInput.value.trim() : "";
+  const apiKey = keyInput ? keyInput.value.trim() : "";
+
+  if (!name || !url) {
+    toast(t("settings.ext_model_name") + " & " + t("settings.ext_model_url") + " required", "error");
+    return;
+  }
+
+  let caps = ["completion", "tools", "thinking", "vision"];
+  if (lastTestedExtModel === name && Array.isArray(lastTestedCapabilities) && lastTestedCapabilities.length > 0) {
+    caps = lastTestedCapabilities;
+  }
+
+  try {
+    await api("/api/external-models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, api_key: apiKey, capabilities: caps }),
+    });
+
+    toast(t("settings.ext_model_added", { name }), "success");
+    if (nameInput) nameInput.value = "";
+    if (urlInput) urlInput.value = "";
+    if (keyInput) keyInput.value = "";
+    if (resultEl) resultEl.hidden = true;
+    lastTestedExtModel = null;
+    lastTestedCapabilities = null;
+
+    loadExternalModels();
+    refreshModels();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+function bindExternalModelsEvents() {
+  const testBtn = $("ext-model-test-btn");
+  if (testBtn && !testBtn._bound) {
+    testBtn._bound = true;
+    testBtn.addEventListener("click", testExternalModel);
+  }
+  const addBtn = $("ext-model-add-btn");
+  if (addBtn && !addBtn._bound) {
+    addBtn._bound = true;
+    addBtn.addEventListener("click", addExternalModel);
+  }
 }
 
 function updatePasswordSection() {

@@ -16,10 +16,10 @@ async function renderAnalytics() {
   if (charts.every((c) => !c)) return;
   try {
     const data = await api("/api/models");
-    // Archived and custom models must not influence analytics or comparison filters.
+    // Archived, custom, and external models must not influence analytics or comparison filters.
     // Custom models have their stats attributed directly to their base models.
-    const installed = (data.models || []).filter((m) => !m.archived && !m.is_custom);
-    const ghosts = (data.ghost_models || []).filter((m) => !m.is_custom);
+    const installed = (data.models || []).filter((m) => !m.archived && !m.is_custom && !m.is_external);
+    const ghosts = (data.ghost_models || []).filter((m) => !m.is_custom && !m.is_external);
     analyticsAllData = installed.concat(ghosts);
     if (countEl) {
       const ghostCount = ghosts.length;

@@ -139,9 +139,9 @@ async function testExternalModel() {
     lastTestedExtModel = name;
     lastTestedCapabilities = res.capabilities || ["completion", "tools", "thinking", "vision"];
 
-    const visionPill = `<span class="ext-cap-pill ${res.vision ? 'active' : 'inactive'}">👁️ ${escapeHtml(t("settings.ext_cap_vision"))}</span>`;
-    const thinkPill = `<span class="ext-cap-pill ${res.thinking ? 'active' : 'inactive'}">🧠 ${escapeHtml(t("settings.ext_cap_thinking"))}</span>`;
-    const toolsPill = `<span class="ext-cap-pill ${res.tools ? 'active' : 'inactive'}">🛠️ ${escapeHtml(t("settings.ext_cap_tools"))}</span>`;
+    const visionPill = `<span class="ext-cap-pill ${res.vision ? 'active' : 'inactive'}" data-cap="vision" title="Click to toggle">👁️ ${escapeHtml(t("settings.ext_cap_vision"))}</span>`;
+    const thinkPill = `<span class="ext-cap-pill ${res.thinking ? 'active' : 'inactive'}" data-cap="thinking" title="Click to toggle">🧠 ${escapeHtml(t("settings.ext_cap_thinking"))}</span>`;
+    const toolsPill = `<span class="ext-cap-pill ${res.tools ? 'active' : 'inactive'}" data-cap="tools" title="Click to toggle">🛠️ ${escapeHtml(t("settings.ext_cap_tools"))}</span>`;
 
     if (resultEl) {
       resultEl.className = "ext-test-result success";
@@ -155,6 +155,13 @@ async function testExternalModel() {
           ${toolsPill}
         </div>
       `;
+
+      resultEl.querySelectorAll(".ext-cap-pill").forEach((p) => {
+        p.addEventListener("click", () => {
+          p.classList.toggle("active");
+          p.classList.toggle("inactive");
+        });
+      });
     }
   } catch (e) {
     if (resultEl) {
@@ -183,9 +190,17 @@ async function addExternalModel() {
     return;
   }
 
-  let caps = ["completion", "tools", "thinking", "vision"];
-  if (lastTestedExtModel === name && Array.isArray(lastTestedCapabilities) && lastTestedCapabilities.length > 0) {
+  let caps = ["completion"];
+  if (resultEl && !resultEl.hidden) {
+    resultEl.querySelectorAll(".ext-cap-pill.active").forEach((p) => {
+      if (p.dataset.cap && !caps.includes(p.dataset.cap)) {
+        caps.push(p.dataset.cap);
+      }
+    });
+  } else if (lastTestedExtModel === name && Array.isArray(lastTestedCapabilities) && lastTestedCapabilities.length > 0) {
     caps = lastTestedCapabilities;
+  } else {
+    caps = ["completion", "tools", "thinking", "vision"];
   }
 
   try {

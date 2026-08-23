@@ -7568,6 +7568,12 @@ button.chat-send:disabled:hover {
   gap: 4px;
   border: 1px solid var(--border);
   background: var(--bg-panel, #18181f);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.ext-cap-pill:hover {
+  filter: brightness(1.2);
 }
 .ext-cap-pill.active {
   border-color: rgba(192, 132, 252, 0.4);
@@ -7577,6 +7583,7 @@ button.chat-send:disabled:hover {
 .ext-cap-pill.inactive {
   opacity: 0.45;
   color: var(--text-dim);
+  text-decoration: line-through;
 }
 .ext-models-list {
   display: flex;

@@ -336,7 +336,7 @@ type ExternalModelProbeResult struct {
 	Message      string   `json:"message,omitempty"`
 }
 
-// ProbeExternalModel runs lightweight test probes against an OpenAI-compatible endpoint.
+// ProbeExternalModel runs test probes against an OpenAI-compatible endpoint.
 func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string) (*ExternalModelProbeResult, error) {
 	targetURL = strings.TrimSpace(targetURL)
 	apiKey = strings.TrimSpace(apiKey)
@@ -349,19 +349,19 @@ func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string
 	}
 
 	endpoint := normalizeOpenAIEndpoint(targetURL)
-	httpClient := &http.Client{Timeout: 12 * time.Second}
+	httpClient := &http.Client{Timeout: 20 * time.Second}
 
 	start := time.Now()
 
-	// 1. Basic completion probe
+	// 1. Completion & Thinking probe via streaming (faster and captures reasoning_content deltas)
 	baseReq := openAIChatRequest{
 		Model: modelName,
 		Messages: []openAIMessage{
-			{Role: "user", Content: "ping"},
+			{Role: "user", Content: "Hi"},
 		},
-		Stream: false,
+		Stream: true,
 		MaxTokens: func() *int {
-			v := 4
+			v := 30
 			return &v
 		}(),
 	}
@@ -376,18 +376,19 @@ func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		// Fallback: If normalized /v1/chat/completions failed, try without /v1/ prefix
 		if strings.HasSuffix(endpoint, "/v1/chat/completions") {
 			altEndpoint := strings.TrimSuffix(endpoint, "/v1/chat/completions") + "/chat/completions"
 			req2, err2 := http.NewRequestWithContext(ctx, http.MethodPost, altEndpoint, bytes.NewReader(bodyBytes))
 			if err2 == nil {
 				req2.Header.Set("Content-Type", "application/json")
+				req2.Header.Set("Accept", "text/event-stream")
 				if apiKey != "" {
 					req2.Header.Set("Authorization", "Bearer "+apiKey)
 				}
@@ -404,121 +405,166 @@ func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		var errObj openAIChatCompletionResponse
-		_ = json.Unmarshal(respBody, &errObj)
+		_ = json.Unmarshal(respBodyBytes, &errObj)
 		if errObj.Error != nil && errObj.Error.Message != "" {
 			return nil, fmt.Errorf("error del servidor (%d): %s", resp.StatusCode, errObj.Error.Message)
 		}
-		return nil, fmt.Errorf("error del servidor (código HTTP %d): %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("error del servidor (código HTTP %d): %s", resp.StatusCode, string(respBodyBytes))
 	}
-
-	var parsedResp openAIChatCompletionResponse
-	_ = json.Unmarshal(respBody, &parsedResp)
 
 	latency := time.Since(start).Milliseconds()
-	caps := []string{"completion"}
 	connected := true
 	thinking := false
+	var fullText strings.Builder
 
-	// Check if reasoning was returned
-	if len(parsedResp.Choices) > 0 {
-		msg := parsedResp.Choices[0].Message
-		if msg.ReasoningContent != "" || strings.Contains(msg.Content, "<think>") {
+	// 1. Try parsing as standard JSON response first (if server returns JSON instead of SSE)
+	var directResp openAIChatCompletionResponse
+	if err := json.Unmarshal(respBodyBytes, &directResp); err == nil && len(directResp.Choices) > 0 {
+		msg := directResp.Choices[0].Message
+		if msg.ReasoningContent != "" || strings.Contains(msg.Content, "<think>") || strings.Contains(msg.Content, "Thinking Process:") {
 			thinking = true
-			caps = append(caps, "thinking")
 		}
-	}
-	lowerName := strings.ToLower(modelName)
-	if !thinking && (strings.Contains(lowerName, "r1") || strings.Contains(lowerName, "thinking") || strings.Contains(lowerName, "deepseek-r1")) {
-		thinking = true
-		caps = append(caps, "thinking")
-	}
-
-	// 2. Vision probe (1x1 transparent PNG)
-	vision := false
-	const tinyPngBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAA="
-	visionReq := openAIChatRequest{
-		Model: modelName,
-		Messages: []openAIMessage{
-			{
-				Role: "user",
-				Content: []openAIContentPart{
-					{Type: "text", Text: "describe"},
-					{Type: "image_url", ImageURL: &openAIImageURL{URL: tinyPngBase64}},
-				},
-			},
-		},
-		Stream: false,
-		MaxTokens: func() *int {
-			v := 2
-			return &v
-		}(),
-	}
-	if vBytes, vErr := json.Marshal(visionReq); vErr == nil {
-		if vHttpReq, vHttpErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(vBytes)); vHttpErr == nil {
-			vHttpReq.Header.Set("Content-Type", "application/json")
-			if apiKey != "" {
-				vHttpReq.Header.Set("Authorization", "Bearer "+apiKey)
+		fullText.WriteString(msg.Content)
+	} else {
+		// 2. Parse as SSE stream
+		scanner := bufio.NewScanner(bytes.NewReader(respBodyBytes))
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, ":") {
+				continue
 			}
-			vClient := &http.Client{Timeout: 6 * time.Second}
-			if vResp, vDoErr := vClient.Do(vHttpReq); vDoErr == nil {
-				defer vResp.Body.Close()
-				if vResp.StatusCode == http.StatusOK {
-					vision = true
-					caps = append(caps, "vision")
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "[DONE]" {
+				break
+			}
+			var chunk openAIChatCompletionChunk
+			if err := json.Unmarshal([]byte(data), &chunk); err == nil && len(chunk.Choices) > 0 {
+				d := chunk.Choices[0].Delta
+				if d.ReasoningContent != "" || d.Reasoning != "" {
+					thinking = true
+				}
+				if d.Content != "" {
+					fullText.WriteString(d.Content)
 				}
 			}
 		}
 	}
-	if !vision && (strings.Contains(lowerName, "vision") || strings.Contains(lowerName, "vl") || strings.Contains(lowerName, "omni") || strings.Contains(lowerName, "gpt-4o")) {
-		vision = true
-		caps = append(caps, "vision")
+
+	acc := fullText.String()
+	if strings.Contains(acc, "<think>") || strings.Contains(acc, "Thinking Process:") || strings.Contains(acc, "thinking process:") {
+		thinking = true
 	}
+
+	lowerName := strings.ToLower(modelName)
+	if !thinking && (strings.Contains(lowerName, "r1") || strings.Contains(lowerName, "qwen3") || strings.Contains(lowerName, "qwen") || strings.Contains(lowerName, "thinking") || strings.Contains(lowerName, "reason")) {
+		thinking = true
+	}
+
+	// Run Vision & Tools probes in parallel
+	var wg sync.WaitGroup
+	vision := false
+	tools := true
+
+	wg.Add(2)
+
+	// 2. Vision probe
+	go func() {
+		defer wg.Done()
+		const tinyPngBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAA="
+		visionReq := openAIChatRequest{
+			Model: modelName,
+			Messages: []openAIMessage{
+				{
+					Role: "user",
+					Content: []openAIContentPart{
+						{Type: "text", Text: "describe"},
+						{Type: "image_url", ImageURL: &openAIImageURL{URL: tinyPngBase64}},
+					},
+				},
+			},
+			Stream: false,
+			MaxTokens: func() *int {
+				v := 2
+				return &v
+			}(),
+		}
+		if vBytes, vErr := json.Marshal(visionReq); vErr == nil {
+			if vHttpReq, vHttpErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(vBytes)); vHttpErr == nil {
+				vHttpReq.Header.Set("Content-Type", "application/json")
+				if apiKey != "" {
+					vHttpReq.Header.Set("Authorization", "Bearer "+apiKey)
+				}
+				vClient := &http.Client{Timeout: 15 * time.Second}
+				if vResp, vDoErr := vClient.Do(vHttpReq); vDoErr == nil {
+					defer vResp.Body.Close()
+					if vResp.StatusCode == http.StatusOK {
+						vision = true
+					}
+				}
+			}
+		}
+		if !vision && (strings.Contains(lowerName, "qwen3") || strings.Contains(lowerName, "qwen") || strings.Contains(lowerName, "vision") || strings.Contains(lowerName, "vl") || strings.Contains(lowerName, "omni") || strings.Contains(lowerName, "gpt-4o")) {
+			vision = true
+		}
+	}()
 
 	// 3. Tools probe
-	tools := false
-	toolsReq := openAIChatRequest{
-		Model: modelName,
-		Messages: []openAIMessage{
-			{Role: "user", Content: "use tool"},
-		},
-		Tools: []openAITool{
-			{
-				Type: "function",
-				Function: openAIFunction{
-					Name:        "probe_test",
-					Description: "A test function",
-					Parameters:  map[string]any{"type": "object", "properties": map[string]any{"arg": map[string]any{"type": "string"}}},
+	go func() {
+		defer wg.Done()
+		toolsReq := openAIChatRequest{
+			Model: modelName,
+			Messages: []openAIMessage{
+				{Role: "user", Content: "use tool"},
+			},
+			Tools: []openAITool{
+				{
+					Type: "function",
+					Function: openAIFunction{
+						Name:        "probe_test",
+						Description: "A test function",
+						Parameters:  map[string]any{"type": "object", "properties": map[string]any{"arg": map[string]any{"type": "string"}}},
+					},
 				},
 			},
-		},
-		Stream: false,
-		MaxTokens: func() *int {
-			v := 2
-			return &v
-		}(),
-	}
-	if tBytes, tErr := json.Marshal(toolsReq); tErr == nil {
-		if tHttpReq, tHttpErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(tBytes)); tHttpErr == nil {
-			tHttpReq.Header.Set("Content-Type", "application/json")
-			if apiKey != "" {
-				tHttpReq.Header.Set("Authorization", "Bearer "+apiKey)
-			}
-			tClient := &http.Client{Timeout: 6 * time.Second}
-			if tResp, tDoErr := tClient.Do(tHttpReq); tDoErr == nil {
-				defer tResp.Body.Close()
-				if tResp.StatusCode == http.StatusOK {
-					tools = true
-					caps = append(caps, "tools")
+			Stream: false,
+			MaxTokens: func() *int {
+				v := 2
+				return &v
+			}(),
+		}
+		if tBytes, tErr := json.Marshal(toolsReq); tErr == nil {
+			if tHttpReq, tHttpErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(tBytes)); tHttpErr == nil {
+				tHttpReq.Header.Set("Content-Type", "application/json")
+				if apiKey != "" {
+					tHttpReq.Header.Set("Authorization", "Bearer "+apiKey)
+				}
+				tClient := &http.Client{Timeout: 15 * time.Second}
+				if tResp, tDoErr := tClient.Do(tHttpReq); tDoErr == nil {
+					defer tResp.Body.Close()
+					if tResp.StatusCode == http.StatusOK {
+						tools = true
+					}
 				}
 			}
 		}
+	}()
+
+	wg.Wait()
+
+	caps := []string{"completion"}
+	if vision {
+		caps = append(caps, "vision")
 	}
-	// Fallback for tools: default include tools unless explicitly rejected
-	if !tools {
-		tools = true
+	if thinking {
+		caps = append(caps, "thinking")
+	}
+	if tools {
 		caps = append(caps, "tools")
 	}
 

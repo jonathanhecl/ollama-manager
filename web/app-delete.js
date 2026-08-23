@@ -41,6 +41,7 @@ function askConfirm({ title, text, html = "", okText, okClass = "primary", mono 
   ok.textContent = okText || t("confirm.title");
   ok.className = okClass;
   $("confirm-modal").hidden = false;
+  setTimeout(() => ok?.focus(), 20);
   return new Promise((resolve) => { pendingConfirmResolve = resolve; });
 }
 
@@ -119,6 +120,34 @@ async function confirmDelete(name) {
     }
   });
 }
-$("confirm-cancel").addEventListener("click", () => { pendingDelete = null; closeConfirmModal(false); });
-$("confirm-ok").addEventListener("click", () => closeConfirmModal(true));
+$("confirm-cancel")?.addEventListener("click", () => { pendingDelete = null; closeConfirmModal(false); });
+$("confirm-ok")?.addEventListener("click", () => closeConfirmModal(true));
+$("confirm-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("confirm-modal")) {
+    pendingDelete = null;
+    closeConfirmModal(false);
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  const modal = $("confirm-modal");
+  if (!modal || modal.hidden) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    pendingDelete = null;
+    closeConfirmModal(false);
+  } else if (e.key === "Enter") {
+    if (document.activeElement === $("confirm-cancel")) {
+      e.preventDefault();
+      e.stopPropagation();
+      pendingDelete = null;
+      closeConfirmModal(false);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    closeConfirmModal(true);
+  }
+});
 

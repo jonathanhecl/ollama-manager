@@ -241,6 +241,7 @@ function resetChatState() {
   chatLastUsedTokens = 0;
   chatEditingMessageId = "";
   chatEditingDraft = "";
+  chatEditingAttachments = [];
   chatDndDepth = 0;
   stopThinkTicker();
   updateStreamBar();

@@ -940,12 +940,42 @@ function bindChatEvents() {
       if (!msg) return;
       chatEditingMessageId = msg.id;
       chatEditingDraft = String(msg.content || "");
+      chatEditingAttachments = (msg.attachments || []).map((a) => ({ ...a }));
       renderChatMessages();
       const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(id)}"]`);
       if (ta) {
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
       }
+      return;
+    }
+    const repB = e.target.closest(".chat-edit-replace-btn");
+    if (repB) {
+      e.preventDefault();
+      e.stopPropagation();
+      const card = repB.closest(".chat-edit-attach-item");
+      card?.querySelector(".chat-edit-replace-file-input")?.click();
+      return;
+    }
+    const delB = e.target.closest(".chat-edit-delete-btn");
+    if (delB) {
+      e.preventDefault();
+      e.stopPropagation();
+      const attId = delB.getAttribute("data-att-id");
+      if (attId) {
+        chatEditingAttachments = chatEditingAttachments.filter((x) => x.id !== attId);
+        renderChatMessages();
+        const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(chatEditingMessageId)}"]`);
+        if (ta) ta.focus();
+      }
+      return;
+    }
+    const addB = e.target.closest(".chat-edit-add-file-btn");
+    if (addB) {
+      e.preventDefault();
+      e.stopPropagation();
+      const box = addB.closest(".chat-edit-box");
+      box?.querySelector(".chat-edit-add-file-input")?.click();
       return;
     }
     const saveB = e.target.closest(".chat-edit-save");
@@ -960,6 +990,7 @@ function bindChatEvents() {
       e.preventDefault();
       chatEditingMessageId = "";
       chatEditingDraft = "";
+      chatEditingAttachments = [];
       renderChatMessages();
       return;
     }
@@ -1026,6 +1057,86 @@ function bindChatEvents() {
       chatEditingDraft = ta.value;
     }
   });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("change", async (e) => {
+    const repInp = e.target.closest(".chat-edit-replace-file-input");
+    if (repInp && repInp.files?.length) {
+      const attId = repInp.getAttribute("data-att-id");
+      const file = repInp.files[0];
+      await replaceEditingAttachment(attId, file);
+      repInp.value = "";
+      renderChatMessages();
+      const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(chatEditingMessageId)}"]`);
+      if (ta) ta.focus();
+      return;
+    }
+    const addInp = e.target.closest(".chat-edit-add-file-input");
+    if (addInp && addInp.files?.length) {
+      await appendFilesToEditingAttachments(Array.from(addInp.files));
+      addInp.value = "";
+      renderChatMessages();
+      const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(chatEditingMessageId)}"]`);
+      if (ta) ta.focus();
+      return;
+    }
+  });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("paste", async (e) => {
+    const editBox = e.target.closest(".chat-edit-box");
+    if (!editBox) return;
+    const cd = e.clipboardData;
+    if (!cd?.items?.length) return;
+    const files = [];
+    for (const item of cd.items) {
+      if (item.kind === "file") {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (!files.length) return;
+    e.preventDefault();
+    const extraText = cd.getData("text/plain") || "";
+    await appendFilesToEditingAttachments(files);
+    if (extraText) {
+      const ta = editBox.querySelector(".chat-edit-textarea");
+      if (ta) {
+        const start = ta.selectionStart ?? ta.value.length;
+        const end = ta.selectionEnd ?? ta.value.length;
+        const v = ta.value;
+        ta.value = v.slice(0, start) + extraText + v.slice(end);
+        chatEditingDraft = ta.value;
+      }
+    }
+    renderChatMessages();
+    const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(chatEditingMessageId)}"]`);
+    if (ta) ta.focus();
+  });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("dragover", (e) => {
+    const editBox = e.target.closest(".chat-edit-box");
+    if (editBox) {
+      e.preventDefault();
+      editBox.classList.add("chat-edit-drag-over");
+    }
+  });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("dragleave", (e) => {
+    const editBox = e.target.closest(".chat-edit-box");
+    if (editBox && !editBox.contains(e.relatedTarget)) {
+      editBox.classList.remove("chat-edit-drag-over");
+    }
+  });
+  ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("drop", async (e) => {
+    const editBox = e.target.closest(".chat-edit-box");
+    if (editBox) {
+      e.preventDefault();
+      e.stopPropagation();
+      editBox.classList.remove("chat-edit-drag-over");
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length) {
+        await appendFilesToEditingAttachments(files);
+        renderChatMessages();
+        const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(chatEditingMessageId)}"]`);
+        if (ta) ta.focus();
+      }
+    }
+  });
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && e.target.closest(".chat-edit-textarea")) {
       e.preventDefault();
@@ -1036,6 +1147,7 @@ function bindChatEvents() {
       e.preventDefault();
       chatEditingMessageId = "";
       chatEditingDraft = "";
+      chatEditingAttachments = [];
       renderChatMessages();
     }
   });

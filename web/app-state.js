@@ -38,6 +38,7 @@ let activeArtifactName = null;
 let activeArtifactUrl = null;
 let chatEditingMessageId = "";
 let chatEditingDraft = "";
+let chatEditingAttachments = [];
 const CHAT_OPTION_FALLBACKS = {
   system: "",
   temperature: 0.7,

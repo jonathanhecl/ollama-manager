@@ -2229,7 +2229,10 @@ function renderChatMessages() {
       meta.push(t("chat.stopped_badge_short"));
     }
 
-    const files = (m.attachments || []).map((a) => {
+    const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
+    const canEditUser = m.role === "user" && !chatStreamLock && i === lastUserMsgIdx;
+
+    const files = isEditingUser ? "" : (m.attachments || []).map((a) => {
       if (a.kind === "image" && a.data) {
         const src = attachmentImageSrc(a);
         if (!src) {
@@ -2359,14 +2362,25 @@ function renderChatMessages() {
         bodyHTML = renderMarkdownSafe(m.content || "");
       }
     }
-    const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
-    const canEditUser = m.role === "user" && !chatStreamLock && i === lastUserMsgIdx;
     if (isEditingUser) {
-      bodyHTML = `<div class="chat-edit-box">
-  <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(chatEditingDraft)}</textarea>
+      bodyHTML = `<div class="chat-edit-box" data-msg-id="${escapeHtml(m.id)}">
+  <div class="chat-edit-attachments" id="chat-edit-attachments">
+    ${renderEditAttachmentsHTML(chatEditingAttachments)}
+  </div>
+  <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}" placeholder="${escapeHtml(t("chat.input_placeholder") || "Write your message…")}">${escapeHtml(chatEditingDraft)}</textarea>
   <div class="chat-edit-actions">
-    <button type="button" class="chat-edit-save primary" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(t("chat.edit_save"))}</button>
-    <button type="button" class="chat-edit-cancel ghost">${escapeHtml(t("chat.edit_cancel"))}</button>
+    <div class="chat-edit-upload-actions">
+      <button type="button" class="btn-icon chat-edit-add-file-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.add_image") || "Add file / image")}">
+        <svg class="chat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+        </svg>
+      </button>
+      <input type="file" class="chat-edit-add-file-input" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" multiple />
+    </div>
+    <div class="chat-edit-btn-group">
+      <button type="button" class="chat-edit-save primary" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(t("chat.edit_save") || "Save")}</button>
+      <button type="button" class="chat-edit-cancel ghost">${escapeHtml(t("chat.edit_cancel") || "Cancel")}</button>
+    </div>
   </div>
 </div>`;
     } else if (m.role === "user") {
@@ -2749,6 +2763,130 @@ function toBase64(file) {
   });
 }
 
+
+async function appendFilesToEditingAttachments(files) {
+  const selectedModel = $("chat-model")?.value || "";
+  const caps = modelCaps(selectedModel);
+  const canVision = caps.has("vision");
+  const canAudio = caps.has("audio");
+  const accepted = [];
+  for (const file of files) {
+    const type = String(file.type || "");
+    if (type.startsWith("image/")) accepted.push({ file, kind: "image" });
+    else if (type.startsWith("audio/") && canAudio) accepted.push({ file, kind: "audio" });
+    else if (isTextAttachmentFile(file)) accepted.push({ file, kind: "text" });
+  }
+  if (!accepted.length) {
+    toast(t("chat.attach_not_supported") || "File type not supported", "error");
+    return;
+  }
+  for (const item of accepted) {
+    if (item.file.size > 20 * 1024 * 1024) {
+      toast(t("chat.file_too_large", { name: item.file.name }), "error");
+      continue;
+    }
+    if (item.kind === "text") {
+      const text = await item.file.text();
+      chatEditingAttachments.push({
+        id: nanoid(),
+        kind: item.kind,
+        name: item.file.name,
+        mime: item.file.type || "text/plain",
+        text,
+      });
+    } else {
+      const data = await toBase64(item.file);
+      chatEditingAttachments.push({
+        id: nanoid(),
+        kind: item.kind,
+        name: item.file.name,
+        mime: item.file.type,
+        data,
+      });
+    }
+  }
+}
+
+async function replaceEditingAttachment(attId, file) {
+  const idx = chatEditingAttachments.findIndex((x) => x.id === attId);
+  if (idx < 0) return;
+  if (file.size > 20 * 1024 * 1024) {
+    toast(t("chat.file_too_large", { name: file.name }), "error");
+    return;
+  }
+  const type = String(file.type || "");
+  let kind = "image";
+  if (type.startsWith("audio/")) kind = "audio";
+  else if (isTextAttachmentFile(file)) kind = "text";
+  else if (type.startsWith("image/")) kind = "image";
+
+  if (kind === "text") {
+    const text = await file.text();
+    chatEditingAttachments[idx] = {
+      id: attId,
+      kind,
+      name: file.name,
+      mime: file.type || "text/plain",
+      text,
+    };
+  } else {
+    const data = await toBase64(file);
+    chatEditingAttachments[idx] = {
+      id: attId,
+      kind,
+      name: file.name,
+      mime: file.type,
+      data,
+    };
+  }
+}
+
+function renderEditAttachmentsHTML(attachments) {
+  if (!attachments || !attachments.length) return "";
+  return attachments.map((a) => {
+    let previewHTML = "";
+    if (a.kind === "image" && a.data) {
+      const src = attachmentImageSrc(a);
+      previewHTML = `<div class="chat-edit-attach-thumb-wrap">
+        <img src="${src}" alt="${escapeHtml(a.name)}" class="chat-edit-attach-thumb" />
+      </div>`;
+    } else if (a.kind === "audio" && a.data) {
+      const src = attachmentAudioSrc(a);
+      previewHTML = `<div class="chat-edit-attach-thumb-wrap chat-edit-attach-audio-wrap">
+        <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
+      </div>`;
+    } else {
+      const prev = attachmentTextPreview(a);
+      previewHTML = `<div class="chat-edit-attach-thumb-wrap chat-edit-attach-text-wrap">
+        <div class="chat-text-snippet mono">${escapeHtml(prev || "text")}</div>
+      </div>`;
+    }
+
+    return `<div class="chat-edit-attach-item" data-att-id="${escapeHtml(a.id)}">
+      ${previewHTML}
+      <div class="chat-edit-attach-meta">
+        <span class="chat-edit-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+        <div class="chat-edit-attach-btns">
+          <button type="button" class="btn-icon chat-edit-replace-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.replace_attachment") || "Replace")}" aria-label="Replace">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
+              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+              <path d="M16 21h5v-5"/>
+            </svg>
+          </button>
+          <button type="button" class="btn-icon chat-edit-delete-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment") || "Delete")}" aria-label="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+          <input type="file" class="chat-edit-replace-file-input" data-att-id="${escapeHtml(a.id)}" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" />
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
 
 async function addFiles(files) {
   const selectedModel = $("chat-model").value;
@@ -4068,14 +4206,17 @@ async function editAndResendUserMessage(userId, newText) {
     return;
   }
   const trimmed = newText.trim();
-  if (!trimmed && !(chatMessages[idx].attachments || []).length) return;
+  const atts = (chatEditingAttachments || []).slice();
+  if (!trimmed && !atts.length) return;
   chatMessages[idx].content = trimmed;
+  chatMessages[idx].attachments = atts;
   chatMessages = chatMessages.slice(0, idx + 1);
   const assistantMsg = newAssistantMessage();
   assistantMsg.model = $("chat-model").value;
   chatMessages.push(assistantMsg);
   chatEditingMessageId = "";
   chatEditingDraft = "";
+  chatEditingAttachments = [];
   renderChatMessages();
   scrollChatToBottom(true);
   await runChatRequest(assistantMsg);

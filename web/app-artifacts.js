@@ -1044,10 +1044,19 @@ function bindChatEvents() {
     addFastTapListener(stopBtn, () => stopChatGeneration());
   }
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && $("chat-view")?.classList.contains("chat-options-open")) {
-      $("chat-view")?.classList.remove("chat-options-open");
-      syncChatPanels($("chat-view"));
-      return;
+    if (e.key === "Escape") {
+      if ($("confirm-modal") && !$("confirm-modal").hidden) return;
+      if ($("image-preview-modal") && !$("image-preview-modal").hidden) return;
+      if ($("chat-view")?.classList.contains("chat-options-open")) {
+        $("chat-view")?.classList.remove("chat-options-open");
+        syncChatPanels($("chat-view"));
+        return;
+      }
+      if (currentView === "chat" && chatStreamLock) {
+        e.preventDefault();
+        stopChatGeneration();
+        return;
+      }
     }
     if (e.code !== "Backspace" || !e.ctrlKey || !e.shiftKey) return;
     if (currentView !== "chat" || !chatStreamLock) return;

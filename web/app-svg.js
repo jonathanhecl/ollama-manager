@@ -1895,9 +1895,13 @@ function splitThink(raw) {
   const think = text.slice(open + 7, close);
   const after = text.slice(close + 8);
   const sub = splitThink(after);
+  let cleanAnswer = (before).replace(/<\/?think>/g, "") + sub.answer;
+  if (!before.trim()) {
+    cleanAnswer = cleanAnswer.replace(/^[\r\n]+/, "");
+  }
   return {
     think: think + (sub.think ? "\n" + sub.think : ""),
-    answer: (before).replace(/<\/?think>/g, "") + sub.answer,
+    answer: cleanAnswer,
     inThink: sub.inThink,
   };
 }
@@ -1918,9 +1922,10 @@ function splitThinkSegment(seg, wasInThink) {
       const thinkPart = text.slice(0, close);
       const remaining = text.slice(close + 8);
       const sub = splitThinkSegment(remaining, false);
+      let cleanAns = sub.answer.replace(/^[\r\n]+/, "");
       return {
         think: thinkPart + (sub.think ? "\n" + sub.think : ""),
-        answer: sub.answer,
+        answer: cleanAns,
         inThink: sub.inThink,
         closePrevious: true,
       };
@@ -1950,9 +1955,13 @@ function splitThinkSegment(seg, wasInThink) {
     const think = text.slice(open + 7, close);
     const after = text.slice(close + 8);
     const sub = splitThinkSegment(after, false);
+    let cleanAns = before.replace(/<\/?think>/g, "") + sub.answer;
+    if (!before.trim()) {
+      cleanAns = cleanAns.replace(/^[\r\n]+/, "");
+    }
     return {
       think: think + (sub.think ? "\n" + sub.think : ""),
-      answer: before.replace(/<\/?think>/g, "") + sub.answer,
+      answer: cleanAns,
       inThink: sub.inThink,
       closePrevious: false,
     };

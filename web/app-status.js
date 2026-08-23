@@ -272,7 +272,7 @@ function updateChatSendEnabled() {
 }
 
 async function copyTextToClipboard(text) {
-  const s = String(text || "");
+  const s = String(text ?? "").replace(/^[\r\n]+/, "");
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(s);

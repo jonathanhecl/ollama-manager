@@ -999,7 +999,8 @@ function bindChatEvents() {
       const codeBtn = e.target.closest(".chat-code-copy-btn");
       if (codeBtn) {
         e.preventDefault();
-        const code = codeBtn.getAttribute("data-code") || "";
+        let code = codeBtn.getAttribute("data-code") || "";
+        code = code.replace(/^[\r\n]+/, "").trimEnd();
         const ok = await copyTextToClipboard(code);
         toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
         return;
@@ -1007,7 +1008,8 @@ function bindChatEvents() {
       const quoteBtn = e.target.closest(".chat-quote-copy-btn");
       if (quoteBtn) {
         e.preventDefault();
-        const quote = quoteBtn.getAttribute("data-quote") || "";
+        let quote = quoteBtn.getAttribute("data-quote") || "";
+        quote = quote.replace(/^[\r\n]+/, "").trimEnd();
         const ok = await copyTextToClipboard(quote);
         toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
         return;
@@ -1019,7 +1021,8 @@ function bindChatEvents() {
     if (!id) return;
     const msg = chatMessages.find((x) => x.id === id);
     if (!msg) return;
-    const text = String(msg.content || "");
+    let text = String(msg.content || "");
+    text = text.replace(/^[\r\n]+/, "").trimEnd();
     const ok = await copyTextToClipboard(text);
     toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
   });

@@ -425,69 +425,89 @@ function uninstallReasonToText(reasonKey) {
 async function promptDownloadModel(rawName) {
   const name = normalizePullInput(rawName);
   if (!name) return;
-  let installedNow = !!modelByName(name);
-  if (!installedNow) {
-    try {
-      await refreshModels();
-      installedNow = !!modelByName(name);
-    } catch {
-      // keep best-effort check
-    }
-  }
-  let previous = null;
-  let uninstallReason = "";
-  let usage = null;
+
+  let historyData = null;
   try {
-    const res = await api(`/api/download-history/${encodeURIComponent(name)}`);
-    previous = res && res.exists ? res.history : null;
-    uninstallReason = uninstallReasonToText(res?.uninstall?.reason);
-    usage = res?.usage || null;
+    historyData = await api(`/api/download-history/${encodeURIComponent(name)}`);
   } catch {
     // history endpoint is best-effort for UX warning
   }
-  let confirmMsg = "";
-  if (installedNow || previous?.last_done_at) {
-    confirmMsg = t("downloads.reenqueue_done_confirm", { name });
-  } else if (previous?.last_error_at || (previous?.error_count || 0) > 0) {
-    confirmMsg = t("downloads.reenqueue_error_confirm", { name });
+
+  const related = Array.isArray(historyData?.related_models) ? historyData.related_models : [];
+  const repoBase = historyData?.repo_base || name.split(":")[0];
+
+  if (related.length > 0) {
+    const cardsHtml = related.map((m) => {
+      let badgeClass = "dl-badge-tested";
+      let badgeText = t("downloads.history_variant_tested");
+
+      if (m.is_installed) {
+        badgeClass = "dl-badge-installed";
+        badgeText = t("downloads.history_variant_installed");
+      } else if (m.uninstall?.reason) {
+        badgeClass = "dl-badge-uninstalled";
+        badgeText = t("downloads.history_variant_uninstalled");
+      } else if (m.history?.error_count > 0 || m.history?.last_error) {
+        badgeClass = "dl-badge-error";
+        badgeText = t("downloads.history_variant_error");
+      }
+
+      let reasonHtml = "";
+      if (m.uninstall?.reason) {
+        const rText = uninstallReasonToText(m.uninstall.reason);
+        const atText = m.uninstall.at ? ` · <span class="mono">${fmtDate(m.uninstall.at)}</span>` : "";
+        reasonHtml = `<div class="dl-hist-reason">🗑️ ${escapeHtml(t("downloads.history_delete_reason", { reason: rText }))}${atText}</div>`;
+      }
+
+      const statsParts = [];
+      if (m.usage) {
+        if (m.usage.record_tokens_per_sec > 0) {
+          statsParts.push(`⚡ ${m.usage.record_tokens_per_sec.toFixed(1)} tok/s`);
+        }
+        if (m.usage.min_cold_load_ms > 0) {
+          statsParts.push(`⏱️ ${fmtColdLoad(m.usage.min_cold_load_ms)}`);
+        }
+        if (m.usage.last_used_at) {
+          statsParts.push(`📅 ${fmtDate(m.usage.last_used_at)}`);
+        }
+        if (m.usage.total_calls > 0) {
+          statsParts.push(`💬 ${m.usage.total_calls} calls`);
+        }
+      }
+      const statsHtml = statsParts.length > 0
+        ? `<div class="dl-hist-stats mono">${statsParts.map((s) => `<span>${escapeHtml(s)}</span>`).join("")}</div>`
+        : "";
+
+      let errHtml = "";
+      if (m.history?.last_error && !m.is_installed) {
+        errHtml = `<div class="dl-hist-error">⚠️ ${escapeHtml(m.history.last_error)}</div>`;
+      }
+
+      return `
+        <div class="dl-history-alert-card">
+          <div class="dl-hist-head">
+            <span class="dl-hist-name mono">${escapeHtml(m.name)}</span>
+            <span class="dl-hist-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+          </div>
+          ${reasonHtml}
+          ${statsHtml}
+          ${errHtml}
+        </div>
+      `;
+    }).join("");
+
+    const intro = t("downloads.history_alert_intro", { name: escapeHtml(name), repo: escapeHtml(repoBase) });
+    const modalHtml = `<div>${intro}</div><div class="dl-history-alert-wrap">${cardsHtml}</div>`;
+
+    const { ok } = await askConfirm({
+      title: t("downloads.history_alert_title"),
+      html: modalHtml,
+      okText: t("downloads.history_download_anyway"),
+      okClass: "primary",
+    });
+    if (!ok) return;
   }
 
-  let usageLines = [];
-  if (usage) {
-    if (usage.record_tokens_per_sec > 0) {
-      const recDate = usage.record_tokens_per_sec_at ? ` (${fmtDate(usage.record_tokens_per_sec_at)})` : "";
-      usageLines.push(`• ${t("downloads.reenqueue_stat_record")}: ${usage.record_tokens_per_sec.toFixed(1)} tok/s${recDate}`);
-    }
-    if (usage.min_cold_load_ms > 0) {
-      const minDate = usage.min_cold_load_at ? ` (${fmtDate(usage.min_cold_load_at)})` : "";
-      usageLines.push(`• ${t("downloads.reenqueue_stat_min_load")}: ${fmtColdLoad(usage.min_cold_load_ms)}${minDate}`);
-    }
-    if (usage.last_used_at) {
-      usageLines.push(`• ${t("downloads.reenqueue_stat_last_used")}: ${fmtDateTimeFull(usage.last_used_at)}`);
-    }
-    if (usage.total_calls > 0) {
-      usageLines.push(`• ${t("downloads.reenqueue_stat_total_calls")}: ${usage.total_calls}`);
-    }
-  }
-
-  if (uninstallReason) {
-    const reasonLine = t("downloads.reenqueue_last_uninstall_reason", { reason: uninstallReason });
-    if (!confirmMsg) {
-      confirmMsg = t("downloads.reenqueue_with_reason_confirm", { name, reason: uninstallReason });
-    } else {
-      confirmMsg = `${confirmMsg}\n\n${reasonLine}`;
-    }
-  }
-
-  if (usageLines.length > 0) {
-    const statsBlock = `${t("downloads.reenqueue_prev_performance")}:\n${usageLines.join("\n")}`;
-    if (!confirmMsg) {
-      confirmMsg = `${t("downloads.reenqueue_with_history_confirm", { name })}\n\n${statsBlock}`;
-    } else {
-      confirmMsg = `${confirmMsg}\n\n${statsBlock}`;
-    }
-  }
-  if (confirmMsg && !window.confirm(confirmMsg)) return;
   try {
     await api("/api/pull", {
       method: "POST",

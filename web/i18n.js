@@ -256,6 +256,16 @@ const I18N = {
     "modelfile.step1_title": "Model Identity",
     "modelfile.step1_desc": "Choose a name and the base model to build upon.",
 
+    "downloads.history_alert_title": "Repository History & Installed Variants",
+    "downloads.history_alert_intro": "You are about to download <span class=\"mono\">{name}</span>. Found prior activity in repository <span class=\"mono\">{repo}</span>:",
+    "downloads.history_variant_installed": "Installed",
+    "downloads.history_variant_uninstalled": "Uninstalled",
+    "downloads.history_variant_error": "Failed",
+    "downloads.history_variant_tested": "Tested",
+    "downloads.history_delete_reason": "Deletion reason: {reason}",
+    "downloads.history_stats": "Stats",
+    "downloads.history_download_anyway": "Download anyway",
+
     "chat.open_title": "Open chat",
     "chat.back": "Back",
     "chat.model": "Model",
@@ -1020,6 +1030,16 @@ const I18N = {
     "modelfile.copied": "¡Copiado!",
     "modelfile.step1_title": "Identidad del Modelo",
     "modelfile.step1_desc": "Elige un nombre y el modelo base sobre el cual construir.",
+
+    "downloads.history_alert_title": "Historial del Repositorio y Variantes",
+    "downloads.history_alert_intro": "Estás por descargar <span class=\"mono\">{name}</span>. Se detectó actividad previa en el repositorio <span class=\"mono\">{repo}</span>:",
+    "downloads.history_variant_installed": "Instalado",
+    "downloads.history_variant_uninstalled": "Desinstalado",
+    "downloads.history_variant_error": "Fallo previo",
+    "downloads.history_variant_tested": "Probado",
+    "downloads.history_delete_reason": "Razón de borrado: {reason}",
+    "downloads.history_stats": "Estadísticas",
+    "downloads.history_download_anyway": "Descargar de todos modos",
 
     "chat.open_title": "Abrir chat",
     "chat.back": "Volver",

@@ -428,6 +428,25 @@ func TestDeleteModelStoresUninstallReason(t *testing.T) {
 	if uninstall["reason"] != "too_slow" {
 		t.Fatalf("uninstall reason = %#v", uninstall["reason"])
 	}
+
+	// Query for a DIFFERENT quant of the same repo (e.g. qwen3:7b-instruct-q4_0)
+	hReq2 := httptest.NewRequest(http.MethodGet, "/api/download-history/"+url.PathEscape("qwen3:7b-instruct-q4_0"), nil)
+	hRec2 := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(hRec2, hReq2)
+	if hRec2.Code != http.StatusOK {
+		t.Fatalf("history status = %d, body = %s", hRec2.Code, hRec2.Body.String())
+	}
+	var out2 map[string]any
+	if err := json.NewDecoder(hRec2.Body).Decode(&out2); err != nil {
+		t.Fatal(err)
+	}
+	if out2["repo_base"] != "qwen3" {
+		t.Fatalf("expected repo_base qwen3, got %v", out2["repo_base"])
+	}
+	related, ok := out2["related_models"].([]any)
+	if !ok || len(related) == 0 {
+		t.Fatalf("expected related_models to contain previously uninstalled qwen3:latest, got: %#v", out2)
+	}
 }
 
 func TestBuildModelRepairPreviewFiltersMarkdownStops(t *testing.T) {

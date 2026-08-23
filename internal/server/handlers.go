@@ -2216,15 +2216,34 @@ func (s *Server) handleJobsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.jobs.List()})
 }
 
+func modelRepoBase(name string) string {
+	s := strings.TrimSpace(name)
+	s = strings.ToLower(s)
+	for _, p := range []string{"https://", "http://"} {
+		if strings.HasPrefix(s, p) {
+			s = strings.TrimPrefix(s, p)
+		}
+	}
+	s = strings.TrimPrefix(s, "ollama.com/library/")
+	s = strings.TrimPrefix(s, "ollama.com/")
+	idx := strings.Index(s, ":")
+	if idx != -1 {
+		s = s[:idx]
+	}
+	return strings.TrimSpace(s)
+}
+
 func (s *Server) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.PathValue("name"))
 	if name == "" {
 		writeError(w, http.StatusBadRequest, errors.New("missing name"))
 		return
 	}
+	repoBase := modelRepoBase(name)
 	resp := map[string]any{
-		"name":   name,
-		"exists": false,
+		"name":      name,
+		"repo_base": repoBase,
+		"exists":    false,
 	}
 	if h, ok := s.jobs.History(name); ok {
 		resp["exists"] = true
@@ -2251,6 +2270,95 @@ func (s *Server) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Collect related models from the same repository
+	type relatedItem struct {
+		Name        string         `json:"name"`
+		IsInstalled bool           `json:"is_installed"`
+		History     any            `json:"history,omitempty"`
+		Uninstall   map[string]any `json:"uninstall,omitempty"`
+		Usage       map[string]any `json:"usage,omitempty"`
+	}
+
+	candidates := make(map[string]bool)
+	installedMap := make(map[string]bool)
+
+	if s.ollama != nil {
+		if installedList, err := s.ollama.List(r.Context()); err == nil {
+			for _, m := range installedList {
+				installedMap[m.Name] = true
+				installedMap[strings.ToLower(m.Name)] = true
+				candidates[m.Name] = true
+			}
+		}
+	}
+
+	if s.jobs != nil {
+		for cand := range s.jobs.AllHistory() {
+			candidates[cand] = true
+		}
+	}
+	if s.uninst != nil {
+		for cand := range s.uninst.All() {
+			candidates[cand] = true
+		}
+	}
+	if s.usage != nil {
+		for cand := range s.usage.All() {
+			candidates[cand] = true
+		}
+	}
+
+	var related []relatedItem
+	for cand := range candidates {
+		if cand == "" {
+			continue
+		}
+		candRepo := modelRepoBase(cand)
+		if repoBase != "" && candRepo == repoBase {
+			item := relatedItem{
+				Name:        cand,
+				IsInstalled: installedMap[cand] || installedMap[strings.ToLower(cand)],
+			}
+			if s.jobs != nil {
+				if h, ok := s.jobs.History(cand); ok {
+					item.History = h
+				}
+			}
+			if s.uninst != nil {
+				if u, ok := s.uninst.Get(cand); ok && u.LastReason != "" {
+					item.Uninstall = map[string]any{
+						"reason": u.LastReason,
+						"at":     u.LastUninstallAt,
+					}
+				}
+			}
+			if s.usage != nil {
+				if u, ok := s.usage.Get(cand); ok && (u.TotalCalls > 0 || u.RecordTokensPerSec > 0 || u.MinColdLoadMs > 0 || u.LastUsedAt != nil) {
+					item.Usage = map[string]any{
+						"last_used_at":             u.LastUsedAt,
+						"record_tokens_per_sec":    u.RecordTokensPerSec,
+						"record_tokens_per_sec_at": u.RecordTokensPerSecAt,
+						"min_cold_load_ms":         u.MinColdLoadMs,
+						"min_cold_load_at":         u.MinColdLoadAt,
+						"total_tokens":             u.TotalTokens,
+						"total_calls":              u.TotalCalls,
+					}
+				}
+			}
+			related = append(related, item)
+		}
+	}
+
+	// Sort related: installed first, then by name
+	sort.Slice(related, func(i, j int) bool {
+		if related[i].IsInstalled != related[j].IsInstalled {
+			return related[i].IsInstalled
+		}
+		return related[i].Name < related[j].Name
+	})
+
+	resp["related_models"] = related
 	writeJSON(w, http.StatusOK, resp)
 }
 

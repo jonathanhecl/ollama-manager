@@ -75,6 +75,16 @@ func (s *uninstallHistoryStore) Get(name string) (uninstallRecord, bool) {
 	return row, ok
 }
 
+func (s *uninstallHistoryStore) All() map[string]uninstallRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]uninstallRecord, len(s.byName))
+	for k, v := range s.byName {
+		out[k] = v
+	}
+	return out
+}
+
 func (s *uninstallHistoryStore) Record(name, reason string, when time.Time) error {
 	if name == "" {
 		return nil

@@ -20,14 +20,18 @@ function closeConfirmModal(result) {
   }
 }
 
-function askConfirm({ title, text, okText, okClass = "primary", mono = "", showDeleteReason = false }) {
+function askConfirm({ title, text, html = "", okText, okClass = "primary", mono = "", showDeleteReason = false }) {
   if (pendingConfirmResolve) closeConfirmModal(false);
   $("confirm-title").textContent = title || t("confirm.title");
-  const safe = escapeHtml(text || "").replace(
-    mono ? escapeHtml(mono) : "{__NO_MONO__}",
-    mono ? `<span class="mono">${escapeHtml(mono)}</span>` : "{__NO_MONO__}",
-  );
-  $("confirm-text").innerHTML = safe;
+  if (html) {
+    $("confirm-text").innerHTML = html;
+  } else {
+    const safe = escapeHtml(text || "").replace(
+      mono ? escapeHtml(mono) : "{__NO_MONO__}",
+      mono ? `<span class="mono">${escapeHtml(mono)}</span>` : "{__NO_MONO__}",
+    );
+    $("confirm-text").innerHTML = safe;
+  }
   const reasonWrap = $("confirm-delete-reason-wrap");
   if (reasonWrap) {
     reasonWrap.hidden = !showDeleteReason;

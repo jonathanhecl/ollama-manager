@@ -242,6 +242,19 @@ func (m *Manager) History(name string) (DownloadHistory, bool) {
 	return cp, true
 }
 
+// AllHistory returns a copy of all persisted download history records.
+func (m *Manager) AllHistory() map[string]DownloadHistory {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]DownloadHistory, len(m.history))
+	for k, v := range m.history {
+		if v != nil {
+			out[k] = *v
+		}
+	}
+	return out
+}
+
 // Start kicks the worker: if there is no active job, it promotes the first
 // queued job (in insertion order) to running.
 func (m *Manager) Start() {

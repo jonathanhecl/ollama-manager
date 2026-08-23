@@ -678,6 +678,48 @@
     });
   }
 
+  function resetModelfileForm() {
+    const sysEl = $("mf-system-prompt");
+    if (sysEl) sysEl.value = "";
+
+    const tmplEl = $("mf-template");
+    if (tmplEl) tmplEl.value = "";
+
+    const tempEl = $("mf-temperature");
+    if (tempEl) {
+      tempEl.value = "0.7";
+      updateTemperatureUI(0.7);
+    }
+
+    const topPEl = $("mf-top-p");
+    if (topPEl) {
+      topPEl.value = "0.9";
+      updateTopPUI(0.9);
+    }
+
+    const repEl = $("mf-repeat-penalty");
+    if (repEl) {
+      repEl.value = "1.1";
+      updateRepeatPenaltyUI(1.1);
+    }
+
+    const ctxEl = $("mf-num-ctx");
+    if (ctxEl) {
+      ctxEl.value = "8192";
+      updateContextUI(8192);
+    }
+
+    const stopEl = $("mf-stop-tokens");
+    if (stopEl) stopEl.value = "";
+    updateStopChipsUI();
+
+    const rawEl = $("mf-raw-modelfile");
+    if (rawEl) rawEl.value = "";
+
+    autoResizeSystemPrompt();
+    updateTokenBudgetUI();
+  }
+
   function showModelfileView(baseModelName, options = {}) {
     if (typeof hideAllMainViews === "function") {
       hideAllMainViews();
@@ -698,6 +740,9 @@
     isCreating = false;
     isEditingModel = !!options.isEdit;
     editingModelName = isEditingModel ? (baseModelName || "") : "";
+
+    // Always reset all fields to clean defaults first so no stale state remains
+    resetModelfileForm();
 
     // Reset status & buttons
     const statusWrap = $("mf-status-wrap");
@@ -751,7 +796,7 @@
 
     if (isEditingModel && options.detail) {
       const d = options.detail;
-      if (nameInp) nameInp.value = baseModelName;
+      if (nameInp) nameInp.value = baseModelName || "";
 
       // Extract base model from detail
       let baseVal = d.base_model || "";
@@ -800,14 +845,20 @@
         if (rawEl) rawEl.value = d.modelfile;
       }
     } else {
-      if (sel && customInp && baseModelName) {
-        const exists = installed.some((m) => m.name === baseModelName);
-        if (exists) {
-          sel.value = baseModelName;
-        } else {
-          customInp.hidden = false;
-          customInp.value = baseModelName;
-          sel.hidden = true;
+      if (sel && customInp) {
+        if (baseModelName) {
+          const exists = installed.some((m) => m.name === baseModelName);
+          if (exists) {
+            sel.value = baseModelName;
+            sel.hidden = false;
+            customInp.hidden = true;
+          } else {
+            customInp.hidden = false;
+            customInp.value = baseModelName;
+            sel.hidden = true;
+          }
+        } else if (sel.options.length > 0 && sel.options[0].value) {
+          sel.selectedIndex = 0;
         }
       }
 
@@ -815,7 +866,7 @@
         if (baseModelName) {
           const baseClean = baseModelName.split(":")[0];
           nameInp.value = `${baseClean}-custom:latest`;
-        } else if (!nameInp.value) {
+        } else {
           nameInp.value = "my-custom-model:latest";
         }
       }
@@ -823,19 +874,8 @@
     }
 
     updateEmbeddingModelNotice();
-
-    // Initialize explanations & layout
     autoResizeSystemPrompt();
-    const tempEl = $("mf-temperature");
-    if (tempEl) updateTemperatureUI(parseFloat(tempEl.value));
-    const ctxEl = $("mf-num-ctx");
-    if (ctxEl) updateContextUI(parseInt(ctxEl.value, 10));
-    const topPEl = $("mf-top-p");
-    if (topPEl) updateTopPUI(parseFloat(topPEl.value));
-    const repEl = $("mf-repeat-penalty");
-    if (repEl) updateRepeatPenaltyUI(parseFloat(repEl.value));
-    updateStopChipsUI();
-
+    updateTokenBudgetUI();
     switchTab("builder");
     updatePreview();
 

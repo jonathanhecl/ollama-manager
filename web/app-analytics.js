@@ -142,9 +142,16 @@ function analyticsPoint(m) {
   const loadThroughputMBs = coldLoadMs > 0 && sizeBytes > 0 ? (sizeBytes / 1e6) / (coldLoadMs / 1000) : 0;
   const paramsB = params > 0 ? params / 1e9 : 0;
 
+  const isLoaded = !!(
+    m.loaded ||
+    (typeof runningModels !== "undefined" && Array.isArray(runningModels) && runningModels.some((r) => r.name === m.name)) ||
+    (typeof models !== "undefined" && Array.isArray(models) && models.some((x) => x.name === m.name && x.loaded))
+  );
+
   return {
     raw: m,
     name: m.name,
+    loaded: isLoaded,
     ghost: !!m.is_ghost,
     params,
     paramsB,

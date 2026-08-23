@@ -112,6 +112,9 @@ function showAnalyticsTooltip(e, p) {
   const isGhost = p.ghost;
   const quantBadge = p.quant ? `<span class="badge badge-quant">${escapeHtml(p.quant)}</span>` : "";
   const moeBadge = p.isMOE ? `<span class="badge badge-moe">MoE</span>` : "";
+  const loadedBadge = p.loaded
+    ? `<span class="badge badge-loaded-memory">● ${escapeHtml(t("detail.dot_loaded") || "Loaded")}</span>`
+    : "";
   const ghostBadge = isGhost
     ? `<span class="badge badge-muted">${escapeHtml(t("analytics.source_ghost"))}</span>`
     : `<span class="badge badge-installed">${escapeHtml(t("analytics.source_installed"))}</span>`;
@@ -125,7 +128,7 @@ function showAnalyticsTooltip(e, p) {
   tip.innerHTML = `
     <div class="analytics-tip-head">
       <div class="analytics-tip-title">${escapeHtml(p.name)}</div>
-      <div class="analytics-tip-badges">${ghostBadge}${quantBadge}${moeBadge}</div>
+      <div class="analytics-tip-badges">${loadedBadge}${ghostBadge}${quantBadge}${moeBadge}</div>
     </div>
     <div class="analytics-tip-grid">
       <div class="analytics-tip-item"><span class="analytics-tip-lbl">⚡ ${escapeHtml(t("analytics.tps"))}:</span> <strong class="analytics-tip-val highlight-cyan">${tpsStr}</strong></div>
@@ -259,6 +262,19 @@ function renderModernScatter(container, data, opts) {
       <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.95"/>
       <stop offset="100%" stop-color="#f59e0b" stop-opacity="1"/>
     </linearGradient>
+    <filter id="glow-loaded" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="grad-glow-loaded" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.95"/>
+      <stop offset="50%" stop-color="#34d399" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
   `;
   svg.appendChild(defs);
 
@@ -331,29 +347,59 @@ function renderModernScatter(container, data, opts) {
     }
   }
 
-  // Render Interactive Dots
+  // Sort so loaded models are rendered last (drawn on top)
+  const sortedPoints = [...points].sort((a, b) => {
+    if (!!a.p.loaded === !!b.p.loaded) return a.x - b.x;
+    return a.p.loaded ? 1 : -1;
+  });
+
+  // Calculate label configs (prioritizing loaded models so their labels are never skipped)
   const placedLabels = [];
-  points.forEach((pt) => {
+  const priorityPoints = [...sortedPoints].sort((a, b) => (b.p.loaded ? 1 : 0) - (a.p.loaded ? 1 : 0));
+  priorityPoints.forEach((pt) => {
     const cx = sx(pt.x), cy = sy(pt.y);
-    const color = modelFamilyColor(pt.p.family, pt.p.ghost);
-    const g = svgEl("g", { class: `analytics-pt ${pt.p.ghost ? "is-ghost" : ""}` });
-
-    // Halo & Core Dot
-    g.appendChild(svgEl("circle", { cx, cy, r: 8, fill: color, class: "analytics-dot-halo" }));
-    g.appendChild(svgEl("circle", { cx, cy, r: 5.5, fill: color, class: "analytics-dot" }));
-
-    // Label if space allows
-    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < 120 && Math.abs(q.y - cy) < 20);
-    if (!tooClose) {
+    const isLoaded = !!pt.p.loaded;
+    const minDistanceX = isLoaded ? 80 : 120;
+    const minDistanceY = isLoaded ? 14 : 20;
+    const tooClose = placedLabels.some((q) => Math.abs(q.x - cx) < minDistanceX && Math.abs(q.y - cy) < minDistanceY);
+    if (!tooClose || isLoaded) {
       const label = shortModelLabel(pt.p.name, 18);
       const onRightEdge = cx > W - 130;
-      g.appendChild(svgEl("text", {
-        x: onRightEdge ? cx - 11 : cx + 11,
+      pt.labelConfig = {
+        x: onRightEdge ? cx - 12 : cx + 12,
         y: cy - 6,
-        "text-anchor": onRightEdge ? "end" : "start",
-        class: "analytics-ptlabel",
-      }, label));
+        anchor: onRightEdge ? "end" : "start",
+        label: isLoaded ? `● ${label}` : label,
+        isLoaded,
+      };
       placedLabels.push({ x: cx, y: cy });
+    }
+  });
+
+  // Render Interactive Dots
+  sortedPoints.forEach((pt) => {
+    const cx = sx(pt.x), cy = sy(pt.y);
+    const isLoaded = !!pt.p.loaded;
+    const color = isLoaded ? "#10b981" : modelFamilyColor(pt.p.family, pt.p.ghost);
+    const g = svgEl("g", { class: `analytics-pt ${pt.p.ghost ? "is-ghost" : ""} ${isLoaded ? "is-loaded" : ""}` });
+
+    if (isLoaded) {
+      // Radiant glowing emerald styling for loaded models
+      g.appendChild(svgEl("circle", { cx, cy, r: 16, class: "analytics-dot-glow-loaded" }));
+      g.appendChild(svgEl("circle", { cx, cy, r: 9.5, class: "analytics-dot-halo-loaded" }));
+      g.appendChild(svgEl("circle", { cx, cy, r: 6.5, class: "analytics-dot-core-loaded" }));
+    } else {
+      g.appendChild(svgEl("circle", { cx, cy, r: 8, fill: color, class: "analytics-dot-halo" }));
+      g.appendChild(svgEl("circle", { cx, cy, r: 5.5, fill: color, class: "analytics-dot" }));
+    }
+
+    if (pt.labelConfig) {
+      g.appendChild(svgEl("text", {
+        x: pt.labelConfig.x,
+        y: pt.labelConfig.y,
+        "text-anchor": pt.labelConfig.anchor,
+        class: `analytics-ptlabel ${isLoaded ? "is-loaded" : ""}`,
+      }, pt.labelConfig.label));
     }
 
     // Attach listeners with touch / mobile support
@@ -397,14 +443,16 @@ function renderModernBars(container, data, opts) {
     const subText = opts.formatSub ? opts.formatSub(p) : "";
     const quantBadge = p.quant ? `<span class="badge badge-quant-pill">${escapeHtml(p.quant)}</span>` : "";
     const ghostClass = p.ghost ? "is-ghost" : "";
+    const loadedBadge = p.loaded ? `<span class="badge badge-loaded-memory" title="${escapeHtml(t("detail.dot_loaded") || "Loaded in memory")}">●</span>` : "";
 
     return `
-      <div class="analytics-bar-row ${ghostClass}" data-model-idx="${i}">
+      <div class="analytics-bar-row ${ghostClass} ${p.loaded ? "is-loaded" : ""}" data-model-idx="${i}">
         <div class="analytics-bar-head">
           <div class="analytics-bar-title-group">
             <span class="analytics-bar-rank">#${i + 1}</span>
             <span class="analytics-bar-name" title="${escapeHtml(p.name)}">${escapeHtml(shortModelLabel(p.name, 28))}</span>
             ${quantBadge}
+            ${loadedBadge}
           </div>
           <div class="analytics-bar-vals">
             <strong class="analytics-bar-primary">${escapeHtml(valText)}</strong>

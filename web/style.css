@@ -7416,6 +7416,60 @@ button.chat-send:disabled:hover {
   color: #f87171;
 }
 
+/* Loaded Models Vibrant Glowing Style in Analytics Charts */
+.analytics-pt.is-loaded {
+  cursor: pointer;
+}
+.analytics-dot-glow-loaded {
+  fill: url(#grad-glow-loaded);
+  animation: analyticsLoadedPulse 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+.analytics-dot-halo-loaded {
+  fill: rgba(16, 185, 129, 0.45);
+  stroke: #34d399;
+  stroke-width: 1.5;
+  filter: url(#glow-loaded);
+  pointer-events: none;
+}
+.analytics-dot-core-loaded {
+  fill: #10b981;
+  stroke: #ffffff;
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 6px #10b981) drop-shadow(0 0 12px #34d399);
+}
+.analytics-ptlabel.is-loaded {
+  fill: #34d399;
+  font-weight: 700;
+  font-size: 11.5px;
+  filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.9));
+}
+@keyframes analyticsLoadedPulse {
+  0%, 100% {
+    r: 14;
+    opacity: 0.65;
+  }
+  50% {
+    r: 21;
+    opacity: 1;
+  }
+}
+.badge-loaded-memory {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);
+  vertical-align: middle;
+}
+.analytics-bar-row.is-loaded {
+  border-left: 3px solid #10b981;
+  background: color-mix(in srgb, #10b981 5%, transparent);
+}
+
 
 
 

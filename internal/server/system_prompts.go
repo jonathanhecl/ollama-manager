@@ -246,7 +246,16 @@ func (s *systemPromptsStore) Create(title, prompt string) (SystemPrompt, error) 
 	}
 
 	baseName := sanitizePromptFilename(title)
-	filename := baseName + ".md"
+	ext := strings.ToLower(filepath.Ext(baseName))
+	var rawBase, filename string
+	if ext == ".md" || ext == ".txt" || ext == ".markdown" || ext == ".prompt" {
+		rawBase = strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		filename = baseName
+	} else {
+		rawBase = baseName
+		ext = ".md"
+		filename = rawBase + ".md"
+	}
 	target := filepath.Join(s.dir, filename)
 
 	count := 1
@@ -254,7 +263,7 @@ func (s *systemPromptsStore) Create(title, prompt string) (SystemPrompt, error) 
 		if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
 			break
 		}
-		filename = fmt.Sprintf("%s (%d).md", baseName, count)
+		filename = fmt.Sprintf("%s (%d)%s", rawBase, count, ext)
 		target = filepath.Join(s.dir, filename)
 		count++
 	}

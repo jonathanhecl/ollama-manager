@@ -1176,7 +1176,9 @@
           <span data-i18n="settings.title">Settings</span>
         </h2>
       </div>
-      <div id="settings-build-info" class="settings-build-info muted mono"></div>
+      <div class="settings-view-head-actions">
+        <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
+      </div>
     </header>
 
     <div class="settings-layout">
@@ -1384,9 +1386,9 @@
             </div>
           </details>
 
-          <!-- Action bar -->
-          <div class="settings-actions-bar">
-            <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
+          <!-- Centered build info at bottom -->
+          <div class="settings-footer-info">
+            <div id="settings-build-info" class="settings-build-info muted mono"></div>
           </div>
         </div>
       </section>

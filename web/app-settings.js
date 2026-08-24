@@ -26,7 +26,13 @@ async function showSettingsView() {
     toast(t("toast.error", { msg: e.message }), "error");
     return;
   }
-  $("set-language").value = currentConfig.language;
+  const effectiveLang = currentConfig.language || (window.I18n ? window.I18n.getLang() : "en");
+  $("set-language").value = effectiveLang;
+  if (typeof window.I18n?.getLang === "function" && window.I18n.getLang() !== effectiveLang) {
+    window.I18n.setLang(effectiveLang);
+  } else if (typeof window.I18n?.applyTranslations === "function") {
+    window.I18n.applyTranslations();
+  }
   $("set-port").value = currentConfig.port;
   $("set-expose").checked = !!currentConfig.expose_network;
   $("set-password").value = "";

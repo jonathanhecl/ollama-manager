@@ -925,7 +925,7 @@ const I18N = {
 
     "action.refresh": "Refrescar",
     "action.reload_models": "Recargar modelos",
-    "action.settings": "Ajustes",
+    "action.settings": "Configuración",
     "action.logout": "Salir",
     "action.close": "Cerrar",
     "action.view": "Ver",
@@ -1052,7 +1052,7 @@ const I18N = {
     "confirm.delete_reason_too_slow": "Funcionaba muy lento",
     "confirm.delete_reason_obsolete_or_outdated": "Viejo / desactualizado / obsoleto",
 
-    "settings.title": "Ajustes",
+    "settings.title": "Configuración",
     "settings.general": "General",
     "settings.network": "Red",
     "settings.language": "Idioma",
@@ -1741,5 +1741,17 @@ function applyTranslations(root = document) {
 
 // Expose to global scope for app.js.
 window.I18n = { setLang, getLang, t, applyTranslations };
+
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      document.documentElement.lang = _lang;
+      applyTranslations();
+    });
+  } else {
+    document.documentElement.lang = _lang;
+    applyTranslations();
+  }
+}
 
 })();

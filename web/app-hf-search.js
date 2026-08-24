@@ -375,33 +375,276 @@ async function loadHFReadme(repoId) {
   }
 }
 
-function formatHFMarkdown(md) {
-  if (!md) return "";
-  let text = escapeHtml(md);
+function sanitizeHFHtml(html) {
+  if (!html) return "";
+  // Strip dangerous tags: script, style, iframe, object, embed, form, input
+  let clean = html.replace(/<\s*(script|style|iframe|object|embed|form|input)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
+  clean = clean.replace(/<\s*(script|style|iframe|object|embed|form|input)[^>]*>/gi, "");
 
-  // Fenced code blocks
-  text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
-    return `<pre class="mono hf-code-block"><code class="language-${lang}">${code}</code></pre>`;
+  // Strip event handlers (onload, onerror, onclick, etc.) and javascript: links
+  clean = clean.replace(/\son[a-zA-Z]+\s*=\s*(['"][^'"]*['"]|[^\s>]+)/gi, "");
+  clean = clean.replace(/href\s*=\s*['"]\s*javascript:[^'"]*['"]/gi, 'href="#"');
+  clean = clean.replace(/src\s*=\s*['"]\s*javascript:[^'"]*['"]/gi, 'src=""');
+
+  // Enforce target="_blank" and rel="noopener noreferrer" on all links
+  clean = clean.replace(/<a\s+(?:[^>]*?\s+)?href="([^"]*)"([^>]*)>/gi, (_m, href, rest) => {
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer"${rest}>`;
   });
 
-  // Inline code
-  text = text.replace(/`([^`]+)`/g, '<code class="mono">$1</code>');
+  return clean;
+}
 
-  // Headers
-  text = text.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-  text = text.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-  text = text.replace(/^# (.*$)/gim, "<h1>$1</h1>");
+function extractYAMLFrontmatter(md) {
+  let text = String(md || "").replace(/\r\n/g, "\n");
+  let metaHTML = "";
 
-  // Bold & Italics
-  text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  text = text.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  // Check if starts with ---
+  if (text.startsWith("---\n")) {
+    const endIdx = text.indexOf("\n---\n", 4);
+    if (endIdx !== -1) {
+      const yamlContent = text.substring(4, endIdx);
+      text = text.substring(endIdx + 5);
 
-  // Links
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1 ↗</a>');
+      const metaPills = [];
+      const lines = yamlContent.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
 
-  // Paragraphs / linebreaks
-  text = text.replace(/\n\n+/g, "</p><p>");
-  return `<div class="hf-markdown-body"><p>${text}</p></div>`;
+        if (trimmed.startsWith("base_model:")) {
+          const val = trimmed.replace("base_model:", "").replace(/[[\]'"]/g, "").trim();
+          if (val) metaPills.push(`<span class="badge badge-subtle">🏷️ Base: <strong>${escapeHtml(val)}</strong></span>`);
+        } else if (trimmed.startsWith("license:")) {
+          const val = trimmed.replace("license:", "").replace(/['"]/g, "").trim();
+          if (val) metaPills.push(`<span class="badge badge-subtle">⚖️ License: <strong>${escapeHtml(val)}</strong></span>`);
+        } else if (trimmed.startsWith("pipeline_tag:")) {
+          const val = trimmed.replace("pipeline_tag:", "").replace(/['"]/g, "").trim();
+          if (val) metaPills.push(`<span class="badge badge-subtle">⚡ ${escapeHtml(val)}</span>`);
+        }
+      }
+
+      if (metaPills.length > 0) {
+        metaHTML = `<div class="hf-readme-meta-strip">${metaPills.join(" ")}</div>`;
+      }
+    }
+  }
+
+  return { cleanText: text, metaHTML };
+}
+
+function extractGFMTables(text, tables) {
+  const lines = text.split("\n");
+  const result = [];
+  let tableLines = [];
+
+  function flushTable() {
+    if (tableLines.length >= 2) {
+      const headerLine = tableLines[0];
+      const alignLine = tableLines[1];
+      const dataLines = tableLines.slice(2);
+
+      const headers = headerLine.split("|").slice(1, -1).map((h) => h.trim());
+      const aligns = alignLine.split("|").slice(1, -1).map((a) => {
+        a = a.trim();
+        if (a.startsWith(":") && a.endsWith(":")) return "center";
+        if (a.endsWith(":")) return "right";
+        return "left";
+      });
+
+      let html = '<div class="table-wrap"><table class="hf-quants-table"><thead><tr>';
+      headers.forEach((h, i) => {
+        const align = aligns[i] || "left";
+        html += `<th style="text-align:${align}">${h}</th>`;
+      });
+      html += '</tr></thead><tbody>';
+
+      dataLines.forEach((row) => {
+        const cells = row.split("|").slice(1, -1).map((c) => c.trim());
+        if (cells.length > 0) {
+          html += '<tr>';
+          headers.forEach((_, i) => {
+            const align = aligns[i] || "left";
+            const cell = cells[i] || "";
+            html += `<td style="text-align:${align}">${cell}</td>`;
+          });
+          html += '</tr>';
+        }
+      });
+      html += '</tbody></table></div>';
+
+      const key = `@@TABLE_${tables.length}@@`;
+      tables.push(html);
+      result.push(key);
+    } else {
+      result.push(...tableLines);
+    }
+    tableLines = [];
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith("|") && line.endsWith("|")) {
+      tableLines.push(line);
+    } else {
+      if (tableLines.length) flushTable();
+      result.push(lines[i]);
+    }
+  }
+  if (tableLines.length) flushTable();
+
+  return result.join("\n");
+}
+
+function formatHFMarkdown(md) {
+  if (!md) return "";
+
+  // 1. Extract and format YAML frontmatter
+  const { cleanText, metaHTML } = extractYAMLFrontmatter(md);
+  let work = cleanText;
+
+  // 2. Extract code blocks so markdown rules don't tamper with them
+  const codeBlocks = [];
+  work = work.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+    const key = `@@CODEBLOCK_${codeBlocks.length}@@`;
+    const langLabel = lang ? escapeHtml(lang) : "code";
+    const escapedCode = escapeHtml(code.trim());
+    codeBlocks.push(`
+      <div class="chat-code-wrap">
+        <div class="chat-code-header">
+          <span class="chat-code-lang">${langLabel}</span>
+          <button type="button" class="chat-code-copy-btn" data-code="${escapedCode}" onclick="navigator.clipboard.writeText(this.dataset.code); this.textContent='✓ Copied'; setTimeout(() => this.textContent='Copy', 2000);">Copy</button>
+        </div>
+        <pre class="chat-code mono"><code>${escapedCode}</code></pre>
+      </div>
+    `);
+    return key;
+  });
+
+  // 3. Extract GFM Tables
+  const tableBlocks = [];
+  work = extractGFMTables(work, tableBlocks);
+
+  // 4. Markdown headers
+  work = work.replace(/^######\s+(.+)$/gm, "<h6>$1</h6>");
+  work = work.replace(/^#####\s+(.+)$/gm, "<h5>$1</h5>");
+  work = work.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
+  work = work.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
+  work = work.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
+  work = work.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
+
+  // 5. Markdown images: ![alt](url)
+  work = work.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" class="hf-readme-img" />');
+
+  // 6. Markdown links: [text](url)
+  work = work.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1 ↗</a>');
+
+  // 7. Bold & Italics
+  work = work.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
+  work = work.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  work = work.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  work = work.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  work = work.replace(/_([^_\n]+)_/g, "<em>$1</em>");
+
+  // 8. Strikethrough
+  work = work.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+
+  // 9. Inline code: `code`
+  work = work.replace(/`([^`\n]+)`/g, '<code class="mono">$1</code>');
+
+  // 10. Horizontal rules
+  work = work.replace(/^([-*_]){3,}$/gm, '<hr class="hf-readme-hr" />');
+
+  // 11. Parse lists and blockquotes line by line
+  const lines = work.split("\n");
+  const out = [];
+  let inUl = false;
+  let inOl = false;
+  let inQuote = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Bullet list
+    if (/^[-*+]\s+(.*)$/.test(trimmed)) {
+      if (inOl) { out.push("</ol>"); inOl = false; }
+      if (!inUl) { out.push("<ul>"); inUl = true; }
+      const item = trimmed.replace(/^[-*+]\s+/, "");
+      out.push(`<li>${item}</li>`);
+      continue;
+    }
+
+    // Numbered list
+    if (/^\d+\.\s+(.*)$/.test(trimmed)) {
+      if (inUl) { out.push("</ul>"); inUl = false; }
+      if (!inOl) { out.push("<ol>"); inOl = true; }
+      const item = trimmed.replace(/^\d+\.\s+/, "");
+      out.push(`<li>${item}</li>`);
+      continue;
+    }
+
+    // End lists if normal line
+    if (inUl) { out.push("</ul>"); inUl = false; }
+    if (inOl) { out.push("</ol>"); inOl = false; }
+
+    // Blockquote
+    if (/^>\s?(.*)$/.test(trimmed)) {
+      if (!inQuote) { out.push("<blockquote>"); inQuote = true; }
+      const quoteText = trimmed.replace(/^>\s?/, "");
+      out.push(quoteText ? `<p>${quoteText}</p>` : "");
+      continue;
+    }
+    if (inQuote) { out.push("</blockquote>"); inQuote = false; }
+
+    // Table placeholder
+    if (/^@@TABLE_\d+@@$/.test(trimmed)) {
+      out.push(trimmed);
+      continue;
+    }
+
+    // Codeblock placeholder
+    if (/^@@CODEBLOCK_\d+@@$/.test(trimmed)) {
+      out.push(trimmed);
+      continue;
+    }
+
+    if (trimmed === "") {
+      out.push("");
+    } else {
+      // Check if it's already an HTML block tag
+      if (/^<(h[1-6]|div|p|table|blockquote|ul|ol|li|hr|details|summary|pre|img)/i.test(trimmed)) {
+        out.push(trimmed);
+      } else {
+        out.push(`<p>${trimmed}</p>`);
+      }
+    }
+  }
+
+  if (inUl) out.push("</ul>");
+  if (inOl) out.push("</ol>");
+  if (inQuote) out.push("</blockquote>");
+
+  let parsed = out.join("\n");
+
+  // 12. Restore tables
+  tableBlocks.forEach((tbl, idx) => {
+    parsed = parsed.replace(`@@TABLE_${idx}@@`, tbl);
+  });
+
+  // 13. Restore code blocks
+  codeBlocks.forEach((code, idx) => {
+    parsed = parsed.replace(`@@CODEBLOCK_${idx}@@`, code);
+  });
+
+  // 14. Sanitize final HTML to prevent XSS while allowing clean rendering
+  const sanitized = sanitizeHFHtml(parsed);
+
+  return `
+    <div class="hf-markdown-body">
+      ${metaHTML}
+      ${sanitized}
+    </div>
+  `;
 }
 
 // ---------- Event Listeners Bindings ----------

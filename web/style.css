@@ -4283,6 +4283,64 @@ button.chat-send:disabled:hover {
   will-change: transform;
 }
 
+/* Model Performance Stats Block (Record tok/s and Cold Load) */
+.chat-model-stats-block {
+  margin-bottom: 12px;
+}
+.chat-model-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.chat-model-stat-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  cursor: default;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.chat-model-stat-card:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.15));
+}
+.chat-model-stat-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.chat-model-stat-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+.chat-model-stat-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-model-stat-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-model-stat-value .stat-unit {
+  font-size: 10px;
+  font-weight: normal;
+  color: var(--muted);
+  margin-left: 2px;
+}
+
 /* Image Generation options */
 .chat-image-options-wrap {
   margin-top: 1.25rem;

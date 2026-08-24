@@ -163,6 +163,42 @@ function updateChatCapabilityUI() {
 
 
   const m = modelByName(model);
+
+  // Update Model Performance Stats (Record Tok/s and Min Cold Load)
+  const toksValEl = $("chat-model-stat-toks-val");
+  const toksCard = $("chat-model-stat-toks");
+  const loadValEl = $("chat-model-stat-load-val");
+  const loadCard = $("chat-model-stat-load");
+
+  if (toksValEl && toksCard) {
+    const tps = Number(m?.record_tokens_per_sec) || 0;
+    if (tps > 0) {
+      const col = (typeof getToksRecordColor === "function") ? getToksRecordColor(tps) : "";
+      const colStyle = col ? `style="color:${col}"` : "";
+      toksValEl.innerHTML = `<span ${colStyle}>${tps.toFixed(1)}</span> <span class="stat-unit">tok/s</span>`;
+      toksCard.title = m.record_tokens_per_sec_at
+        ? t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })
+        : t("detail.record_tokens");
+    } else {
+      toksValEl.innerHTML = `<span style="color:var(--muted)">—</span>`;
+      toksCard.title = t("detail.record_tokens");
+    }
+  }
+
+  if (loadValEl && loadCard) {
+    const isExt = !!(m && m.is_external);
+    const coldMs = Number(m?.min_cold_load_ms) || 0;
+    if (!isExt && coldMs > 0) {
+      loadValEl.textContent = fmtColdLoad(coldMs);
+      loadCard.title = m.min_cold_load_at
+        ? t("detail.min_load_at", { date: fmtDateTimeFull(m.min_cold_load_at) })
+        : t("detail.min_cold_load");
+    } else {
+      loadValEl.innerHTML = `<span style="color:var(--muted)">—</span>`;
+      loadCard.title = isExt ? t("detail.external_model") : t("detail.min_cold_load");
+    }
+  }
+
   const capsHtml = renderCapabilityPills(m?.capabilities);
   const capBlock = $("chat-cap-block");
   const capHost = $("chat-cap-flags");

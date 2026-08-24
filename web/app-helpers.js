@@ -47,6 +47,31 @@ const fmtColdLoad = (ms) => {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 };
+const getToksRecordColor = (tps, minT, maxT) => {
+  if (!tps || tps <= 0) return "";
+  let min = typeof minT === "number" && isFinite(minT) ? minT : 10;
+  let max = typeof maxT === "number" && isFinite(maxT) ? maxT : 60;
+  if (typeof models !== "undefined" && Array.isArray(models) && (minT === undefined || maxT === undefined)) {
+    let globalMin = Infinity, globalMax = -Infinity;
+    for (const m of models) {
+      const v = Number(m?.record_tokens_per_sec) || 0;
+      if (v > 0) {
+        if (v < globalMin) globalMin = v;
+        if (v > globalMax) globalMax = v;
+      }
+    }
+    if (isFinite(globalMin) && isFinite(globalMax) && globalMax > globalMin) {
+      min = globalMin;
+      max = globalMax;
+    }
+  }
+  let ratio = 1.0;
+  if (max > min) {
+    ratio = Math.max(0, Math.min(1, (tps - min) / (max - min)));
+  }
+  const hue = Math.round(ratio * 120);
+  return `hsl(${hue}, 85%, 62%)`;
+};
 const RELATIVE_UNITS = [
   { unit: "year", ms: 365 * 24 * 60 * 60 * 1000 },
   { unit: "month", ms: 30 * 24 * 60 * 60 * 1000 },

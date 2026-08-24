@@ -238,6 +238,24 @@
             <button id="chat-model-copy-btn" class="ghost" data-i18n-attr="title" data-i18n="chat.copy_model_name" title="Copy model name">📋</button>
           </div>
         </div>
+        <div id="chat-model-stats-block" class="chat-model-stats-block">
+          <div class="chat-model-stats-grid">
+            <div class="chat-model-stat-card" id="chat-model-stat-toks">
+              <div class="chat-model-stat-header">
+                <span class="chat-model-stat-icon">⚡</span>
+                <span class="chat-model-stat-label" data-i18n="chat.stats_record_toks">Record Speed</span>
+              </div>
+              <div class="chat-model-stat-value mono" id="chat-model-stat-toks-val">—</div>
+            </div>
+            <div class="chat-model-stat-card" id="chat-model-stat-load">
+              <div class="chat-model-stat-header">
+                <span class="chat-model-stat-icon">⏱️</span>
+                <span class="chat-model-stat-label" data-i18n="chat.stats_cold_load">Cold Load</span>
+              </div>
+              <div class="chat-model-stat-value mono" id="chat-model-stat-load-val">—</div>
+            </div>
+          </div>
+        </div>
         <div id="chat-cap-block" class="chat-cap-block" hidden>
           <p class="chat-cap-heading" data-i18n="chat.model_caps">Capabilities</p>
           <div id="chat-cap-flags" class="chat-cap-flags"></div>

@@ -1198,14 +1198,14 @@
             <span class="settings-nav-icon">💬</span>
             <span class="settings-nav-label" data-i18n="settings.nav_chat_defaults">Chat Defaults</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-network">
+            <span class="settings-nav-icon">🔒</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_network">Network &amp; Security</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-prompts">
             <span class="settings-nav-icon">📝</span>
             <span class="settings-nav-label" data-i18n="settings.nav_prompts">System Prompts</span>
             <span class="badge" id="prompts-nav-badge">0</span>
-          </button>
-          <button type="button" class="settings-nav-item" data-section="sec-network">
-            <span class="settings-nav-icon">🔒</span>
-            <span class="settings-nav-label" data-i18n="settings.nav_network">Network &amp; Security</span>
           </button>
           <button type="button" class="settings-nav-item" data-section="sec-ext-models">
             <span class="settings-nav-icon">🧩</span>
@@ -1337,6 +1337,51 @@
             </div>
           </section>
 
+          <!-- Network & Security -->
+          <section class="settings-section-card" id="sec-network" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.network">Network & Security</h3>
+                <span class="badge" id="bind-preview"></span>
+              </div>
+            </div>
+            <div class="settings-section-body">
+              <div class="field">
+                <label for="set-port" data-i18n="settings.port">HTTP port</label>
+                <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
+              </div>
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
+                  <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
+                </div>
+                <label class="switch">
+                  <input id="set-expose" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div id="expose-warning" class="callout callout-warn" hidden>
+                <span class="callout-icon">!</span>
+                <span data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</span>
+              </div>
+              <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
+              <hr class="settings-sep">
+              <div class="section-head">
+                <h3 data-i18n="settings.password_section">Password</h3>
+                <span class="badge" id="pwd-badge"></span>
+              </div>
+              <div class="field pwd-field">
+                <label for="set-password" data-i18n="settings.new_password">New password</label>
+                <div class="input-with-action">
+                  <input id="set-password" type="password" autocomplete="new-password" spellcheck="false">
+                  <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save</button>
+                </div>
+              </div>
+              <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
+              <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
+            </div>
+          </section>
+
           <!-- System Prompts Library -->
           <section class="settings-section-card" id="sec-prompts" hidden>
             <div class="settings-section-header">
@@ -1387,51 +1432,6 @@
               <div id="prompts-list" class="prompts-list">
                 <div class="muted small" data-i18n="settings.prompts_none">No system prompts created yet.</div>
               </div>
-            </div>
-          </section>
-
-          <!-- Network & Security -->
-          <section class="settings-section-card" id="sec-network" hidden>
-            <div class="settings-section-header">
-              <div class="settings-section-title-wrap">
-                <h3 class="settings-section-title" data-i18n="settings.network">Network & Security</h3>
-                <span class="badge" id="bind-preview"></span>
-              </div>
-            </div>
-            <div class="settings-section-body">
-              <div class="field">
-                <label for="set-port" data-i18n="settings.port">HTTP port</label>
-                <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
-              </div>
-              <div class="field switch-field">
-                <div class="switch-label">
-                  <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
-                  <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
-                </div>
-                <label class="switch">
-                  <input id="set-expose" type="checkbox" autocomplete="off">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-              <div id="expose-warning" class="callout callout-warn" hidden>
-                <span class="callout-icon">!</span>
-                <span data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</span>
-              </div>
-              <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
-              <hr class="settings-sep">
-              <div class="section-head">
-                <h3 data-i18n="settings.password_section">Password</h3>
-                <span class="badge" id="pwd-badge"></span>
-              </div>
-              <div class="field pwd-field">
-                <label for="set-password" data-i18n="settings.new_password">New password</label>
-                <div class="input-with-action">
-                  <input id="set-password" type="password" autocomplete="new-password" spellcheck="false">
-                  <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save</button>
-                </div>
-              </div>
-              <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
-              <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
             </div>
           </section>
 

@@ -32,32 +32,32 @@ type HFModelSummary struct {
 
 // HFQuantFile represents a single GGUF or mmproj file in a repository.
 type HFQuantFile struct {
-	Filename       string `json:"filename"`
-	Quant          string `json:"quant"`
-	SizeBytes      int64  `json:"size_bytes"`
-	IsVisionProj   bool   `json:"is_vision_proj"`
-	PullName       string `json:"pull_name"`
-	IsInstalled    bool   `json:"is_installed"`
-	IsDownloading  bool   `json:"is_downloading"`
+	Filename      string `json:"filename"`
+	Quant         string `json:"quant"`
+	SizeBytes     int64  `json:"size_bytes"`
+	IsVisionProj  bool   `json:"is_vision_proj"`
+	PullName      string `json:"pull_name"`
+	IsInstalled   bool   `json:"is_installed"`
+	IsDownloading bool   `json:"is_downloading"`
 }
 
 // HFModelDetail contains detailed repository metadata and files.
 type HFModelDetail struct {
-	ID              string        `json:"id"`
-	Author          string        `json:"author"`
-	Name            string        `json:"name"`
-	Downloads       int           `json:"downloads"`
-	Likes           int           `json:"likes"`
-	LastModified    time.Time     `json:"last_modified"`
-	Tags            []string      `json:"tags"`
-	PipelineTag     string        `json:"pipeline_tag"`
-	License         string        `json:"license,omitempty"`
-	Description     string        `json:"description,omitempty"`
-	GGUFFiles       []HFQuantFile `json:"gguf_files"`
-	VisionFiles     []HFQuantFile `json:"vision_files"`
-	HasVision       bool          `json:"has_vision"`
-	TotalGGUFCount  int           `json:"total_gguf_count"`
-	SuggestedQuant  string        `json:"suggested_quant,omitempty"`
+	ID             string        `json:"id"`
+	Author         string        `json:"author"`
+	Name           string        `json:"name"`
+	Downloads      int           `json:"downloads"`
+	Likes          int           `json:"likes"`
+	LastModified   time.Time     `json:"last_modified"`
+	Tags           []string      `json:"tags"`
+	PipelineTag    string        `json:"pipeline_tag"`
+	License        string        `json:"license,omitempty"`
+	Description    string        `json:"description,omitempty"`
+	GGUFFiles      []HFQuantFile `json:"gguf_files"`
+	VisionFiles    []HFQuantFile `json:"vision_files"`
+	HasVision      bool          `json:"has_vision"`
+	TotalGGUFCount int           `json:"total_gguf_count"`
+	SuggestedQuant string        `json:"suggested_quant,omitempty"`
 }
 
 var (
@@ -140,6 +140,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	if query != "" {
 		q.Set("search", query)
 	}
+	// library=gguf matches https://huggingface.co/models?library=gguf
 	q.Set("filter", "gguf")
 	q.Set("limit", strconv.Itoa(limit))
 	q.Set("full", "false")

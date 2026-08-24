@@ -124,6 +124,10 @@ const I18N = {
     "hf.back_to_downloads": "← Back to Downloads",
     "hf.load_more": "Load more models",
     "hf.loading_more": "Loading more models…",
+    "hf.time_all": "All Time",
+    "hf.time_week": "This Week",
+    "hf.time_month": "This Month",
+    "hf.time_year": "This Year",
 
     "action.refresh": "Refresh",
     "action.reload_models": "Reload models",
@@ -1044,6 +1048,10 @@ const I18N = {
     "hf.back_to_downloads": "← Volver a Descargas",
     "hf.load_more": "Cargar más modelos",
     "hf.loading_more": "Cargando más modelos…",
+    "hf.time_all": "Todo el tiempo",
+    "hf.time_week": "Esta semana",
+    "hf.time_month": "Este mes",
+    "hf.time_year": "Este año",
 
     "action.refresh": "Refrescar",
     "action.reload_models": "Recargar modelos",

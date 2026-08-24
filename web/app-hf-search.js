@@ -8,6 +8,7 @@ let hfReadmeCache = new Map();
 let hfSearchDebounce = null;
 let hfCurrentFilter = "all"; // "all" | "ollama" | "vision"
 let hfCurrentSort = "downloads"; // "downloads" | "likes" | "recent" | "trending"
+let hfCurrentTime = "all"; // "all" | "week" | "month" | "year"
 let hfActiveTab = "quants"; // "quants" | "readme"
 let hfPage = 0;
 let hfNextCursor = "";
@@ -164,6 +165,23 @@ function renderHFModelsList() {
   const filtered = hfModels.filter((m) => {
     if (hfCurrentFilter === "ollama" && !m.has_ollama) return false;
     if (hfCurrentFilter === "vision" && !m.has_vision) return false;
+
+    // Time-based filter
+    if (hfCurrentTime !== "all" && m.last_modified) {
+      const modDate = new Date(m.last_modified);
+      const now = new Date();
+      if (hfCurrentTime === "week") {
+        const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        if (modDate < cutoff) return false;
+      } else if (hfCurrentTime === "month") {
+        const cutoff = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+        if (modDate < cutoff) return false;
+      } else if (hfCurrentTime === "year") {
+        const cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+        if (modDate < cutoff) return false;
+      }
+    }
+
     return true;
   });
 
@@ -720,6 +738,12 @@ function bindHFExplorerEvents() {
     hfCurrentSort = e.target.value;
     const query = $("hf-search-input")?.value || "";
     doHFSearch(query);
+  });
+
+  // Time period dropdown
+  $("hf-time-select")?.addEventListener("change", (e) => {
+    hfCurrentTime = e.target.value;
+    renderHFModelsList();
   });
 
   // Filter chips

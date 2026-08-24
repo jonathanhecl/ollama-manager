@@ -1372,7 +1372,31 @@ function bindChatEvents() {
   }
   window.adjustChatSystemPromptHeight = adjustChatSystemPromptHeight;
 
-  $("chat-system")?.addEventListener("input", adjustChatSystemPromptHeight);
+  function updateChatSystemTokens() {
+    const sys = $("chat-system");
+    const badge = $("chat-system-tokens");
+    if (!badge) return;
+    const val = (sys?.value || "").trim();
+    const count = typeof estimateTokens === "function" ? estimateTokens(val) : 0;
+    if (count > 0) {
+      badge.textContent = `~${count.toLocaleString()} tok`;
+      badge.classList.add("has-tokens");
+      badge.title = `${count.toLocaleString()} approximate tokens`;
+    } else {
+      badge.textContent = "0 tok";
+      badge.classList.remove("has-tokens");
+      badge.title = "Approximate tokens";
+    }
+  }
+  window.updateChatSystemTokens = updateChatSystemTokens;
+
+  $("chat-system")?.addEventListener("input", () => {
+    adjustChatSystemPromptHeight();
+    updateChatSystemTokens();
+  });
+  $("chat-system")?.addEventListener("change", () => {
+    updateChatSystemTokens();
+  });
 
   if (typeof ResizeObserver !== "undefined") {
     const sideEl = document.querySelector(".chat-side");

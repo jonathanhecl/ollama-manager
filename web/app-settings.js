@@ -34,7 +34,10 @@ async function showSettingsView() {
   $("set-password").value = "";
 
   const globalDefaults = getGlobalChatDefaults();
-  if ($("set-default-system")) $("set-default-system").value = globalDefaults.system || "";
+  if ($("set-default-system")) {
+    $("set-default-system").value = globalDefaults.system || "";
+    updateSettingsDefaultSystemTokens();
+  }
   if ($("set-default-temp")) $("set-default-temp").value = String(globalDefaults.temperature != null && globalDefaults.temperature !== "" ? globalDefaults.temperature : "0.7");
   if ($("set-default-top-k")) $("set-default-top-k").value = String(globalDefaults.top_k != null && globalDefaults.top_k !== "" ? globalDefaults.top_k : "40");
   if ($("set-default-top-p")) $("set-default-top-p").value = String(globalDefaults.top_p != null && globalDefaults.top_p !== "" ? globalDefaults.top_p : "0.9");
@@ -85,6 +88,42 @@ function openSettings() {
   return showSettingsView();
 }
 
+function updateSettingsDefaultSystemTokens() {
+  const sys = $("set-default-system");
+  const badge = $("set-default-system-tokens");
+  if (!badge) return;
+  const val = (sys?.value || "").trim();
+  const count = typeof estimateTokens === "function" ? estimateTokens(val) : 0;
+  if (count > 0) {
+    badge.textContent = `~${count.toLocaleString()} tok`;
+    badge.classList.add("has-tokens");
+    badge.title = `${count.toLocaleString()} approximate tokens`;
+  } else {
+    badge.textContent = "0 tok";
+    badge.classList.remove("has-tokens");
+    badge.title = "Approximate tokens";
+  }
+}
+window.updateSettingsDefaultSystemTokens = updateSettingsDefaultSystemTokens;
+
+function updatePromptEditorTokens() {
+  const sys = $("prompt-edit-content");
+  const badge = $("prompt-edit-tokens");
+  if (!badge) return;
+  const val = (sys?.value || "").trim();
+  const count = typeof estimateTokens === "function" ? estimateTokens(val) : 0;
+  if (count > 0) {
+    badge.textContent = `~${count.toLocaleString()} tok`;
+    badge.classList.add("has-tokens");
+    badge.title = `${count.toLocaleString()} approximate tokens`;
+  } else {
+    badge.textContent = "0 tok";
+    badge.classList.remove("has-tokens");
+    badge.title = "Approximate tokens";
+  }
+}
+window.updatePromptEditorTokens = updatePromptEditorTokens;
+
 function loadFileIntoDefaultSystemPrompt(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -94,6 +133,7 @@ function loadFileIntoDefaultSystemPrompt(file) {
     const sysEl = $("set-default-system");
     if (!sysEl) return;
     sysEl.value = text;
+    updateSettingsDefaultSystemTokens();
     toast(t("chat.system_file_loaded") || "System prompt loaded from file", "success");
   };
   reader.onerror = () => {
@@ -103,6 +143,13 @@ function loadFileIntoDefaultSystemPrompt(file) {
 }
 
 function bindDefaultSystemPromptFileEvents() {
+  const sysEl = $("set-default-system");
+  if (sysEl && !sysEl._boundTokens) {
+    sysEl._boundTokens = true;
+    sysEl.addEventListener("input", updateSettingsDefaultSystemTokens);
+    sysEl.addEventListener("change", updateSettingsDefaultSystemTokens);
+  }
+
   const sysFileBtn = $("set-default-system-file-btn");
   const sysFileInput = $("set-default-system-file-input");
   if (sysFileBtn && sysFileInput && !sysFileBtn._bound) {
@@ -128,6 +175,7 @@ function bindDefaultSystemPromptFileEvents() {
       const sys = $("set-default-system");
       if (sys) {
         sys.value = "";
+        updateSettingsDefaultSystemTokens();
         sys.dispatchEvent(new Event("input", { bubbles: true }));
         sys.dispatchEvent(new Event("change", { bubbles: true }));
         sys.focus();
@@ -275,15 +323,23 @@ function renderPromptsList(filterText = "", lang = null) {
 
   listEl.innerHTML = filtered.map((p) => {
     const dateStr = p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : "";
+    const promptText = p.prompt || "";
+    const tokenCount = typeof estimateTokens === "function" ? estimateTokens(promptText) : 0;
+    const tokenStr = typeof fmtTokens === "function" ? fmtTokens(tokenCount) : `~${tokenCount} tok`;
     return `
       <div class="prompt-card" data-id="${escapeHtml(p.id)}">
         <!-- View Mode -->
         <div class="prompt-card-view">
           <div class="prompt-card-head">
-            <div class="prompt-card-title">${escapeHtml(p.title || "Untitled")}</div>
-            <div class="prompt-card-date">${escapeHtml(dateStr)}</div>
+            <div class="prompt-card-title-wrap">
+              <div class="prompt-card-title">${escapeHtml(p.title || "Untitled")}</div>
+            </div>
+            <div class="prompt-card-meta">
+              <span class="prompt-token-pill mono" title="Approximate tokens">${escapeHtml(tokenStr)}</span>
+              <div class="prompt-card-date">${escapeHtml(dateStr)}</div>
+            </div>
           </div>
-          <div class="prompt-card-body">${escapeHtml(p.prompt || "")}</div>
+          <div class="prompt-card-body">${escapeHtml(promptText)}</div>
           <div class="prompt-card-actions">
             <button type="button" class="ghost prompt-copy-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_copy_btn">${escapeHtml(t("settings.prompt_copy_btn", null, targetLang))}</button>
             <button type="button" class="ghost prompt-export-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_export_btn">${escapeHtml(t("settings.prompt_export_btn", null, targetLang))}</button>
@@ -300,7 +356,10 @@ function renderPromptsList(filterText = "", lang = null) {
           </div>
           <div class="field field-vertical">
             <div class="chat-system-head">
-              <label class="small muted" data-i18n="settings.prompt_content_label">${escapeHtml(t("settings.prompt_content_label", null, targetLang))}</label>
+              <div class="chat-system-label-wrap">
+                <label class="small muted" data-i18n="settings.prompt_content_label">${escapeHtml(t("settings.prompt_content_label", null, targetLang))}</label>
+                <span class="prompt-inline-tokens system-token-badge mono${tokenCount > 0 ? " has-tokens" : ""}" title="Approximate tokens">${escapeHtml(tokenStr)}</span>
+              </div>
               <div class="chat-system-actions">
                 <button type="button" class="ghost chat-system-file-btn prompt-inline-file-btn" title="${escapeHtml(t("settings.prompt_load_file", null, targetLang))}">
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -478,6 +537,25 @@ function renderPromptsList(filterText = "", lang = null) {
     });
   });
 
+  // Bind inline content token updates
+  listEl.querySelectorAll(".prompt-inline-content").forEach((ta) => {
+    const parent = ta.closest(".prompt-card-edit");
+    const badge = parent?.querySelector(".prompt-inline-tokens");
+    const update = () => {
+      if (!badge) return;
+      const count = typeof estimateTokens === "function" ? estimateTokens(ta.value) : 0;
+      if (count > 0) {
+        badge.textContent = `~${count.toLocaleString()} tok`;
+        badge.classList.add("has-tokens");
+      } else {
+        badge.textContent = "0 tok";
+        badge.classList.remove("has-tokens");
+      }
+    };
+    ta.addEventListener("input", update);
+    ta.addEventListener("change", update);
+  });
+
   // Bind inline file import
   listEl.querySelectorAll(".prompt-inline-file-btn").forEach((btn) => {
     const parent = btn.closest(".prompt-card-edit");
@@ -492,7 +570,10 @@ function renderPromptsList(filterText = "", lang = null) {
             const text = e.target?.result;
             if (typeof text === "string") {
               const ta = parent.querySelector(".prompt-inline-content");
-              if (ta) ta.value = text;
+              if (ta) {
+                ta.value = text;
+                ta.dispatchEvent(new Event("input", { bubbles: true }));
+              }
               const titleInp = parent.querySelector(".prompt-inline-title");
               if (titleInp && !titleInp.value.trim()) {
                 titleInp.value = file.name.replace(/\.[^/.]+$/, "");
@@ -517,6 +598,7 @@ function renderPromptsList(filterText = "", lang = null) {
       const ta = parent?.querySelector(".prompt-inline-content");
       if (ta) {
         ta.value = "";
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
         ta.focus();
       }
     });
@@ -555,7 +637,10 @@ function loadFileIntoPromptEditor(file) {
     const text = e.target?.result;
     if (typeof text !== "string") return;
     const contentEl = $("prompt-edit-content");
-    if (contentEl) contentEl.value = text;
+    if (contentEl) {
+      contentEl.value = text;
+      updatePromptEditorTokens();
+    }
     const titleEl = $("prompt-edit-title");
     if (titleEl && !titleEl.value.trim()) {
       const fileName = file.name.replace(/\.[^/.]+$/, "");
@@ -578,12 +663,20 @@ function bindSystemPromptsEvents() {
   const fileInput = $("prompt-edit-file-input");
   const dropZone = $("prompt-edit-dropzone");
 
+  const editContentEl = $("prompt-edit-content");
+  if (editContentEl && !editContentEl._boundTokens) {
+    editContentEl._boundTokens = true;
+    editContentEl.addEventListener("input", updatePromptEditorTokens);
+    editContentEl.addEventListener("change", updatePromptEditorTokens);
+  }
+
   if (newBtn && !newBtn._bound) {
     newBtn._bound = true;
     newBtn.addEventListener("click", () => {
       $("prompt-edit-id").value = "";
       $("prompt-edit-title").value = "";
       $("prompt-edit-content").value = "";
+      updatePromptEditorTokens();
       editorBox.hidden = false;
       $("prompt-edit-title").focus();
     });
@@ -673,6 +766,7 @@ function bindSystemPromptsEvents() {
       const el = $("prompt-edit-content");
       if (el) {
         el.value = "";
+        updatePromptEditorTokens();
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
         el.focus();
@@ -1079,13 +1173,19 @@ async function loadAndRenderPromptsModal(filterQuery = "", forceFetch = false) {
   }
 
   listEl.innerHTML = filtered.map((p) => {
+    const promptText = p.prompt || "";
+    const tokenCount = typeof estimateTokens === "function" ? estimateTokens(promptText) : 0;
+    const tokenStr = typeof fmtTokens === "function" ? fmtTokens(tokenCount) : `~${tokenCount} tok`;
     return `
       <div class="prompts-modal-item" data-id="${escapeHtml(p.id)}">
         <div class="prompts-modal-item-head">
-          <span class="prompts-modal-item-title">${escapeHtml(p.title || "Untitled Prompt")}</span>
+          <div class="prompts-modal-item-title-wrap">
+            <span class="prompts-modal-item-title">${escapeHtml(p.title || "Untitled Prompt")}</span>
+            <span class="prompt-token-pill mono" title="Approximate tokens">${escapeHtml(tokenStr)}</span>
+          </div>
           <button type="button" class="primary prompts-modal-item-btn" data-id="${escapeHtml(p.id)}">${escapeHtml(t("prompts.modal_use", null, targetLang))}</button>
         </div>
-        <div class="prompts-modal-item-preview">${escapeHtml(p.prompt || "")}</div>
+        <div class="prompts-modal-item-preview">${escapeHtml(promptText)}</div>
       </div>
     `;
   }).join("");

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -98,4 +99,71 @@ func TestServerCustomModelUsageRouting(t *testing.T) {
 		t.Errorf("expected 1500ms cold load on base model, got %d", baseRec.MinColdLoadMs)
 	}
 }
+
+func TestIsLocalFilePathOrDigest(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected bool
+	}{
+		{"", true},
+		{"   ", true},
+		{"/Users/jonathan/.ollama/models/blobs/sha256-415f8f959d807bd4d4da891f01225d7b330416947fb011a8473080ae4fd07885", true},
+		{"/home/user/.ollama/models/blobs/sha256-83c18dfba02c75769cdd63f73e37c343400e82d434ff1b14bcc1cb02fcf2f5f2", true},
+		{`C:\Users\gense\.ollama\models\blobs\sha256-abc123`, true},
+		{"~/.ollama/models/blobs/sha256-abc123", true},
+		{"./local-model.gguf", true},
+		{"../models/model.bin", true},
+		{"sha256:415f8f959d807bd4d4da891f01225d7b330416947fb011a8473080ae4fd07885", true},
+		{"sha256-415f8f959d807bd4d4da891f01225d7b330416947fb011a8473080ae4fd07885", true},
+		{"415f8f959d807bd4d4da891f01225d7b330416947fb011a8473080ae4fd07885", true},
+		{"/tmp/model.safetensors", true},
+		{"llama3", false},
+		{"llama3:8b", false},
+		{"functiongemma:270m", false},
+		{"hf.co/LiquidAI/LFM2.5-VL-3B-GGUF:Q4_K_M", false},
+		{"hf.co/mradermacher/LFM2.5-8B-A1B-heretic-GGUF:Q4_K_M", false},
+		{"registry.ollama.ai/library/llama3:latest", false},
+		{"my-user/my-custom:tag", false},
+	}
+
+	for _, c := range cases {
+		got := isLocalFilePathOrDigest(c.input)
+		if got != c.expected {
+			t.Errorf("isLocalFilePathOrDigest(%q) = %v; want %v", c.input, got, c.expected)
+		}
+	}
+}
+
+func TestCustomModelsStorePurgeBlobPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "custom_models.json")
+	store := newCustomModelsStore(path)
+
+	// Attempt to register with blob path as base model
+	_ = store.Register("functiongemma:270m", "/Users/jonathan/.ollama/models/blobs/sha256-415f8f959d807bd4d4da891f01225d7b330416947fb011a8473080ae4fd07885")
+	if base := store.GetBase("functiongemma:270m"); base != "" {
+		t.Fatalf("expected GetBase to be empty, got %q", base)
+	}
+
+	// Also test Load() purging existing corrupt entries
+	corruptJSON := `{"models":{"bad_model":{"base_model":"/Users/jonathan/.ollama/models/blobs/sha256-123","created_at":"2026-08-24T00:00:00Z"},"good_model":{"base_model":"llama3","created_at":"2026-08-24T00:00:00Z"}}}`
+	if err := os.WriteFile(path, []byte(corruptJSON), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	store2 := newCustomModelsStore(path)
+	if err := store2.Load(); err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if store2.IsCustom("bad_model") {
+		t.Fatalf("expected bad_model with blob base to be purged from custom models")
+	}
+	if !store2.IsCustom("good_model") {
+		t.Fatalf("expected good_model to be retained")
+	}
+	if base := store2.GetBase("good_model"); base != "llama3" {
+		t.Fatalf("expected base llama3, got %q", base)
+	}
+}
+
 

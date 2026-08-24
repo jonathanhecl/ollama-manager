@@ -3368,6 +3368,9 @@ function setChatOptionsValues(opts) {
   if (typeof adjustChatSystemPromptHeight === "function") {
     adjustChatSystemPromptHeight();
   }
+  if (typeof updateChatSystemTokens === "function") {
+    updateChatSystemTokens();
+  }
 }
 
 async function applyChatDefaultsForModel(name, force = false) {

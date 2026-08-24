@@ -68,10 +68,25 @@ function modelHomepageUrl(name, isCustom) {
 }
 window.modelHomepageUrl = modelHomepageUrl;
 
+function isBlobOrLocalPath(s) {
+  if (!s || typeof s !== "string") return false;
+  const str = s.trim().toLowerCase();
+  return str.startsWith("/") || str.startsWith("\\") || str.startsWith("~") ||
+         str.includes("/blobs/") || str.includes("\\blobs\\") ||
+         str.includes("/.ollama/") || str.includes("\\.ollama\\") ||
+         str.includes("sha256-") || str.includes("sha256:") ||
+         /^[a-z]:[/\\]/i.test(str) ||
+         str.endsWith(".gguf") || str.endsWith(".bin") || str.endsWith(".safetensors");
+}
+window.isBlobOrLocalPath = isBlobOrLocalPath;
+
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};
   const isExternal = !!(d.is_external || m.is_external);
   let baseModel = d.base_model || m.base_model || (isFixedModelName(d.name) ? fixedBaseName(d.name) : "");
+  if (baseModel && isBlobOrLocalPath(baseModel)) {
+    baseModel = "";
+  }
   if (baseModel && (!baseModel.includes(":") || baseModel.endsWith(":latest")) && typeof models !== "undefined" && Array.isArray(models)) {
     const prefix = baseModel.replace(/:latest$/, "");
     const match = models.find(x => x && x.name !== d.name && (x.name === prefix || x.name.startsWith(prefix + ":")));

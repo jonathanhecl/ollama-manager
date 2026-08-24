@@ -248,7 +248,10 @@
         </div>
         <div class="field" id="chat-system-field">
           <div class="chat-system-head">
-            <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
+            <div class="chat-system-label-wrap">
+              <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
+              <span id="chat-system-tokens" class="system-token-badge mono" title="Approximate tokens">0 tok</span>
+            </div>
             <div class="chat-system-actions">
               <button id="chat-system-prompt-lib-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_from_prompts" title="Select from System Prompts library" aria-label="Select from System Prompts library">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1386,7 +1389,10 @@
             <div class="settings-section-body">
               <div class="field field-vertical" id="set-default-system-field">
                 <div class="chat-system-head">
-                  <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
+                  <div class="chat-system-label-wrap">
+                    <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
+                    <span id="set-default-system-tokens" class="system-token-badge mono" title="Approximate tokens">0 tok</span>
+                  </div>
                   <div class="chat-system-actions">
                     <button id="set-default-system-prompt-lib-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_from_prompts" title="Select from System Prompts library" aria-label="Select from System Prompts library">
                       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1547,7 +1553,10 @@
                 </div>
                 <div class="field field-vertical" id="prompt-edit-dropzone">
                   <div class="chat-system-head">
-                    <label for="prompt-edit-content" data-i18n="settings.prompt_content_label">Prompt Content</label>
+                    <div class="chat-system-label-wrap">
+                      <label for="prompt-edit-content" data-i18n="settings.prompt_content_label">Prompt Content</label>
+                      <span id="prompt-edit-tokens" class="system-token-badge mono" title="Approximate tokens">0 tok</span>
+                    </div>
                     <div class="chat-system-actions">
                       <button id="prompt-edit-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="settings.prompt_load_file" title="Import from file" aria-label="Import from file">
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

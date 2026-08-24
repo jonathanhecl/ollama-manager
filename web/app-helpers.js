@@ -12,6 +12,24 @@ const fmtBytes = (n) => {
   return `${n.toFixed(n < 10 && i > 0 ? 2 : 1)} ${u[i]}`;
 };
 const formatBytes = fmtBytes;
+const estimateTokens = (text) => {
+  if (!text || !text.trim()) return 0;
+  const matches = text.match(/[\w]+|[^\s\w]+/gu);
+  if (!matches) return 0;
+  let tokens = 0;
+  for (let i = 0; i < matches.length; i++) {
+    const len = matches[i].length;
+    tokens += Math.max(1, Math.ceil(len / 3.8));
+  }
+  return tokens;
+};
+window.estimateTokens = estimateTokens;
+const fmtTokens = (count) => {
+  const n = typeof count === "number" ? count : estimateTokens(count);
+  if (!n || n <= 0) return "0 tok";
+  return `~${n.toLocaleString()} tok`;
+};
+window.fmtTokens = fmtTokens;
 const fmtDate = (s) => {
   if (!s) return "—";
   const d = new Date(s);

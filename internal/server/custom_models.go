@@ -49,10 +49,33 @@ func (s *customModelsStore) Load() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	cleaned := false
+	s.models = make(map[string]CustomModelRecord)
 	if file.Models != nil {
-		s.models = file.Models
-	} else {
-		s.models = make(map[string]CustomModelRecord)
+		for k, v := range file.Models {
+			// If an entry was mistakenly registered with a local path/blob as base_model, purge it.
+			if v.BaseModel != "" && isLocalFilePathOrDigest(v.BaseModel) {
+				cleaned = true
+				continue
+			}
+			s.models[k] = v
+		}
+	}
+	if cleaned {
+		// Save sanitized file to disk
+		cleanFile := customModelsFile{
+			Models: make(map[string]CustomModelRecord, len(s.models)),
+		}
+		for k, v := range s.models {
+			cleanFile.Models[k] = v
+		}
+		if data, err := json.MarshalIndent(cleanFile, "", "  "); err == nil {
+			data = append(data, '\n')
+			tmp := s.path + ".tmp"
+			if err := os.WriteFile(tmp, data, 0o600); err == nil {
+				_ = os.Rename(tmp, s.path)
+			}
+		}
 	}
 	return nil
 }
@@ -64,16 +87,22 @@ func (s *customModelsStore) IsCustom(name string) bool {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if _, ok := s.models[name]; ok {
-		return true
-	}
-	if strings.HasSuffix(name, ":latest") {
-		if _, ok := s.models[strings.TrimSuffix(name, ":latest")]; ok {
+	if rec, ok := s.models[name]; ok {
+		if rec.BaseModel == "" || !isLocalFilePathOrDigest(rec.BaseModel) {
 			return true
 		}
+	}
+	if strings.HasSuffix(name, ":latest") {
+		if rec, ok := s.models[strings.TrimSuffix(name, ":latest")]; ok {
+			if rec.BaseModel == "" || !isLocalFilePathOrDigest(rec.BaseModel) {
+				return true
+			}
+		}
 	} else {
-		if _, ok := s.models[name+":latest"]; ok {
-			return true
+		if rec, ok := s.models[name+":latest"]; ok {
+			if rec.BaseModel == "" || !isLocalFilePathOrDigest(rec.BaseModel) {
+				return true
+			}
 		}
 	}
 	return isFixedModelName(name)
@@ -86,15 +115,15 @@ func (s *customModelsStore) GetBase(name string) string {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if rec, ok := s.models[name]; ok && rec.BaseModel != "" {
+	if rec, ok := s.models[name]; ok && rec.BaseModel != "" && !isLocalFilePathOrDigest(rec.BaseModel) {
 		return rec.BaseModel
 	}
 	if strings.HasSuffix(name, ":latest") {
-		if rec, ok := s.models[strings.TrimSuffix(name, ":latest")]; ok && rec.BaseModel != "" {
+		if rec, ok := s.models[strings.TrimSuffix(name, ":latest")]; ok && rec.BaseModel != "" && !isLocalFilePathOrDigest(rec.BaseModel) {
 			return rec.BaseModel
 		}
 	} else {
-		if rec, ok := s.models[name+":latest"]; ok && rec.BaseModel != "" {
+		if rec, ok := s.models[name+":latest"]; ok && rec.BaseModel != "" && !isLocalFilePathOrDigest(rec.BaseModel) {
 			return rec.BaseModel
 		}
 	}
@@ -110,6 +139,9 @@ func (s *customModelsStore) Register(name, baseModel string) error {
 		return nil
 	}
 	baseModel = strings.TrimSpace(baseModel)
+	if isLocalFilePathOrDigest(baseModel) {
+		baseModel = ""
+	}
 	s.mu.Lock()
 	rec := s.models[name]
 	rec.BaseModel = baseModel

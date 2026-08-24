@@ -459,6 +459,9 @@ function renderTable() {
       : (!m.isPending ? `<button type="button" class="btn-icon delete-btn" title="${escapeHtml(m.is_external ? t("detail.delete_external_title") : deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
 
     let baseModel = m.base_model || (typeof isFixedModelName === "function" && isFixedModelName(m.name) ? fixedBaseName(m.name) : "");
+    if (baseModel && (typeof isBlobOrLocalPath === "function" ? isBlobOrLocalPath(baseModel) : false)) {
+      baseModel = "";
+    }
     if (baseModel && (!baseModel.includes(":") || baseModel.endsWith(":latest")) && typeof models !== "undefined" && Array.isArray(models)) {
       const prefix = baseModel.replace(/:latest$/, "");
       const match = models.find(x => x && x.name !== m.name && (x.name === prefix || x.name.startsWith(prefix + ":")));

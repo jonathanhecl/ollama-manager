@@ -3323,20 +3323,47 @@ func (s *Server) handleDeleteExternalModel(w http.ResponseWriter, r *http.Reques
 
 func isLocalFilePathOrDigest(pathOrName string) bool {
 	s := strings.TrimSpace(pathOrName)
-	if s == "" || strings.HasPrefix(s, "sha256:") || strings.HasPrefix(s, "sha256-") {
+	if s == "" {
 		return true
+	}
+	// Hashes / digests
+	if strings.HasPrefix(s, "sha256:") || strings.HasPrefix(s, "sha256-") {
+		return true
+	}
+	// Raw 64-char hex string (sha256 digest)
+	if len(s) == 64 {
+		isHex := true
+		for _, c := range s {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				isHex = false
+				break
+			}
+		}
+		if isHex {
+			return true
+		}
 	}
 	lower := strings.ToLower(s)
-	if strings.HasSuffix(lower, ".gguf") || strings.HasSuffix(lower, ".bin") || strings.HasSuffix(lower, ".safetensors") {
+	// Common model/tensor file extensions
+	for _, ext := range []string{".gguf", ".bin", ".safetensors", ".pt", ".pth", ".onnx", ".ckpt"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	// Relative and home paths
+	if strings.HasPrefix(s, "./") || strings.HasPrefix(s, `.\`) || strings.HasPrefix(s, "../") || strings.HasPrefix(s, `..\`) || strings.HasPrefix(s, "~/") || strings.HasPrefix(s, `~\`) || s == "~" {
 		return true
 	}
-	if strings.HasPrefix(s, "./") || strings.HasPrefix(s, `.\`) || strings.HasPrefix(s, "../") || strings.HasPrefix(s, `..\`) {
+	// Windows drive letters, e.g. C:\ or C:/ or D:\
+	if len(s) >= 3 && ((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z')) && s[1] == ':' && (s[2] == '/' || s[2] == '\\') {
 		return true
 	}
-	if len(s) >= 3 && s[1] == ':' && (s[2] == '/' || s[2] == '\\') {
+	// Absolute paths starting with / or \
+	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "\\") {
 		return true
 	}
-	if (strings.HasPrefix(s, "/") || strings.HasPrefix(s, "\\")) && !strings.Contains(s, ".") {
+	// Contains Ollama blobs path structure or sha256 blob
+	if strings.Contains(lower, "/blobs/") || strings.Contains(lower, `\blobs\`) || strings.Contains(lower, "/.ollama/") || strings.Contains(lower, `\.ollama\`) || strings.Contains(lower, "sha256-") || strings.Contains(lower, "sha256:") {
 		return true
 	}
 	return false

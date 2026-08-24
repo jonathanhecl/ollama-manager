@@ -10,6 +10,7 @@ let hfCurrentFilter = "all"; // "all" | "ollama" | "vision"
 let hfCurrentSort = "downloads"; // "downloads" | "likes" | "recent" | "trending"
 let hfActiveTab = "quants"; // "quants" | "readme"
 let hfPage = 0;
+let hfNextCursor = "";
 let hfHasMore = false;
 let hfLoadingMore = false;
 
@@ -113,7 +114,7 @@ async function doHFSearch(query, append = false) {
   const loadMoreWrap = $("hf-load-more-wrap");
 
   if (!append) {
-    hfPage = 0;
+    hfNextCursor = "";
     if (loadingEl) loadingEl.hidden = false;
     if (emptyEl) emptyEl.hidden = true;
     if (errorEl) errorEl.hidden = true;
@@ -126,11 +127,14 @@ async function doHFSearch(query, append = false) {
     if (query && query.trim()) params.set("q", query.trim());
     params.set("sort", hfCurrentSort);
     params.set("limit", "30");
-    params.set("page", String(hfPage));
+    if (append && hfNextCursor) {
+      params.set("cursor", hfNextCursor);
+    }
 
     const data = await api(`/api/hf/search?${params.toString()}`);
     const incoming = Array.isArray(data?.models) ? data.models : [];
-    hfHasMore = incoming.length >= 30;
+    hfNextCursor = data?.next_cursor || "";
+    hfHasMore = incoming.length >= 30 && !!hfNextCursor;
 
     if (append) {
       const existing = new Set(hfModels.map((m) => m.id));
@@ -730,14 +734,13 @@ function bindHFExplorerEvents() {
 
   // Load more button
   $("hf-load-more-btn")?.addEventListener("click", async () => {
-    if (hfLoadingMore) return;
+    if (hfLoadingMore || !hfNextCursor) return;
     hfLoadingMore = true;
     const btn = $("hf-load-more-btn");
     if (btn) {
       btn.disabled = true;
       btn.textContent = t("hf.loading_more");
     }
-    hfPage++;
     const query = $("hf-search-input")?.value || "";
     await doHFSearch(query, true);
     hfLoadingMore = false;

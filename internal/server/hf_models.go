@@ -109,7 +109,7 @@ func IsVisionProjector(filename string) bool {
 //   - q: search query (e.g. "qwen", "llama")
 //   - sort: "downloads" (default), "likes", "lastModified", "trending"
 //   - limit: max items (default 30, max 100)
-//   - filter: optional extra filter (default "gguf")
+//   - cursor: opaque cursor for next-page pagination (from previous response)
 func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -127,17 +127,9 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
-	pageParam := strings.TrimSpace(r.URL.Query().Get("page"))
-	if pageParam == "" {
-		pageParam = strings.TrimSpace(r.URL.Query().Get("p"))
-	}
-	page := 0
-	if n, err := strconv.Atoi(pageParam); err == nil && n >= 0 {
-		page = n
-	}
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
 
 	// Construct HuggingFace API search URL
-	// https://huggingface.co/api/models?search=...&filter=gguf&sort=downloads&direction=-1&limit=30
 	hfURL, err := url.Parse("https://huggingface.co/api/models")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -148,14 +140,15 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	if query != "" {
 		q.Set("search", query)
 	}
-	// By default, filter by gguf
 	q.Set("filter", "gguf")
 	q.Set("limit", strconv.Itoa(limit))
-	if page > 0 {
-		q.Set("p", strconv.Itoa(page))
-	}
 	q.Set("full", "false")
 	q.Set("config", "false")
+
+	// If cursor is provided, add it to load the next page
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
 
 	switch sortParam {
 	case "likes":
@@ -195,6 +188,13 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(resp.Body)
 		writeJSON(w, resp.StatusCode, map[string]string{"error": fmt.Sprintf("HuggingFace API returned %d: %s", resp.StatusCode, string(body))})
 		return
+	}
+
+	// Extract next-page cursor from Link header
+	// Format: <https://huggingface.co/api/models?...&cursor=XXXX>; rel="next"
+	nextCursor := ""
+	if linkHeader := resp.Header.Get("Link"); linkHeader != "" {
+		nextCursor = extractNextCursor(linkHeader)
 	}
 
 	var rawModels []struct {
@@ -265,9 +265,39 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"models": results,
-		"count":  len(results),
+		"models":      results,
+		"count":       len(results),
+		"next_cursor": nextCursor,
 	})
+}
+
+// extractNextCursor parses the Link header to find the cursor for the next page.
+// Format: <https://huggingface.co/api/models?...&cursor=XXXX>; rel="next"
+func extractNextCursor(linkHeader string) string {
+	// Find rel="next"
+	parts := strings.Split(linkHeader, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if !strings.Contains(part, `rel="next"`) {
+			continue
+		}
+		// Extract URL between < and >
+		start := strings.Index(part, "<")
+		end := strings.Index(part, ">")
+		if start == -1 || end == -1 || end <= start {
+			continue
+		}
+		linkURL := part[start+1 : end]
+		// Parse the URL and extract the cursor parameter
+		parsed, err := url.Parse(linkURL)
+		if err != nil {
+			continue
+		}
+		if c := parsed.Query().Get("cursor"); c != "" {
+			return c
+		}
+	}
+	return ""
 }
 
 func cleanRepoPath(repoID string) string {

@@ -7,8 +7,8 @@ let hfActiveModel = null;
 let hfReadmeCache = new Map();
 let hfSearchDebounce = null;
 let hfCurrentFilter = "all"; // "all" | "ollama" | "vision"
-let hfCurrentSort = "downloads"; // "downloads" | "likes" | "recent" | "trending"
-let hfCurrentTime = "all"; // "all" | "week" | "month" | "year"
+let hfCurrentTimeFilter = "all"; // "all" | "week" | "month" | "year"
+let hfCurrentSort = "trending"; // "trending" | "downloads" | "likes" | "recent"
 let hfActiveTab = "quants"; // "quants" | "readme"
 let hfPage = 0;
 let hfNextCursor = "";
@@ -162,26 +162,22 @@ function renderHFModelsList() {
   const loadMoreWrap = $("hf-load-more-wrap");
   if (!listEl) return;
 
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+
   const filtered = hfModels.filter((m) => {
     if (hfCurrentFilter === "ollama" && !m.has_ollama) return false;
     if (hfCurrentFilter === "vision" && !m.has_vision) return false;
 
-    // Time-based filter
-    if (hfCurrentTime !== "all" && m.last_modified) {
-      const modDate = new Date(m.last_modified);
-      const now = new Date();
-      if (hfCurrentTime === "week") {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        if (modDate < cutoff) return false;
-      } else if (hfCurrentTime === "month") {
-        const cutoff = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-        if (modDate < cutoff) return false;
-      } else if (hfCurrentTime === "year") {
-        const cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-        if (modDate < cutoff) return false;
+    if (hfCurrentTimeFilter !== "all" && m.last_modified) {
+      const modTime = new Date(m.last_modified).getTime();
+      if (!isNaN(modTime)) {
+        const diffDays = (now - modTime) / ONE_DAY;
+        if (hfCurrentTimeFilter === "week" && diffDays > 7) return false;
+        if (hfCurrentTimeFilter === "month" && diffDays > 30) return false;
+        if (hfCurrentTimeFilter === "year" && diffDays > 365) return false;
       }
     }
-
     return true;
   });
 
@@ -740,18 +736,22 @@ function bindHFExplorerEvents() {
     doHFSearch(query);
   });
 
-  // Time period dropdown
-  $("hf-time-select")?.addEventListener("change", (e) => {
-    hfCurrentTime = e.target.value;
-    renderHFModelsList();
-  });
-
-  // Filter chips
+  // Filter chips (Type)
   document.querySelectorAll(".hf-filter-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       document.querySelectorAll(".hf-filter-chip").forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       hfCurrentFilter = chip.dataset.filter || "all";
+      renderHFModelsList();
+    });
+  });
+
+  // Filter chips (Time)
+  document.querySelectorAll(".hf-time-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      document.querySelectorAll(".hf-time-chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      hfCurrentTimeFilter = chip.dataset.time || "all";
       renderHFModelsList();
     });
   });

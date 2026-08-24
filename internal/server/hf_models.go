@@ -119,7 +119,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	sortParam := strings.TrimSpace(r.URL.Query().Get("sort"))
 	if sortParam == "" {
-		sortParam = "downloads"
+		sortParam = "trending"
 	}
 	limitParam := strings.TrimSpace(r.URL.Query().Get("limit"))
 	limit := 30
@@ -140,7 +140,6 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	if query != "" {
 		q.Set("search", query)
 	}
-	// library=gguf matches https://huggingface.co/models?library=gguf
 	q.Set("filter", "gguf")
 	q.Set("limit", strconv.Itoa(limit))
 	q.Set("full", "false")
@@ -152,17 +151,17 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch sortParam {
+	case "downloads":
+		q.Set("sort", "downloads")
+		q.Set("direction", "-1")
 	case "likes":
 		q.Set("sort", "likes")
 		q.Set("direction", "-1")
 	case "lastModified", "modified", "recent":
 		q.Set("sort", "lastModified")
 		q.Set("direction", "-1")
-	case "trending":
+	default: // "trending"
 		q.Set("sort", "trendingScore")
-		q.Set("direction", "-1")
-	default:
-		q.Set("sort", "downloads")
 		q.Set("direction", "-1")
 	}
 

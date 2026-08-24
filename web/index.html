@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260824_02">
+  <link rel="stylesheet" href="/static/style.css?v=20260824_03">
 </head>
 <body>
   <header class="topbar">
@@ -1137,27 +1137,28 @@
           <button type="button" id="hf-search-clear" class="btn-icon models-search-clear hf-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
         </div>
         <div class="hf-sort-wrap">
-          <select id="hf-time-select" class="hf-sort-select">
-            <option value="all" data-i18n="hf.time_all">All Time</option>
-            <option value="week" data-i18n="hf.time_week">This Week</option>
-            <option value="month" data-i18n="hf.time_month">This Month</option>
-            <option value="year" data-i18n="hf.time_year">This Year</option>
-          </select>
-        </div>
-        <div class="hf-sort-wrap">
           <select id="hf-sort-select" class="hf-sort-select">
+            <option value="trending" selected data-i18n="hf.sort_trending">Trending</option>
             <option value="downloads" data-i18n="hf.sort_downloads">Most Downloads</option>
             <option value="likes" data-i18n="hf.sort_likes">Most Likes</option>
             <option value="recent" data-i18n="hf.sort_recent">Recently Updated</option>
-            <option value="trending" data-i18n="hf.sort_trending">Trending</option>
           </select>
         </div>
       </div>
 
       <div class="hf-filters-row">
-        <button type="button" class="hf-filter-chip active" data-filter="all" data-i18n="hf.filter_all">All GGUF</button>
-        <button type="button" class="hf-filter-chip" data-filter="ollama" data-i18n="hf.filter_ollama">Ollama Tagged</button>
-        <button type="button" class="hf-filter-chip" data-filter="vision" data-i18n="hf.filter_vision">Vision (mmproj)</button>
+        <div class="hf-filter-group">
+          <button type="button" class="hf-filter-chip active" data-filter="all" data-i18n="hf.filter_all">All GGUF</button>
+          <button type="button" class="hf-filter-chip" data-filter="ollama" data-i18n="hf.filter_ollama">Ollama Tagged</button>
+          <button type="button" class="hf-filter-chip" data-filter="vision" data-i18n="hf.filter_vision">Vision (mmproj)</button>
+        </div>
+        <div class="hf-filter-divider"></div>
+        <div class="hf-filter-group">
+          <button type="button" class="hf-time-chip active" data-time="all" data-i18n="hf.time_all">All time</button>
+          <button type="button" class="hf-time-chip" data-time="week" data-i18n="hf.time_week">This week</button>
+          <button type="button" class="hf-time-chip" data-time="month" data-i18n="hf.time_month">This month</button>
+          <button type="button" class="hf-time-chip" data-time="year" data-i18n="hf.time_year">This year</button>
+        </div>
       </div>
 
       <div class="hf-body">

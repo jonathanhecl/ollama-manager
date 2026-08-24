@@ -8533,13 +8533,28 @@ button.chat-send:disabled:hover {
 
 .hf-filters-row {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
   margin-top: 4px;
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
-.hf-filter-chip {
+.hf-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hf-filter-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.hf-filter-chip,
+.hf-time-chip {
   font-size: 11px;
   padding: 4px 12px;
   border-radius: 12px;
@@ -8550,12 +8565,14 @@ button.chat-send:disabled:hover {
   transition: all 0.15s ease;
 }
 
-.hf-filter-chip:hover {
+.hf-filter-chip:hover,
+.hf-time-chip:hover {
   background: rgba(255, 255, 255, 0.07);
   color: var(--text);
 }
 
-.hf-filter-chip.active {
+.hf-filter-chip.active,
+.hf-time-chip.active {
   background: rgba(59, 130, 246, 0.18);
   border-color: var(--accent);
   color: var(--accent);

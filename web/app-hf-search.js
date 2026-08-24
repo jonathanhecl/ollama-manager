@@ -195,6 +195,50 @@ function renderHFModelsList() {
   }
 }
 
+function normalizeHFModelName(name) {
+  if (!name) return "";
+  return String(name).toLowerCase().replace(/^hf\.co\//, "").trim();
+}
+
+function getHFModelInstallStatus(repoId) {
+  if (!repoId) return { installedCount: 0, ghostCount: 0 };
+  const target = normalizeHFModelName(repoId);
+
+  const installedMatches = (models || []).filter((m) => {
+    const norm = normalizeHFModelName(m.name || "");
+    return norm === target || norm.startsWith(target + ":") || norm.includes(target);
+  });
+
+  const installedNames = new Set(installedMatches.map((m) => normalizeHFModelName(m.name)));
+
+  const ghostMatches = (ghostModels || []).filter((g) => {
+    const norm = normalizeHFModelName(g.name || "");
+    return (norm === target || norm.startsWith(target + ":") || norm.includes(target)) && !installedNames.has(norm);
+  });
+
+  return {
+    installedCount: installedMatches.length,
+    ghostCount: ghostMatches.length,
+  };
+}
+
+function getHFQuantInstallStatus(pullName) {
+  if (!pullName) return { isInstalled: false, wasInstalled: false };
+  const target = normalizeHFModelName(pullName);
+
+  const isInstalled = (models || []).some((m) => {
+    const norm = normalizeHFModelName(m.name || "");
+    return norm === target || norm.startsWith(target + ":");
+  });
+
+  const wasInstalled = !isInstalled && (ghostModels || []).some((g) => {
+    const norm = normalizeHFModelName(g.name || "");
+    return norm === target || norm.startsWith(target + ":");
+  });
+
+  return { isInstalled, wasInstalled };
+}
+
 function hfModelCardHTML(m) {
   const author = escapeHtml(m.author || m.id.split("/")[0] || "");
   const name = escapeHtml(m.name || m.id);
@@ -202,7 +246,21 @@ function hfModelCardHTML(m) {
   const likesCount = Number(m.likes || 0).toLocaleString();
   const updatedTime = m.last_modified ? fmtRelativeTime(m.last_modified) : "";
 
-  let tagsHTML = `<span class="badge badge-subtle">${t("hf.tag_gguf")}</span>`;
+  const installStatus = getHFModelInstallStatus(m.id);
+  let statusBadge = "";
+  let cardClass = "hf-card";
+
+  if (installStatus.installedCount > 0) {
+    cardClass += " hf-card-installed";
+    statusBadge = `<span class="badge badge-success" title="${escapeHtml(t("hf.card_installed_tooltip", { count: installStatus.installedCount }))}">💾 ${escapeHtml(t("hf.card_installed"))}</span>`;
+  } else if (installStatus.ghostCount > 0) {
+    cardClass += " hf-card-had";
+    statusBadge = `<span class="badge badge-subtle hf-badge-history" title="${escapeHtml(t("hf.card_had_tooltip", { count: installStatus.ghostCount }))}">🕒 ${escapeHtml(t("hf.card_had"))}</span>`;
+  }
+
+  let tagsHTML = "";
+  if (statusBadge) tagsHTML += statusBadge + " ";
+  tagsHTML += `<span class="badge badge-subtle">${t("hf.tag_gguf")}</span>`;
   if (m.has_ollama) {
     tagsHTML += ` <span class="badge badge-accent">${t("hf.tag_ollama")}</span>`;
   }
@@ -213,7 +271,7 @@ function hfModelCardHTML(m) {
   const hfUrl = `https://huggingface.co/${encodeURIComponent(m.id)}`;
 
   return `
-    <div class="hf-card" data-repo-id="${escapeHtml(m.id)}">
+    <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}">
       <div class="hf-card-head">
         <div class="hf-card-title-wrap">
           <span class="hf-card-author">${author} /</span>
@@ -323,7 +381,10 @@ function renderHFQuantsTable(m) {
   tbody.innerHTML = sortedFiles.map((f) => {
     const fit = computeMemoryFit(f.size_bytes, visionSize);
     const isRec = recommendedFile && recommendedFile.filename === f.filename;
-    const isInstalled = models.some((local) => local.name === f.pullName || local.name.startsWith(f.pullName));
+    
+    const quantStatus = getHFQuantInstallStatus(f.pullName);
+    const isInstalled = quantStatus.isInstalled;
+    const wasInstalled = quantStatus.wasInstalled;
     
     let isQueued = false;
     let isDownloading = false;
@@ -336,11 +397,17 @@ function renderHFQuantsTable(m) {
 
     let statusBtn = "";
     if (isInstalled) {
-      statusBtn = `<span class="badge badge-success">${escapeHtml(t("hf.installed_badge"))}</span>`;
+      statusBtn = `<span class="badge badge-success">💾 ${escapeHtml(t("hf.installed_badge"))}</span>`;
     } else if (isDownloading) {
       statusBtn = `<span class="badge badge-accent">${escapeHtml(t("hf.downloading_badge"))}</span>`;
     } else if (isQueued) {
       statusBtn = `<span class="badge badge-subtle">${escapeHtml(t("hf.queued_badge"))}</span>`;
+    } else if (wasInstalled) {
+      statusBtn = `
+        <button type="button" class="secondary btn-sm hf-install-btn" data-pull-name="${escapeHtml(f.pullName)}" title="ollama pull ${escapeHtml(f.pullName)}">
+          🔄 ${escapeHtml(t("hf.reinstall_btn"))}
+        </button>
+      `;
     } else {
       statusBtn = `
         <button type="button" class="primary btn-sm hf-install-btn" data-pull-name="${escapeHtml(f.pullName)}" title="ollama pull ${escapeHtml(f.pullName)}">
@@ -350,12 +417,19 @@ function renderHFQuantsTable(m) {
     }
 
     const recBadge = isRec ? `<span class="badge badge-rec" title="${escapeHtml(t("hf.recommended_quant"))}">★ ${escapeHtml(t("hf.recommended_quant"))}</span>` : "";
+    let quantStatusBadge = "";
+    if (isInstalled) {
+      quantStatusBadge = ` <span class="badge badge-success hf-quant-state-badge" title="${escapeHtml(t("hf.quant_installed"))}">💾 ${escapeHtml(t("hf.card_installed"))}</span>`;
+    } else if (wasInstalled) {
+      quantStatusBadge = ` <span class="badge badge-subtle hf-badge-history hf-quant-state-badge" title="${escapeHtml(t("hf.quant_was_installed_desc"))}">🕒 ${escapeHtml(t("hf.quant_was_installed"))}</span>`;
+    }
 
     return `
       <tr class="${isRec ? "hf-row-recommended" : ""}">
         <td class="mono font-semibold">
           ${escapeHtml(f.quant)}
           ${recBadge}
+          ${quantStatusBadge}
         </td>
         <td class="muted small mono hf-cell-filename" title="${escapeHtml(f.filename)}">${escapeHtml(f.filename)}</td>
         <td class="mono">${fmtBytes(f.size_bytes)}</td>

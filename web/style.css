@@ -8398,28 +8398,6 @@ button.chat-send:disabled:hover {
    HuggingFace Model Explorer & Downloader
    ========================================================================== */
 
-.dl-hf-bar {
-  margin-top: 8px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.dl-hf-btn {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  color: var(--accent);
-  border: 1px dashed rgba(59, 130, 246, 0.4);
-  background: rgba(59, 130, 246, 0.05);
-  transition: all 0.15s ease;
-}
-
-.dl-hf-btn:hover {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: var(--accent);
-  color: #fff;
-}
-
 .hf-view {
   width: 100%;
   max-width: 1440px;

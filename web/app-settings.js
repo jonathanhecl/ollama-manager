@@ -277,78 +277,227 @@ function renderPromptsList(filterText = "", lang = null) {
     const dateStr = p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : "";
     return `
       <div class="prompt-card" data-id="${escapeHtml(p.id)}">
-        <div class="prompt-card-head">
-          <div class="prompt-card-title">${escapeHtml(p.title || "Untitled")}</div>
-          <div class="prompt-card-date">${escapeHtml(dateStr)}</div>
+        <!-- View Mode -->
+        <div class="prompt-card-view">
+          <div class="prompt-card-head">
+            <div class="prompt-card-title">${escapeHtml(p.title || "Untitled")}</div>
+            <div class="prompt-card-date">${escapeHtml(dateStr)}</div>
+          </div>
+          <div class="prompt-card-body">${escapeHtml(p.prompt || "")}</div>
+          <div class="prompt-card-actions">
+            <button type="button" class="ghost prompt-copy-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_copy_btn">${escapeHtml(t("settings.prompt_copy_btn", null, targetLang))}</button>
+            <button type="button" class="ghost prompt-export-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_export_btn">${escapeHtml(t("settings.prompt_export_btn", null, targetLang))}</button>
+            <button type="button" class="ghost prompt-edit-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_edit_btn">${escapeHtml(t("settings.prompt_edit_btn", null, targetLang))}</button>
+            <button type="button" class="ghost danger-text prompt-del-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_delete_btn">${escapeHtml(t("settings.prompt_delete_btn", null, targetLang))}</button>
+          </div>
         </div>
-        <div class="prompt-card-body">${escapeHtml(p.prompt || "")}</div>
-        <div class="prompt-card-actions">
-          <button type="button" class="ghost prompt-copy-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_copy_btn">${escapeHtml(t("settings.prompt_copy_btn", null, targetLang))}</button>
-          <button type="button" class="ghost prompt-default-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_use_default_btn">${escapeHtml(t("settings.prompt_use_default_btn", null, targetLang))}</button>
-          <button type="button" class="ghost prompt-edit-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_edit_btn">${escapeHtml(t("settings.prompt_edit_btn", null, targetLang))}</button>
-          <button type="button" class="btn-icon danger-text prompt-del-btn" data-id="${escapeHtml(p.id)}" title="${escapeHtml(t("settings.prompt_delete_btn", null, targetLang))}">×</button>
+
+        <!-- Inline Edit Mode -->
+        <div class="prompt-card-edit" hidden>
+          <div class="field">
+            <label class="small muted" data-i18n="settings.prompt_title_label">${escapeHtml(t("settings.prompt_title_label", null, targetLang))}</label>
+            <input type="text" class="prompt-inline-title" value="${escapeHtml(p.title || "")}" autocomplete="off">
+          </div>
+          <div class="field field-vertical">
+            <div class="chat-system-head">
+              <label class="small muted" data-i18n="settings.prompt_content_label">${escapeHtml(t("settings.prompt_content_label", null, targetLang))}</label>
+              <div class="chat-system-actions">
+                <button type="button" class="ghost chat-system-file-btn prompt-inline-file-btn" title="${escapeHtml(t("settings.prompt_load_file", null, targetLang))}">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                    <path d="M12 18v-6"/>
+                    <path d="M9 15l3-3 3 3"/>
+                  </svg>
+                </button>
+                <button type="button" class="ghost chat-system-file-btn prompt-inline-clear-btn" title="${escapeHtml(t("chat.clear_system_prompt", null, targetLang))}">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 6h18"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </button>
+                <input type="file" class="prompt-inline-file-input" hidden accept=".txt,.md,.markdown,.json,.yaml,.yml,.prompt,.py,.js,.ts,.html,.css,*/*">
+              </div>
+            </div>
+            <textarea class="prompt-inline-content mono" rows="6" autocomplete="off">${escapeHtml(p.prompt || "")}</textarea>
+          </div>
+          <div class="prompt-inline-actions">
+            <button type="button" class="primary prompt-inline-save-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_save_btn">${escapeHtml(t("settings.prompt_save_btn", null, targetLang))}</button>
+            <button type="button" class="ghost prompt-inline-cancel-btn" data-id="${escapeHtml(p.id)}" data-i18n="settings.prompt_cancel_btn">${escapeHtml(t("settings.prompt_cancel_btn", null, targetLang))}</button>
+          </div>
         </div>
       </div>
     `;
   }).join("");
 
-  // Bind actions
+  // Bind copy
   listEl.querySelectorAll(".prompt-copy-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const id = btn.dataset.id;
       const item = systemPromptsList.find((p) => p.id === id);
       if (item && item.prompt) {
-        navigator.clipboard.writeText(item.prompt).then(() => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(item.prompt);
+          } else {
+            const ta = document.createElement("textarea");
+            ta.value = item.prompt;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+          }
           toast(t("chat.copied", null, targetLang) || "Copied to clipboard", "success");
-        }).catch(() => {
+        } catch {
           toast(t("chat.copy_failed", null, targetLang) || "Could not copy", "error");
-        });
-      }
-    });
-  });
-
-  listEl.querySelectorAll(".prompt-default-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const item = systemPromptsList.find((p) => p.id === id);
-      if (item && item.prompt) {
-        const sysEl = $("set-default-system");
-        if (sysEl) {
-          sysEl.value = item.prompt;
-          toast(t("settings.prompt_use_default_success", null, targetLang), "success");
-          showSettingsSection("sec-chat-defaults", false);
         }
       }
     });
   });
 
-  listEl.querySelectorAll(".prompt-edit-btn").forEach((btn) => {
+  // Bind export
+  listEl.querySelectorAll(".prompt-export-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.id;
       const item = systemPromptsList.find((p) => p.id === id);
-      if (item) {
-        $("prompt-edit-id").value = item.id;
-        $("prompt-edit-title").value = item.title;
-        $("prompt-edit-content").value = item.prompt;
-        $("prompt-editor-box").hidden = false;
-        $("prompt-edit-title").focus();
+      if (!item) return;
+      try {
+        const blob = new Blob([item.prompt || ""], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        let fn = item.filename || (item.title ? `${item.title}.md` : "prompt.md");
+        if (!fn.includes(".")) fn += ".md";
+        a.download = fn;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast(t("settings.prompt_exported", null, targetLang) || "Prompt exported", "success");
+      } catch (e) {
+        toast(e.message, "error");
       }
     });
   });
 
+  // Bind inline edit expand
+  listEl.querySelectorAll(".prompt-edit-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const card = btn.closest(".prompt-card");
+      if (!card) return;
+      const viewEl = card.querySelector(".prompt-card-view");
+      const editEl = card.querySelector(".prompt-card-edit");
+      if (viewEl && editEl) {
+        viewEl.hidden = true;
+        editEl.hidden = false;
+        const titleInput = editEl.querySelector(".prompt-inline-title");
+        if (titleInput) titleInput.focus();
+      }
+    });
+  });
+
+  // Bind inline edit cancel
+  listEl.querySelectorAll(".prompt-inline-cancel-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const card = btn.closest(".prompt-card");
+      if (!card) return;
+      const viewEl = card.querySelector(".prompt-card-view");
+      const editEl = card.querySelector(".prompt-card-edit");
+      if (viewEl && editEl) {
+        editEl.hidden = true;
+        viewEl.hidden = false;
+      }
+    });
+  });
+
+  // Bind inline edit save
+  listEl.querySelectorAll(".prompt-inline-save-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const card = btn.closest(".prompt-card");
+      if (!card) return;
+      const titleInput = card.querySelector(".prompt-inline-title");
+      const contentInput = card.querySelector(".prompt-inline-content");
+      const title = (titleInput?.value || "").trim();
+      const prompt = (contentInput?.value || "").trim();
+      if (!title && !prompt) {
+        toast(t("settings.prompt_title_label", null, targetLang) + " required", "error");
+        return;
+      }
+      try {
+        await api("/api/system-prompts/" + encodeURIComponent(id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, prompt }),
+        });
+        toast(t("settings.prompt_saved", null, targetLang), "success");
+        loadSystemPrompts(targetLang);
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }, targetLang), "error");
+      }
+    });
+  });
+
+  // Bind inline file import
+  listEl.querySelectorAll(".prompt-inline-file-btn").forEach((btn) => {
+    const parent = btn.closest(".prompt-card-edit");
+    const fileInput = parent?.querySelector(".prompt-inline-file-input");
+    if (fileInput) {
+      btn.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const text = e.target?.result;
+            if (typeof text === "string") {
+              const ta = parent.querySelector(".prompt-inline-content");
+              if (ta) ta.value = text;
+              const titleInp = parent.querySelector(".prompt-inline-title");
+              if (titleInp && !titleInp.value.trim()) {
+                titleInp.value = file.name.replace(/\.[^/.]+$/, "");
+              }
+              toast(t("chat.system_file_loaded", null, targetLang) || "System prompt loaded from file", "success");
+            }
+          };
+          reader.onerror = () => {
+            toast(t("chat.system_file_read_error", null, targetLang) || "Could not read file", "error");
+          };
+          reader.readAsText(file);
+        }
+        fileInput.value = "";
+      });
+    }
+  });
+
+  // Bind inline clear
+  listEl.querySelectorAll(".prompt-inline-clear-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const parent = btn.closest(".prompt-card-edit");
+      const ta = parent?.querySelector(".prompt-inline-content");
+      if (ta) {
+        ta.value = "";
+        ta.focus();
+      }
+    });
+  });
+
+  // Bind delete with confirm modal
   listEl.querySelectorAll(".prompt-del-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.id;
       const item = systemPromptsList.find((p) => p.id === id);
       if (!item) return;
       const conf = await askConfirm({
-        title: t("settings.prompt_delete_btn", null, targetLang),
+        title: t("settings.prompt_delete_btn", null, targetLang) || "Delete",
         text: t("settings.prompt_delete_confirm", { title: item.title || "Untitled" }, targetLang),
-        okText: t("action.delete", null, targetLang),
+        okText: t("settings.prompt_delete_btn", null, targetLang) || "Delete",
         okClass: "danger",
         mono: item.title,
       });
-      if (conf.ok) {
+      if (conf?.ok) {
         try {
           await api("/api/system-prompts/" + encodeURIComponent(id), { method: "DELETE" });
           toast(t("settings.prompt_deleted", null, targetLang), "success");
@@ -387,7 +536,6 @@ function bindSystemPromptsEvents() {
   const editorBox = $("prompt-editor-box");
   const cancelBtn = $("prompt-cancel-btn");
   const saveBtn = $("prompt-save-btn");
-  const setDefaultBtn = $("prompt-set-default-btn");
   const searchInput = $("prompt-search-input");
   const fileBtn = $("prompt-edit-file-btn");
   const fileInput = $("prompt-edit-file-input");
@@ -440,21 +588,6 @@ function bindSystemPromptsEvents() {
         loadSystemPrompts();
       } catch (err) {
         toast(t("toast.error", { msg: err.message }), "error");
-      }
-    });
-  }
-
-  if (setDefaultBtn && !setDefaultBtn._bound) {
-    setDefaultBtn._bound = true;
-    setDefaultBtn.addEventListener("click", () => {
-      const prompt = $("prompt-edit-content").value.trim();
-      if (prompt) {
-        const sysEl = $("set-default-system");
-        if (sysEl) {
-          sysEl.value = prompt;
-          toast(t("settings.prompt_use_default_success"), "success");
-          showSettingsSection("sec-chat-defaults", false);
-        }
       }
     });
   }

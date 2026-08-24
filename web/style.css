@@ -8122,14 +8122,58 @@ button.chat-send:disabled:hover {
 .prompt-card-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 8px;
   flex-wrap: wrap;
 }
 
 .prompt-card-actions button {
   font-size: 12px;
-  padding: 3px 8px;
+  padding: 4px 10px;
+}
+
+.prompt-del-btn {
+  margin-left: auto;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px;
+  color: var(--danger, #ef4444) !important;
+  padding: 4px 12px !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.prompt-del-btn:hover {
+  border-color: var(--danger, #ef4444) !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #fff !important;
+}
+
+.prompt-card-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prompt-card-edit .field {
+  margin-bottom: 0;
+}
+
+.prompt-inline-title {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.prompt-inline-content {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 100px;
+}
+
+.prompt-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 #prompt-edit-dropzone.drag-over {

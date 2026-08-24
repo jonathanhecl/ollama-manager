@@ -1233,8 +1233,21 @@
             </summary>
             <div class="settings-collapse-body">
               <p class="form-hint" data-i18n="settings.chat_defaults_hint">Default parameters and system prompt applied to all models unless customized per model.</p>
-              <div class="field field-vertical">
-                <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
+              <div class="field field-vertical" id="set-default-system-field">
+                <div class="chat-system-head">
+                  <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
+                  <div class="chat-system-actions">
+                    <button id="set-default-system-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_system_file" title="Load system prompt from file" aria-label="Load system prompt from file">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <path d="M14 2v6h6"/>
+                        <path d="M12 18v-6"/>
+                        <path d="M9 15l3-3 3 3"/>
+                      </svg>
+                    </button>
+                    <input type="file" id="set-default-system-file-input" hidden accept=".txt,.md,.markdown,.json,.yaml,.yml,.prompt,.py,.js,.ts,.html,.css,*/*">
+                  </div>
+                </div>
                 <textarea id="set-default-system" rows="3" data-i18n-attr="placeholder" data-i18n="settings.default_system_placeholder" placeholder="Default system instruction for all models..." autocomplete="off"></textarea>
               </div>
               <div class="settings-param-row">

@@ -52,10 +52,86 @@ async function showSettingsView() {
   loadExternalModels();
   bindExternalModelsEvents();
   bindSettingsNavEvents();
+  bindDefaultSystemPromptFileEvents();
 }
 
 function openSettings() {
   return showSettingsView();
+}
+
+function loadFileIntoDefaultSystemPrompt(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target?.result;
+    if (typeof text !== "string") return;
+    const sysEl = $("set-default-system");
+    if (!sysEl) return;
+    sysEl.value = text;
+    toast(t("chat.system_file_loaded") || "System prompt loaded from file", "success");
+  };
+  reader.onerror = () => {
+    toast(t("chat.system_file_read_error") || "Could not read file", "error");
+  };
+  reader.readAsText(file);
+}
+
+function bindDefaultSystemPromptFileEvents() {
+  const sysFileBtn = $("set-default-system-file-btn");
+  const sysFileInput = $("set-default-system-file-input");
+  if (sysFileBtn && sysFileInput && !sysFileBtn._bound) {
+    sysFileBtn._bound = true;
+    sysFileBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      sysFileInput.click();
+    });
+    sysFileInput.addEventListener("change", () => {
+      const file = sysFileInput.files?.[0];
+      if (file) {
+        loadFileIntoDefaultSystemPrompt(file);
+      }
+      sysFileInput.value = "";
+    });
+  }
+
+  const sysField = $("set-default-system-field");
+  if (sysField && !sysField._boundDnd) {
+    sysField._boundDnd = true;
+    let sysDndDepth = 0;
+    sysField.addEventListener("dragenter", (e) => {
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault();
+        e.stopPropagation();
+        sysDndDepth += 1;
+        sysField.classList.add("drag-over");
+      }
+    });
+    sysField.addEventListener("dragover", (e) => {
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    });
+    sysField.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sysDndDepth = Math.max(0, sysDndDepth - 1);
+      if (sysDndDepth === 0) {
+        sysField.classList.remove("drag-over");
+      }
+    });
+    sysField.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sysDndDepth = 0;
+      sysField.classList.remove("drag-over");
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length > 0) {
+        loadFileIntoDefaultSystemPrompt(files[0]);
+      }
+    });
+  }
 }
 
 function bindSettingsNavEvents() {

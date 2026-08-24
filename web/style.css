@@ -3859,7 +3859,9 @@ button.chat-send:disabled:hover {
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 #chat-system-field.drag-over #chat-system,
-#chat-system.drag-over {
+#chat-system.drag-over,
+#set-default-system-field.drag-over #set-default-system,
+#set-default-system.drag-over {
   border-color: var(--accent) !important;
   background: color-mix(in srgb, var(--accent) 12%, #0e0e12) !important;
   box-shadow: 0 0 0 1px var(--accent);

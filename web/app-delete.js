@@ -135,18 +135,21 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     e.preventDefault();
     e.stopPropagation();
+    e.stopImmediatePropagation();
     pendingDelete = null;
     closeConfirmModal(false);
   } else if (e.key === "Enter") {
     if (document.activeElement === $("confirm-cancel")) {
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
       pendingDelete = null;
       closeConfirmModal(false);
       return;
     }
     e.preventDefault();
     e.stopPropagation();
+    e.stopImmediatePropagation();
     closeConfirmModal(true);
   }
 });

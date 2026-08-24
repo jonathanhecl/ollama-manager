@@ -83,7 +83,8 @@ window.isBlobOrLocalPath = isBlobOrLocalPath;
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};
   const isExternal = !!(d.is_external || m.is_external);
-  let baseModel = d.base_model || m.base_model || (isFixedModelName(d.name) ? fixedBaseName(d.name) : "");
+  const isCustom = !!(d.is_custom || m.is_custom || (typeof isFixedModelName === "function" && isFixedModelName(d.name)));
+  let baseModel = d.base_model || m.base_model || (typeof isFixedModelName === "function" && isFixedModelName(d.name) ? (typeof fixedBaseName === "function" ? fixedBaseName(d.name) : "") : "");
   if (baseModel && isBlobOrLocalPath(baseModel)) {
     baseModel = "";
   }
@@ -331,6 +332,7 @@ const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embe
 function isFixedModelName(name) {
   return String(name || "").trim().endsWith(":fixed");
 }
+window.isFixedModelName = isFixedModelName;
 
 function fixedBaseName(name) {
   if (!isFixedModelName(name)) return String(name || "").trim();
@@ -341,6 +343,7 @@ function fixedBaseName(name) {
   }
   return basePrefix;
 }
+window.fixedBaseName = fixedBaseName;
 
 function fixedModelName(name) {
   const s = String(name || "").trim();
@@ -350,6 +353,7 @@ function fixedModelName(name) {
   if (colon > slash) return `${s.slice(0, colon)}:fixed`;
   return `${s}:fixed`;
 }
+window.fixedModelName = fixedModelName;
 
 function repairDefaultTemplate(d) {
   if (String(d?.template || "").trim()) return "keep";
@@ -763,4 +767,15 @@ function renderRepairPreview(out) {
 
 $("repair-modal-x")?.addEventListener("click", closeRepairModal);
 $("repair-modal-close")?.addEventListener("click", closeRepairModal);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const modal = $("repair-modal");
+  if (modal && !modal.hidden) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    closeRepairModal();
+  }
+});
 

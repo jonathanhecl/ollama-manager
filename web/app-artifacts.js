@@ -1160,8 +1160,9 @@ function bindChatEvents() {
   }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if ($("confirm-modal") && !$("confirm-modal").hidden) return;
-      if ($("image-preview-modal") && !$("image-preview-modal").hidden) return;
+      if (e.defaultPrevented) return;
+      const openModal = document.querySelector(".modal:not([hidden]), dialog[open]");
+      if (openModal) return;
       if ($("chat-view")?.classList.contains("chat-options-open")) {
         $("chat-view")?.classList.remove("chat-options-open");
         syncChatPanels($("chat-view"));
@@ -1288,6 +1289,8 @@ function bindChatEvents() {
     const modal = $("image-preview-modal");
     if (modal && !modal.hidden) {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       closeImagePreview();
     }
   });
@@ -1518,6 +1521,16 @@ function bindChatEvents() {
   $("load-artifact-close")?.addEventListener("click", () => { $("load-artifact-modal").hidden = true; });
   $("load-artifact-modal")?.addEventListener("click", (e) => {
     if (e.target === $("load-artifact-modal")) $("load-artifact-modal").hidden = true;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = $("load-artifact-modal");
+    if (modal && !modal.hidden) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      modal.hidden = true;
+    }
   });
 
   // Artifact resource button in chat compose bar

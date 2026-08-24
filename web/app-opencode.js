@@ -246,12 +246,16 @@ $("settings-back-btn")?.addEventListener("click", () => {
 $("set-language").addEventListener("change", () => {
   const lang = $("set-language").value;
   window.I18n.setLang(lang);
+  if (currentConfig) {
+    currentConfig.language = lang;
+  }
   // Re-render dynamic UI to pick up the new language.
   refreshStatus();
   renderTable();
   if (activeName) openDetail(activeName);
   if (typeof currentView !== "undefined" && currentView === "analytics" && typeof renderAnalytics === "function") renderAnalytics();
   if (typeof currentView !== "undefined" && currentView === "downloads" && typeof renderDownloads === "function") renderDownloads();
+  if (typeof currentView !== "undefined" && currentView === "modelfile" && typeof refreshModelfileUI === "function") refreshModelfileUI();
   updateChatContextMeter();
   renderAttachments();
   renderChatMessages();
@@ -260,6 +264,9 @@ $("set-language").addEventListener("change", () => {
   updateChatCapabilityUI();
   updateChatSendEnabled();
   updatePasswordSection();
+  updateExposeWarning();
+  updateBindPreview();
+  loadExternalModels();
   refreshOpenCodeUI();
 });
 

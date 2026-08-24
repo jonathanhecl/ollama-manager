@@ -1429,6 +1429,24 @@ function bindChatEvents() {
     });
   }
 
+  const sysClearBtn = $("chat-system-clear-btn");
+  if (sysClearBtn) {
+    sysClearBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const sys = $("chat-system");
+      if (sys) {
+        sys.value = "";
+        adjustChatSystemPromptHeight();
+        sys.dispatchEvent(new Event("input", { bubbles: true }));
+        sys.dispatchEvent(new Event("change", { bubbles: true }));
+        if (typeof saveChatOptionsForCurrentModel === "function") {
+          saveChatOptionsForCurrentModel();
+        }
+        sys.focus();
+      }
+    });
+  }
+
   const sysField = $("chat-system-field");
   if (sysField) {
     let sysDndDepth = 0;

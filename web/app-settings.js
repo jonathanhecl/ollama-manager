@@ -120,6 +120,21 @@ function bindDefaultSystemPromptFileEvents() {
     });
   }
 
+  const sysClearBtn = $("set-default-system-clear-btn");
+  if (sysClearBtn && !sysClearBtn._bound) {
+    sysClearBtn._bound = true;
+    sysClearBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const sys = $("set-default-system");
+      if (sys) {
+        sys.value = "";
+        sys.dispatchEvent(new Event("input", { bubbles: true }));
+        sys.dispatchEvent(new Event("change", { bubbles: true }));
+        sys.focus();
+      }
+    });
+  }
+
   const sysField = $("set-default-system-field");
   if (sysField && !sysField._boundDnd) {
     sysField._boundDnd = true;
@@ -466,6 +481,21 @@ function bindSystemPromptsEvents() {
     });
   }
 
+  const promptEditClearBtn = $("prompt-edit-clear-btn");
+  if (promptEditClearBtn && !promptEditClearBtn._bound) {
+    promptEditClearBtn._bound = true;
+    promptEditClearBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const el = $("prompt-edit-content");
+      if (el) {
+        el.value = "";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.focus();
+      }
+    });
+  }
+
   if (dropZone && !dropZone._boundDnd) {
     dropZone._boundDnd = true;
     let dndDepth = 0;
@@ -498,7 +528,8 @@ function bindSystemPromptsEvents() {
       dndDepth = 0;
       dropZone.classList.remove("drag-over");
       const files = Array.from(e.dataTransfer?.files || []);
-      if (files.length > 0) {        loadFileIntoPromptEditor(files[0]);
+      if (files.length > 0) {
+        loadFileIntoPromptEditor(files[0]);
       }
     });
   }
@@ -956,4 +987,3 @@ if (typeof document !== "undefined") {
     bindSystemPromptsModalEvents();
   }
 }
-

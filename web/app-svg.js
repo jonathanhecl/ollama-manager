@@ -1646,6 +1646,10 @@ async function handleRouting() {
     if (typeof showModelfileView === "function") {
       showModelfileView();
     }
+  } else if (path === "/hf" || path === "/hf/" || path === "/huggingface" || path === "/huggingface/") {
+    if (typeof showHFView === "function") {
+      showHFView();
+    }
   } else if (path === "/") {
     if (currentView !== "models") {
       showModelsView();

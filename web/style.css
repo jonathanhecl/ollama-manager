@@ -8420,27 +8420,43 @@ button.chat-send:disabled:hover {
   color: #fff;
 }
 
-.hf-modal-card {
-  max-width: 960px;
-  width: 95vw;
-  max-height: 88vh;
+.hf-view {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 20px 28px 60px;
+  box-sizing: border-box;
+}
+
+.hf-layout {
   display: flex;
   flex-direction: column;
-  padding: 20px;
+  gap: 12px;
 }
 
 .hf-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 14px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
   gap: 12px;
 }
 
-.hf-head-title-wrap {
+.hf-head-left {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.hf-head-left h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .hf-back-btn {
@@ -8450,12 +8466,7 @@ button.chat-send:disabled:hover {
 }
 
 .hf-logo-emoji {
-  font-size: 20px;
-  margin-right: 6px;
-}
-
-.hf-subtitle {
-  margin-top: 2px;
+  font-size: 24px;
 }
 
 .hf-head-actions {
@@ -8465,8 +8476,8 @@ button.chat-send:disabled:hover {
 }
 
 .hf-mem-banner {
-  padding: 4px 10px;
-  font-size: 11px;
+  padding: 6px 12px;
+  font-size: 12px;
   background: rgba(59, 130, 246, 0.08);
   border: 1px solid rgba(59, 130, 246, 0.25);
   color: var(--accent);

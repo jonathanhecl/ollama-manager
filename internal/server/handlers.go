@@ -50,7 +50,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path == "/opencode" ||
 		r.URL.Path == "/archived" ||
 		r.URL.Path == "/modelfile" ||
-		strings.HasPrefix(r.URL.Path, "/modelfile/")
+		strings.HasPrefix(r.URL.Path, "/modelfile/") ||
+		r.URL.Path == "/hf" ||
+		strings.HasPrefix(r.URL.Path, "/hf/") ||
+		r.URL.Path == "/huggingface" ||
+		strings.HasPrefix(r.URL.Path, "/huggingface/")
 	if !isSPAPath {
 		http.NotFound(w, r)
 		return

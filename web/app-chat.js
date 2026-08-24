@@ -223,8 +223,10 @@ function showModelsView() {
   $("analytics-view") && ($("analytics-view").hidden = true);
   $("settings-view") && ($("settings-view").hidden = true);
   $("modelfile-view") && ($("modelfile-view").hidden = true);
+  $("hf-view") && ($("hf-view").hidden = true);
   $("chat-btn")?.classList.remove("active");
   $("settings-btn")?.classList.remove("active");
+  $("hf-topbar-btn")?.classList.remove("active");
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
   }

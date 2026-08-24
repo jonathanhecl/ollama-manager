@@ -1,19 +1,44 @@
 "use strict";
 
-// ---------- HuggingFace Model Explorer ----------
+// ---------- HuggingFace Model Explorer Section ----------
 
 let hfModels = [];
 let hfActiveModel = null;
 let hfReadmeCache = new Map();
 let hfSearchDebounce = null;
-let hfCurrentFilter = "all"; // "all" | "ollama" | "vision" | "vram"
+let hfCurrentFilter = "all"; // "all" | "ollama" | "vision"
 let hfCurrentSort = "downloads"; // "downloads" | "likes" | "recent" | "trending"
 let hfActiveTab = "quants"; // "quants" | "readme"
 
-function openHFExplorer() {
-  const modal = $("hf-explorer-modal");
-  if (!modal) return;
-  modal.hidden = false;
+function showHFView() {
+  if (typeof hideAllMainViews === "function") {
+    hideAllMainViews();
+  } else {
+    $("models-view") && ($("models-view").hidden = true);
+    $("chat-view") && ($("chat-view").hidden = true);
+    $("tests-view") && ($("tests-view").hidden = true);
+    $("analytics-view") && ($("analytics-view").hidden = true);
+    $("settings-view") && ($("settings-view").hidden = true);
+    $("modelfile-view") && ($("modelfile-view").hidden = true);
+  }
+
+  if (typeof closeDownloads === "function") {
+    closeDownloads();
+  }
+
+  currentView = "hf";
+  const hfView = $("hf-view");
+  if (hfView) hfView.hidden = false;
+
+  $("chat-btn")?.classList.remove("active");
+  $("settings-btn")?.classList.remove("active");
+  $("modelfile-btn")?.classList.remove("active");
+  $("hf-topbar-btn")?.classList.add("active");
+
+  if (window.location.pathname !== "/hf" && window.location.pathname !== "/huggingface") {
+    history.pushState(null, "", "/hf");
+  }
+
   updateHFMemoryBanner();
   const input = $("hf-search-input");
   if (input && !input.value.trim() && hfModels.length === 0) {
@@ -22,11 +47,6 @@ function openHFExplorer() {
     renderHFModelsList();
   }
   setTimeout(() => input?.focus(), 50);
-}
-
-function closeHFExplorer() {
-  const modal = $("hf-explorer-modal");
-  if (modal) modal.hidden = true;
 }
 
 function updateHFMemoryBanner() {
@@ -175,7 +195,7 @@ async function openHFModelDetail(repoId) {
   const modal = $("hf-detail-modal");
   if (!modal) return;
 
-  $("hf-detail-title").textContent = repoId;
+  $("hf-detail-name").textContent = repoId;
   $("hf-detail-loading").hidden = false;
   $("hf-detail-body").hidden = true;
   modal.hidden = false;
@@ -246,17 +266,16 @@ function renderHFQuantsTable(m) {
     visionSize = m.vision_files[0].size_bytes || 0;
   }
 
-  // Sort files: Q4_K_M first or by size ascending
+  // Sort files by size ascending
   const sortedFiles = [...ggufFiles].sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0));
 
-  // Determine recommended quant:
-  // Preferred is Q4_K_M or Q5_K_M that fits in optimal VRAM, or smallest that fits in VRAM, or Q4_K_M.
+  // Determine recommended quant
   let recommendedFile = sortedFiles.find((f) => f.quant === "Q4_K_M") || sortedFiles[0];
   const optimalFiles = sortedFiles.filter((f) => computeMemoryFit(f.size_bytes, visionSize).level === "optimal");
   if (optimalFiles.length > 0) {
     const pref = optimalFiles.find((f) => f.quant === "Q5_K_M") || optimalFiles.find((f) => f.quant === "Q4_K_M");
     if (pref) recommendedFile = pref;
-    else recommendedFile = optimalFiles[optimalFiles.length - 1]; // Highest quality that fits in VRAM
+    else recommendedFile = optimalFiles[optimalFiles.length - 1];
   }
 
   tbody.innerHTML = sortedFiles.map((f) => {
@@ -348,7 +367,6 @@ async function loadHFReadme(repoId) {
       container.innerHTML = `<div class="muted text-center" style="padding: 30px;">${escapeHtml(t("hf.readme_error"))}</div>`;
       return;
     }
-    // Render simple safe markdown
     const formatted = formatHFMarkdown(raw);
     hfReadmeCache.set(repoId, formatted);
     container.innerHTML = formatted;
@@ -389,22 +407,19 @@ function formatHFMarkdown(md) {
 // ---------- Event Listeners Bindings ----------
 
 function bindHFExplorerEvents() {
+  // Topbar button
+  $("hf-topbar-btn")?.addEventListener("click", showHFView);
+
   // Open HF explorer from downloads modal button
   $("dl-open-hf-btn")?.addEventListener("click", () => {
     closeDownloads();
-    openHFExplorer();
+    showHFView();
   });
 
-  // Back to downloads button in HF explorer
+  // Back button in HF view -> back to models view
   $("hf-back-btn")?.addEventListener("click", () => {
-    closeHFExplorer();
-    openDownloads();
-  });
-
-  // Close explorer
-  $("hf-close-btn")?.addEventListener("click", closeHFExplorer);
-  $("hf-explorer-modal")?.addEventListener("click", (e) => {
-    if (e.target === $("hf-explorer-modal")) closeHFExplorer();
+    showModelsView();
+    history.pushState(null, "", "/");
   });
 
   // Search input with debouncing

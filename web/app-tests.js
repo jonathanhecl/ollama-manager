@@ -19,6 +19,7 @@ function hideAllMainViews() {
   $("analytics-view") && ($("analytics-view").hidden = true);
   $("settings-view") && ($("settings-view").hidden = true);
   $("modelfile-view") && ($("modelfile-view").hidden = true);
+  $("hf-view") && ($("hf-view").hidden = true);
   $("detail-panel") && ($("detail-panel").hidden = true);
 }
 

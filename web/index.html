@@ -56,6 +56,7 @@
           <span data-i18n="downloads.button">Downloads</span>
           <span id="downloads-count" class="count-badge" hidden>0</span>
         </button>
+        <button id="hf-topbar-btn" class="ghost" data-i18n-attr="title" data-i18n="hf.title" title="HuggingFace Models">🤗</button>
         <button id="modelfile-btn" class="ghost" data-i18n-attr="title" data-i18n="modelfile.title" title="Modelfile Studio">🪄</button>
         <button id="analytics-btn" class="ghost" data-i18n-attr="title" data-i18n="analytics.button" title="Analytics" hidden>📊</button>
         <button id="tests-btn" class="ghost" data-i18n-attr="title" data-i18n="tests.button" title="Tests" hidden>🧪</button>
@@ -1113,23 +1114,19 @@
     </div>
   </div>
 
-  <!-- HuggingFace Explorer Modal -->
-  <div id="hf-explorer-modal" class="modal" hidden role="dialog" aria-modal="true">
-    <div class="modal-card hf-modal-card">
+  <!-- HuggingFace Explorer Section View -->
+  <main id="hf-view" class="hf-view" hidden>
+    <div class="hf-layout">
       <header class="hf-head">
-        <div class="hf-head-title-wrap">
-          <button id="hf-back-btn" class="ghost hf-back-btn" data-i18n-attr="title" data-i18n="hf.back_to_downloads" title="Back to Downloads">←</button>
-          <div>
-            <h2>
-              <span class="hf-logo-emoji">🤗</span>
-              <span data-i18n="hf.title">HuggingFace Models</span>
-            </h2>
-            <p class="muted small hf-subtitle" data-i18n="hf.subtitle">Search and install GGUF and Ollama models directly from HuggingFace Hub</p>
-          </div>
+        <div class="hf-head-left">
+          <button id="hf-back-btn" class="ghost hf-back-btn" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+          <h2>
+            <span class="hf-logo-emoji">🤗</span>
+            <span data-i18n="hf.title">HuggingFace Models</span>
+          </h2>
         </div>
         <div class="hf-head-actions">
           <div id="hf-memory-banner" class="hf-mem-banner badge badge-subtle mono"></div>
-          <button id="hf-close-btn" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
         </div>
       </header>
 
@@ -1168,7 +1165,7 @@
         <div id="hf-models-list" class="hf-models-list"></div>
       </div>
     </div>
-  </div>
+  </main>
 
   <!-- HuggingFace Model Detail / Quantizations Modal -->
   <div id="hf-detail-modal" class="modal" hidden role="dialog" aria-modal="true">

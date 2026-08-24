@@ -1073,6 +1073,9 @@
           <input id="dl-add-input" type="text" data-i18n-attr="placeholder" data-i18n="downloads.add_placeholder" placeholder="e.g. llama3:8b" spellcheck="false">
           <button type="submit" class="primary" data-i18n="downloads.add_btn">Add to queue</button>
         </form>
+        <div class="dl-hf-bar">
+          <button type="button" id="dl-open-hf-btn" class="ghost dl-hf-btn" data-i18n="downloads.hf_search_btn">🔍 Search HuggingFace</button>
+        </div>
       </div>
 
       <div class="dl-body">
@@ -1107,6 +1110,119 @@
         <button id="dl-clear-btn" class="ghost" data-i18n="downloads.clear_finished">Clear finished</button>
         <button id="downloads-close" class="primary" data-i18n="action.close">Close</button>
       </footer>
+    </div>
+  </div>
+
+  <!-- HuggingFace Explorer Modal -->
+  <div id="hf-explorer-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card hf-modal-card">
+      <header class="hf-head">
+        <div class="hf-head-title-wrap">
+          <button id="hf-back-btn" class="ghost hf-back-btn" data-i18n-attr="title" data-i18n="hf.back_to_downloads" title="Back to Downloads">←</button>
+          <div>
+            <h2>
+              <span class="hf-logo-emoji">🤗</span>
+              <span data-i18n="hf.title">HuggingFace Models</span>
+            </h2>
+            <p class="muted small hf-subtitle" data-i18n="hf.subtitle">Search and install GGUF and Ollama models directly from HuggingFace Hub</p>
+          </div>
+        </div>
+        <div class="hf-head-actions">
+          <div id="hf-memory-banner" class="hf-mem-banner badge badge-subtle mono"></div>
+          <button id="hf-close-btn" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+        </div>
+      </header>
+
+      <div class="hf-toolbar">
+        <div class="hf-search-box">
+          <svg class="models-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="search" id="hf-search-input" class="hf-search-input" data-i18n-attr="placeholder" data-i18n="hf.search_placeholder" placeholder="Search models (e.g. Qwen2.5, DeepSeek, Llama-3.2, Gemma)..." autocomplete="off" spellcheck="false">
+          <button type="button" id="hf-search-clear" class="btn-icon models-search-clear hf-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
+        </div>
+        <div class="hf-sort-wrap">
+          <select id="hf-sort-select" class="hf-sort-select">
+            <option value="downloads" data-i18n="hf.sort_downloads">Most Downloads</option>
+            <option value="likes" data-i18n="hf.sort_likes">Most Likes</option>
+            <option value="recent" data-i18n="hf.sort_recent">Recently Updated</option>
+            <option value="trending" data-i18n="hf.sort_trending">Trending</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="hf-filters-row">
+        <button type="button" class="hf-filter-chip active" data-filter="all" data-i18n="hf.filter_all">All GGUF</button>
+        <button type="button" class="hf-filter-chip" data-filter="ollama" data-i18n="hf.filter_ollama">Ollama Tagged</button>
+        <button type="button" class="hf-filter-chip" data-filter="vision" data-i18n="hf.filter_vision">Vision (mmproj)</button>
+      </div>
+
+      <div class="hf-body">
+        <div id="hf-loading" class="hf-loading muted text-center" hidden>
+          <div class="battery-progress-spinner" style="margin: 30px auto 12px;"></div>
+          <span data-i18n="hf.loading">Searching HuggingFace models...</span>
+        </div>
+        <div id="hf-empty" class="hf-empty muted text-center" hidden data-i18n="hf.no_results">No models found matching your search.</div>
+        <div id="hf-error" class="callout callout-warn" hidden></div>
+        <div id="hf-models-list" class="hf-models-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HuggingFace Model Detail / Quantizations Modal -->
+  <div id="hf-detail-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card hf-detail-card">
+      <header class="hf-detail-head">
+        <div class="hf-detail-title-wrap">
+          <div class="hf-detail-author-row">
+            <span id="hf-detail-author" class="muted mono"></span>
+            <span class="muted">/</span>
+            <a id="hf-detail-link" href="#" target="_blank" rel="noopener noreferrer" class="small ghost-site-glyph" title="HuggingFace Hub">↗</a>
+          </div>
+          <h2 id="hf-detail-name" class="hf-detail-title"></h2>
+          <div class="hf-detail-stats">
+            <span id="hf-detail-downloads" class="badge badge-subtle"></span>
+            <span id="hf-detail-likes" class="badge badge-subtle"></span>
+          </div>
+        </div>
+        <button id="hf-detail-close" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+      </header>
+
+      <div id="hf-detail-vision-box" class="callout callout-vision" hidden></div>
+
+      <div class="hf-detail-tabs">
+        <button type="button" id="hf-tab-quants" class="hf-tab-btn active" data-i18n="hf.quantizations">Quantizations & Files</button>
+        <button type="button" id="hf-tab-readme" class="hf-tab-btn" data-i18n="hf.readme">README</button>
+      </div>
+
+      <div id="hf-detail-loading" class="hf-loading muted text-center" style="padding: 40px;" hidden>
+        <div class="battery-progress-spinner" style="margin: 0 auto 12px;"></div>
+        <span data-i18n="hf.loading">Loading model details...</span>
+      </div>
+
+      <div id="hf-detail-body" class="hf-detail-body">
+        <section id="hf-section-quants" class="hf-section-quants">
+          <div class="table-wrap hf-table-wrap">
+            <table class="hf-quants-table">
+              <thead>
+                <tr>
+                  <th data-i18n="col.quant">Quant</th>
+                  <th>Filename</th>
+                  <th data-i18n="col.size">Size</th>
+                  <th>Memory Fit</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="hf-quants-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="hf-section-readme" class="hf-section-readme" hidden>
+          <div id="hf-readme-content" class="hf-readme-content"></div>
+        </section>
+      </div>
     </div>
   </div>
 
@@ -1839,6 +1955,7 @@
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>
+  <script src="/static/app-hf-search.js?v=20260824"></script>
   <script src="/static/app-modelfile.js?v=20260822"></script>
   <script src="/static/app-topbar.js?v=20260820"></script>
   <script src="/static/app-settings.js?v=20260820"></script>

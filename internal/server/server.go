@@ -37,10 +37,11 @@ type Server struct {
 	testsStore  *tests.Store
 	agentStore  *agent.SessionStore
 	runnerStore *runner.ResultStore
-	runner      *runner.Client
-	usage        *modelUsageStore
-	customModels *customModelsStore
+	runner         *runner.Client
+	usage          *modelUsageStore
+	customModels   *customModelsStore
 	externalModels *externalModelsStore
+	systemPrompts  *systemPromptsStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -135,6 +136,12 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		log.Printf("external-models: could not load %s: %v", extPath, err)
 	}
 
+	promptsPath := filepath.Join(filepath.Dir(cfg.Path()), "system_prompts.json")
+	promptsStore := newSystemPromptsStore(promptsPath)
+	if err := promptsStore.Load(); err != nil {
+		log.Printf("system-prompts: could not load %s: %v", promptsPath, err)
+	}
+
 	return &Server{
 		cfg:                  cfg,
 		ollama:               ollamaClient,
@@ -150,6 +157,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		usage:                usageStore,
 		customModels:         customStore,
 		externalModels:       extStore,
+		systemPrompts:        promptsStore,
 		ctxCache:             make(map[string]int64),
 		capsCache:            make(map[string][]string),
 		metaCache:            make(map[string]modelMetaCache),
@@ -222,6 +230,13 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))
 	mux.Handle("POST /api/config/password", s.requireAuth(s.handleSetPassword))
+
+	mux.Handle("GET /api/system-prompts", s.requireAuth(s.handleListSystemPrompts))
+	mux.Handle("POST /api/system-prompts", s.requireAuth(s.handleCreateSystemPrompt))
+	mux.Handle("GET /api/system-prompts/{id}", s.requireAuth(s.handleSystemPromptByID))
+	mux.Handle("PUT /api/system-prompts/{id}", s.requireAuth(s.handleSystemPromptByID))
+	mux.Handle("PATCH /api/system-prompts/{id}", s.requireAuth(s.handleSystemPromptByID))
+	mux.Handle("DELETE /api/system-prompts/{id}", s.requireAuth(s.handleSystemPromptByID))
 
 	mux.Handle("GET /api/opencode", s.requireAuth(s.handleOpenCodeGet))
 	mux.Handle("POST /api/opencode/provider", s.requireAuth(s.handleOpenCodeEnsureProvider))

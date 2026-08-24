@@ -46,7 +46,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(r.URL.Path, "/tests/battery/") ||
 		r.URL.Path == "/analytics" ||
 		r.URL.Path == "/settings" ||
+		strings.HasPrefix(r.URL.Path, "/settings/") ||
 		r.URL.Path == "/opencode" ||
+		r.URL.Path == "/archived" ||
 		r.URL.Path == "/modelfile" ||
 		strings.HasPrefix(r.URL.Path, "/modelfile/")
 	if !isSPAPath {

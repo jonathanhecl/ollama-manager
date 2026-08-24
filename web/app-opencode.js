@@ -38,30 +38,55 @@ function renderOpenCodeError(msg) {
 
 function renderOpenCodeView() {
   const st = openCodeState;
-  if (!$("opencode-view") || $("opencode-view").hidden) return;
+  if (!st) return;
   const badge = $("opencode-badge");
+  const navBadge = $("opencode-nav-badge");
   const status = $("opencode-status");
   const noProvider = $("opencode-noprovider");
   const createBtn = $("opencode-create-btn");
   const saveBtn = $("opencode-save-btn");
   if (st.provider) {
-    badge.textContent = t("settings.opencode_configured");
-    badge.className = "badge badge-good";
-    status.textContent = `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}`;
+    if (badge) {
+      badge.textContent = t("settings.opencode_configured");
+      badge.className = "badge badge-good";
+    }
+    if (navBadge) {
+      navBadge.textContent = "OK";
+      navBadge.className = "badge badge-good";
+    }
+    if (status) status.textContent = `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}`;
   } else {
-    badge.textContent = t("settings.opencode_not_configured");
-    badge.className = "badge badge-warn";
-    status.textContent = st.exists
-      ? t("settings.opencode_no_provider_status")
-      : t("settings.opencode_no_file_status");
+    if (badge) {
+      badge.textContent = t("settings.opencode_not_configured");
+      badge.className = "badge badge-warn";
+    }
+    if (navBadge) {
+      navBadge.textContent = "!";
+      navBadge.className = "badge badge-warn";
+    }
+    if (status) {
+      status.textContent = st.exists
+        ? t("settings.opencode_no_provider_status")
+        : t("settings.opencode_no_file_status");
+    }
   }
-  noProvider.hidden = !!st.provider;
-  createBtn.hidden = !!st.provider;
-  saveBtn.disabled = !st.provider;
+  if (noProvider) noProvider.hidden = !!st.provider;
+  if (createBtn) createBtn.hidden = !!st.provider;
+  if (saveBtn) saveBtn.disabled = !st.provider;
   const remoteWarn = $("opencode-remote-warn");
   if (remoteWarn) remoteWarn.hidden = !st.remote;
   renderOpenCodeModels(st);
   renderOpenCodePreview();
+}
+
+function showOpenCodeView() {
+  if (typeof showSettingsView === "function") {
+    showSettingsView().then(() => {
+      if (typeof showSettingsSection === "function") {
+        showSettingsSection("sec-opencode", true);
+      }
+    });
+  }
 }
 
 function renderOpenCodeModels(st) {

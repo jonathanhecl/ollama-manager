@@ -1612,13 +1612,32 @@ async function handleRouting() {
     showBatteryHistoryView();
   } else if (path === "/analytics" || path === "/analytics/") {
     showAnalyticsView();
-  } else if (path === "/settings" || path === "/settings/") {
+  } else if (path === "/settings" || path.startsWith("/settings/")) {
     if (typeof showSettingsView === "function") {
-      showSettingsView();
+      await showSettingsView();
+      if (typeof showSettingsSection === "function") {
+        if (path === "/settings/general") showSettingsSection("sec-general", false);
+        else if (path === "/settings/chat-defaults") showSettingsSection("sec-chat-defaults", false);
+        else if (path === "/settings/prompts") showSettingsSection("sec-prompts", false);
+        else if (path === "/settings/network") showSettingsSection("sec-network", false);
+        else if (path === "/settings/external") showSettingsSection("sec-ext-models", false);
+        else if (path === "/settings/archived") showSettingsSection("sec-archived", false);
+        else if (path === "/settings/opencode") showSettingsSection("sec-opencode", false);
+      }
     }
   } else if (path === "/opencode" || path === "/opencode/") {
-    if (typeof showOpenCodeView === "function") {
-      showOpenCodeView();
+    if (typeof showSettingsView === "function") {
+      await showSettingsView();
+      if (typeof showSettingsSection === "function") {
+        showSettingsSection("sec-opencode", true);
+      }
+    }
+  } else if (path === "/archived" || path === "/archived/") {
+    if (typeof showSettingsView === "function") {
+      await showSettingsView();
+      if (typeof showSettingsSection === "function") {
+        showSettingsSection("sec-archived", true);
+      }
     }
   } else if (path === "/modelfile" || path === "/modelfile/") {
     if (typeof showModelfileView === "function") {

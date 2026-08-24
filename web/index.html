@@ -1192,6 +1192,11 @@
             <span class="settings-nav-icon">💬</span>
             <span class="settings-nav-label" data-i18n="settings.nav_chat_defaults">Chat Defaults</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-prompts">
+            <span class="settings-nav-icon">📝</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_prompts">System Prompts</span>
+            <span class="badge" id="prompts-nav-badge">0</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-network">
             <span class="settings-nav-icon">🔒</span>
             <span class="settings-nav-label" data-i18n="settings.nav_network">Network &amp; Security</span>
@@ -1201,9 +1206,15 @@
             <span class="settings-nav-label" data-i18n="settings.nav_ext_models">External Models</span>
             <span class="badge" id="ext-models-nav-badge">0</span>
           </button>
-          <button type="button" class="settings-nav-item" data-section="sec-advanced">
-            <span class="settings-nav-icon">🛠️</span>
-            <span class="settings-nav-label" data-i18n="settings.nav_advanced">Tools &amp; Advanced</span>
+          <button type="button" class="settings-nav-item" data-section="sec-archived">
+            <span class="settings-nav-icon">📦</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_archived">Archived Models</span>
+            <span class="badge" id="archived-nav-badge">0</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-section="sec-opencode">
+            <span class="settings-nav-icon">💻</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_opencode">OpenCode</span>
+            <span class="badge" id="opencode-nav-badge"></span>
           </button>
         </div>
       </aside>
@@ -1308,6 +1319,58 @@
             </div>
           </details>
 
+          <!-- System Prompts Library -->
+          <details class="settings-section settings-collapse" id="sec-prompts" open>
+            <summary class="settings-collapse-head">
+              <span data-i18n="settings.prompts_section">System Prompts Library</span>
+              <span class="badge" id="prompts-badge">0</span>
+            </summary>
+            <div class="settings-collapse-body">
+              <p class="form-hint" data-i18n="settings.prompts_hint">Create, edit, and organize reusable system instructions for your models.</p>
+
+              <div class="prompts-toolbar">
+                <input type="text" id="prompt-search-input" class="prompt-search-input" data-i18n-attr="placeholder" data-i18n="settings.prompt_search_placeholder" placeholder="Search prompts..." autocomplete="off">
+                <button type="button" id="prompt-new-btn" class="primary prompt-new-btn" data-i18n="settings.prompt_new_btn">+ New Prompt</button>
+              </div>
+
+              <!-- Prompt Edit/Create Box -->
+              <div id="prompt-editor-box" class="prompt-editor-box" hidden>
+                <input type="hidden" id="prompt-edit-id" value="">
+                <div class="field">
+                  <label for="prompt-edit-title" data-i18n="settings.prompt_title_label">Prompt Title</label>
+                  <input type="text" id="prompt-edit-title" data-i18n-attr="placeholder" data-i18n="settings.prompt_title_placeholder" placeholder="e.g. Expert Python Developer, English-Spanish Translator..." autocomplete="off">
+                </div>
+                <div class="field field-vertical" id="prompt-edit-dropzone">
+                  <div class="chat-system-head">
+                    <label for="prompt-edit-content" data-i18n="settings.prompt_content_label">Prompt Content</label>
+                    <div class="chat-system-actions">
+                      <button id="prompt-edit-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="settings.prompt_load_file" title="Import from file" aria-label="Import from file">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                          <path d="M14 2v6h6"/>
+                          <path d="M12 18v-6"/>
+                          <path d="M9 15l3-3 3 3"/>
+                        </svg>
+                      </button>
+                      <input type="file" id="prompt-edit-file-input" hidden accept=".txt,.md,.markdown,.json,.yaml,.yml,.prompt,.py,.js,.ts,.html,.css,*/*">
+                    </div>
+                  </div>
+                  <textarea id="prompt-edit-content" rows="6" class="mono" data-i18n-attr="placeholder" data-i18n="settings.prompt_content_placeholder" placeholder="Write or paste system instructions here, or import from a file..." autocomplete="off"></textarea>
+                </div>
+                <div class="prompt-editor-actions">
+                  <button type="button" id="prompt-save-btn" class="primary" data-i18n="settings.prompt_save_btn">Save Prompt</button>
+                  <button type="button" id="prompt-set-default-btn" class="ghost" data-i18n="settings.prompt_use_default_btn">Set as Chat Default</button>
+                  <button type="button" id="prompt-cancel-btn" class="ghost" data-i18n="settings.prompt_cancel_btn">Cancel</button>
+                </div>
+              </div>
+
+              <!-- Prompts Cards List -->
+              <div id="prompts-list" class="prompts-list">
+                <div class="muted small" data-i18n="settings.prompts_none">No system prompts created yet.</div>
+              </div>
+            </div>
+          </details>
+
           <!-- Network & Security -->
           <details class="settings-section settings-collapse" id="sec-network" open>
             <summary class="settings-collapse-head">
@@ -1386,15 +1449,90 @@
             </div>
           </details>
 
-          <!-- Tools & Advanced -->
-          <details class="settings-section settings-collapse" id="sec-advanced" open>
+          <!-- Archived Models -->
+          <details class="settings-section settings-collapse" id="sec-archived" open>
             <summary class="settings-collapse-head">
-              <span data-i18n="settings.advanced">Tools &amp; Advanced</span>
+              <span data-i18n="settings.archived_section">Archived Models</span>
+              <span class="badge" id="archived-badge">0</span>
             </summary>
             <div class="settings-collapse-body">
-              <div class="settings-advanced-actions">
-                <button id="settings-archived-btn" class="primary settings-wide-btn" data-i18n="settings.go_to_archived">Go to Archived Models</button>
-                <button id="settings-opencode-btn" class="primary settings-wide-btn" data-i18n="settings.opencode_manage">Manage OpenCode models</button>
+              <p class="form-hint" data-i18n="settings.archived_section_hint">Archived models are kept installed but hidden from the active models list and chat selector.</p>
+              <div id="settings-archived-list" class="settings-archived-list">
+                <div class="muted small" data-i18n="settings.archived_none">No archived models.</div>
+              </div>
+            </div>
+          </details>
+
+          <!-- OpenCode Integration -->
+          <details class="settings-section settings-collapse" id="sec-opencode" open>
+            <summary class="settings-collapse-head">
+              <span data-i18n="settings.opencode_section">OpenCode</span>
+              <span class="badge" id="opencode-badge"></span>
+            </summary>
+            <div class="settings-collapse-body">
+              <div class="opencode-card" style="margin-bottom: 14px;">
+                <div class="section-head">
+                  <h4 data-i18n="opencode.provider_section">Local Ollama provider</h4>
+                </div>
+                <p id="opencode-status" class="form-hint"></p>
+                <div id="opencode-noprovider" class="callout callout-warn" hidden>
+                  <span class="callout-icon">!</span>
+                  <span data-i18n="settings.opencode_no_provider">No local Ollama provider configured in OpenCode. Create one to save the model selection.</span>
+                </div>
+                <div class="opencode-actions" style="margin-top: 8px;">
+                  <button id="opencode-create-btn" class="primary" hidden data-i18n="settings.opencode_create">Create Ollama (local) provider in OpenCode</button>
+                </div>
+              </div>
+
+              <div class="opencode-card" style="margin-bottom: 14px;">
+                <div class="section-head">
+                  <h4 data-i18n="settings.opencode_models_title">Local models visible in OpenCode</h4>
+                </div>
+                <p class="form-hint" data-i18n="settings.opencode_models_hint">Select which models appear in OpenCode and set a custom name for each.</p>
+
+                <div class="opencode-name-style">
+                  <label for="opencode-name-style" data-i18n="opencode.name_style_label">Auto-name style</label>
+                  <select id="opencode-name-style">
+                    <option value="plain" data-i18n="opencode.name_style_plain">name model</option>
+                    <option value="tps" data-i18n="opencode.name_style_tps">name model (45tok/s)</option>
+                  </select>
+                </div>
+
+                <div id="opencode-models" class="opencode-models" style="margin-top: 10px;"></div>
+
+                <div id="opencode-remote-warn" class="callout callout-warn" hidden style="margin-top: 10px;">
+                  <span class="callout-icon">!</span>
+                  <span data-i18n="settings.opencode_remote_warn">You are connected from another device. Saving will edit the OpenCode config on the machine running Ollama Manager, not on this computer.</span>
+                </div>
+
+                <div class="opencode-actions" style="margin-top: 12px;">
+                  <button id="opencode-save-btn" class="primary" data-i18n="settings.opencode_save">Save in OpenCode</button>
+                </div>
+              </div>
+
+              <div class="opencode-card">
+                <div class="section-head">
+                  <h4 data-i18n="settings.opencode_export_title">Generated OpenCode config</h4>
+                  <span id="opencode-preview-count" class="badge badge-muted"></span>
+                </div>
+                <p class="form-hint" data-i18n="settings.opencode_export_hint">Live preview with the selected models. Copy the whole provider or just the model list into any opencode.json.</p>
+                <pre id="opencode-preview" class="opencode-preview mono"></pre>
+                <div class="opencode-preview-actions" style="margin-top: 8px;">
+                  <button id="opencode-copy-all-btn" class="ghost" data-i18n="settings.opencode_copy_all">Copy provider</button>
+                  <button id="opencode-copy-models-btn" class="ghost" data-i18n="settings.opencode_copy_models">Copy models</button>
+                </div>
+              </div>
+
+              <div class="opencode-card" style="margin-top: 14px;">
+                <div class="section-head">
+                  <h4 data-i18n="settings.opencode_apply_title">Apply on this machine</h4>
+                </div>
+                <p class="form-hint" data-i18n="settings.opencode_apply_hint">This manager saves to the OpenCode config of the server. To use the config on this computer, run the command below to open your local OpenCode folder, then paste the JSON above into opencode.json.</p>
+
+                <div class="opencode-cmd">
+                  <code id="opencode-cmd" class="opencode-cmd-code mono"></code>
+                  <button id="opencode-cmd-copy-btn" class="ghost" data-i18n="settings.opencode_copy_cmd">Copy command</button>
+                </div>
               </div>
             </div>
           </details>
@@ -1611,86 +1749,6 @@
       </header>
       <div id="battery-history-body" class="battery-history-body"></div>
     </div>
-  </main>
-
-  <main id="opencode-view" class="opencode-view" hidden>
-    <header class="opencode-head">
-      <button id="opencode-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
-      <h2>
-        <span class="gear">🧩</span>
-        <span data-i18n="settings.opencode_section">OpenCode</span>
-      </h2>
-      <span class="badge" id="opencode-badge"></span>
-    </header>
-
-    <section class="opencode-card">
-      <div class="section-head">
-        <h3 data-i18n="opencode.provider_section">Local Ollama provider</h3>
-      </div>
-      <p id="opencode-status" class="form-hint"></p>
-
-      <div id="opencode-noprovider" class="callout callout-warn" hidden>
-        <span class="callout-icon">!</span>
-        <span data-i18n="settings.opencode_no_provider">No local Ollama provider configured in OpenCode. Create one to save the model selection.</span>
-      </div>
-
-      <div class="opencode-actions">
-        <button id="opencode-create-btn" class="primary" hidden data-i18n="settings.opencode_create">Create Ollama (local) provider in OpenCode</button>
-      </div>
-    </section>
-
-    <section class="opencode-card">
-      <div class="section-head">
-        <h3 data-i18n="settings.opencode_models_title">Local models visible in OpenCode</h3>
-      </div>
-      <p class="form-hint" data-i18n="settings.opencode_models_hint">Select which models appear in OpenCode and set a custom name for each.</p>
-
-      <div class="opencode-name-style">
-        <label for="opencode-name-style" data-i18n="opencode.name_style_label">Auto-name style</label>
-        <select id="opencode-name-style">
-          <option value="plain" data-i18n="opencode.name_style_plain">name model</option>
-          <option value="tps" data-i18n="opencode.name_style_tps">name model (45tok/s)</option>
-        </select>
-      </div>
-
-      <div id="opencode-models" class="opencode-models"></div>
-
-      <div id="opencode-remote-warn" class="callout callout-warn" hidden>
-        <span class="callout-icon">!</span>
-        <span data-i18n="settings.opencode_remote_warn">You are connected from another device. Saving will edit the OpenCode config on the machine running Ollama Manager, not on this computer.</span>
-      </div>
-
-      <div class="opencode-actions">
-        <button id="opencode-save-btn" class="primary" data-i18n="settings.opencode_save">Save in OpenCode</button>
-      </div>
-    </section>
-
-    <section class="opencode-card">
-      <div class="section-head">
-        <h3 data-i18n="settings.opencode_export_title">Generated OpenCode config</h3>
-        <span id="opencode-preview-count" class="badge badge-muted"></span>
-      </div>
-      <p class="form-hint" data-i18n="settings.opencode_export_hint">Live preview with the selected models. Copy the whole provider or just the model list into any opencode.json.</p>
-
-      <pre id="opencode-preview" class="opencode-preview mono"></pre>
-
-      <div class="opencode-preview-actions">
-        <button id="opencode-copy-models-btn" class="ghost" data-i18n="settings.opencode_copy_models">Copy models</button>
-        <button id="opencode-copy-all-btn" class="primary" data-i18n="settings.opencode_copy_all">Copy provider</button>
-      </div>
-    </section>
-
-    <section class="opencode-card">
-      <div class="section-head">
-        <h3 data-i18n="settings.opencode_apply_title">Apply on this machine</h3>
-      </div>
-      <p class="form-hint" data-i18n="settings.opencode_apply_hint">This manager saves to the OpenCode config of the server. To use the config on this computer, run the command below to open your local OpenCode folder, then paste the JSON above into opencode.json.</p>
-
-      <div class="opencode-cmd">
-        <code id="opencode-cmd" class="opencode-cmd-code mono"></code>
-        <button id="opencode-cmd-copy-btn" class="ghost" data-i18n="settings.opencode_copy_cmd">Copy command</button>
-      </div>
-    </section>
   </main>
 
   <div id="toast"></div>

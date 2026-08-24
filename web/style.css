@@ -7967,6 +7967,175 @@ button.chat-send:disabled:hover {
   opacity: 0.7;
 }
 
+/* ---------- System Prompts Library ---------- */
+.prompts-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.prompt-search-input {
+  flex: 1;
+}
+
+.prompt-new-btn {
+  white-space: nowrap;
+}
+
+.prompt-editor-box {
+  background: var(--bg-card, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.prompt-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.prompts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prompt-card {
+  background: var(--bg-card, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.prompt-card:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.15));
+}
+
+.prompt-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.prompt-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.prompt-card-date {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.prompt-card-body {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.prompt-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.prompt-card-actions button {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+#prompt-edit-dropzone.drag-over {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb, 59, 130, 246), 0.08);
+}
+
+/* ---------- Archived Models in Settings ---------- */
+.settings-archived-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.archived-model-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-card, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.archived-model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.archived-model-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.archived-model-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 8px;
+}
+
+.archived-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .prompts-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .prompt-editor-actions {
+    flex-direction: column;
+  }
+  .prompt-editor-actions button {
+    width: 100%;
+  }
+  .archived-model-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .archived-model-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+
 
 
 

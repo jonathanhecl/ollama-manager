@@ -8,33 +8,28 @@ function hideAllMainViews() {
       resetChatState();
     }
   }
-  $("models-view").hidden = true;
-  $("chat-view").hidden = true;
-  $("tests-view").hidden = true;
-  $("test-editor-view").hidden = true;
-  $("agent-session-view").hidden = true;
-  $("battery-progress-view").hidden = true;
-  $("battery-results-view").hidden = true;
-  $("battery-history-view").hidden = true;
-  $("opencode-view").hidden = true;
-  $("analytics-view").hidden = true;
+  $("models-view") && ($("models-view").hidden = true);
+  $("chat-view") && ($("chat-view").hidden = true);
+  $("tests-view") && ($("tests-view").hidden = true);
+  $("test-editor-view") && ($("test-editor-view").hidden = true);
+  $("agent-session-view") && ($("agent-session-view").hidden = true);
+  $("battery-progress-view") && ($("battery-progress-view").hidden = true);
+  $("battery-results-view") && ($("battery-results-view").hidden = true);
+  $("battery-history-view") && ($("battery-history-view").hidden = true);
+  $("analytics-view") && ($("analytics-view").hidden = true);
   $("settings-view") && ($("settings-view").hidden = true);
   $("modelfile-view") && ($("modelfile-view").hidden = true);
-  $("detail-panel").hidden = true;
+  $("detail-panel") && ($("detail-panel").hidden = true);
 }
 
 function showOpenCodeView() {
-  hideAllMainViews();
-  if (typeof stopSpeechPlayback === "function") {
-    stopSpeechPlayback();
+  if (typeof showSettingsView === "function") {
+    showSettingsView().then(() => {
+      if (typeof showSettingsSection === "function") {
+        showSettingsSection("sec-opencode", true);
+      }
+    });
   }
-  currentView = "opencode";
-  document.querySelectorAll(".topbar-actions button").forEach((b) => b.classList.remove("active"));
-  $("opencode-view").hidden = false;
-  if (!window.location.pathname.startsWith("/opencode")) {
-    history.pushState(null, "", "/opencode");
-  }
-  refreshOpenCodeUI();
 }
 
 function showAnalyticsView() {

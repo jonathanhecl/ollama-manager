@@ -189,7 +189,7 @@ function openCodeAutoName(m) {
 // style selector changes, preserving user-typed names.
 function applyOpenCodeNameStyle() {
   const st = openCodeState;
-  if (!st || !st.models || !$("opencode-view") || $("opencode-view").hidden) return;
+  if (!st || !st.models) return;
   const box = $("opencode-models");
   for (const m of st.models) {
     if (m.custom_name) continue;

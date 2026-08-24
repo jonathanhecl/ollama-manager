@@ -1315,6 +1315,87 @@ function bindChatEvents() {
   }
   $("chat-options-reset-btn")?.addEventListener("click", resetModelChatOptionsToDefaults);
 
+  function loadFileIntoChatSystemPrompt(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result;
+      if (typeof content === "string") {
+        const sys = $("chat-system");
+        if (sys) {
+          sys.value = content;
+          sys.dispatchEvent(new Event("input", { bubbles: true }));
+          sys.dispatchEvent(new Event("change", { bubbles: true }));
+          if (typeof saveChatOptionsForCurrentModel === "function") {
+            saveChatOptionsForCurrentModel();
+          }
+        }
+        toast(t("chat.system_file_loaded") || "System prompt loaded from file", "success");
+      }
+    };
+    reader.onerror = () => {
+      toast(t("chat.system_file_read_error") || "Could not read file", "error");
+    };
+    reader.readAsText(file);
+  }
+
+  const sysFileBtn = $("chat-system-file-btn");
+  const sysFileInput = $("chat-system-file-input");
+  if (sysFileBtn && sysFileInput) {
+    sysFileBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      sysFileInput.click();
+    });
+    sysFileInput.addEventListener("change", () => {
+      const file = sysFileInput.files?.[0];
+      if (file) {
+        loadFileIntoChatSystemPrompt(file);
+      }
+      sysFileInput.value = "";
+    });
+  }
+
+  const sysField = $("chat-system-field");
+  if (sysField) {
+    let sysDndDepth = 0;
+    sysField.addEventListener("dragenter", (e) => {
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault();
+        e.stopPropagation();
+        sysDndDepth += 1;
+        sysField.classList.add("drag-over");
+      }
+    });
+    sysField.addEventListener("dragover", (e) => {
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    });
+    sysField.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sysDndDepth = Math.max(0, sysDndDepth - 1);
+      if (sysDndDepth === 0) {
+        sysField.classList.remove("drag-over");
+      }
+    });
+    sysField.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sysDndDepth = 0;
+      sysField.classList.remove("drag-over");
+      chatDndDepth = 0;
+      const dz = $("chat-dropzone");
+      if (dz) dz.hidden = true;
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length > 0) {
+        loadFileIntoChatSystemPrompt(files[0]);
+      }
+    });
+  }
+
   // Model artifacts list / load modal
   $("chat-model-artifacts-btn")?.addEventListener("click", openLoadArtifactModal);
   $("load-artifact-x")?.addEventListener("click", () => { $("load-artifact-modal").hidden = true; });

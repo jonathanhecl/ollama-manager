@@ -246,7 +246,20 @@
           <button id="chat-options-reset-btn" type="button" class="chat-options-reset-link" data-i18n="chat.reset_to_defaults" hidden>Reset to defaults</button>
         </div>
         <div class="field" id="chat-system-field">
-          <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
+          <div class="chat-system-head">
+            <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
+            <div class="chat-system-actions">
+              <button id="chat-system-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_system_file" title="Load system prompt from file" aria-label="Load system prompt from file">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <path d="M14 2v6h6"/>
+                  <path d="M12 18v-6"/>
+                  <path d="M9 15l3-3 3 3"/>
+                </svg>
+              </button>
+              <input type="file" id="chat-system-file-input" hidden accept=".txt,.md,.markdown,.json,.yaml,.yml,.prompt,.py,.js,.ts,.html,.css,*/*">
+            </div>
+          </div>
           <textarea id="chat-system" rows="3" data-i18n-attr="placeholder" data-i18n="chat.system_placeholder" placeholder="Optional system instruction" autocomplete="off"></textarea>
         </div>
         <div class="field" id="chat-temperature-field" data-i18n-attr="title" data-i18n="chat.temperature_hint" title="Higher = more random and creative; lower = more focused and predictable.">

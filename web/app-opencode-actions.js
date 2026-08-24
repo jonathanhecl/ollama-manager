@@ -1,12 +1,13 @@
 "use strict";
 
 // ---------- OpenCode actions ----------
-$("settings-opencode-btn").addEventListener("click", () => {
-  closeSettings();
+$("settings-opencode-btn")?.addEventListener("click", () => {
   showOpenCodeView();
 });
 
-$("opencode-back-btn").addEventListener("click", showModelsView);
+$("opencode-back-btn")?.addEventListener("click", () => {
+  showSettingsView();
+});
 
 $("opencode-create-btn").addEventListener("click", async () => {
   try {

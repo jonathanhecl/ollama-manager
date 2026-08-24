@@ -1616,6 +1616,10 @@ async function handleRouting() {
     if (typeof showSettingsView === "function") {
       showSettingsView();
     }
+  } else if (path === "/opencode" || path === "/opencode/") {
+    if (typeof showOpenCodeView === "function") {
+      showOpenCodeView();
+    }
   } else if (path === "/modelfile" || path === "/modelfile/") {
     if (typeof showModelfileView === "function") {
       showModelfileView();

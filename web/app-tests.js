@@ -25,8 +25,15 @@ function hideAllMainViews() {
 
 function showOpenCodeView() {
   hideAllMainViews();
+  if (typeof stopSpeechPlayback === "function") {
+    stopSpeechPlayback();
+  }
   currentView = "opencode";
+  document.querySelectorAll(".topbar-actions button").forEach((b) => b.classList.remove("active"));
   $("opencode-view").hidden = false;
+  if (!window.location.pathname.startsWith("/opencode")) {
+    history.pushState(null, "", "/opencode");
+  }
   refreshOpenCodeUI();
 }
 

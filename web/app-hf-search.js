@@ -175,6 +175,7 @@ function renderHFModelsList() {
         const diffDays = (now - modTime) / ONE_DAY;
         if (hfCurrentTimeFilter === "week" && diffDays > 7) return false;
         if (hfCurrentTimeFilter === "month" && diffDays > 30) return false;
+        if (hfCurrentTimeFilter === "6months" && diffDays > 180) return false;
         if (hfCurrentTimeFilter === "year" && diffDays > 365) return false;
       }
     }

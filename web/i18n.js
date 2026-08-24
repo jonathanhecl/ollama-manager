@@ -1709,9 +1709,10 @@ function setLang(lang) {
 
 function getLang() { return _lang; }
 
-// t(key, vars?) returns a translated string with {var} substitutions.
-function t(key, vars) {
-  const dict = I18N[_lang] || I18N.en;
+// t(key, vars?, langOverride?) returns a translated string with {var} substitutions.
+function t(key, vars, langOverride = null) {
+  const targetLang = langOverride || _lang;
+  const dict = I18N[targetLang] || I18N.en;
   let s = dict[key] ?? I18N.en[key] ?? key;
   if (vars) {
     for (const k of Object.keys(vars)) {
@@ -1724,10 +1725,11 @@ function t(key, vars) {
 // applyTranslations walks the DOM and updates every [data-i18n] node.
 // - data-i18n="key" sets textContent (default).
 // - data-i18n-attr="title placeholder" sets the listed attributes instead.
-function applyTranslations(root = document) {
+function applyTranslations(root = document, langOverride = null) {
+  const targetLang = langOverride || _lang;
   root.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
-    const value = t(key);
+    const value = t(key, null, targetLang);
     const attrSpec = el.getAttribute("data-i18n-attr");
     if (attrSpec) {
       attrSpec.split(/\s+/).forEach((a) => { if (a) el.setAttribute(a, value); });

@@ -238,36 +238,19 @@ async function copyOpenCodeText(text) {
 
 $("settings-btn")?.addEventListener("click", showSettingsView);
 $("settings-back-btn")?.addEventListener("click", () => {
+  const savedLang = currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  if ($("set-language")) $("set-language").value = savedLang;
+  if (typeof renderSettingsTranslations === "function") renderSettingsTranslations(savedLang);
   showModelsView();
   history.pushState(null, "", "/");
 });
 
-// Live language switch on dropdown change.
+// Live language preview in Settings view on dropdown change.
 $("set-language").addEventListener("change", () => {
   const lang = $("set-language").value;
-  window.I18n.setLang(lang);
-  if (currentConfig) {
-    currentConfig.language = lang;
+  if (typeof renderSettingsTranslations === "function") {
+    renderSettingsTranslations(lang);
   }
-  // Re-render dynamic UI to pick up the new language.
-  refreshStatus();
-  renderTable();
-  if (activeName) openDetail(activeName);
-  if (typeof currentView !== "undefined" && currentView === "analytics" && typeof renderAnalytics === "function") renderAnalytics();
-  if (typeof currentView !== "undefined" && currentView === "downloads" && typeof renderDownloads === "function") renderDownloads();
-  if (typeof currentView !== "undefined" && currentView === "modelfile" && typeof refreshModelfileUI === "function") refreshModelfileUI();
-  updateChatContextMeter();
-  renderAttachments();
-  renderChatMessages();
-  renderChatQueue();
-  updateStreamBar();
-  updateChatCapabilityUI();
-  updateChatSendEnabled();
-  updatePasswordSection();
-  updateExposeWarning();
-  updateBindPreview();
-  loadExternalModels();
-  refreshOpenCodeUI();
 });
 
 $("set-expose").addEventListener("change", updateExposeWarning);
@@ -321,8 +304,21 @@ $("settings-save").addEventListener("click", async () => {
     }
 
     toast(res.needs_restart ? t("settings.saved_restart") : t("settings.saved"), "success");
+    renderSettingsTranslations(res.language);
     refreshStatus();
     renderTable();
+    if (activeName) openDetail(activeName);
+    if (typeof currentView !== "undefined" && currentView === "analytics" && typeof renderAnalytics === "function") renderAnalytics();
+    if (typeof currentView !== "undefined" && currentView === "downloads" && typeof renderDownloads === "function") renderDownloads();
+    if (typeof currentView !== "undefined" && currentView === "modelfile" && typeof refreshModelfileUI === "function") refreshModelfileUI();
+    updateChatContextMeter();
+    renderAttachments();
+    renderChatMessages();
+    renderChatQueue();
+    updateStreamBar();
+    updateChatCapabilityUI();
+    updateChatSendEnabled();
+    refreshOpenCodeUI();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
   }

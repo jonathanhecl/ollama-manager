@@ -28,11 +28,7 @@ async function showSettingsView() {
   }
   const effectiveLang = currentConfig.language || (window.I18n ? window.I18n.getLang() : "en");
   $("set-language").value = effectiveLang;
-  if (typeof window.I18n?.getLang === "function" && window.I18n.getLang() !== effectiveLang) {
-    window.I18n.setLang(effectiveLang);
-  } else if (typeof window.I18n?.applyTranslations === "function") {
-    window.I18n.applyTranslations();
-  }
+  renderSettingsTranslations(effectiveLang);
   $("set-port").value = currentConfig.port;
   $("set-expose").checked = !!currentConfig.expose_network;
   $("set-password").value = "";
@@ -47,15 +43,11 @@ async function showSettingsView() {
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
 
-  updatePasswordSection();
-  updateExposeWarning();
-  updateBindPreview();
   const buildEl = $("settings-build-info");
   if (buildEl) {
     buildEl.textContent = currentConfig.version ? `v${currentConfig.version}` : "";
     buildEl.title = currentConfig.version || "";
   }
-  loadExternalModels();
   bindExternalModelsEvents();
   bindSettingsNavEvents();
   bindDefaultSystemPromptFileEvents();
@@ -164,7 +156,8 @@ function bindSettingsNavEvents() {
 let lastTestedExtModel = null;
 let lastTestedCapabilities = null;
 
-async function loadExternalModels() {
+async function loadExternalModels(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
   const listEl = $("ext-models-list");
   const badge = $("ext-models-badge");
   const navBadge = $("ext-models-nav-badge");
@@ -175,7 +168,7 @@ async function loadExternalModels() {
     if (badge) badge.textContent = String(list.length);
     if (navBadge) navBadge.textContent = String(list.length);
     if (!list.length) {
-      listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.ext_models_none"))}</div>`;
+      listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.ext_models_none", null, targetLang))}</div>`;
       return;
     }
     listEl.innerHTML = list.map((m) => {
@@ -187,12 +180,12 @@ async function loadExternalModels() {
           <div class="ext-model-card-info">
             <div class="ext-model-card-name">
               ${escapeHtml(m.name)}
-              <span class="model-external-tag">${escapeHtml(t("models.external_badge"))}</span>
+              <span class="model-external-tag">${escapeHtml(t("models.external_badge", null, targetLang))}</span>
             </div>
             <div class="ext-model-card-url" title="${escapeHtml(m.url)}">${escapeHtml(m.url)}</div>
             <div class="ext-caps-pills" style="margin-top:2px;">${caps}</div>
           </div>
-          <button type="button" class="btn-icon danger-text ext-model-del-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.delete_external_title"))}">×</button>
+          <button type="button" class="btn-icon danger-text ext-model-del-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.delete_external_title", null, targetLang))}">×</button>
         </div>
       `;
     }).join("");
@@ -368,37 +361,50 @@ function bindExternalModelsEvents() {
   }
 }
 
-function updatePasswordSection() {
+function renderSettingsTranslations(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const settingsView = $("settings-view");
+  if (settingsView && typeof window.I18n?.applyTranslations === "function") {
+    window.I18n.applyTranslations(settingsView, targetLang);
+  }
+  updatePasswordSection(targetLang);
+  updateExposeWarning(targetLang);
+  loadExternalModels(targetLang);
+}
+
+function updatePasswordSection(lang = null) {
   if (!currentConfig) return;
+  const targetLang = lang || currentConfig.language || (window.I18n ? window.I18n.getLang() : "en");
   const badge = $("pwd-badge");
   if (currentConfig.has_password) {
-    badge.textContent = t("settings.pwd_set");
+    badge.textContent = t("settings.pwd_set", null, targetLang);
     badge.className = "badge badge-good";
   } else {
-    badge.textContent = t("settings.pwd_unset");
+    badge.textContent = t("settings.pwd_unset", null, targetLang);
     badge.className = "badge badge-muted";
   }
   $("pwd-clear-btn").hidden = !currentConfig.has_password;
   $("settings-logout-btn").hidden = !currentConfig.has_password;
 }
 
-function updateBindPreview() {
+function updateBindPreview(lang = null) {
   if (!currentConfig) return;
+  const targetLang = lang || currentConfig.language || (window.I18n ? window.I18n.getLang() : "en");
   const badge = $("bind-preview");
   const expose = $("set-expose").checked;
   if (expose) {
-    badge.textContent = t("settings.bind_lan");
+    badge.textContent = t("settings.bind_lan", null, targetLang);
     badge.className = "badge badge-warn";
   } else {
-    badge.textContent = t("settings.bind_local");
+    badge.textContent = t("settings.bind_local", null, targetLang);
     badge.className = "badge badge-muted";
   }
 }
 
-function updateExposeWarning() {
+function updateExposeWarning(lang = null) {
   if (!currentConfig) return;
   const wantExpose = $("set-expose").checked;
   $("expose-warning").hidden = !(wantExpose && !currentConfig.has_password);
-  updateBindPreview();
+  updateBindPreview(lang);
 }
 

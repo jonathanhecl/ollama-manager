@@ -458,7 +458,12 @@ function renderTable() {
       ? `<button type="button" class="btn-icon reinstall-ghost-btn" title="${escapeHtml(t("models.reinstall_title"))}" data-name="${escapeHtml(m.name)}">📥</button>`
       : (!m.isPending ? `<button type="button" class="btn-icon delete-btn" title="${escapeHtml(m.is_external ? t("detail.delete_external_title") : deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
 
-    const baseModel = m.base_model || (typeof isFixedModelName === "function" && isFixedModelName(m.name) ? fixedBaseName(m.name) : "");
+    let baseModel = m.base_model || (typeof isFixedModelName === "function" && isFixedModelName(m.name) ? fixedBaseName(m.name) : "");
+    if (baseModel && (!baseModel.includes(":") || baseModel.endsWith(":latest")) && typeof models !== "undefined" && Array.isArray(models)) {
+      const prefix = baseModel.replace(/:latest$/, "");
+      const match = models.find(x => x && x.name !== m.name && (x.name === prefix || x.name.startsWith(prefix + ":")));
+      if (match) baseModel = match.name;
+    }
     const parentHtml = (!m.isGhost && !m.is_external && m.is_custom && baseModel)
       ? `<div class="model-parent-name mono muted" title="${escapeHtml(t("models.custom_based_on", { base: baseModel }))}"><span class="model-parent-arrow">↳</span> ${escapeHtml(baseModel)}</div>`
       : "";

@@ -71,8 +71,12 @@ window.modelHomepageUrl = modelHomepageUrl;
 function renderDetail(d) {
   const m = models.find((x) => x.name === d.name) || {};
   const isExternal = !!(d.is_external || m.is_external);
-  const isCustom = !!(!isExternal && (d.is_custom || m.is_custom || isFixedModelName(d.name)));
-  const baseModel = d.base_model || m.base_model || (isFixedModelName(d.name) ? fixedBaseName(d.name) : "");
+  let baseModel = d.base_model || m.base_model || (isFixedModelName(d.name) ? fixedBaseName(d.name) : "");
+  if (baseModel && (!baseModel.includes(":") || baseModel.endsWith(":latest")) && typeof models !== "undefined" && Array.isArray(models)) {
+    const prefix = baseModel.replace(/:latest$/, "");
+    const match = models.find(x => x && x.name !== d.name && (x.name === prefix || x.name.startsWith(prefix + ":")));
+    if (match) baseModel = match.name;
+  }
 
   const parentNameEl = $("detail-parent-name");
   if (parentNameEl) {
@@ -314,7 +318,13 @@ function isFixedModelName(name) {
 }
 
 function fixedBaseName(name) {
-  return isFixedModelName(name) ? String(name).trim().slice(0, -":fixed".length) : String(name || "").trim();
+  if (!isFixedModelName(name)) return String(name || "").trim();
+  const basePrefix = String(name).trim().slice(0, -":fixed".length);
+  if (typeof models !== "undefined" && Array.isArray(models)) {
+    const match = models.find(x => x && x.name !== name && (x.name === basePrefix || x.name.startsWith(basePrefix + ":")));
+    if (match) return match.name;
+  }
+  return basePrefix;
 }
 
 function fixedModelName(name) {

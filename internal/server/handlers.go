@@ -484,6 +484,26 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			baseModel = fixedBaseName(m.Name)
 		}
 
+		if isCustom {
+			if baseModel == "" || !strings.Contains(baseModel, ":") || strings.HasSuffix(baseModel, ":latest") {
+				prefix := baseModel
+				if prefix == "" || prefix == fixedBaseName(m.Name) {
+					prefix = fixedBaseName(m.Name)
+				}
+				for _, other := range models {
+					if other.Name != m.Name {
+						if other.Name == prefix || strings.HasPrefix(other.Name, prefix+":") {
+							baseModel = other.Name
+							if s.customModels != nil {
+								_ = s.customModels.Register(m.Name, baseModel)
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+
 		v := modelView{
 			Name:           m.Name,
 			Size:           m.Size,
@@ -1042,9 +1062,10 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 	} else if isFixedModelName(name) {
 		isCustom = true
 		baseModel = fixedBaseName(name)
-	} else if show.Modelfile != "" {
+	}
+	if show.Modelfile != "" {
 		from := extractLineDirective(show.Modelfile, "FROM")
-		if from != "" && !strings.Contains(from, "/") && !strings.Contains(from, "\\") && !strings.HasPrefix(from, "sha256:") && from != name {
+		if from != "" && !isLocalFilePathOrDigest(from) && from != name {
 			isCustom = true
 			baseModel = from
 			if s.customModels != nil {
@@ -1636,7 +1657,7 @@ func (s *Server) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if baseModel == "" && body.Modelfile != "" {
 			baseModel = extractLineDirective(body.Modelfile, "FROM")
 		}
-		if baseModel != "" && (strings.Contains(baseModel, "/") || strings.Contains(baseModel, "\\") || strings.HasPrefix(baseModel, "sha256:")) {
+		if baseModel != "" && isLocalFilePathOrDigest(baseModel) {
 			baseModel = ""
 		}
 		if s.customModels != nil {
@@ -3294,5 +3315,26 @@ func (s *Server) handleDeleteExternalModel(w http.ResponseWriter, r *http.Reques
 		resp["deleted_artifacts"] = deletedArtifacts
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func isLocalFilePathOrDigest(pathOrName string) bool {
+	s := strings.TrimSpace(pathOrName)
+	if s == "" || strings.HasPrefix(s, "sha256:") || strings.HasPrefix(s, "sha256-") {
+		return true
+	}
+	lower := strings.ToLower(s)
+	if strings.HasSuffix(lower, ".gguf") || strings.HasSuffix(lower, ".bin") || strings.HasSuffix(lower, ".safetensors") {
+		return true
+	}
+	if strings.HasPrefix(s, "./") || strings.HasPrefix(s, `.\`) || strings.HasPrefix(s, "../") || strings.HasPrefix(s, `..\`) {
+		return true
+	}
+	if len(s) >= 3 && s[1] == ':' && (s[2] == '/' || s[2] == '\\') {
+		return true
+	}
+	if (strings.HasPrefix(s, "/") || strings.HasPrefix(s, "\\")) && !strings.Contains(s, ".") {
+		return true
+	}
+	return false
 }
 

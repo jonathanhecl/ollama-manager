@@ -327,7 +327,10 @@ function closeDownloads() {
   $("downloads-modal").hidden = true;
 }
 function closeSettings() {
-  $("settings-modal").hidden = true;
+  if (currentView === "settings") {
+    showModelsView();
+    history.pushState(null, "", "/");
+  }
 }
 
 $("downloads-btn").addEventListener("click", openDownloads);

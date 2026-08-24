@@ -3,7 +3,23 @@
 // ---------- settings ----------
 let currentConfig = null;
 
-async function openSettings() {
+async function showSettingsView() {
+  hideAllMainViews();
+  if (typeof stopSpeechPlayback === "function") {
+    stopSpeechPlayback();
+  }
+  currentView = "settings";
+
+  document.querySelectorAll(".topbar-actions button").forEach((b) => b.classList.remove("active"));
+  $("settings-btn")?.classList.add("active");
+
+  const view = $("settings-view");
+  if (view) view.hidden = false;
+
+  if (!window.location.pathname.startsWith("/settings")) {
+    history.pushState(null, "", "/settings");
+  }
+
   try {
     currentConfig = await api("/api/config");
   } catch (e) {
@@ -35,7 +51,32 @@ async function openSettings() {
   }
   loadExternalModels();
   bindExternalModelsEvents();
-  $("settings-modal").hidden = false;
+  bindSettingsNavEvents();
+}
+
+function openSettings() {
+  return showSettingsView();
+}
+
+function bindSettingsNavEvents() {
+  const navItems = document.querySelectorAll(".settings-nav-item");
+  navItems.forEach((btn) => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.addEventListener("click", () => {
+      navItems.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const sectionId = btn.dataset.section;
+      if (!sectionId) return;
+      const targetSec = $(sectionId);
+      if (targetSec) {
+        if (targetSec.tagName === "DETAILS") {
+          targetSec.open = true;
+        }
+        targetSec.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  });
 }
 
 let lastTestedExtModel = null;
@@ -44,11 +85,13 @@ let lastTestedCapabilities = null;
 async function loadExternalModels() {
   const listEl = $("ext-models-list");
   const badge = $("ext-models-badge");
+  const navBadge = $("ext-models-nav-badge");
   if (!listEl) return;
   try {
     const data = await api("/api/external-models");
     const list = data.models || [];
     if (badge) badge.textContent = String(list.length);
+    if (navBadge) navBadge.textContent = String(list.length);
     if (!list.length) {
       listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.ext_models_none"))}</div>`;
       return;

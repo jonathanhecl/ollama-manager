@@ -56,10 +56,10 @@
           <span data-i18n="downloads.button">Downloads</span>
           <span id="downloads-count" class="count-badge" hidden>0</span>
         </button>
-        <button id="modelfile-btn" class="ghost" data-i18n-attr="title" data-i18n="modelfile.title" title="Modelfile Studio">🛠️</button>
+        <button id="modelfile-btn" class="ghost" data-i18n-attr="title" data-i18n="modelfile.title" title="Modelfile Studio">🪄</button>
         <button id="analytics-btn" class="ghost" data-i18n-attr="title" data-i18n="analytics.button" title="Analytics" hidden>📊</button>
         <button id="tests-btn" class="ghost" data-i18n-attr="title" data-i18n="tests.button" title="Tests" hidden>🧪</button>
-        <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">⚙️</button>
+        <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">🛠️</button>
       </div>
     </div>
   </header>
@@ -708,7 +708,7 @@
       <div class="modelfile-head-left">
         <button id="modelfile-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
         <h2>
-          <span class="gear">🛠️</span>
+          <span class="gear">🪄</span>
           <span id="mf-head-title-text" data-i18n="modelfile.title">Modelfile Studio</span>
         </h2>
       </div>
@@ -1167,213 +1167,231 @@
     </div>
   </div>
 
-  <div id="settings-modal" class="modal" hidden>
-    <div class="modal-card settings-card">
-      <header class="settings-head">
+  <main id="settings-view" class="settings-view" hidden>
+    <header class="settings-view-head">
+      <div class="settings-view-head-left">
+        <button id="settings-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
         <h2>
-          <span class="gear">⚙</span>
+          <span class="gear">🛠️</span>
           <span data-i18n="settings.title">Settings</span>
         </h2>
-        <button id="settings-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
-      </header>
-
-      <div class="settings-body">
-
-        <section class="settings-section">
-          <h3 data-i18n="settings.general">General</h3>
-
-          <div class="field">
-            <label for="set-language" data-i18n="settings.language">Language</label>
-            <select id="set-language">
-              <option value="en">English</option>
-              <option value="es">Español</option>
-            </select>
-          </div>
-        </section>
-
-        <details class="settings-section settings-collapse">
-          <summary class="settings-collapse-head">
-            <span data-i18n="settings.chat_defaults_section">Default Chat Configuration</span>
-          </summary>
-
-          <div class="settings-collapse-body">
-            <p class="form-hint" data-i18n="settings.chat_defaults_hint">Default parameters and system prompt applied to all models unless customized per model.</p>
-
-            <div class="field field-vertical">
-              <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
-              <textarea id="set-default-system" rows="3" data-i18n-attr="placeholder" data-i18n="settings.default_system_placeholder" placeholder="Default system instruction for all models..." autocomplete="off"></textarea>
-            </div>
-
-            <div class="settings-param-row">
-              <div class="field-compact">
-                <label for="set-default-temp" data-i18n="chat.temperature">Temperature</label>
-                <input id="set-default-temp" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off" data-i18n-attr="title" data-i18n="chat.temperature_hint" title="Higher = more random and creative; lower = more focused and predictable.">
-              </div>
-              <div class="field-compact">
-                <label for="set-default-top-k" data-i18n="chat.top_k">Top-k</label>
-                <input id="set-default-top-k" type="number" min="0" step="1" value="40" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_k_hint" title="Only the K most likely next tokens are considered; lower = narrower choice.">
-              </div>
-              <div class="field-compact">
-                <label for="set-default-top-p" data-i18n="chat.top_p">Top-p</label>
-                <input id="set-default-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
-              </div>
-              <div class="field-compact">
-                <label for="set-default-num-ctx" data-i18n="chat.num_ctx">Context length</label>
-                <select id="set-default-num-ctx" autocomplete="off">
-                  <option value="100" data-i18n="chat.num_ctx_pct">100% (model default)</option>
-                  <option value="75">75%</option>
-                  <option value="50">50%</option>
-                  <option value="25">25%</option>
-                  <option value="10">10%</option>
-                </select>
-                <small class="muted" data-i18n="chat.num_ctx_hint">% of the model's max context. Lower it to fit in VRAM/RAM and avoid out-of-memory errors.</small>
-              </div>
-            </div>
-
-            <div class="field-compact">
-              <label for="set-default-think-level" data-i18n="chat.think_level">Thinking level</label>
-              <select id="set-default-think-level" autocomplete="off">
-                <option value="auto" data-i18n="chat.think.auto">Auto (model default)</option>
-                <option value="off" data-i18n="chat.think.off">Off</option>
-                <option value="low" data-i18n="chat.think.low">Low</option>
-                <option value="medium" data-i18n="chat.think.medium">Medium</option>
-                <option value="high" data-i18n="chat.think.high">High</option>
-                <option value="max" data-i18n="chat.think.max">Max</option>
-              </select>
-              <small class="muted" data-i18n="chat.think_level_global_hint">Only applies to models with the "Thinking" capability.</small>
-            </div>
-
-            <div class="field switch-field">
-              <div class="switch-label">
-                <span data-i18n="chat.web_tools">Internet (web search &amp; fetch)</span>
-              </div>
-              <label class="switch">
-                <input id="set-default-web-tools" type="checkbox" autocomplete="off">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <div class="field switch-field">
-              <div class="switch-label">
-                <span data-i18n="chat.artifacts">Artifacts</span>
-              </div>
-              <label class="switch">
-                <input id="set-default-artifacts" type="checkbox" autocomplete="off">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <details class="settings-section settings-collapse">
-          <summary class="settings-collapse-head">
-            <span data-i18n="settings.network">Network</span>
-            <span class="badge" id="bind-preview"></span>
-          </summary>
-
-          <div class="settings-collapse-body">
-            <div class="field">
-              <label for="set-port" data-i18n="settings.port">HTTP port</label>
-              <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
-            </div>
-
-            <div class="field switch-field">
-              <div class="switch-label">
-                <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
-                <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
-              </div>
-              <label class="switch">
-                <input id="set-expose" type="checkbox" autocomplete="off">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <div id="expose-warning" class="callout callout-warn" hidden>
-              <span class="callout-icon">!</span>
-              <span data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</span>
-            </div>
-
-            <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
-
-            <hr class="settings-sep">
-
-            <div class="section-head">
-              <h3 data-i18n="settings.password_section">Password</h3>
-              <span class="badge" id="pwd-badge"></span>
-            </div>
-
-            <div class="field pwd-field">
-              <label for="set-password" data-i18n="settings.new_password">New password</label>
-              <div class="input-with-action">
-                <input id="set-password" type="password" autocomplete="new-password" spellcheck="false">
-                <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save</button>
-              </div>
-            </div>
-
-            <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
-            <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
-          </div>
-        </details>
-
-        <details class="settings-section settings-collapse" id="settings-ext-models-collapse">
-          <summary class="settings-collapse-head">
-            <span data-i18n="settings.ext_models_section">External Models (oMLX, OpenAI...)</span>
-            <span class="badge" id="ext-models-badge">0</span>
-          </summary>
-
-          <div class="settings-collapse-body">
-            <p class="form-hint" data-i18n="settings.ext_models_hint">Connect models hosted on other servers (oMLX, vLLM, LM Studio, OpenAI-compatible).</p>
-
-            <div class="field">
-              <label for="ext-model-name" data-i18n="settings.ext_model_name">Model Name</label>
-              <input id="ext-model-name" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_name_placeholder" placeholder="e.g. Qwen2.5-Coder-32B or llama-3.3-70b">
-            </div>
-
-            <div class="field">
-              <label for="ext-model-url" data-i18n="settings.ext_model_url">Endpoint URL</label>
-              <input id="ext-model-url" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_url_placeholder" placeholder="e.g. http://localhost:8000/v1">
-            </div>
-
-            <div class="field">
-              <label for="ext-model-apikey" data-i18n="settings.ext_model_apikey">API Key (optional)</label>
-              <input id="ext-model-apikey" type="text" class="input-masked" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_apikey_placeholder" placeholder="Bearer token or secret key">
-            </div>
-
-            <div class="ext-model-actions">
-              <button type="button" id="ext-model-test-btn" class="ghost ext-test-btn" data-i18n="settings.ext_model_test_btn">Test &amp; Detect Capabilities</button>
-              <button type="button" id="ext-model-add-btn" class="primary" data-i18n="settings.ext_model_add_btn">Add Model</button>
-            </div>
-
-            <div id="ext-test-result" class="ext-test-result" hidden></div>
-
-            <hr class="settings-sep">
-
-            <div class="section-head">
-              <h4 data-i18n="settings.ext_models_list_title">Configured External Models</h4>
-            </div>
-
-            <div id="ext-models-list" class="ext-models-list">
-              <div class="muted small" data-i18n="settings.ext_models_none">No external models configured yet.</div>
-            </div>
-          </div>
-        </details>
-
-        <section class="settings-section settings-stack">
-          <button id="settings-archived-btn" class="primary settings-wide-btn" data-i18n="settings.go_to_archived">Go to Archived Models</button>
-          <button id="settings-opencode-btn" class="primary settings-wide-btn" data-i18n="settings.opencode_manage">Manage OpenCode models</button>
-        </section>
-
       </div>
+      <div id="settings-build-info" class="settings-build-info muted mono"></div>
+    </header>
 
-      <footer class="settings-foot">
-        <div id="settings-build-info" class="settings-build-info muted mono"></div>
-        <div class="settings-foot-actions">
-          <button id="settings-close" class="ghost" data-i18n="action.close">Close</button>
-          <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
+    <div class="settings-layout">
+      <aside class="settings-sidebar">
+        <div class="settings-nav-list">
+          <button type="button" class="settings-nav-item active" data-section="sec-general">
+            <span class="settings-nav-icon">🌐</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_general">General</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-section="sec-chat-defaults">
+            <span class="settings-nav-icon">💬</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_chat_defaults">Chat Defaults</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-section="sec-network">
+            <span class="settings-nav-icon">🔒</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_network">Network &amp; Security</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-section="sec-ext-models">
+            <span class="settings-nav-icon">🧩</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_ext_models">External Models</span>
+            <span class="badge" id="ext-models-nav-badge">0</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-section="sec-advanced">
+            <span class="settings-nav-icon">🛠️</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_advanced">Tools &amp; Advanced</span>
+          </button>
         </div>
-      </footer>
+      </aside>
+
+      <section class="settings-main">
+        <div class="settings-sections-list">
+          <!-- General -->
+          <details class="settings-section settings-collapse" id="sec-general" open>
+            <summary class="settings-collapse-head">
+              <span data-i18n="settings.general">General</span>
+            </summary>
+            <div class="settings-collapse-body">
+              <div class="field">
+                <label for="set-language" data-i18n="settings.language">Language</label>
+                <select id="set-language">
+                  <option value="en">English</option>
+                  <option value="es">Español</option>
+                </select>
+              </div>
+            </div>
+          </details>
+
+          <!-- Chat Defaults -->
+          <details class="settings-section settings-collapse" id="sec-chat-defaults" open>
+            <summary class="settings-collapse-head">
+              <span data-i18n="settings.chat_defaults_section">Default Chat Configuration</span>
+            </summary>
+            <div class="settings-collapse-body">
+              <p class="form-hint" data-i18n="settings.chat_defaults_hint">Default parameters and system prompt applied to all models unless customized per model.</p>
+              <div class="field field-vertical">
+                <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
+                <textarea id="set-default-system" rows="3" data-i18n-attr="placeholder" data-i18n="settings.default_system_placeholder" placeholder="Default system instruction for all models..." autocomplete="off"></textarea>
+              </div>
+              <div class="settings-param-row">
+                <div class="field-compact">
+                  <label for="set-default-temp" data-i18n="chat.temperature">Temperature</label>
+                  <input id="set-default-temp" type="number" min="0" max="2" step="0.05" value="0.7" autocomplete="off" data-i18n-attr="title" data-i18n="chat.temperature_hint" title="Higher = more random and creative; lower = more focused and predictable.">
+                </div>
+                <div class="field-compact">
+                  <label for="set-default-top-k" data-i18n="chat.top_k">Top-k</label>
+                  <input id="set-default-top-k" type="number" min="0" step="1" value="40" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_k_hint" title="Only the K most likely next tokens are considered; lower = narrower choice.">
+                </div>
+                <div class="field-compact">
+                  <label for="set-default-top-p" data-i18n="chat.top_p">Top-p</label>
+                  <input id="set-default-top-p" type="number" min="0" max="1" step="0.01" value="0.9" autocomplete="off" data-i18n-attr="title" data-i18n="chat.top_p_hint" title="Nucleus sampling: keeps a minimal set of tokens until their combined probability reaches this value.">
+                </div>
+                <div class="field-compact">
+                  <label for="set-default-num-ctx" data-i18n="chat.num_ctx">Context length</label>
+                  <select id="set-default-num-ctx" autocomplete="off">
+                    <option value="100" data-i18n="chat.num_ctx_pct">100% (model default)</option>
+                    <option value="75">75%</option>
+                    <option value="50">50%</option>
+                    <option value="25">25%</option>
+                    <option value="10">10%</option>
+                  </select>
+                  <small class="muted" data-i18n="chat.num_ctx_hint">% of the model's max context. Lower it to fit in VRAM/RAM and avoid out-of-memory errors.</small>
+                </div>
+              </div>
+              <div class="field-compact">
+                <label for="set-default-think-level" data-i18n="chat.think_level">Thinking level</label>
+                <select id="set-default-think-level" autocomplete="off">
+                  <option value="auto" data-i18n="chat.think.auto">Auto (model default)</option>
+                  <option value="off" data-i18n="chat.think.off">Off</option>
+                  <option value="low" data-i18n="chat.think.low">Low</option>
+                  <option value="medium" data-i18n="chat.think.medium">Medium</option>
+                  <option value="high" data-i18n="chat.think.high">High</option>
+                  <option value="max" data-i18n="chat.think.max">Max</option>
+                </select>
+                <small class="muted" data-i18n="chat.think_level_global_hint">Only applies to models with the "Thinking" capability.</small>
+              </div>
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="chat.web_tools">Internet (web search &amp; fetch)</span>
+                </div>
+                <label class="switch">
+                  <input id="set-default-web-tools" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="chat.artifacts">Artifacts</span>
+                </div>
+                <label class="switch">
+                  <input id="set-default-artifacts" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <!-- Network & Security -->
+          <details class="settings-section settings-collapse" id="sec-network" open>
+            <summary class="settings-collapse-head">
+              <span data-i18n="settings.network">Network</span>
+              <span class="badge" id="bind-preview"></span>
+            </summary>
+            <div class="settings-collapse-body">
+              <div class="field">
+                <label for="set-port" data-i18n="settings.port">HTTP port</label>
+                <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
+              </div>
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="settings.expose">Expose to local network (0.0.0.0)</span>
+                  <small class="muted" data-i18n="settings.expose_hint">Allow other devices on your LAN to connect.</small>
+                </div>
+                <label class="switch">
+                  <input id="set-expose" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div id="expose-warning" class="callout callout-warn" hidden>
+                <span class="callout-icon">!</span>
+                <span data-i18n="settings.expose_warn">Warning: with no password, anyone on your LAN can manage Ollama.</span>
+              </div>
+              <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
+              <hr class="settings-sep">
+              <div class="section-head">
+                <h3 data-i18n="settings.password_section">Password</h3>
+                <span class="badge" id="pwd-badge"></span>
+              </div>
+              <div class="field pwd-field">
+                <label for="set-password" data-i18n="settings.new_password">New password</label>
+                <div class="input-with-action">
+                  <input id="set-password" type="password" autocomplete="new-password" spellcheck="false">
+                  <button id="pwd-save-btn" class="primary" data-i18n="settings.save_password">Save</button>
+                </div>
+              </div>
+              <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
+              <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
+            </div>
+          </details>
+
+          <!-- External Models -->
+          <details class="settings-section settings-collapse" id="sec-ext-models" open>
+            <summary class="settings-collapse-head">
+              <span data-i18n="settings.ext_models_section">External Models (oMLX, OpenAI...)</span>
+              <span class="badge" id="ext-models-badge">0</span>
+            </summary>
+            <div class="settings-collapse-body">
+              <p class="form-hint" data-i18n="settings.ext_models_hint">Connect models hosted on other servers (oMLX, vLLM, LM Studio, OpenAI-compatible).</p>
+              <div class="field">
+                <label for="ext-model-name" data-i18n="settings.ext_model_name">Model Name</label>
+                <input id="ext-model-name" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_name_placeholder" placeholder="e.g. Qwen2.5-Coder-32B or llama-3.3-70b">
+              </div>
+              <div class="field">
+                <label for="ext-model-url" data-i18n="settings.ext_model_url">Endpoint URL</label>
+                <input id="ext-model-url" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_url_placeholder" placeholder="e.g. http://localhost:8000/v1">
+              </div>
+              <div class="field">
+                <label for="ext-model-apikey" data-i18n="settings.ext_model_apikey">API Key (optional)</label>
+                <input id="ext-model-apikey" type="text" class="input-masked" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_apikey_placeholder" placeholder="Bearer token or secret key">
+              </div>
+              <div class="ext-model-actions">
+                <button type="button" id="ext-model-test-btn" class="ghost ext-test-btn" data-i18n="settings.ext_model_test_btn">Test &amp; Detect Capabilities</button>
+                <button type="button" id="ext-model-add-btn" class="primary" data-i18n="settings.ext_model_add_btn">Add Model</button>
+              </div>
+              <div id="ext-test-result" class="ext-test-result" hidden></div>
+              <hr class="settings-sep">
+              <div class="section-head">
+                <h4 data-i18n="settings.ext_models_list_title">Configured External Models</h4>
+              </div>
+              <div id="ext-models-list" class="ext-models-list">
+                <div class="muted small" data-i18n="settings.ext_models_none">No external models configured yet.</div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Tools & Advanced -->
+          <details class="settings-section settings-collapse" id="sec-advanced" open>
+            <summary class="settings-collapse-head">
+              <span data-i18n="settings.advanced">Tools &amp; Advanced</span>
+            </summary>
+            <div class="settings-collapse-body">
+              <div class="settings-advanced-actions">
+                <button id="settings-archived-btn" class="primary settings-wide-btn" data-i18n="settings.go_to_archived">Go to Archived Models</button>
+                <button id="settings-opencode-btn" class="primary settings-wide-btn" data-i18n="settings.opencode_manage">Manage OpenCode models</button>
+              </div>
+            </div>
+          </details>
+
+          <!-- Action bar -->
+          <div class="settings-actions-bar">
+            <button id="settings-save" class="primary" data-i18n="settings.save">Save changes</button>
+          </div>
+        </div>
+      </section>
     </div>
-  </div>
+  </main>
 
   <div id="image-preview-modal" class="image-preview-modal" hidden role="dialog" aria-modal="true" data-i18n-attr="aria-label" data-i18n="chat.image_preview_title">
     <div id="image-preview-backdrop" class="image-preview-backdrop"></div>

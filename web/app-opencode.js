@@ -236,11 +236,10 @@ async function copyOpenCodeText(text) {
   }
 }
 
-$("settings-btn").addEventListener("click", openSettings);
-$("settings-close").addEventListener("click", closeSettings);
-$("settings-x").addEventListener("click", closeSettings);
-$("settings-modal").addEventListener("click", (e) => {
-  if (e.target === $("settings-modal")) closeSettings();
+$("settings-btn")?.addEventListener("click", showSettingsView);
+$("settings-back-btn")?.addEventListener("click", () => {
+  showModelsView();
+  history.pushState(null, "", "/");
 });
 
 // Live language switch on dropdown change.
@@ -315,7 +314,6 @@ $("settings-save").addEventListener("click", async () => {
     }
 
     toast(res.needs_restart ? t("settings.saved_restart") : t("settings.saved"), "success");
-    $("settings-modal").hidden = true;
     refreshStatus();
     renderTable();
   } catch (e) {

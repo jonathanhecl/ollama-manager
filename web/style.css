@@ -8508,13 +8508,21 @@ button.chat-send:disabled:hover {
   color: var(--text);
   font-size: 13px;
   outline: none;
-}
-
-.hf-search-input::-webkit-search-cancel-button,
-.hf-search-input::-webkit-search-decoration {
   -webkit-appearance: none;
   appearance: none;
-  display: none;
+}
+
+.hf-search-box input[type="search"]::-webkit-search-cancel-button,
+.hf-search-box input[type="search"]::-webkit-search-decoration,
+.hf-search-box input[type="search"]::-webkit-search-results-button,
+.hf-search-box input[type="search"]::-webkit-search-results-decoration,
+.hf-search-input::-webkit-search-cancel-button,
+.hf-search-input::-webkit-search-decoration {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .hf-search-input:focus {
@@ -8548,7 +8556,8 @@ button.chat-send:disabled:hover {
 .hf-filters-row {
   display: flex;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-top: 4px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
@@ -8579,14 +8588,15 @@ button.chat-send:disabled:hover {
   flex: 1;
   overflow-y: auto;
   min-height: 280px;
-  max-height: calc(88vh - 200px);
-  padding-right: 4px;
+  padding: 8px 6px 24px;
+  box-sizing: border-box;
 }
 
 .hf-models-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  gap: 14px;
+  padding: 4px 2px;
 }
 
 .hf-card {

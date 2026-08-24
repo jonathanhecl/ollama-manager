@@ -1226,13 +1226,19 @@
       </aside>
 
       <section class="settings-main">
+        <!-- Mobile Back to Menu button -->
+        <button type="button" id="settings-mobile-back-btn" class="settings-mobile-back-btn ghost">
+          <span class="back-arrow">←</span>
+          <span data-i18n="settings.back_to_menu">Sections</span>
+        </button>
+
         <div class="settings-sections-list">
           <!-- General -->
-          <details class="settings-section settings-collapse" id="sec-general" open>
-            <summary class="settings-collapse-head">
-              <span data-i18n="settings.general">General</span>
-            </summary>
-            <div class="settings-collapse-body">
+          <section class="settings-section-card" id="sec-general" hidden>
+            <div class="settings-section-header">
+              <h3 class="settings-section-title" data-i18n="settings.general">General</h3>
+            </div>
+            <div class="settings-section-body">
               <div class="field">
                 <label for="set-language" data-i18n="settings.language">Language</label>
                 <select id="set-language">
@@ -1241,15 +1247,15 @@
                 </select>
               </div>
             </div>
-          </details>
+          </section>
 
           <!-- Chat Defaults -->
-          <details class="settings-section settings-collapse" id="sec-chat-defaults" open>
-            <summary class="settings-collapse-head">
-              <span data-i18n="settings.chat_defaults_section">Default Chat Configuration</span>
-            </summary>
-            <div class="settings-collapse-body">
-              <p class="form-hint" data-i18n="settings.chat_defaults_hint">Default parameters and system prompt applied to all models unless customized per model.</p>
+          <section class="settings-section-card" id="sec-chat-defaults" hidden>
+            <div class="settings-section-header">
+              <h3 class="settings-section-title" data-i18n="settings.chat_defaults_section">Default Chat Configuration</h3>
+              <p class="settings-section-desc" data-i18n="settings.chat_defaults_hint">Default parameters and system prompt applied to all models unless customized per model.</p>
+            </div>
+            <div class="settings-section-body">
               <div class="field field-vertical" id="set-default-system-field">
                 <div class="chat-system-head">
                   <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
@@ -1329,17 +1335,18 @@
                 </label>
               </div>
             </div>
-          </details>
+          </section>
 
           <!-- System Prompts Library -->
-          <details class="settings-section settings-collapse" id="sec-prompts" open>
-            <summary class="settings-collapse-head">
-              <span data-i18n="settings.prompts_section">System Prompts Library</span>
-              <span class="badge" id="prompts-badge">0</span>
-            </summary>
-            <div class="settings-collapse-body">
-              <p class="form-hint" data-i18n="settings.prompts_hint">Create, edit, and organize reusable system instructions for your models.</p>
-
+          <section class="settings-section-card" id="sec-prompts" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.prompts_section">System Prompts Library</h3>
+                <span class="badge" id="prompts-badge">0</span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.prompts_hint">Create, edit, and organize reusable system instructions for your models.</p>
+            </div>
+            <div class="settings-section-body">
               <div class="prompts-toolbar">
                 <input type="text" id="prompt-search-input" class="prompt-search-input" data-i18n-attr="placeholder" data-i18n="settings.prompt_search_placeholder" placeholder="Search prompts..." autocomplete="off">
                 <button type="button" id="prompt-new-btn" class="primary prompt-new-btn" data-i18n="settings.prompt_new_btn">+ New Prompt</button>
@@ -1381,15 +1388,17 @@
                 <div class="muted small" data-i18n="settings.prompts_none">No system prompts created yet.</div>
               </div>
             </div>
-          </details>
+          </section>
 
           <!-- Network & Security -->
-          <details class="settings-section settings-collapse" id="sec-network" open>
-            <summary class="settings-collapse-head">
-              <span data-i18n="settings.network">Network</span>
-              <span class="badge" id="bind-preview"></span>
-            </summary>
-            <div class="settings-collapse-body">
+          <section class="settings-section-card" id="sec-network" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.network">Network & Security</h3>
+                <span class="badge" id="bind-preview"></span>
+              </div>
+            </div>
+            <div class="settings-section-body">
               <div class="field">
                 <label for="set-port" data-i18n="settings.port">HTTP port</label>
                 <input id="set-port" type="number" min="1" max="65535" inputmode="numeric" autocomplete="off">
@@ -1424,16 +1433,18 @@
               <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
               <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
             </div>
-          </details>
+          </section>
 
           <!-- External Models -->
-          <details class="settings-section settings-collapse" id="sec-ext-models" open>
-            <summary class="settings-collapse-head">
-              <span data-i18n="settings.ext_models_section">External Models (oMLX, OpenAI...)</span>
-              <span class="badge" id="ext-models-badge">0</span>
-            </summary>
-            <div class="settings-collapse-body">
-              <p class="form-hint" data-i18n="settings.ext_models_hint">Connect models hosted on other servers (oMLX, vLLM, LM Studio, OpenAI-compatible).</p>
+          <section class="settings-section-card" id="sec-ext-models" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.ext_models_section">External Models</h3>
+                <span class="badge" id="ext-models-badge">0</span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.ext_models_hint">Connect models hosted on other servers (oMLX, vLLM, LM Studio, OpenAI-compatible).</p>
+            </div>
+            <div class="settings-section-body">
               <div class="field">
                 <label for="ext-model-name" data-i18n="settings.ext_model_name">Model Name</label>
                 <input id="ext-model-name" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_name_placeholder" placeholder="e.g. Qwen2.5-Coder-32B or llama-3.3-70b">
@@ -1459,29 +1470,33 @@
                 <div class="muted small" data-i18n="settings.ext_models_none">No external models configured yet.</div>
               </div>
             </div>
-          </details>
+          </section>
 
           <!-- Archived Models -->
-          <details class="settings-section settings-collapse" id="sec-archived" open>
-            <summary class="settings-collapse-head">
-              <span data-i18n="settings.archived_section">Archived Models</span>
-              <span class="badge" id="archived-badge">0</span>
-            </summary>
-            <div class="settings-collapse-body">
-              <p class="form-hint" data-i18n="settings.archived_section_hint">Archived models are kept installed but hidden from the active models list and chat selector.</p>
+          <section class="settings-section-card" id="sec-archived" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.archived_section">Archived Models</h3>
+                <span class="badge" id="archived-badge">0</span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.archived_section_hint">Archived models are kept installed but hidden from the active models list and chat selector.</p>
+            </div>
+            <div class="settings-section-body">
               <div id="settings-archived-list" class="settings-archived-list">
                 <div class="muted small" data-i18n="settings.archived_none">No archived models.</div>
               </div>
             </div>
-          </details>
+          </section>
 
           <!-- OpenCode Integration -->
-          <details class="settings-section settings-collapse" id="sec-opencode" open>
-            <summary class="settings-collapse-head">
-              <span data-i18n="settings.opencode_section">OpenCode</span>
-              <span class="badge" id="opencode-badge"></span>
-            </summary>
-            <div class="settings-collapse-body">
+          <section class="settings-section-card" id="sec-opencode" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.opencode_section">OpenCode</h3>
+                <span class="badge" id="opencode-badge"></span>
+              </div>
+            </div>
+            <div class="settings-section-body">
               <div class="opencode-card" style="margin-bottom: 14px;">
                 <div class="section-head">
                   <h4 data-i18n="opencode.provider_section">Local Ollama provider</h4>
@@ -1547,7 +1562,7 @@
                 </div>
               </div>
             </div>
-          </details>
+          </section>
 
           <!-- Centered build info at bottom -->
           <div class="settings-footer-info">

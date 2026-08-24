@@ -53,6 +53,32 @@ async function showSettingsView() {
   bindSettingsNavEvents();
   bindDefaultSystemPromptFileEvents();
   bindSystemPromptsModalEvents();
+
+  const mobileBackBtn = $("settings-mobile-back-btn");
+  if (mobileBackBtn && !mobileBackBtn._bound) {
+    mobileBackBtn._bound = true;
+    mobileBackBtn.addEventListener("click", showSettingsMobileMenu);
+  }
+
+  const path = window.location.pathname;
+  let targetSecId = "sec-general";
+  if (path === "/settings/chat-defaults") targetSecId = "sec-chat-defaults";
+  else if (path === "/settings/prompts") targetSecId = "sec-prompts";
+  else if (path === "/settings/network") targetSecId = "sec-network";
+  else if (path === "/settings/external") targetSecId = "sec-ext-models";
+  else if (path === "/settings/archived" || path === "/archived") targetSecId = "sec-archived";
+  else if (path === "/settings/opencode" || path === "/opencode") targetSecId = "sec-opencode";
+  else if (path === "/settings/general") targetSecId = "sec-general";
+  else if (path === "/settings" || path === "/settings/") {
+    if (window.innerWidth <= 900) {
+      showSettingsMobileMenu();
+      targetSecId = null;
+    }
+  }
+
+  if (targetSecId) {
+    showSettingsSection(targetSecId, false);
+  }
 }
 
 function openSettings() {
@@ -148,17 +174,28 @@ function bindSettingsNavEvents() {
 }
 
 function showSettingsSection(sectionId, updateUrl = true) {
+  const settingsView = $("settings-view");
+  if (settingsView) {
+    settingsView.classList.add("settings-mobile-section-open");
+  }
+
   const navItems = document.querySelectorAll(".settings-nav-item");
   navItems.forEach((b) => {
     b.classList.toggle("active", b.dataset.section === sectionId);
   });
+
+  const allSections = document.querySelectorAll(".settings-section-card");
+  allSections.forEach((sec) => {
+    sec.hidden = true;
+  });
+
   const targetSec = $(sectionId);
   if (targetSec) {
-    if (targetSec.tagName === "DETAILS") {
-      targetSec.open = true;
-    }
-    targetSec.scrollIntoView({ behavior: "smooth", block: "start" });
+    targetSec.hidden = false;
+    const mainEl = document.querySelector(".settings-main");
+    if (mainEl) mainEl.scrollTop = 0;
   }
+
   if (updateUrl) {
     let subRoute = "/settings";
     if (sectionId === "sec-general") subRoute = "/settings/general";
@@ -173,6 +210,17 @@ function showSettingsSection(sectionId, updateUrl = true) {
     }
   }
 }
+
+function showSettingsMobileMenu() {
+  const settingsView = $("settings-view");
+  if (settingsView) {
+    settingsView.classList.remove("settings-mobile-section-open");
+  }
+  if (window.location.pathname !== "/settings") {
+    history.pushState(null, "", "/settings");
+  }
+}
+window.showSettingsMobileMenu = showSettingsMobileMenu;
 
 // ---------- System Prompts Library ----------
 let systemPromptsList = [];

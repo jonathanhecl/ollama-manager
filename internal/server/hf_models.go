@@ -145,12 +145,12 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 
 	if filterParam == "ollama" {
 		q.Set("apps", "ollama")
-		q.Set("library", "gguf")
+		q.Set("filter", "gguf")
 	} else if filterParam == "vision" {
 		q.Set("pipeline_tag", "image-text-to-text")
-		q.Set("library", "gguf")
+		q.Set("filter", "gguf")
 	} else {
-		q.Set("library", "gguf")
+		q.Set("filter", "gguf")
 	}
 
 	q.Set("limit", strconv.Itoa(limit))
@@ -245,6 +245,12 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 					ggufCount++
 				}
 			}
+		}
+
+		// If siblings list was provided and has 0 GGUF files, filter out this repo
+		// to guarantee only actual GGUF models appear in the explorer.
+		if len(m.Siblings) > 0 && ggufCount == 0 && !hasVisionFile {
+			continue
 		}
 
 		author := m.Author

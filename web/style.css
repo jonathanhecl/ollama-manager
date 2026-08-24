@@ -8646,7 +8646,34 @@ button.chat-send:disabled:hover {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 8px;
-  gap: 6px;
+  gap: 8px;
+}
+
+.hf-ext-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.hf-ext-link:hover {
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.hf-ext-link svg {
+  display: block;
+  pointer-events: none;
 }
 
 .hf-card-title-wrap {

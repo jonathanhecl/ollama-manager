@@ -305,7 +305,7 @@ function hfModelCardHTML(m) {
     tagsHTML += ` <span class="badge badge-vision">${t("hf.tag_vision")}</span>`;
   }
 
-  const hfUrl = `https://huggingface.co/${encodeURIComponent(m.id)}`;
+  const hfUrl = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
 
   return `
     <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}">
@@ -314,7 +314,13 @@ function hfModelCardHTML(m) {
           <span class="hf-card-author">${author} /</span>
           <h4 class="hf-card-title">${name}</h4>
         </div>
-        <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="btn-icon hf-ext-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">↗</a>
+        <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+        </a>
       </div>
       <div class="hf-card-tags">
         ${tagsHTML}
@@ -363,7 +369,7 @@ function renderHFModelDetail(m) {
   $("hf-detail-name").textContent = m.name || m.id;
   $("hf-detail-downloads").textContent = `⬇️ ${Number(m.downloads || 0).toLocaleString()}`;
   $("hf-detail-likes").textContent = `❤️ ${Number(m.likes || 0).toLocaleString()}`;
-  $("hf-detail-link").href = `https://huggingface.co/${encodeURIComponent(m.id)}`;
+  $("hf-detail-link").href = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
 
   // Vision Projector Notice
   const visionBox = $("hf-detail-vision-box");

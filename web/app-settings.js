@@ -525,6 +525,194 @@ async function loadArchivedModelsInSettings(lang = null) {
   }
 }
 
+// ---------- External Models ----------
+let lastTestedExtModel = null;
+let lastTestedCapabilities = null;
+
+async function loadExternalModels(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const listEl = $("ext-models-list");
+  const badge = $("ext-models-badge");
+  const navBadge = $("ext-models-nav-badge");
+  if (!listEl) return;
+  try {
+    const data = await api("/api/external-models");
+    const list = data.models || [];
+    if (badge) badge.textContent = String(list.length);
+    if (navBadge) navBadge.textContent = String(list.length);
+    if (!list.length) {
+      listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.ext_models_none", null, targetLang))}</div>`;
+      return;
+    }
+    listEl.innerHTML = list.map((m) => {
+      const caps = (m.capabilities || ["completion", "tools", "thinking", "vision"])
+        .map((c) => `<span class="ext-cap-pill active">${escapeHtml(c)}</span>`)
+        .join("");
+      return `
+        <div class="ext-model-card" data-name="${escapeHtml(m.name)}">
+          <div class="ext-model-card-info">
+            <div class="ext-model-card-name">
+              ${escapeHtml(m.name)}
+              <span class="model-external-tag">${escapeHtml(t("models.external_badge", null, targetLang))}</span>
+            </div>
+            <div class="ext-model-card-url" title="${escapeHtml(m.url)}">${escapeHtml(m.url)}</div>
+            <div class="ext-caps-pills" style="margin-top:2px;">${caps}</div>
+          </div>
+          <button type="button" class="btn-icon danger-text ext-model-del-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.delete_external_title", null, targetLang))}">×</button>
+        </div>
+      `;
+    }).join("");
+
+    listEl.querySelectorAll(".ext-model-del-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.name;
+        if (!name) return;
+        const conf = await askConfirm({
+          title: t("detail.delete_external_title", null, targetLang),
+          text: t("settings.ext_model_remove_confirm", { name }, targetLang),
+          okText: t("action.delete", null, targetLang),
+          okClass: "danger",
+          mono: name,
+        });
+        if (conf.ok) {
+          try {
+            await api("/api/external-models/" + encodeURIComponent(name), { method: "DELETE" });
+            toast(t("settings.ext_model_removed", { name }, targetLang), "success");
+            loadExternalModels(targetLang);
+            refreshModels();
+          } catch (err) {
+            toast(t("toast.error", { msg: err.message }, targetLang), "error");
+          }
+        }
+      });
+    });
+  } catch (e) {
+    if (listEl) listEl.innerHTML = `<div class="muted small">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function testExternalModel() {
+  const nameInput = $("ext-model-name");
+  const urlInput = $("ext-model-url");
+  const keyInput = $("ext-model-apikey");
+  const testBtn = $("ext-model-test-btn");
+  const resultEl = $("ext-test-result");
+
+  const name = nameInput ? nameInput.value.trim() : "";
+  const url = urlInput ? urlInput.value.trim() : "";
+  const apiKey = keyInput ? keyInput.value.trim() : "";
+
+  if (!url) {
+    toast(t("settings.ext_model_url") + " required", "error");
+    return;
+  }
+
+  if (testBtn) testBtn.disabled = true;
+  if (resultEl) {
+    resultEl.hidden = false;
+    resultEl.className = "ext-test-result ext-test-running";
+    resultEl.textContent = t("settings.ext_test_testing");
+  }
+
+  try {
+    const res = await api("/api/external-models/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, api_key: apiKey }),
+    });
+
+    lastTestedExtModel = name;
+    lastTestedCapabilities = res.capabilities || [];
+
+    if (resultEl) {
+      resultEl.className = "ext-test-result ext-test-success";
+      const capsHtml = (res.capabilities || [])
+        .map((c) => `<span class="ext-cap-pill active" data-cap="${escapeHtml(c)}">${escapeHtml(c)}</span>`)
+        .join("");
+      resultEl.innerHTML = `
+        <div class="ext-test-head">
+          <span class="ext-test-badge good">✓</span>
+          <span>${escapeHtml(t("settings.ext_test_success", { latency: res.latency_ms || 0 }))}</span>
+        </div>
+        ${capsHtml ? `<div class="ext-test-caps"><span class="muted small">${escapeHtml(t("detail.capabilities"))}:</span> ${capsHtml}</div>` : ""}
+      `;
+    }
+  } catch (e) {
+    lastTestedExtModel = null;
+    lastTestedCapabilities = null;
+    if (resultEl) {
+      resultEl.className = "ext-test-result ext-test-error";
+      resultEl.textContent = t("settings.ext_test_failed", { error: e.message });
+    }
+  } finally {
+    if (testBtn) testBtn.disabled = false;
+  }
+}
+
+async function addExternalModel() {
+  const nameInput = $("ext-model-name");
+  const urlInput = $("ext-model-url");
+  const keyInput = $("ext-model-apikey");
+  const resultEl = $("ext-test-result");
+
+  const name = nameInput ? nameInput.value.trim() : "";
+  const url = urlInput ? urlInput.value.trim() : "";
+  const apiKey = keyInput ? keyInput.value.trim() : "";
+
+  if (!name || !url) {
+    toast(t("settings.ext_model_name") + " & " + t("settings.ext_model_url") + " required", "error");
+    return;
+  }
+
+  let caps = ["completion"];
+  if (resultEl && !resultEl.hidden) {
+    resultEl.querySelectorAll(".ext-cap-pill.active").forEach((p) => {
+      if (p.dataset.cap && !caps.includes(p.dataset.cap)) {
+        caps.push(p.dataset.cap);
+      }
+    });
+  } else if (lastTestedExtModel === name && Array.isArray(lastTestedCapabilities) && lastTestedCapabilities.length > 0) {
+    caps = lastTestedCapabilities;
+  } else {
+    caps = ["completion", "tools", "thinking", "vision"];
+  }
+
+  try {
+    await api("/api/external-models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, api_key: apiKey, capabilities: caps }),
+    });
+
+    toast(t("settings.ext_model_added", { name }), "success");
+    if (nameInput) nameInput.value = "";
+    if (urlInput) urlInput.value = "";
+    if (keyInput) keyInput.value = "";
+    if (resultEl) resultEl.hidden = true;
+    lastTestedExtModel = null;
+    lastTestedCapabilities = null;
+
+    loadExternalModels();
+    refreshModels();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+function bindExternalModelsEvents() {
+  const testBtn = $("ext-model-test-btn");
+  if (testBtn && !testBtn._bound) {
+    testBtn._bound = true;
+    testBtn.addEventListener("click", testExternalModel);
+  }
+  const addBtn = $("ext-model-add-btn");
+  if (addBtn && !addBtn._bound) {
+    addBtn._bound = true;
+    addBtn.addEventListener("click", addExternalModel);
+  }
+}
+
 function renderSettingsTranslations(lang = null) {
   const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
   const settingsView = $("settings-view");

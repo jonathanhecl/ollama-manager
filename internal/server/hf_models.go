@@ -258,6 +258,14 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func cleanRepoPath(repoID string) string {
+	parts := strings.Split(repoID, "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(strings.TrimSpace(p))
+	}
+	return strings.Join(parts, "/")
+}
+
 // handleHFModelDetails handles GET /api/hf/model?id={repo_id}
 func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -274,8 +282,10 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
+	cleanedPath := cleanRepoPath(repoID)
+
 	// 1. Fetch metadata from https://huggingface.co/api/models/{id}
-	metaURL := fmt.Sprintf("https://huggingface.co/api/models/%s", url.PathEscape(repoID))
+	metaURL := fmt.Sprintf("https://huggingface.co/api/models/%s", cleanedPath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metaURL, nil)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -316,7 +326,7 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Fetch repository file tree from https://huggingface.co/api/models/{id}/tree/main
-	treeURL := fmt.Sprintf("https://huggingface.co/api/models/%s/tree/main", url.PathEscape(repoID))
+	treeURL := fmt.Sprintf("https://huggingface.co/api/models/%s/tree/main", cleanedPath)
 	treeReq, err := http.NewRequestWithContext(ctx, http.MethodGet, treeURL, nil)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -438,7 +448,7 @@ func (s *Server) handleHFReadme(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	readmeURL := fmt.Sprintf("https://huggingface.co/%s/raw/main/README.md", repoID)
+	readmeURL := fmt.Sprintf("https://huggingface.co/%s/raw/main/README.md", cleanRepoPath(repoID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, readmeURL, nil)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

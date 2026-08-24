@@ -85,6 +85,10 @@ function updateSystemWidgets(status) {
   updateVramWidget(status, compact);
 
   updateDiskWidget(status, compact);
+
+  if (typeof updateHFMemoryBanner === "function") {
+    updateHFMemoryBanner();
+  }
 }
 
 function installedModelsBytes() {

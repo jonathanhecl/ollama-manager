@@ -138,6 +138,9 @@ const I18N = {
     "hf.quant_was_installed": "Previously installed",
     "hf.quant_was_installed_desc": "You had this quant installed previously",
     "hf.reinstall_btn": "Reinstall",
+    "hf.no_gguf_files": "No GGUF files found in this repository.",
+    "hf.no_gguf_files_desc": "This repository does not contain .gguf files compatible with Ollama (it may only contain Safetensors, PyTorch weights, or LoRA adapters).",
+    "hf.quants_tag": "{n} quants",
 
     "action.refresh": "Refresh",
     "action.reload_models": "Reload models",
@@ -1072,6 +1075,9 @@ const I18N = {
     "hf.quant_was_installed": "Instalado antes",
     "hf.quant_was_installed_desc": "Tuviste esta cuantización instalada previamente",
     "hf.reinstall_btn": "Reinstalar",
+    "hf.no_gguf_files": "No se encontraron archivos GGUF en este repositorio.",
+    "hf.no_gguf_files_desc": "Este repositorio no contiene archivos .gguf compatibles con Ollama (puede contener únicamente Safetensors, pesos de PyTorch o adaptadores LoRA).",
+    "hf.quants_tag": "{n} cuantizaciones",
 
     "action.refresh": "Refrescar",
     "action.reload_models": "Recargar modelos",

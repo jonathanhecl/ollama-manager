@@ -28,6 +28,7 @@ type HFModelSummary struct {
 	HasGGUF      bool      `json:"has_gguf"`
 	HasOllama    bool      `json:"has_ollama"`
 	HasVision    bool      `json:"has_vision"`
+	GGUFCount    int       `json:"gguf_count"`
 }
 
 // HFQuantFile represents a single GGUF or mmproj file in a repository.
@@ -127,6 +128,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
+	filterParam := strings.TrimSpace(r.URL.Query().Get("filter"))
 	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
 
 	// Construct HuggingFace API search URL
@@ -140,9 +142,19 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	if query != "" {
 		q.Set("search", query)
 	}
-	q.Set("filter", "gguf")
+
+	if filterParam == "ollama" {
+		q.Set("apps", "ollama")
+		q.Set("library", "gguf")
+	} else if filterParam == "vision" {
+		q.Set("pipeline_tag", "image-text-to-text")
+		q.Set("library", "gguf")
+	} else {
+		q.Set("library", "gguf")
+	}
+
 	q.Set("limit", strconv.Itoa(limit))
-	q.Set("full", "false")
+	q.Set("full", "true")
 	q.Set("config", "false")
 
 	// If cursor is provided, add it to load the next page
@@ -206,6 +218,9 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		Tags         []string  `json:"tags"`
 		PipelineTag  string    `json:"pipeline_tag"`
 		Private      bool      `json:"private"`
+		Siblings     []struct {
+			RFilename string `json:"rfilename"`
+		} `json:"siblings"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&rawModels); err != nil {
@@ -218,6 +233,20 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		if m.Private {
 			continue
 		}
+
+		ggufCount := 0
+		hasVisionFile := false
+		for _, s := range m.Siblings {
+			fn := strings.ToLower(s.RFilename)
+			if strings.HasSuffix(fn, ".gguf") {
+				if IsVisionProjector(s.RFilename) {
+					hasVisionFile = true
+				} else {
+					ggufCount++
+				}
+			}
+		}
+
 		author := m.Author
 		name := m.ID
 		if parts := strings.SplitN(m.ID, "/", 2); len(parts) == 2 {
@@ -227,16 +256,16 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 			name = parts[1]
 		}
 
-		hasGGUF := false
-		hasOllama := false
-		hasVision := false
+		hasGGUF := ggufCount > 0
+		hasOllama := filterParam == "ollama"
+		hasVision := hasVisionFile
 
 		for _, t := range m.Tags {
 			tl := strings.ToLower(t)
 			if tl == "gguf" {
 				hasGGUF = true
 			}
-			if tl == "ollama" {
+			if tl == "ollama" || strings.Contains(tl, "ollama") {
 				hasOllama = true
 			}
 			if tl == "vision" || tl == "multimodal" || tl == "image-to-text" || tl == "image-text-to-text" {
@@ -261,6 +290,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 			HasGGUF:      hasGGUF,
 			HasOllama:    hasOllama,
 			HasVision:    hasVision,
+			GGUFCount:    ggufCount,
 		})
 	}
 

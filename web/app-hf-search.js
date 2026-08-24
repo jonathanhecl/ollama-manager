@@ -107,6 +107,29 @@ function computeMemoryFit(modelSizeBytes, visionSizeBytes = 0) {
   };
 }
 
+let hfAutoFetchDepth = 0;
+
+function getVisibleHFCount() {
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  return hfModels.filter((m) => {
+    if (hfCurrentFilter === "ollama" && !m.has_ollama) return false;
+    if (hfCurrentFilter === "vision" && !m.has_vision) return false;
+
+    if (hfCurrentTimeFilter !== "all" && m.last_modified) {
+      const modTime = new Date(m.last_modified).getTime();
+      if (!isNaN(modTime)) {
+        const diffDays = (now - modTime) / ONE_DAY;
+        if (hfCurrentTimeFilter === "week" && diffDays > 7) return false;
+        if (hfCurrentTimeFilter === "month" && diffDays > 30) return false;
+        if (hfCurrentTimeFilter === "6months" && diffDays > 180) return false;
+        if (hfCurrentTimeFilter === "year" && diffDays > 365) return false;
+      }
+    }
+    return true;
+  }).length;
+}
+
 async function doHFSearch(query, append = false) {
   const listEl = $("hf-models-list");
   const loadingEl = $("hf-loading");
@@ -116,6 +139,7 @@ async function doHFSearch(query, append = false) {
 
   if (!append) {
     hfNextCursor = "";
+    hfAutoFetchDepth = 0;
     if (loadingEl) loadingEl.hidden = false;
     if (emptyEl) emptyEl.hidden = true;
     if (errorEl) errorEl.hidden = true;
@@ -127,6 +151,7 @@ async function doHFSearch(query, append = false) {
     const params = new URLSearchParams();
     if (query && query.trim()) params.set("q", query.trim());
     params.set("sort", hfCurrentSort);
+    params.set("filter", hfCurrentFilter);
     params.set("limit", "30");
     if (append && hfNextCursor) {
       params.set("cursor", hfNextCursor);
@@ -147,6 +172,16 @@ async function doHFSearch(query, append = false) {
 
     if (loadingEl) loadingEl.hidden = true;
     renderHFModelsList();
+
+    // If after date/type filtering we have very few visible results (< 12)
+    // and there are more pages available, automatically fetch the next batch (up to 3 continuous pulls)
+    const visibleCount = getVisibleHFCount();
+    if (visibleCount < 12 && hfHasMore && hfNextCursor && (hfAutoFetchDepth || 0) < 3) {
+      hfAutoFetchDepth = (hfAutoFetchDepth || 0) + 1;
+      await doHFSearch(query, true);
+    } else {
+      hfAutoFetchDepth = 0;
+    }
   } catch (err) {
     if (loadingEl) loadingEl.hidden = true;
     if (errorEl) {
@@ -261,7 +296,8 @@ function hfModelCardHTML(m) {
 
   let tagsHTML = "";
   if (statusBadge) tagsHTML += statusBadge + " ";
-  tagsHTML += `<span class="badge badge-subtle">${t("hf.tag_gguf")}</span>`;
+  const qCountText = m.gguf_count > 0 ? t("hf.quants_tag", { n: m.gguf_count }) : t("hf.tag_gguf");
+  tagsHTML += `<span class="badge badge-subtle">${escapeHtml(qCountText)}</span>`;
   if (m.has_ollama) {
     tagsHTML += ` <span class="badge badge-accent">${t("hf.tag_ollama")}</span>`;
   }
@@ -357,7 +393,14 @@ function renderHFQuantsTable(m) {
 
   const ggufFiles = Array.isArray(m.gguf_files) ? m.gguf_files : [];
   if (ggufFiles.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="muted text-center" style="padding: 24px;">${escapeHtml(t("hf.no_results"))}</td></tr>`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="muted text-center" style="padding: 36px 20px;">
+          <div style="font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text);">⚠️ ${escapeHtml(t("hf.no_gguf_files"))}</div>
+          <div class="small muted" style="max-width: 480px; margin: 0 auto; line-height: 1.5;">${escapeHtml(t("hf.no_gguf_files_desc"))}</div>
+        </td>
+      </tr>
+    `;
     return;
   }
 
@@ -818,7 +861,8 @@ function bindHFExplorerEvents() {
       document.querySelectorAll(".hf-filter-chip").forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       hfCurrentFilter = chip.dataset.filter || "all";
-      renderHFModelsList();
+      const q = $("hf-search-input")?.value || "";
+      doHFSearch(q, false);
     });
   });
 

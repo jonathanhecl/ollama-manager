@@ -52,6 +52,7 @@ async function showSettingsView() {
   bindSystemPromptsEvents();
   bindSettingsNavEvents();
   bindDefaultSystemPromptFileEvents();
+  bindSystemPromptsModalEvents();
 }
 
 function openSettings() {
@@ -764,3 +765,147 @@ function updateExposeWarning(lang = null) {
   $("expose-warning").hidden = !(wantExpose && !currentConfig.has_password);
   updateBindPreview(lang);
 }
+
+// ---------- System Prompts Library Modal ----------
+let promptsModalTargetTextarea = null;
+let promptsModalCallback = null;
+
+async function openSystemPromptsPickerModal(targetTextarea = null, onSelect = null) {
+  promptsModalTargetTextarea = targetTextarea;
+  promptsModalCallback = onSelect;
+  const modal = $("prompts-modal");
+  if (!modal) return;
+  const searchInput = $("prompts-modal-search-input");
+  if (searchInput) searchInput.value = "";
+  modal.hidden = false;
+  await loadAndRenderPromptsModal();
+  if (searchInput) searchInput.focus();
+}
+window.openSystemPromptsPickerModal = openSystemPromptsPickerModal;
+
+function closeSystemPromptsPickerModal() {
+  const modal = $("prompts-modal");
+  if (modal) modal.hidden = true;
+  promptsModalTargetTextarea = null;
+  promptsModalCallback = null;
+}
+window.closeSystemPromptsPickerModal = closeSystemPromptsPickerModal;
+
+async function loadAndRenderPromptsModal(filterQuery = "") {
+  const listEl = $("prompts-modal-list");
+  if (!listEl) return;
+  const targetLang = currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  
+  if (!systemPromptsList || systemPromptsList.length === 0) {
+    try {
+      const data = await api("/api/system-prompts");
+      systemPromptsList = data.prompts || [];
+    } catch {
+      systemPromptsList = [];
+    }
+  }
+  
+  const q = (filterQuery || "").toLowerCase();
+  const filtered = (systemPromptsList || []).filter(
+    (p) => (p.title || "").toLowerCase().includes(q) || (p.prompt || "").toLowerCase().includes(q)
+  );
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="muted small">${escapeHtml(t("prompts.modal_empty", null, targetLang))}</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((p) => {
+    return `
+      <div class="prompts-modal-item" data-id="${escapeHtml(p.id)}">
+        <div class="prompts-modal-item-head">
+          <span class="prompts-modal-item-title">${escapeHtml(p.title || "Untitled Prompt")}</span>
+          <button type="button" class="primary prompts-modal-item-btn" data-id="${escapeHtml(p.id)}">${escapeHtml(t("prompts.modal_use", null, targetLang))}</button>
+        </div>
+        <div class="prompts-modal-item-preview">${escapeHtml(p.prompt || "")}</div>
+      </div>
+    `;
+  }).join("");
+
+  listEl.querySelectorAll(".prompts-modal-item").forEach((itemEl) => {
+    itemEl.addEventListener("click", (e) => {
+      const id = itemEl.dataset.id;
+      const promptObj = (systemPromptsList || []).find((p) => p.id === id);
+      if (!promptObj) return;
+      if (promptsModalTargetTextarea) {
+        promptsModalTargetTextarea.value = promptObj.prompt || "";
+        promptsModalTargetTextarea.dispatchEvent(new Event("input", { bubbles: true }));
+        promptsModalTargetTextarea.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (typeof promptsModalCallback === "function") {
+        promptsModalCallback(promptObj);
+      }
+      toast(t("prompts.modal_applied", null, targetLang), "success");
+      closeSystemPromptsPickerModal();
+    });
+  });
+}
+
+function bindSystemPromptsModalEvents() {
+  const closeBtn = $("prompts-modal-close");
+  const modal = $("prompts-modal");
+  const searchInput = $("prompts-modal-search-input");
+  
+  if (closeBtn && !closeBtn._bound) {
+    closeBtn._bound = true;
+    closeBtn.addEventListener("click", closeSystemPromptsPickerModal);
+  }
+  
+  if (modal && !modal._boundBackdrop) {
+    modal._boundBackdrop = true;
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        closeSystemPromptsPickerModal();
+      }
+    });
+  }
+  
+  if (searchInput && !searchInput._bound) {
+    searchInput._bound = true;
+    searchInput.addEventListener("input", () => {
+      loadAndRenderPromptsModal(searchInput.value.trim());
+    });
+  }
+
+  // Connect Settings default prompt library button:
+  const settingsLibBtn = $("set-default-system-prompt-lib-btn");
+  if (settingsLibBtn && !settingsLibBtn._bound) {
+    settingsLibBtn._bound = true;
+    settingsLibBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      openSystemPromptsPickerModal($("set-default-system"));
+    });
+  }
+
+  // Connect Chat system prompt library button:
+  const chatLibBtn = $("chat-system-prompt-lib-btn");
+  if (chatLibBtn && !chatLibBtn._bound) {
+    chatLibBtn._bound = true;
+    chatLibBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      openSystemPromptsPickerModal($("chat-system"), () => {
+        if (typeof adjustChatSystemPromptHeight === "function") {
+          adjustChatSystemPromptHeight();
+        }
+        if (typeof saveChatOptionsForCurrentModel === "function") {
+          saveChatOptionsForCurrentModel();
+        }
+      });
+    });
+  }
+}
+
+// Bind immediately on boot if elements exist
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bindSystemPromptsModalEvents);
+  } else {
+    bindSystemPromptsModalEvents();
+  }
+}
+

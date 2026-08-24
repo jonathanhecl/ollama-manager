@@ -249,6 +249,12 @@
           <div class="chat-system-head">
             <label for="chat-system" data-i18n="chat.system_prompt">System prompt</label>
             <div class="chat-system-actions">
+              <button id="chat-system-prompt-lib-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_from_prompts" title="Select from System Prompts library" aria-label="Select from System Prompts library">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                </svg>
+              </button>
               <button id="chat-system-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_system_file" title="Load system prompt from file" aria-label="Load system prompt from file">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -1248,6 +1254,12 @@
                 <div class="chat-system-head">
                   <label for="set-default-system" data-i18n="settings.default_system">Default System prompt</label>
                   <div class="chat-system-actions">
+                    <button id="set-default-system-prompt-lib-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_from_prompts" title="Select from System Prompts library" aria-label="Select from System Prompts library">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                      </svg>
+                    </button>
                     <button id="set-default-system-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="chat.load_system_file" title="Load system prompt from file" aria-label="Load system prompt from file">
                       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -1545,6 +1557,20 @@
       </section>
     </div>
   </main>
+
+  <!-- System Prompts Library Modal -->
+  <div id="prompts-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card prompts-modal-card">
+      <div class="prompts-modal-header">
+        <h3 id="prompts-modal-title" data-i18n="prompts.modal_title">System Prompts Library</h3>
+        <button type="button" id="prompts-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div class="prompts-modal-search">
+        <input type="text" id="prompts-modal-search-input" data-i18n-attr="placeholder" data-i18n="settings.prompt_search_placeholder" placeholder="Search prompts..." autocomplete="off">
+      </div>
+      <div id="prompts-modal-list" class="prompts-modal-list"></div>
+    </div>
+  </div>
 
   <div id="image-preview-modal" class="image-preview-modal" hidden role="dialog" aria-modal="true" data-i18n-attr="aria-label" data-i18n="chat.image_preview_title">
     <div id="image-preview-backdrop" class="image-preview-backdrop"></div>

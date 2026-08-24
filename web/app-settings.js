@@ -359,18 +359,56 @@ function renderPromptsList(filterText = "", lang = null) {
 
   // Bind export
   listEl.querySelectorAll(".prompt-export-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const id = btn.dataset.id;
       const item = systemPromptsList.find((p) => p.id === id);
       if (!item) return;
+
+      let defaultFn = item.filename || (item.title ? `${item.title}.md` : "prompt.md");
+      if (!defaultFn.includes(".")) defaultFn += ".md";
+
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: defaultFn,
+            types: [
+              {
+                description: "Markdown Document (*.md)",
+                accept: { "text/markdown": [".md", ".markdown"] }
+              },
+              {
+                description: "Text Document (*.txt)",
+                accept: { "text/plain": [".txt", ".prompt"] }
+              },
+              {
+                description: "All Files (*.*)",
+                accept: { "*/*": [] }
+              }
+            ]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(item.prompt || "");
+          await writable.close();
+          toast(t("settings.prompt_exported", null, targetLang) || "Prompt exported", "success");
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            return; // User cancelled
+          }
+        }
+      }
+
+      // Fallback
+      const askMsg = t("settings.prompt_export_ask_name", null, targetLang) || "Export file name:";
+      const chosenName = window.prompt(askMsg, defaultFn);
+      if (!chosenName) return;
+
       try {
         const blob = new Blob([item.prompt || ""], { type: "text/markdown;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        let fn = item.filename || (item.title ? `${item.title}.md` : "prompt.md");
-        if (!fn.includes(".")) fn += ".md";
-        a.download = fn;
+        a.download = chosenName.trim();
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -592,11 +630,25 @@ function bindSystemPromptsEvents() {
     });
   }
 
+  const searchInput = $("prompt-search-input");
+  const searchClear = $("prompt-search-clear");
   if (searchInput && !searchInput._bound) {
     searchInput._bound = true;
+    const updateClear = () => {
+      if (searchClear) searchClear.hidden = !searchInput.value;
+    };
     searchInput.addEventListener("input", () => {
+      updateClear();
       renderPromptsList(searchInput.value.trim().toLowerCase());
     });
+    if (searchClear) {
+      searchClear.addEventListener("click", () => {
+        searchInput.value = "";
+        updateClear();
+        renderPromptsList("");
+        searchInput.focus();
+      });
+    }
   }
 
   if (fileBtn && fileInput && !fileBtn._bound) {
@@ -1077,11 +1129,25 @@ function bindSystemPromptsModalEvents() {
     });
   }
   
+  const searchInput = $("prompts-modal-search-input");
+  const searchClear = $("prompts-modal-search-clear");
   if (searchInput && !searchInput._bound) {
     searchInput._bound = true;
+    const updateClear = () => {
+      if (searchClear) searchClear.hidden = !searchInput.value;
+    };
     searchInput.addEventListener("input", () => {
+      updateClear();
       loadAndRenderPromptsModal(searchInput.value.trim());
     });
+    if (searchClear) {
+      searchClear.addEventListener("click", () => {
+        searchInput.value = "";
+        updateClear();
+        loadAndRenderPromptsModal("");
+        searchInput.focus();
+      });
+    }
   }
 
   // Connect Settings default prompt library button:

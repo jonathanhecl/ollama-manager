@@ -1405,7 +1405,14 @@
             </div>
             <div class="settings-section-body">
               <div class="prompts-toolbar">
-                <input type="text" id="prompt-search-input" class="prompt-search-input" data-i18n-attr="placeholder" data-i18n="settings.prompt_search_placeholder" placeholder="Search prompts..." autocomplete="off">
+                <div class="prompt-search-box">
+                  <svg class="models-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <input type="search" id="prompt-search-input" class="prompt-search-input" data-i18n-attr="placeholder" data-i18n="settings.prompt_search_placeholder" placeholder="Search prompts..." autocomplete="off">
+                  <button type="button" id="prompt-search-clear" class="btn-icon models-search-clear prompt-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
+                </div>
                 <button type="button" id="prompt-new-btn" class="primary prompt-new-btn" data-i18n="settings.prompt_new_btn">+ New Prompt</button>
               </div>
 
@@ -1598,7 +1605,14 @@
         <button type="button" id="prompts-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
       </div>
       <div class="prompts-modal-search">
-        <input type="text" id="prompts-modal-search-input" data-i18n-attr="placeholder" data-i18n="settings.prompt_search_placeholder" placeholder="Search prompts..." autocomplete="off">
+        <div class="prompt-search-box">
+          <svg class="models-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="search" id="prompts-modal-search-input" class="prompt-search-input" data-i18n-attr="placeholder" data-i18n="settings.prompt_search_placeholder" placeholder="Search prompts..." autocomplete="off">
+          <button type="button" id="prompts-modal-search-clear" class="btn-icon models-search-clear prompt-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
+        </div>
       </div>
       <div id="prompts-modal-list" class="prompts-modal-list"></div>
     </div>

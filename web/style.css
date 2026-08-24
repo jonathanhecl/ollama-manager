@@ -8044,8 +8044,35 @@ button.chat-send:disabled:hover {
   margin-bottom: 12px;
 }
 
-.prompt-search-input {
+.prompt-search-box {
+  position: relative;
   flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.prompt-search-box .prompt-search-input {
+  width: 100%;
+  padding-left: 32px;
+  padding-right: 28px;
+}
+
+.prompt-search-box .models-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.prompt-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .prompt-new-btn {

@@ -1,12 +1,13 @@
 package server
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,138 +20,331 @@ type SystemPrompt struct {
 	Prompt    string `json:"prompt"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	Filename  string `json:"filename,omitempty"`
 }
 
-type systemPromptsFile struct {
-	Prompts []SystemPrompt `json:"prompts"`
+type legacySystemPromptsFile struct {
+	Prompts []struct {
+		ID        string `json:"id"`
+		Title     string `json:"title"`
+		Prompt    string `json:"prompt"`
+		CreatedAt int64  `json:"created_at"`
+		UpdatedAt int64  `json:"updated_at"`
+	} `json:"prompts"`
 }
 
 type systemPromptsStore struct {
-	path    string
-	mu      sync.RWMutex
-	prompts []SystemPrompt
+	dir        string
+	legacyPath string
+	mu         sync.RWMutex
 }
 
-func newSystemPromptsStore(path string) *systemPromptsStore {
+func newSystemPromptsStore(dir string, legacyPath string) *systemPromptsStore {
 	return &systemPromptsStore{
-		path:    path,
-		prompts: make([]SystemPrompt, 0),
+		dir:        dir,
+		legacyPath: legacyPath,
+	}
+}
+
+func sanitizePromptFilename(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Untitled Prompt"
+	}
+	illegal := []string{"<", ">", ":", "\"", "/", "\\", "|", "?", "*", "\x00"}
+	for _, char := range illegal {
+		name = strings.ReplaceAll(name, char, "-")
+	}
+	name = strings.TrimSpace(name)
+	name = strings.Trim(name, ".")
+	if name == "" {
+		name = "prompt"
+	}
+	return name
+}
+
+func isPromptFile(name string) bool {
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "~") {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".txt", ".md", ".markdown", ".prompt", ".yaml", ".yml", ".json", ".text":
+		return true
+	default:
+		return false
 	}
 }
 
 func (s *systemPromptsStore) Load() error {
-	if s.path == "" {
+	if s.dir == "" {
 		return nil
 	}
-	data, err := os.ReadFile(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
-	var file systemPromptsFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return err
+
+	// Migrate from legacy system_prompts.json if present and dir is empty
+	if s.legacyPath != "" {
+		if data, err := os.ReadFile(s.legacyPath); err == nil {
+			entries, _ := os.ReadDir(s.dir)
+			hasPrompts := false
+			for _, e := range entries {
+				if !e.IsDir() && isPromptFile(e.Name()) {
+					hasPrompts = true
+					break
+				}
+			}
+			if !hasPrompts {
+				var legacy legacySystemPromptsFile
+				if err := json.Unmarshal(data, &legacy); err == nil && len(legacy.Prompts) > 0 {
+					for _, p := range legacy.Prompts {
+						baseName := sanitizePromptFilename(p.Title)
+						fn := baseName + ".md"
+						target := filepath.Join(s.dir, fn)
+						count := 1
+						for {
+							if _, statErr := os.Stat(target); errors.Is(statErr, os.ErrNotExist) {
+								break
+							}
+							fn = fmt.Sprintf("%s (%d).md", baseName, count)
+							target = filepath.Join(s.dir, fn)
+							count++
+						}
+						_ = os.WriteFile(target, []byte(p.Prompt), 0o644)
+					}
+					_ = os.Rename(s.legacyPath, s.legacyPath+".migrated")
+				}
+			}
+		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if file.Prompts == nil {
-		s.prompts = make([]SystemPrompt, 0)
-	} else {
-		s.prompts = file.Prompts
-	}
+
 	return nil
 }
 
-func (s *systemPromptsStore) saveLocked() error {
-	if s.path == "" {
-		return nil
+func (s *systemPromptsStore) safePath(id string) (string, error) {
+	cleanID := filepath.Base(id)
+	if cleanID == "." || cleanID == ".." || cleanID == "/" || cleanID == "\\" || cleanID == "" {
+		return "", errors.New("invalid prompt id")
 	}
-	data, err := json.MarshalIndent(systemPromptsFile{Prompts: s.prompts}, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return filepath.Join(s.dir, cleanID), nil
 }
 
 func (s *systemPromptsStore) List() []SystemPrompt {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]SystemPrompt, len(s.prompts))
-	copy(out, s.prompts)
-	return out
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return []SystemPrompt{}
+	}
+
+	prompts := make([]SystemPrompt, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !isPromptFile(entry.Name()) {
+			continue
+		}
+		filePath := filepath.Join(s.dir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		info, err := entry.Info()
+		modTime := time.Now().Unix()
+		if err == nil {
+			modTime = info.ModTime().Unix()
+		}
+
+		title := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		prompts = append(prompts, SystemPrompt{
+			ID:        entry.Name(),
+			Title:     title,
+			Prompt:    string(data),
+			CreatedAt: modTime,
+			UpdatedAt: modTime,
+			Filename:  entry.Name(),
+		})
+	}
+
+	// Sort alphabetically by title
+	sort.Slice(prompts, func(i, j int) bool {
+		return strings.ToLower(prompts[i].Title) < strings.ToLower(prompts[j].Title)
+	})
+
+	return prompts
 }
 
 func (s *systemPromptsStore) Get(id string) (SystemPrompt, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, p := range s.prompts {
-		if p.ID == id {
-			return p, true
-		}
-	}
-	return SystemPrompt{}, false
-}
 
-func generatePromptID() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return hex.EncodeToString([]byte(time.Now().String()))[:16]
+	targetPath, err := s.safePath(id)
+	if err != nil {
+		return SystemPrompt{}, false
 	}
-	return hex.EncodeToString(b)
+
+	data, err := os.ReadFile(targetPath)
+	if err != nil {
+		// Fallback: search by title / filename without extension
+		entries, readErr := os.ReadDir(s.dir)
+		if readErr == nil {
+			cleanID := strings.TrimSuffix(filepath.Base(id), filepath.Ext(id))
+			for _, entry := range entries {
+				if entry.IsDir() || !isPromptFile(entry.Name()) {
+					continue
+				}
+				entryTitle := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+				if strings.EqualFold(entryTitle, cleanID) || strings.EqualFold(entry.Name(), id) {
+					fallbackPath := filepath.Join(s.dir, entry.Name())
+					fbData, fbErr := os.ReadFile(fallbackPath)
+					if fbErr == nil {
+						info, _ := entry.Info()
+						modTime := time.Now().Unix()
+						if info != nil {
+							modTime = info.ModTime().Unix()
+						}
+						return SystemPrompt{
+							ID:        entry.Name(),
+							Title:     entryTitle,
+							Prompt:    string(fbData),
+							CreatedAt: modTime,
+							UpdatedAt: modTime,
+							Filename:  entry.Name(),
+						}, true
+					}
+				}
+			}
+		}
+		return SystemPrompt{}, false
+	}
+
+	info, _ := os.Stat(targetPath)
+	modTime := time.Now().Unix()
+	if info != nil {
+		modTime = info.ModTime().Unix()
+	}
+
+	filename := filepath.Base(targetPath)
+	title := strings.TrimSuffix(filename, filepath.Ext(filename))
+
+	return SystemPrompt{
+		ID:        filename,
+		Title:     title,
+		Prompt:    string(data),
+		CreatedAt: modTime,
+		UpdatedAt: modTime,
+		Filename:  filename,
+	}, true
 }
 
 func (s *systemPromptsStore) Create(title, prompt string) (SystemPrompt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().Unix()
-	item := SystemPrompt{
-		ID:        generatePromptID(),
-		Title:     strings.TrimSpace(title),
-		Prompt:    strings.TrimSpace(prompt),
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	s.prompts = append([]SystemPrompt{item}, s.prompts...)
-	if err := s.saveLocked(); err != nil {
+
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return SystemPrompt{}, err
 	}
-	return item, nil
+
+	baseName := sanitizePromptFilename(title)
+	filename := baseName + ".md"
+	target := filepath.Join(s.dir, filename)
+
+	count := 1
+	for {
+		if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		filename = fmt.Sprintf("%s (%d).md", baseName, count)
+		target = filepath.Join(s.dir, filename)
+		count++
+	}
+
+	if err := os.WriteFile(target, []byte(prompt), 0o644); err != nil {
+		return SystemPrompt{}, err
+	}
+
+	now := time.Now().Unix()
+	return SystemPrompt{
+		ID:        filename,
+		Title:     strings.TrimSuffix(filename, filepath.Ext(filename)),
+		Prompt:    prompt,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Filename:  filename,
+	}, nil
 }
 
 func (s *systemPromptsStore) Update(id, title, prompt string) (SystemPrompt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i, p := range s.prompts {
-		if p.ID == id {
-			p.Title = strings.TrimSpace(title)
-			p.Prompt = strings.TrimSpace(prompt)
-			p.UpdatedAt = time.Now().Unix()
-			s.prompts[i] = p
-			if err := s.saveLocked(); err != nil {
-				return SystemPrompt{}, err
-			}
-			return p, nil
-		}
+
+	oldPath, err := s.safePath(id)
+	if err != nil {
+		return SystemPrompt{}, err
 	}
-	return SystemPrompt{}, errors.New("prompt not found")
+
+	if _, err := os.Stat(oldPath); errors.Is(err, os.ErrNotExist) {
+		return SystemPrompt{}, errors.New("prompt not found")
+	}
+
+	oldExt := filepath.Ext(oldPath)
+	if oldExt == "" {
+		oldExt = ".md"
+	}
+
+	newBase := sanitizePromptFilename(title)
+	newFilename := newBase + oldExt
+	newPath := filepath.Join(s.dir, newFilename)
+
+	if !strings.EqualFold(filepath.Base(oldPath), newFilename) {
+		count := 1
+		for {
+			if _, statErr := os.Stat(newPath); errors.Is(statErr, os.ErrNotExist) {
+				break
+			}
+			newFilename = fmt.Sprintf("%s (%d)%s", newBase, count, oldExt)
+			newPath = filepath.Join(s.dir, newFilename)
+			count++
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			return SystemPrompt{}, err
+		}
+	} else {
+		newPath = oldPath
+		newFilename = filepath.Base(oldPath)
+	}
+
+	if err := os.WriteFile(newPath, []byte(prompt), 0o644); err != nil {
+		return SystemPrompt{}, err
+	}
+
+	now := time.Now().Unix()
+	return SystemPrompt{
+		ID:        newFilename,
+		Title:     strings.TrimSuffix(newFilename, filepath.Ext(newFilename)),
+		Prompt:    prompt,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Filename:  newFilename,
+	}, nil
 }
 
 func (s *systemPromptsStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i, p := range s.prompts {
-		if p.ID == id {
-			s.prompts = append(s.prompts[:i], s.prompts[i+1:]...)
-			return s.saveLocked()
-		}
+
+	targetPath, err := s.safePath(id)
+	if err != nil {
+		return err
 	}
-	return errors.New("prompt not found")
+
+	if err := os.Remove(targetPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("prompt not found")
+		}
+		return err
+	}
+	return nil
 }
 
 // HTTP Handlers

@@ -10,7 +10,9 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,10 +138,11 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		log.Printf("external-models: could not load %s: %v", extPath, err)
 	}
 
-	promptsPath := filepath.Join(filepath.Dir(cfg.Path()), "system_prompts.json")
-	promptsStore := newSystemPromptsStore(promptsPath)
+	promptsDir := getPromptsDir(cfg.Path())
+	promptsLegacyPath := filepath.Join(filepath.Dir(cfg.Path()), "system_prompts.json")
+	promptsStore := newSystemPromptsStore(promptsDir, promptsLegacyPath)
 	if err := promptsStore.Load(); err != nil {
-		log.Printf("system-prompts: could not load %s: %v", promptsPath, err)
+		log.Printf("system-prompts: could not initialize %s: %v", promptsDir, err)
 	}
 
 	return &Server{
@@ -311,4 +314,15 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 		}
 		next(w, r)
 	})
+}
+
+func getPromptsDir(cfgPath string) string {
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		lower := strings.ToLower(exeDir)
+		if !strings.Contains(lower, "go-build") && !strings.Contains(lower, "temp") && !strings.Contains(lower, "tmp") {
+			return filepath.Join(exeDir, "prompts")
+		}
+	}
+	return filepath.Join(filepath.Dir(cfgPath), "prompts")
 }

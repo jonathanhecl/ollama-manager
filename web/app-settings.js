@@ -857,7 +857,7 @@ async function openSystemPromptsPickerModal(targetTextarea = null, onSelect = nu
   const searchInput = $("prompts-modal-search-input");
   if (searchInput) searchInput.value = "";
   modal.hidden = false;
-  await loadAndRenderPromptsModal();
+  await loadAndRenderPromptsModal("", true);
   if (searchInput) searchInput.focus();
 }
 window.openSystemPromptsPickerModal = openSystemPromptsPickerModal;
@@ -870,12 +870,12 @@ function closeSystemPromptsPickerModal() {
 }
 window.closeSystemPromptsPickerModal = closeSystemPromptsPickerModal;
 
-async function loadAndRenderPromptsModal(filterQuery = "") {
+async function loadAndRenderPromptsModal(filterQuery = "", forceFetch = false) {
   const listEl = $("prompts-modal-list");
   if (!listEl) return;
   const targetLang = currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
   
-  if (!systemPromptsList || systemPromptsList.length === 0) {
+  if (forceFetch || !systemPromptsList || systemPromptsList.length === 0) {
     try {
       const data = await api("/api/system-prompts");
       systemPromptsList = data.prompts || [];

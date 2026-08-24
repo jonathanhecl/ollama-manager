@@ -40,7 +40,6 @@ function renderOpenCodeView() {
   const st = openCodeState;
   if (!st) return;
   const badge = $("opencode-badge");
-  const navBadge = $("opencode-nav-badge");
   const status = $("opencode-status");
   const noProvider = $("opencode-noprovider");
   const createBtn = $("opencode-create-btn");
@@ -50,19 +49,11 @@ function renderOpenCodeView() {
       badge.textContent = t("settings.opencode_configured");
       badge.className = "badge badge-good";
     }
-    if (navBadge) {
-      navBadge.textContent = "OK";
-      navBadge.className = "badge badge-good";
-    }
     if (status) status.textContent = `${st.config_path} · ${st.provider.key} → ${st.provider.base_url}`;
   } else {
     if (badge) {
       badge.textContent = t("settings.opencode_not_configured");
       badge.className = "badge badge-warn";
-    }
-    if (navBadge) {
-      navBadge.textContent = "!";
-      navBadge.className = "badge badge-warn";
     }
     if (status) {
       status.textContent = st.exists

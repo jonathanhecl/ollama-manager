@@ -574,7 +574,6 @@ function bindSystemPromptsEvents() {
   const editorBox = $("prompt-editor-box");
   const cancelBtn = $("prompt-cancel-btn");
   const saveBtn = $("prompt-save-btn");
-  const searchInput = $("prompt-search-input");
   const fileBtn = $("prompt-edit-file-btn");
   const fileInput = $("prompt-edit-file-input");
   const dropZone = $("prompt-edit-dropzone");
@@ -1113,7 +1112,6 @@ async function loadAndRenderPromptsModal(filterQuery = "", forceFetch = false) {
 function bindSystemPromptsModalEvents() {
   const closeBtn = $("prompts-modal-close");
   const modal = $("prompts-modal");
-  const searchInput = $("prompts-modal-search-input");
   
   if (closeBtn && !closeBtn._bound) {
     closeBtn._bound = true;

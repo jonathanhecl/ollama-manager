@@ -8053,8 +8053,30 @@ button.chat-send:disabled:hover {
 
 .prompt-search-box .prompt-search-input {
   width: 100%;
-  padding-left: 32px;
-  padding-right: 28px;
+  height: 34px;
+  padding: 0 28px 0 32px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.prompt-search-box .prompt-search-input::-webkit-search-cancel-button,
+.prompt-search-box .prompt-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.prompt-search-box .prompt-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  background: var(--panel-2);
+}
+.prompt-search-box .prompt-search-input::placeholder {
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
 .prompt-search-box .models-search-icon {

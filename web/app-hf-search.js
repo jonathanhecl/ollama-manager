@@ -382,15 +382,16 @@ function renderHFQuantsTable(m) {
   tbody.innerHTML = sortedFiles.map((f) => {
     const fit = computeMemoryFit(f.size_bytes, visionSize);
     const isRec = recommendedFile && recommendedFile.filename === f.filename;
+    const pullName = f.pull_name || f.pullName || (m.id ? `hf.co/${m.id}:${f.quant}` : "");
     
-    const quantStatus = getHFQuantInstallStatus(f.pullName);
+    const quantStatus = getHFQuantInstallStatus(pullName);
     const isInstalled = quantStatus.isInstalled;
     const wasInstalled = quantStatus.wasInstalled;
     
     let isQueued = false;
     let isDownloading = false;
     for (const j of jobs.values()) {
-      if (j.name === f.pullName) {
+      if (j.name === pullName) {
         if (j.status === "running") isDownloading = true;
         else if (j.status === "queued") isQueued = true;
       }
@@ -405,13 +406,13 @@ function renderHFQuantsTable(m) {
       statusBtn = `<span class="badge badge-subtle">${escapeHtml(t("hf.queued_badge"))}</span>`;
     } else if (wasInstalled) {
       statusBtn = `
-        <button type="button" class="secondary btn-sm hf-install-btn" data-pull-name="${escapeHtml(f.pullName)}" title="ollama pull ${escapeHtml(f.pullName)}">
+        <button type="button" class="secondary btn-sm hf-install-btn" data-pull-name="${escapeHtml(pullName)}" title="ollama pull ${escapeHtml(pullName)}">
           🔄 ${escapeHtml(t("hf.reinstall_btn"))}
         </button>
       `;
     } else {
       statusBtn = `
-        <button type="button" class="primary btn-sm hf-install-btn" data-pull-name="${escapeHtml(f.pullName)}" title="ollama pull ${escapeHtml(f.pullName)}">
+        <button type="button" class="primary btn-sm hf-install-btn" data-pull-name="${escapeHtml(pullName)}" title="ollama pull ${escapeHtml(pullName)}">
           ${escapeHtml(t("hf.install_btn"))}
         </button>
       `;
@@ -875,6 +876,7 @@ function bindHFExplorerEvents() {
     if (!pullName) return;
 
     btn.disabled = true;
+    const origText = btn.innerHTML;
     btn.textContent = "…";
 
     try {
@@ -892,7 +894,7 @@ function bindHFExplorerEvents() {
       btn.className = "badge badge-subtle";
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = t("hf.install_btn");
+      btn.innerHTML = origText;
       toast(t("toast.error", { msg: err.message }), "error");
     }
   });

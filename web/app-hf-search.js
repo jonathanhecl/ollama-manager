@@ -9,6 +9,9 @@ let hfSearchDebounce = null;
 let hfCurrentFilter = "all"; // "all" | "ollama" | "vision"
 let hfCurrentSort = "downloads"; // "downloads" | "likes" | "recent" | "trending"
 let hfActiveTab = "quants"; // "quants" | "readme"
+let hfPage = 0;
+let hfHasMore = false;
+let hfLoadingMore = false;
 
 function showHFView() {
   if (typeof hideAllMainViews === "function") {
@@ -102,25 +105,41 @@ function computeMemoryFit(modelSizeBytes, visionSizeBytes = 0) {
   };
 }
 
-async function doHFSearch(query) {
+async function doHFSearch(query, append = false) {
   const listEl = $("hf-models-list");
   const loadingEl = $("hf-loading");
   const emptyEl = $("hf-empty");
   const errorEl = $("hf-error");
+  const loadMoreWrap = $("hf-load-more-wrap");
 
-  if (loadingEl) loadingEl.hidden = false;
-  if (emptyEl) emptyEl.hidden = true;
-  if (errorEl) errorEl.hidden = true;
-  if (listEl) listEl.innerHTML = "";
+  if (!append) {
+    hfPage = 0;
+    if (loadingEl) loadingEl.hidden = false;
+    if (emptyEl) emptyEl.hidden = true;
+    if (errorEl) errorEl.hidden = true;
+    if (loadMoreWrap) loadMoreWrap.hidden = true;
+    if (listEl) listEl.innerHTML = "";
+  }
 
   try {
     const params = new URLSearchParams();
     if (query && query.trim()) params.set("q", query.trim());
     params.set("sort", hfCurrentSort);
-    params.set("limit", "40");
+    params.set("limit", "30");
+    params.set("page", String(hfPage));
 
     const data = await api(`/api/hf/search?${params.toString()}`);
-    hfModels = Array.isArray(data?.models) ? data.models : [];
+    const incoming = Array.isArray(data?.models) ? data.models : [];
+    hfHasMore = incoming.length >= 30;
+
+    if (append) {
+      const existing = new Set(hfModels.map((m) => m.id));
+      const newItems = incoming.filter((m) => !existing.has(m.id));
+      hfModels.push(...newItems);
+    } else {
+      hfModels = incoming;
+    }
+
     if (loadingEl) loadingEl.hidden = true;
     renderHFModelsList();
   } catch (err) {
@@ -135,6 +154,7 @@ async function doHFSearch(query) {
 function renderHFModelsList() {
   const listEl = $("hf-models-list");
   const emptyEl = $("hf-empty");
+  const loadMoreWrap = $("hf-load-more-wrap");
   if (!listEl) return;
 
   const filtered = hfModels.filter((m) => {
@@ -146,11 +166,15 @@ function renderHFModelsList() {
   if (filtered.length === 0) {
     listEl.innerHTML = "";
     if (emptyEl) emptyEl.hidden = false;
+    if (loadMoreWrap) loadMoreWrap.hidden = true;
     return;
   }
   if (emptyEl) emptyEl.hidden = true;
 
   listEl.innerHTML = filtered.map((m) => hfModelCardHTML(m)).join("");
+  if (loadMoreWrap) {
+    loadMoreWrap.hidden = !hfHasMore;
+  }
 }
 
 function hfModelCardHTML(m) {
@@ -702,6 +726,25 @@ function bindHFExplorerEvents() {
       hfCurrentFilter = chip.dataset.filter || "all";
       renderHFModelsList();
     });
+  });
+
+  // Load more button
+  $("hf-load-more-btn")?.addEventListener("click", async () => {
+    if (hfLoadingMore) return;
+    hfLoadingMore = true;
+    const btn = $("hf-load-more-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = t("hf.loading_more");
+    }
+    hfPage++;
+    const query = $("hf-search-input")?.value || "";
+    await doHFSearch(query, true);
+    hfLoadingMore = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = t("hf.load_more");
+    }
   });
 
   // Card click -> open detail modal

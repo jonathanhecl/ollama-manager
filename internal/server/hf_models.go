@@ -127,6 +127,15 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
+	pageParam := strings.TrimSpace(r.URL.Query().Get("page"))
+	if pageParam == "" {
+		pageParam = strings.TrimSpace(r.URL.Query().Get("p"))
+	}
+	page := 0
+	if n, err := strconv.Atoi(pageParam); err == nil && n >= 0 {
+		page = n
+	}
+
 	// Construct HuggingFace API search URL
 	// https://huggingface.co/api/models?search=...&filter=gguf&sort=downloads&direction=-1&limit=30
 	hfURL, err := url.Parse("https://huggingface.co/api/models")
@@ -142,6 +151,9 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	// By default, filter by gguf
 	q.Set("filter", "gguf")
 	q.Set("limit", strconv.Itoa(limit))
+	if page > 0 {
+		q.Set("p", strconv.Itoa(page))
+	}
 	q.Set("full", "false")
 	q.Set("config", "false")
 

@@ -8507,6 +8507,14 @@ button.chat-send:disabled:hover {
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 13px;
+  outline: none;
+}
+
+.hf-search-input::-webkit-search-cancel-button,
+.hf-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
 }
 
 .hf-search-input:focus {
@@ -8687,6 +8695,35 @@ button.chat-send:disabled:hover {
   color: #f87171;
   border: 1px solid rgba(239, 68, 68, 0.35);
   font-size: 11px;
+}
+
+.hf-load-more-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 24px 0 16px;
+}
+
+.hf-load-more-btn {
+  padding: 8px 24px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hf-load-more-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hf-load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* HuggingFace Detail Modal */

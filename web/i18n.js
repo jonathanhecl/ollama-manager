@@ -122,6 +122,8 @@ const I18N = {
     "hf.vision_projector_note": "This model includes a multimodal vision projector ({file}, {size}) for image processing.",
     "hf.sys_mem_info": "System: {vram} VRAM • {ram} RAM",
     "hf.back_to_downloads": "← Back to Downloads",
+    "hf.load_more": "Load more models",
+    "hf.loading_more": "Loading more models…",
 
     "action.refresh": "Refresh",
     "action.reload_models": "Reload models",
@@ -1040,6 +1042,8 @@ const I18N = {
     "hf.vision_projector_note": "Este modelo incluye un proyector multimodal de visión ({file}, {size}) para procesamiento de imágenes.",
     "hf.sys_mem_info": "Sistema: {vram} VRAM • {ram} RAM",
     "hf.back_to_downloads": "← Volver a Descargas",
+    "hf.load_more": "Cargar más modelos",
+    "hf.loading_more": "Cargando más modelos…",
 
     "action.refresh": "Refrescar",
     "action.reload_models": "Recargar modelos",

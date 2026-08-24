@@ -1315,6 +1315,79 @@ function bindChatEvents() {
   }
   $("chat-options-reset-btn")?.addEventListener("click", resetModelChatOptionsToDefaults);
 
+  function adjustChatSystemPromptHeight() {
+    const sys = $("chat-system");
+    const field = $("chat-system-field");
+    const side = document.querySelector(".chat-side");
+    const card = document.querySelector(".chat-side-card");
+    if (!sys || !field || !side || !card) return;
+    if (field.hidden || sys.offsetParent === null) return;
+
+    const minHeight = 60;
+
+    const cardStyle = window.getComputedStyle(card);
+    const paddingTop = parseFloat(cardStyle.paddingTop) || 0;
+    const paddingBottom = parseFloat(cardStyle.paddingBottom) || 0;
+    const cardGap = parseFloat(cardStyle.gap) || 8;
+
+    let otherHeight = 0;
+    let visibleCount = 0;
+    for (const child of card.children) {
+      if (child === field) continue;
+      if (!child.hidden && window.getComputedStyle(child).display !== "none") {
+        const cStyle = window.getComputedStyle(child);
+        const mTop = parseFloat(cStyle.marginTop) || 0;
+        const mBottom = parseFloat(cStyle.marginBottom) || 0;
+        otherHeight += child.offsetHeight + mTop + mBottom;
+        visibleCount++;
+      }
+    }
+
+    const fieldStyle = window.getComputedStyle(field);
+    const fieldMTop = parseFloat(fieldStyle.marginTop) || 0;
+    const fieldMBottom = parseFloat(fieldStyle.marginBottom) || 0;
+    const fieldGap = parseFloat(fieldStyle.gap) || 5;
+
+    const head = field.querySelector(".chat-system-head") || field.querySelector("label");
+    const headHeight = head ? head.offsetHeight : 20;
+
+    const totalGaps = visibleCount * cardGap;
+    const availableContainerHeight = side.clientHeight || (window.innerHeight - 120);
+
+    // Safety buffer (12px) ensures subpixel differences/borders never cause side scrollbar to appear
+    const safetyBuffer = 12;
+    const maxAllowedHeight = Math.max(
+      minHeight,
+      availableContainerHeight - paddingTop - paddingBottom - otherHeight - totalGaps - headHeight - fieldGap - fieldMTop - fieldMBottom - safetyBuffer
+    );
+
+    // Measure content scrollHeight accurately
+    sys.style.height = `${minHeight}px`;
+    const contentHeight = sys.scrollHeight;
+
+    const targetHeight = Math.max(minHeight, Math.min(contentHeight, maxAllowedHeight));
+
+    sys.style.maxHeight = `${Math.floor(maxAllowedHeight)}px`;
+    sys.style.height = `${Math.floor(targetHeight)}px`;
+  }
+  window.adjustChatSystemPromptHeight = adjustChatSystemPromptHeight;
+
+  $("chat-system")?.addEventListener("input", adjustChatSystemPromptHeight);
+
+  if (typeof ResizeObserver !== "undefined") {
+    const sideEl = document.querySelector(".chat-side");
+    if (sideEl) {
+      new ResizeObserver(() => {
+        adjustChatSystemPromptHeight();
+      }).observe(sideEl);
+    }
+  }
+  window.addEventListener("resize", () => {
+    if (typeof currentView !== "undefined" && currentView === "chat") {
+      adjustChatSystemPromptHeight();
+    }
+  });
+
   function loadFileIntoChatSystemPrompt(file) {
     if (!file) return;
     const reader = new FileReader();
@@ -1324,6 +1397,7 @@ function bindChatEvents() {
         const sys = $("chat-system");
         if (sys) {
           sys.value = content;
+          adjustChatSystemPromptHeight();
           sys.dispatchEvent(new Event("input", { bubbles: true }));
           sys.dispatchEvent(new Event("change", { bubbles: true }));
           if (typeof saveChatOptionsForCurrentModel === "function") {

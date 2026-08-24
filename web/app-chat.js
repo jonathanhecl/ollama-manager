@@ -176,6 +176,9 @@ function updateChatCapabilityUI() {
     }
   }
   updateChatModelLoadDot();
+  if (typeof adjustChatSystemPromptHeight === "function") {
+    adjustChatSystemPromptHeight();
+  }
 }
 
 function updateChatContextMeter() {

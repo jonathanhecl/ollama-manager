@@ -3535,6 +3535,11 @@ button.chat-send:disabled:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+.chat-side-card > *:not(#chat-system-field) {
+  flex-shrink: 0;
 }
 .chat-side-card .field {
   display: flex;
@@ -3690,7 +3695,6 @@ button.chat-send:disabled:hover {
 #chat-system {
   width: 100%;
   min-height: 60px;
-  max-height: none;
   box-sizing: border-box;
   resize: vertical;
   font-size: 12px;
@@ -3700,6 +3704,7 @@ button.chat-send:disabled:hover {
   color: var(--text);
   border-radius: 6px;
   padding: 6px 8px;
+  overflow-y: auto;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 #chat-system-field.drag-over #chat-system,

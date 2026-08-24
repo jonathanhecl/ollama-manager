@@ -3331,6 +3331,9 @@ function setChatOptionsValues(opts) {
   if (opts.image_seed !== undefined && $("chat-image-seed")) {
     $("chat-image-seed").value = opts.image_seed;
   }
+  if (typeof adjustChatSystemPromptHeight === "function") {
+    adjustChatSystemPromptHeight();
+  }
 }
 
 async function applyChatDefaultsForModel(name, force = false) {

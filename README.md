@@ -262,16 +262,6 @@ To enable microphone access over HTTP on your local network without setting up S
 
 ---
 
-### 📸 Why does artifact visual inspection / screenshot fail in Brave Browser ("Tainted canvases may not be exported")?
-
-Brave includes built-in **Fingerprinting Protection (Canvas Farbling)** via Brave Shields, which by default prevents reading raw canvas pixel data (`toDataURL`) rendered from sandboxed preview DOMs.
-
-To resolve this for your local `ollama-manager` instance:
-- Click the **Brave Shields (Lion icon)** next to the address bar on your `ollama-manager` tab.
-- Toggle **Shields to OFF** for this site, or open **Advanced Controls** and change **Block fingerprinting** to **Allow fingerprinting** (disabled).
-
----
-
 ## License
 
 [MIT](LICENSE)

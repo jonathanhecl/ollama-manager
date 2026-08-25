@@ -3561,36 +3561,40 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .chat-actions-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 6px;
+  gap: 8px;
   align-items: stretch;
   min-width: 0;
   width: 100%;
 }
 .chat-upload-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-self: stretch;
-  min-width: 38px;
+  display: grid;
+  grid-template-columns: repeat(2, 34px);
+  gap: 5px;
+  align-content: start;
+  align-self: start;
   flex-shrink: 0;
+}
+.chat-upload-actions:has(> .chat-media-btn:not([hidden]):only-of-type) {
+  grid-template-columns: 34px;
 }
 .chat-media-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 1 1 0;
-  min-height: 0;
-  width: 100%;
-  max-width: 44px;
+  width: 34px;
+  height: 33px;
+  min-width: 34px;
+  min-height: 33px;
   padding: 0;
   margin: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--border-strong);
   background: linear-gradient(165deg, #1c1e28 0%, #12141c 100%);
   color: var(--text-dim);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  box-sizing: border-box;
 }
 .chat-media-btn:hover {
   color: var(--text);
@@ -3661,14 +3665,18 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   box-shadow: inset 0 1px 0 rgba(216, 180, 254, 0.1);
   position: relative;
 }
+.chat-upload-actions:has(> .chat-media-btn:not([hidden]):nth-child(5)) > #chat-artifact-btn {
+  grid-column: span 2;
+  width: 100%;
+}
 .chat-media-btn--artifact:hover {
   border-color: #c084fc;
   color: #f5f3ff;
   box-shadow: inset 0 1px 0 rgba(216, 180, 254, 0.18), 0 0 0 1px color-mix(in srgb, #c084fc 35%, transparent), 0 8px 20px rgba(70, 20, 100, 0.35);
 }
 .chat-media-btn--artifact .chat-media-icon {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
 }
 @keyframes chat-rec-pulse {
   0% {
@@ -3692,8 +3700,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   color: #ffb0b0 !important;
 }
 .chat-media-icon {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   pointer-events: none;
 }

@@ -1,16 +1,24 @@
 # ollama-manager
 
-Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact with [Ollama](https://ollama.com) models and external LLMs on your local machine or LAN.
+Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact with [Ollama](https://ollama.com) models and external LLMs. **Features an advanced background download queue manager** to queue, pause, resume, and prioritize multiple model downloads sequentially without saturating your bandwidth — solving one of Ollama's biggest limitations.
 
 ![ollama-manager Showcase](image.png)
 
 ## Key Features
 
+- **🚀 Persistent Background Download Queue & Manager**:
+  - **Sequential FIFO Queueing**: solves Ollama's limitation of launching concurrent downloads that saturate network bandwidth and disk I/O. Queue as many massive models and Hugging Face GGUFs as you want; they download reliably one by one.
+  - **Granular Pause & Resume**: pause and resume individual downloads or freeze the entire queue on demand without losing progress.
+  - **Live Speed & ETA Telemetry**: Server-Sent Events (SSE) streaming real-time download speed (MB/s), bytes transferred, percentage, and dynamic estimated time remaining (ETA).
+  - **Fault-Tolerant Persistence (`jobs.json`)**: queued, active, and completed jobs survive server or computer restarts automatically.
+  - **Full Download Lifecycle Controls**: cancel in-flight jobs, retry failed downloads with one click, view comprehensive download history (durations, timestamps, sizes), and clear completed items.
+  - **Single-Click Queueing**: enqueue any model or specific quantization directly from the Hugging Face Explorer, Ollama library, or Model Repair wizard.
+
 - **Hugging Face Model Explorer & Downloader**:
   - **Live GGUF Search**: search and explore models on Hugging Face directly within the app, filtering by name, architecture, quantization, and parameter size.
   - **Hardware Fit Estimator**: calculates required VRAM and system RAM for every quantization variant based on your machine's hardware, with clear fit indicators before downloading.
   - **Vision Projector (`mmproj`) Detection**: automatically discovers compatible multimodal vision projector files for vision-enabled architectures.
-  - **Single-Click Queueing**: download models and projectors directly into the background FIFO download manager.
+  - **Direct Queue Integration**: send models and projectors straight to the download queue manager with one click.
 
 - **Model Management & Repair**:
   - **Comprehensive Catalog**: real-time list of installed models with family, parameter count, quantization, model size, context length, last used timestamp, record tok/s, and loaded status (VRAM/RAM).
@@ -29,9 +37,9 @@ Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact 
   - **Historical Usage & Token Counting**: monitor prompt tokens, completion tokens, execution times, and session counts.
   - **Interactive Performance Charts**: visualize model speed comparisons, memory footprints, and efficiency metrics.
 
-- **System Prompts Library**:
-  - Built-in and user-managed prompt library to store, edit, categorize, and search curated system prompts.
-  - Instant one-click application to any model or chat session.
+- **System Prompts Library & Modelfile Studio**:
+  - **Curated Prompt Library**: built-in and user-managed prompt library to store, edit, categorize, and search system personas with instant one-click application to any model or chat.
+  - **Visual Modelfile Studio**: interactive 3-step builder to craft custom Ollama models (`FROM`), inject documentation files, estimate token budgets against context limits, and tune advanced parameters (stop tokens, templates, sampling) or edit raw Modelfiles with live syntax highlighting.
 
 - **Rich Web Chat Interface**:
   - **Real-Time Streaming & Telemetry**: Server-Sent Events (SSE) streaming with live tokens/second (tok/s), cold load time, and response generation metrics.
@@ -51,9 +59,6 @@ Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact 
 - **OpenCode Integration** (⚙ Settings → OpenCode):
   - Manage which installed models appear in your local [OpenCode](https://opencode.ai) configuration (`~/.config/opencode/opencode.json`).
   - Detect or create local Ollama providers, toggle models with custom display names, and export provider blocks for remote machines.
-
-- **Persistent Download Queue**:
-  - FIFO download queue with real-time progress streams, pause/resume queue, pause/resume individual jobs, cancel/retry controls, speed telemetry, and persistence across server restarts via `jobs.json`.
 
 - **Tests & Benchmark Suite**:
   - Built-in benchmark suite to evaluate and compare models against standardized prompts for speed, context processing, and accuracy.

@@ -243,6 +243,35 @@ On first launch, `config.json` is generated automatically:
 
 ---
 
+## Frequently Asked Questions (FAQ)
+
+### 🎙️ Why is the microphone / voice recording not working over my local network (LAN)?
+
+Modern web browsers restrict media recording APIs (`navigator.mediaDevices.getUserMedia` and Web Speech) to **Secure Contexts** (`https://` or `localhost` / `127.0.0.1`). When accessing `ollama-manager` over an unencrypted local IP address (such as `http://192.168.1.50:7860`), Chromium-based browsers block microphone access by default.
+
+To enable microphone access over HTTP on your local network without setting up SSL certificates:
+
+1. Navigate to the insecure origin flag in your Chromium-based browser:
+   - **Google Chrome**: `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
+   - **Brave**: `brave://flags/#unsafely-treat-insecure-origin-as-secure`
+   - **Microsoft Edge**: `edge://flags/#unsafely-treat-insecure-origin-as-secure`
+   - **Opera**: `opera://flags/#unsafely-treat-insecure-origin-as-secure`
+2. Set the dropdown to **Enabled**.
+3. In the text area below the flag, enter your server's origin and port (e.g. `http://192.168.1.50:7860`). If using multiple endpoints, separate them with commas.
+4. Click **Relaunch** at the bottom of the browser window.
+
+---
+
+### 📸 Why does artifact visual inspection / screenshot fail in Brave Browser ("Tainted canvases may not be exported")?
+
+Brave includes built-in **Fingerprinting Protection (Canvas Farbling)** via Brave Shields, which by default prevents reading raw canvas pixel data (`toDataURL`) rendered from sandboxed preview DOMs.
+
+To resolve this for your local `ollama-manager` instance:
+- Click the **Brave Shields (Lion icon)** next to the address bar on your `ollama-manager` tab.
+- Toggle **Shields to OFF** for this site, or open **Advanced Controls** and change **Block fingerprinting** to **Allow fingerprinting** (disabled).
+
+---
+
 ## License
 
 [MIT](LICENSE)

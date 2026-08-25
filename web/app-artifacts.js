@@ -677,7 +677,7 @@ async function captureIframeContent(frame) {
 
   const clone = doc.documentElement.cloneNode(true);
 
-  // Canvas elements in cloneNode don't retain pixel data; convert them to <img> in the clone
+  // 1. Canvas elements in cloneNode don't retain pixel data; convert them to <img> with data URLs
   const cloneCanvases = clone.querySelectorAll("canvas");
   for (let i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
     try {
@@ -694,17 +694,63 @@ async function captureIframeContent(frame) {
     } catch {}
   }
 
-  // Remove script tags from cloned DOM to prevent XMLSerializer or foreignObject issues
-  clone.querySelectorAll("script").forEach((s) => s.remove());
-
-  const baseHref = frame.src || window.location.href;
-  const base = doc.createElement("base");
-  base.href = baseHref;
-  const head = clone.querySelector("head");
-  if (head) {
-    head.insertBefore(base, head.firstChild);
+  // 2. Convert <img> elements to base64 data URLs to prevent cross-origin canvas tainting
+  const origImgs = doc.querySelectorAll("img");
+  const cloneImgs = clone.querySelectorAll("img");
+  for (let i = 0; i < origImgs.length && i < cloneImgs.length; i++) {
+    try {
+      const orig = origImgs[i];
+      const cl = cloneImgs[i];
+      if (orig.src && !orig.src.startsWith("data:")) {
+        if (orig.naturalWidth > 0 && orig.naturalHeight > 0) {
+          const offCanvas = document.createElement("canvas");
+          offCanvas.width = orig.naturalWidth;
+          offCanvas.height = orig.naturalHeight;
+          const offCtx = offCanvas.getContext("2d");
+          offCtx.drawImage(orig, 0, 0);
+          cl.src = offCanvas.toDataURL("image/png");
+        } else {
+          cl.src = "";
+        }
+      }
+    } catch {
+      try { cloneImgs[i].src = ""; } catch {}
+    }
   }
 
+  // 3. Remove script, link, iframe, video, audio tags from cloned DOM to prevent XMLSerializer or foreignObject issues
+  clone.querySelectorAll("script, link, iframe, object, embed, video, audio").forEach((s) => s.remove());
+
+  // 4. Inline all stylesheets directly into <style> tags in <head>
+  let inlinedStyles = "";
+  try {
+    const sheets = Array.from(doc.styleSheets || []);
+    for (const sheet of sheets) {
+      try {
+        const rules = Array.from(sheet.cssRules || sheet.rules || []);
+        for (const rule of rules) {
+          inlinedStyles += rule.cssText + "\n";
+        }
+      } catch {
+        if (sheet.ownerNode && sheet.ownerNode.textContent) {
+          inlinedStyles += sheet.ownerNode.textContent + "\n";
+        }
+      }
+    }
+  } catch {}
+
+  let head = clone.querySelector("head");
+  if (!head) {
+    head = doc.createElement("head");
+    clone.insertBefore(head, clone.firstChild);
+  }
+  if (inlinedStyles) {
+    const styleEl = doc.createElement("style");
+    styleEl.textContent = inlinedStyles;
+    head.appendChild(styleEl);
+  }
+
+  // 5. Serialize clean self-contained HTML
   const docHtml = new XMLSerializer().serializeToString(clone);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`
     + `<foreignObject width="100%" height="100%">`
@@ -712,13 +758,11 @@ async function captureIframeContent(frame) {
     + docHtml
     + `</div></foreignObject></svg>`;
 
-  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+  const svgDataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 
   return new Promise((resolve, reject) => {
     const img = new Image();
     const timer = setTimeout(() => {
-      URL.revokeObjectURL(url);
       if (origCanvases.length > 0) {
         try {
           const d = origCanvases[0].toDataURL("image/jpeg", 0.85);
@@ -739,11 +783,9 @@ async function captureIframeContent(frame) {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(url);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
         resolve(dataUrl.replace(/^data:image\/[a-z]+;base64,/, ""));
       } catch (e) {
-        URL.revokeObjectURL(url);
         if (origCanvases.length > 0) {
           try {
             const d = origCanvases[0].toDataURL("image/jpeg", 0.85);
@@ -757,7 +799,6 @@ async function captureIframeContent(frame) {
 
     img.onerror = () => {
       clearTimeout(timer);
-      URL.revokeObjectURL(url);
       if (origCanvases.length > 0) {
         try {
           const d = origCanvases[0].toDataURL("image/jpeg", 0.85);
@@ -768,7 +809,7 @@ async function captureIframeContent(frame) {
       reject(new Error("Failed to rasterize preview DOM to image"));
     };
 
-    img.src = url;
+    img.src = svgDataUrl;
   });
 }
 

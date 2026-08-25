@@ -8091,12 +8091,25 @@ button.chat-send:disabled:hover {
   border: 1px solid var(--border);
   border-radius: 6px;
   gap: 10px;
+  transition: all 0.15s ease;
+}
+.ext-model-card.is-paused {
+  opacity: 0.75;
+  border-style: dashed;
+  border-color: rgba(234, 179, 8, 0.4);
 }
 .ext-model-card-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
+}
+.ext-model-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .ext-model-card-name {
   font-weight: 600;
@@ -8105,6 +8118,7 @@ button.chat-send:disabled:hover {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 .ext-model-card-url {
   font-size: 11.5px;

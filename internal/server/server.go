@@ -216,7 +216,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/external-models", s.requireAuth(s.handleListExternalModels))
 	mux.Handle("POST /api/external-models", s.requireAuth(s.handleCreateExternalModel))
 	mux.Handle("POST /api/external-models/test", s.requireAuth(s.handleTestExternalModel))
-	mux.Handle("POST /api/external-models/{name...}/toggle", s.requireAuth(s.handleToggleExternalModel))
+	mux.Handle("POST /api/external-models/toggle", s.requireAuth(s.handleToggleExternalModel))
 	mux.Handle("DELETE /api/external-models/{name...}", s.requireAuth(s.handleDeleteExternalModel))
 	mux.Handle("GET /api/hf/search", s.requireAuth(s.handleHFSearch))
 	mux.Handle("GET /api/hf/model", s.requireAuth(s.handleHFModelDetails))

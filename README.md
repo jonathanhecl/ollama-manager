@@ -155,6 +155,17 @@ On first launch, `config.json` is generated automatically:
 - `language`: UI language (`en` or `es`).
 - `chat_defaults`: global fallback chat parameters. `think_level` accepts `auto`, `off`, `low`, `medium`, `high`, or `max`.
 
+### 💡 Recommended Workflow: Always-On Background Daemon
+
+> [!TIP]
+> **Run alongside Ollama at system startup**  
+> `ollama-manager` is designed to run continuously as a lightweight background daemon (just like Ollama itself). Keeping it running persistently ensures your web interface, background download queue, performance analytics, and OpenCode sync are always instantly available from any browser on your machine or LAN (`http://localhost:7860`).
+>
+> **Quick autostart setup:**
+> - **Windows**: Press `Win + R`, type `shell:startup`, and place a shortcut to `ollama-manager.exe` inside (or configure a task in Windows Task Scheduler).
+> - **macOS**: Go to **System Settings → General → Login Items** and add `ollama-manager`, or create a `launchd` service in `~/Library/LaunchAgents/`.
+> - **Linux**: Set up a `systemd` user service (`~/.config/systemd/user/ollama-manager.service`) and run `systemctl --user enable --now ollama-manager`.
+
 ---
 
 ## HTTP API Reference

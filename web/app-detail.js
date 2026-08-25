@@ -539,12 +539,14 @@ function bindRepairControls(d) {
   if (!previewBtn || !applyBtn || !confirm) return;
 
   let hasPreview = false;
+  let lastRepairPreview = null;
   const updateApply = () => {
     const modelfile = $("repair-preview")?.value?.trim() || "";
     applyBtn.disabled = !(hasPreview && confirm.checked && modelfile);
   };
   const resetPreview = () => {
     hasPreview = false;
+    lastRepairPreview = null;
     const pre = $("repair-preview");
     if (pre) {
       pre.hidden = true;
@@ -602,9 +604,11 @@ function bindRepairControls(d) {
       });
       renderRepairPreview(out);
       hasPreview = true;
+      lastRepairPreview = out;
       $("repair-status").textContent = t("repair.preview_ready");
     } catch (e) {
       hasPreview = false;
+      lastRepairPreview = null;
       $("repair-status").textContent = t("state.error_prefix") + e.message;
     } finally {
       previewBtn.disabled = false;
@@ -614,6 +618,61 @@ function bindRepairControls(d) {
 
   applyBtn.addEventListener("click", async () => {
     if (!confirm.checked) return;
+
+    const projVal = projInput?.value?.trim() || "";
+    let ignoreDiskSpace = false;
+
+    if (projVal) {
+      let previewData = lastRepairPreview;
+      if (!previewData || previewData.projector !== projVal) {
+        try {
+          previewData = await api("/api/model-repair/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(collectRepairRequest(d, false)),
+          });
+          lastRepairPreview = previewData;
+        } catch (_) {}
+      }
+
+      let hasDiskWarning = previewData?.disk_space_warning;
+      let reqBytes = previewData?.required_disk_bytes;
+      let projBytes = previewData?.projector_bytes;
+      let freeBytes = previewData?.free_disk_bytes;
+
+      if (!hasDiskWarning && typeof status !== "undefined" && status?.disk_free_bytes) {
+        const free = Number(status.disk_free_bytes) || 0;
+        const estProj = projBytes || 850 * 1024 * 1024;
+        const req = estProj * 2 + 512 * 1024 * 1024;
+        if (free > 0 && free < req) {
+          hasDiskWarning = true;
+          reqBytes = req;
+          projBytes = estProj;
+          freeBytes = free;
+        }
+      }
+
+      if (hasDiskWarning) {
+        const reqStr = fmtBytes(reqBytes || 2 * 1024 * 1024 * 1024);
+        const freeStr = fmtBytes(freeBytes || 0);
+        const projStr = fmtBytes(projBytes || 850 * 1024 * 1024);
+        const warnMsg = t("repair.disk_warning_text", {
+          req: reqStr,
+          free: freeStr,
+          proj: projStr,
+        }) || `Low disk space warning: Installing this vision projector (${projStr}) requires ~${reqStr} free on disk, but only ${freeStr} is available. Installation might fail due to lack of space. Do you want to continue anyway?`;
+
+        const { ok: proceedWithLowDisk } = await askConfirm({
+          title: t("repair.disk_warning_title") || "⚠️ Low Disk Space Warning",
+          text: warnMsg,
+          okText: t("repair.continue_anyway") || "Continue anyway",
+          okClass: "primary",
+        });
+        if (!proceedWithLowDisk) return;
+        ignoreDiskSpace = true;
+      }
+    }
+
     const target = fixedModelName(d.name);
     const exists = models.some((m) => m.name === target || m.model === target);
     const msg = exists ? t("repair.replace_confirm", { name: target }) : t("repair.apply_confirm", { name: target });
@@ -645,7 +704,7 @@ function bindRepairControls(d) {
           "Content-Type": "application/json",
           "Accept": "text/event-stream",
         },
-        body: JSON.stringify(collectRepairRequest(d, true)),
+        body: JSON.stringify(collectRepairRequest(d, true, ignoreDiskSpace)),
       });
 
       if (!res.ok) {
@@ -732,7 +791,7 @@ function bindRepairControls(d) {
   });
 }
 
-function collectRepairRequest(d, confirmed) {
+function collectRepairRequest(d, confirmed, ignoreDiskSpace = false) {
   const capabilities = Array.from(document.querySelectorAll("input[name='repair-cap']"))
     .filter((el) => el.checked)
     .map((el) => el.value);
@@ -752,6 +811,7 @@ function collectRepairRequest(d, confirmed) {
     fix_load: $("repair-fix-load")?.checked || false,
     modelfile: confirmed ? modelfile : "",
     confirm: !!confirmed,
+    ignore_disk_space: !!ignoreDiskSpace,
   };
 }
 

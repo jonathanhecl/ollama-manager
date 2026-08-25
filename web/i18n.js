@@ -260,6 +260,9 @@ const I18N = {
     "repair.projector_placeholder": "HuggingFace URL or user/repo/file of the mmproj GGUF",
     "repair.downloading_projector": "Downloading vision projector (mmproj)…",
     "repair.creating_model": "Creating fixed model in Ollama…",
+    "repair.disk_warning_title": "Low Disk Space Warning",
+    "repair.disk_warning_text": "Installing this vision projector ({proj}) requires approximately {req} of free disk space (download + temporary storage + Ollama blob), but only {free} is currently available. The installation might fail due to lack of space. Do you want to continue anyway?",
+    "repair.continue_anyway": "Continue anyway",
 
     "confirm.title": "Confirm",
     "confirm.delete_text": "{name} will be uninstalled from the system. This action cannot be undone.",
@@ -1199,6 +1202,9 @@ const I18N = {
     "repair.projector_placeholder": "URL de HuggingFace o usuario/repo/archivo del mmproj GGUF",
     "repair.downloading_projector": "Descargando proyector de visión (mmproj)…",
     "repair.creating_model": "Creando modelo corregido en Ollama…",
+    "repair.disk_warning_title": "Advertencia de espacio en disco",
+    "repair.disk_warning_text": "Instalar este proyector de visión ({proj}) requiere aproximadamente {req} libres en disco (descarga + almacenamiento temporal + blob de Ollama), pero solo dispones de {free}. Es probable que la instalación falle por falta de espacio. ¿Deseas continuar de todos modos?",
+    "repair.continue_anyway": "Continuar de todos modos",
 
     "confirm.title": "Confirmar",
     "confirm.delete_text": "Se desinstalará {name} del sistema. Esta acción no se puede deshacer.",

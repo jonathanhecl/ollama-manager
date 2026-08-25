@@ -1316,6 +1316,9 @@ func (s *Server) handleRepairPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if preview.Projector != "" {
+		s.checkRepairProjectorDisk(r.Context(), preview)
+	}
 	writeJSON(w, http.StatusOK, preview)
 }
 
@@ -1480,6 +1483,88 @@ const maxProjectorBytes = 8 << 30
 // projectorHTTPClient is the HTTP client used to download mmproj files. It is a
 // package variable so tests can replace it with a stub transport.
 var projectorHTTPClient = http.DefaultClient
+
+func formatBytesInt64(b int64) string {
+	if b <= 0 {
+		return "0 B"
+	}
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func (s *Server) fetchProjectorSize(ctx context.Context, ref string) (int64, error) {
+	u, err := resolveProjectorURL(ref)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "ollama-manager")
+	resp, err := projectorHTTPClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return resp.ContentLength, nil
+}
+
+func (s *Server) checkRepairProjectorDisk(ctx context.Context, preview *modelRepairPreview) {
+	if preview == nil || preview.Projector == "" {
+		return
+	}
+	headCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	projBytes, err := s.fetchProjectorSize(headCtx, preview.Projector)
+	if err != nil || projBytes <= 0 {
+		projBytes = 850 * 1024 * 1024 // fallback estimate ~850MB
+	}
+	preview.ProjectorBytes = projBytes
+
+	s.cfgMu.RLock()
+	cfgPath := s.cfg.Path()
+	lang := s.cfg.Language
+	s.cfgMu.RUnlock()
+
+	diskPath := resolveDiskProbePath(cfgPath)
+	sys := sysmetrics.Collect(ctx, diskPath)
+	if sys.DiskFree > 0 {
+		preview.FreeDiskBytes = sys.DiskFree
+		// Required space: projector download in temp (%TEMP%) + blob in Ollama (~/.ollama/models/blobs) + 512 MB safety buffer
+		required := uint64(projBytes)*2 + 512*1024*1024
+		preview.RequiredDiskBytes = required
+		if sys.DiskFree < required {
+			preview.DiskSpaceWarning = true
+			if lang == "es" {
+				preview.Warnings = append(preview.Warnings, fmt.Sprintf(
+					"⚠️ Advertencia de espacio en disco: Instalar este proyector de visión requiere aproximadamente %s libres en disco (%s de descarga + almacenamiento temporal), pero solo dispones de %s libres.",
+					formatBytesInt64(int64(required)),
+					formatBytesInt64(projBytes),
+					formatBytesInt64(int64(sys.DiskFree)),
+				))
+			} else {
+				preview.Warnings = append(preview.Warnings, fmt.Sprintf(
+					"⚠️ Low disk space warning: Installing this vision projector requires approximately %s of free disk space (%s download + temporary storage), but only %s is available.",
+					formatBytesInt64(int64(required)),
+					formatBytesInt64(projBytes),
+					formatBytesInt64(int64(sys.DiskFree)),
+				))
+			}
+		}
+	}
+}
 
 type progressReader struct {
 	r         io.Reader

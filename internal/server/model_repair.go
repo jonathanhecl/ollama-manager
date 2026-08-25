@@ -27,6 +27,7 @@ type modelRepairRequest struct {
 	FixLoad           bool     `json:"fix_load"`
 	Modelfile         string   `json:"modelfile"`
 	Confirm           bool     `json:"confirm"`
+	IgnoreDiskSpace   bool     `json:"ignore_disk_space,omitempty"`
 }
 
 type modelRepairPreview struct {
@@ -37,6 +38,10 @@ type modelRepairPreview struct {
 	DetectedCapabilities []string       `json:"detected_capabilities,omitempty"`
 	BaseStops            []string       `json:"base_stops,omitempty"`
 	Projector            string         `json:"projector,omitempty"`
+	ProjectorBytes       int64          `json:"projector_bytes,omitempty"`
+	RequiredDiskBytes    uint64         `json:"required_disk_bytes,omitempty"`
+	FreeDiskBytes        uint64         `json:"free_disk_bytes,omitempty"`
+	DiskSpaceWarning     bool           `json:"disk_space_warning,omitempty"`
 	RequiresConfirmation bool           `json:"requires_confirmation"`
 	System               string         `json:"-"`
 	Template             string         `json:"-"`

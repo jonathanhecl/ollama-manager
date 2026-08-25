@@ -3439,6 +3439,14 @@ func (s *Server) handleDeleteExternalModel(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	if s.usage != nil {
+		_, _ = s.usage.Delete(name)
+		if strings.HasSuffix(name, ":latest") {
+			_, _ = s.usage.Delete(strings.TrimSuffix(name, ":latest"))
+		} else {
+			_, _ = s.usage.Delete(name + ":latest")
+		}
+	}
 	resp := map[string]any{"status": "ok", "name": name}
 	if deletedArtifacts > 0 {
 		resp["deleted_artifacts"] = deletedArtifacts

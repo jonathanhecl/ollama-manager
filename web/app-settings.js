@@ -888,6 +888,15 @@ let lastTestedExtModel = null;
 let lastTestedCapabilities = null;
 let editingExtModel = null;
 
+function sortCapabilityList(list) {
+  return (list || []).slice().sort((a, b) => {
+    const ka = typeof capabilityOrderKey === "function" ? capabilityOrderKey(a) : 0;
+    const kb = typeof capabilityOrderKey === "function" ? capabilityOrderKey(b) : 0;
+    if (ka !== kb) return ka - kb;
+    return String(a).localeCompare(String(b));
+  });
+}
+
 function editExternalModel(m) {
   if (!m) return;
   editingExtModel = m;
@@ -910,7 +919,7 @@ function editExternalModel(m) {
   if (cancelBtn) cancelBtn.hidden = false;
   if (addBtn) addBtn.textContent = t("settings.ext_model_save_btn");
 
-  const allCaps = ["completion", "tools", "thinking", "vision"];
+  const allCaps = sortCapabilityList(["completion", "tools", "thinking", "vision"]);
   const activeCaps = Array.isArray(m.capabilities) && m.capabilities.length > 0 ? m.capabilities : allCaps;
   lastTestedExtModel = m.name;
   lastTestedCapabilities = activeCaps;
@@ -1001,7 +1010,7 @@ function cloneExternalModel(m) {
   }
   if (cancelBtn) cancelBtn.hidden = false;
 
-  const allCaps = ["completion", "tools", "thinking", "vision"];
+  const allCaps = sortCapabilityList(["completion", "tools", "thinking", "vision"]);
   const activeCaps = Array.isArray(m.capabilities) && m.capabilities.length > 0 ? m.capabilities : allCaps;
   lastTestedExtModel = `${m.name}-copy`;
   lastTestedCapabilities = activeCaps;
@@ -1065,7 +1074,7 @@ async function loadExternalModels(lang = null) {
       return;
     }
     listEl.innerHTML = list.map((m) => {
-      const caps = (m.capabilities || ["completion", "tools", "thinking", "vision"])
+      const caps = sortCapabilityList(m.capabilities || ["completion", "tools", "thinking", "vision"])
         .map((c) => {
           const slug = String(c).toLowerCase().trim();
           const label = typeof formatCapabilityLabel === "function" ? formatCapabilityLabel(c) : (slug.charAt(0).toUpperCase() + slug.slice(1));
@@ -1195,11 +1204,11 @@ async function testExternalModel() {
     });
 
     lastTestedExtModel = name;
-    lastTestedCapabilities = res.capabilities || [];
+    lastTestedCapabilities = sortCapabilityList(res.capabilities || []);
 
     if (resultEl) {
       resultEl.className = "ext-test-result ext-test-success";
-      const allCaps = ["completion", "tools", "thinking", "vision"];
+      const allCaps = sortCapabilityList(["completion", "tools", "thinking", "vision"]);
       const capsHtml = allCaps.map((c) => {
         const slug = String(c).toLowerCase().trim();
         const label = typeof formatCapabilityLabel === "function" ? formatCapabilityLabel(c) : (slug.charAt(0).toUpperCase() + slug.slice(1));
@@ -1263,6 +1272,7 @@ async function addExternalModel() {
       caps = ["completion", "tools", "thinking", "vision"];
     }
   }
+  caps = sortCapabilityList(caps);
 
   const isEditing = !!editingExtModel;
   const isExistingDisabled = editingExtModel ? !!editingExtModel.disabled : false;

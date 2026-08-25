@@ -64,14 +64,26 @@ type HFModelDetail struct {
 var (
 	quantRegex     = regexp.MustCompile(`(?i)(?:^|[-._])(q[0-9]+_[a-z0-9_]+|q[0-9]+_[0-9]+|q[0-9]+|iq[0-9]+_[a-z0-9_]+|ud-iq[0-9]+_[a-z0-9_]+|f16|f32|bf16)(?:[-._]|$)`)
 	mmprojRegex    = regexp.MustCompile(`(?i)mmproj`)
+	imatrixRegex   = regexp.MustCompile(`(?i)(?:^|[-._])imatrix(?:[-._]|$)`)
 	paramSizeRegex = regexp.MustCompile(`(?i)(?:^|[-._])([0-9]+(?:\.[0-9]+)?[bm])(?:[-._]|$)`)
 )
+
+// IsImatrixFile checks if the filename corresponds to an imatrix calibration data file.
+func IsImatrixFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	return imatrixRegex.MatchString(lower) || strings.Contains(lower, "imatrix")
+}
 
 // ExtractQuantization extracts the quant name from a GGUF filename.
 func ExtractQuantization(filename string) string {
 	lower := strings.ToLower(filename)
 	// Remove .gguf extension
 	base := strings.TrimSuffix(lower, ".gguf")
+
+	// Check if this is an imatrix calibration file
+	if IsImatrixFile(base) {
+		return "IMATRIX"
+	}
 
 	// Check if this is a vision mmproj file
 	if mmprojRegex.MatchString(base) {
@@ -239,6 +251,9 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		for _, s := range m.Siblings {
 			fn := strings.ToLower(s.RFilename)
 			if strings.HasSuffix(fn, ".gguf") {
+				if IsImatrixFile(s.RFilename) {
+					continue
+				}
 				if IsVisionProjector(s.RFilename) {
 					hasVisionFile = true
 				} else {
@@ -451,6 +466,10 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 		}
 		filename := path.Base(f.Path)
 		if !strings.HasSuffix(strings.ToLower(filename), ".gguf") {
+			continue
+		}
+
+		if IsImatrixFile(filename) {
 			continue
 		}
 

@@ -416,16 +416,41 @@ function renderHFQuantsTable(m) {
     visionSize = m.vision_files[0].size_bytes || 0;
   }
 
-  // Sort files by size ascending
-  const sortedFiles = [...ggufFiles].sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0));
+  // Filter out imatrix and auxiliary non-model files
+  const validFiles = ggufFiles.filter((f) => {
+    const fn = (f.filename || "").toLowerCase();
+    return f.quant !== "IMATRIX" && !fn.includes("imatrix") && !fn.endsWith(".dat");
+  });
 
-  // Determine recommended quant
-  let recommendedFile = sortedFiles.find((f) => f.quant === "Q4_K_M") || sortedFiles[0];
+  // Sort files by size ascending
+  const sortedFiles = [...validFiles].sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0));
+
+  // Determine recommended quant using priority list
+  const quantPriority = [
+    "Q4_K_M", "Q5_K_M", "Q4_K_S", "Q5_K_S", "IQ4_XS", "IQ4_NL",
+    "Q4_0", "Q4_1", "Q3_K_M", "Q3_K_L", "Q3_K_S", "IQ3_M", "IQ3_S",
+    "Q6_K", "Q8_0", "Q2_K"
+  ];
+
+  function pickBestQuant(files) {
+    for (const q of quantPriority) {
+      const match = files.find((f) => f.quant === q);
+      if (match) return match;
+    }
+    return files.find((f) => f.quant !== "OTHER") || files[0] || null;
+  }
+
+  let recommendedFile = null;
   const optimalFiles = sortedFiles.filter((f) => computeMemoryFit(f.size_bytes, visionSize).level === "optimal");
   if (optimalFiles.length > 0) {
-    const pref = optimalFiles.find((f) => f.quant === "Q5_K_M") || optimalFiles.find((f) => f.quant === "Q4_K_M");
-    if (pref) recommendedFile = pref;
-    else recommendedFile = optimalFiles[optimalFiles.length - 1];
+    recommendedFile = pickBestQuant(optimalFiles);
+  } else {
+    const sharedFiles = sortedFiles.filter((f) => computeMemoryFit(f.size_bytes, visionSize).level === "shared");
+    if (sharedFiles.length > 0) {
+      recommendedFile = pickBestQuant(sharedFiles);
+    } else if (sortedFiles.length > 0) {
+      recommendedFile = pickBestQuant(sortedFiles);
+    }
   }
 
   tbody.innerHTML = sortedFiles.map((f) => {

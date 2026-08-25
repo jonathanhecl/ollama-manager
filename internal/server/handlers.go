@@ -3327,6 +3327,7 @@ func (s *Server) handleListExternalModels(w http.ResponseWriter, r *http.Request
 func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name         string   `json:"name"`
+		OldName      string   `json:"old_name"`
 		URL          string   `json:"url"`
 		APIKey       string   `json:"api_key"`
 		Capabilities []string `json:"capabilities"`
@@ -3337,6 +3338,7 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	name := strings.TrimSpace(body.Name)
+	oldName := strings.TrimSpace(body.OldName)
 	targetURL := strings.TrimSpace(body.URL)
 	if name == "" {
 		writeError(w, http.StatusBadRequest, errors.New("nombre del modelo requerido"))
@@ -3350,6 +3352,20 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, errors.New("external models store unavailable"))
 		return
 	}
+
+	if oldName != "" && oldName != name {
+		_ = s.externalModels.Unregister(oldName)
+		_ = s.deleteArtifactsForModel(r.Context(), oldName)
+		if s.usage != nil {
+			_, _ = s.usage.Delete(oldName)
+			if strings.HasSuffix(oldName, ":latest") {
+				_, _ = s.usage.Delete(strings.TrimSuffix(oldName, ":latest"))
+			} else {
+				_, _ = s.usage.Delete(oldName + ":latest")
+			}
+		}
+	}
+
 	if err := s.externalModels.Register(name, targetURL, body.APIKey, body.Capabilities, body.Disabled); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

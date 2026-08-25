@@ -1094,6 +1094,7 @@ async function loadExternalModels(lang = null) {
             <div class="ext-caps-pills" style="margin-top:2px;">${caps}</div>
           </div>
           <div class="ext-model-card-actions">
+            <button type="button" class="btn-icon ext-model-chat-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.chat_title", null, targetLang) || "Chat")}">💬</button>
             <button type="button" class="btn-icon ext-model-toggle-btn" data-name="${escapeHtml(m.name)}" title="${isPaused ? escapeHtml(t("settings.ext_model_resume", null, targetLang)) : escapeHtml(t("settings.ext_model_pause", null, targetLang))}">${isPaused ? "▶️" : "⏸️"}</button>
             <button type="button" class="btn-icon ext-model-clone-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("settings.ext_model_clone", null, targetLang))}">📋</button>
             <button type="button" class="btn-icon ext-model-edit-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("settings.ext_model_edit", null, targetLang))}">✏️</button>
@@ -1102,6 +1103,17 @@ async function loadExternalModels(lang = null) {
         </div>
       `;
     }).join("");
+
+    listEl.querySelectorAll(".ext-model-chat-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.name;
+        if (!name) return;
+        if (typeof showChatViewWithModel === "function") {
+          showChatViewWithModel(name);
+        }
+      });
+    });
 
     listEl.querySelectorAll(".ext-model-toggle-btn").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
@@ -1275,13 +1287,21 @@ async function addExternalModel() {
   caps = sortCapabilityList(caps);
 
   const isEditing = !!editingExtModel;
+  const oldName = editingExtModel ? editingExtModel.name : "";
   const isExistingDisabled = editingExtModel ? !!editingExtModel.disabled : false;
 
   try {
     await api("/api/external-models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, url, api_key: apiKey, capabilities: caps, disabled: isExistingDisabled }),
+      body: JSON.stringify({
+        name,
+        old_name: isEditing ? oldName : "",
+        url,
+        api_key: apiKey,
+        capabilities: caps,
+        disabled: isExistingDisabled,
+      }),
     });
 
     toast(isEditing ? t("settings.ext_model_updated", { name }) : t("settings.ext_model_added", { name }), "success");

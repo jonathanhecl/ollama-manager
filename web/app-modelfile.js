@@ -248,6 +248,36 @@
       });
     });
 
+    // Prompt Library picker
+    const promptLibBtn = $("mf-prompt-lib-btn");
+    if (promptLibBtn) {
+      promptLibBtn.addEventListener("click", () => {
+        const sysEl = $("mf-system-prompt");
+        if (typeof openSystemPromptsPickerModal === "function") {
+          openSystemPromptsPickerModal(sysEl, () => {
+            autoResizeSystemPrompt();
+            updateTokenBudgetUI();
+            updatePreview();
+          });
+        }
+      });
+    }
+
+    // Clear system prompt
+    const clearPromptBtn = $("mf-clear-prompt-btn");
+    if (clearPromptBtn) {
+      clearPromptBtn.addEventListener("click", () => {
+        const sysEl = $("mf-system-prompt");
+        if (sysEl) {
+          sysEl.value = "";
+          autoResizeSystemPrompt();
+          updateTokenBudgetUI();
+          updatePreview();
+          sysEl.focus();
+        }
+      });
+    }
+
     // File injector
     const injectBtn = $("mf-inject-btn");
     const injectFile = $("mf-inject-file");

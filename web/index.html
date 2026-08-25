@@ -821,12 +821,13 @@
                         <button type="button" class="mf-preset-btn" data-preset="concise" data-i18n="modelfile.preset_concise">⚡ Concise</button>
                         <button type="button" class="mf-preset-btn" data-preset="translator" data-i18n="modelfile.preset_translator">🌐 Translator</button>
                         <button type="button" class="mf-preset-btn" data-preset="tutor" data-i18n="modelfile.preset_tutor">🎓 Tutor</button>
-                        <button type="button" class="mf-preset-btn mf-preset-btn--clear" data-preset="clear" data-i18n="modelfile.preset_clear">✕</button>
                       </div>
                     </div>
                     <div class="mf-inject-wrap">
+                      <button id="mf-prompt-lib-btn" type="button" class="ghost mf-tool-btn" data-i18n-attr="title" data-i18n="modelfile.prompt_library_title" title="Load prompt from library">📚 <span data-i18n="modelfile.prompt_library">Prompt Library</span></button>
                       <input id="mf-inject-file" type="file" accept=".txt,.md,.json,.csv,.log,.yaml,.yml,.py,.js,.html,.ts,.go,.rs,.c,.cpp,.h" hidden>
-                      <button id="mf-inject-btn" type="button" class="ghost mf-inject-btn" data-i18n-attr="title" data-i18n="modelfile.inject_title" title="Import text or markdown file">📄 <span data-i18n="modelfile.inject_btn">Inyectar TXT / Archivo</span></button>
+                      <button id="mf-inject-btn" type="button" class="ghost mf-tool-btn" data-i18n-attr="title" data-i18n="modelfile.inject_title" title="Import text or markdown file">📄 <span data-i18n="modelfile.inject_btn">Inject TXT / File</span></button>
+                      <button id="mf-clear-prompt-btn" type="button" class="ghost mf-tool-btn mf-tool-btn--clear" data-i18n-attr="title" data-i18n="modelfile.clear_prompt_title" title="Clear system prompt">🗑️ <span data-i18n="modelfile.clear_prompt">Clear</span></button>
                     </div>
                   </div>
                   <textarea id="mf-system-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="modelfile.system_placeholder" placeholder="Instructions that define the model's persona, role, or behavior, or paste your documentation here..." autocomplete="off"></textarea>

@@ -572,7 +572,7 @@ async function loadHFReadme(repoId) {
   }
 }
 
-function sanitizeHFHtml(html) {
+function hfSanitizeHtml(html) {
   if (!html) return "";
   // Strip dangerous tags: script, style, iframe, object, embed, form, input
   let clean = html.replace(/<\s*(script|style|iframe|object|embed|form|input)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
@@ -591,7 +591,7 @@ function sanitizeHFHtml(html) {
   return clean;
 }
 
-function extractYAMLFrontmatter(md) {
+function hfExtractYAMLFrontmatter(md) {
   let text = String(md || "").replace(/\r\n/g, "\n");
   let metaHTML = "";
 
@@ -629,7 +629,7 @@ function extractYAMLFrontmatter(md) {
   return { cleanText: text, metaHTML };
 }
 
-function extractGFMTables(text, tables) {
+function hfExtractGFMTables(text, tables) {
   const lines = text.split("\n");
   const result = [];
   let tableLines = [];
@@ -669,7 +669,7 @@ function extractGFMTables(text, tables) {
       });
       html += '</tbody></table></div>';
 
-      const key = `@@TABLE_${tables.length}@@`;
+      const key = `@@HFTABLE_${tables.length}@@`;
       tables.push(html);
       result.push(key);
     } else {
@@ -696,13 +696,13 @@ function formatHFMarkdown(md) {
   if (!md) return "";
 
   // 1. Extract and format YAML frontmatter
-  const { cleanText, metaHTML } = extractYAMLFrontmatter(md);
+  const { cleanText, metaHTML } = hfExtractYAMLFrontmatter(md);
   let work = cleanText;
 
   // 2. Extract code blocks so markdown rules don't tamper with them
   const codeBlocks = [];
   work = work.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
-    const key = `@@CODEBLOCK_${codeBlocks.length}@@`;
+    const key = `@@HFCODEBLOCK_${codeBlocks.length}@@`;
     const langLabel = lang ? escapeHtml(lang) : "code";
     const escapedCode = escapeHtml(code.trim());
     codeBlocks.push(`
@@ -719,7 +719,7 @@ function formatHFMarkdown(md) {
 
   // 3. Extract GFM Tables
   const tableBlocks = [];
-  work = extractGFMTables(work, tableBlocks);
+  work = hfExtractGFMTables(work, tableBlocks);
 
   // 4. Markdown headers
   work = work.replace(/^######\s+(.+)$/gm, "<h6>$1</h6>");
@@ -794,13 +794,13 @@ function formatHFMarkdown(md) {
     if (inQuote) { out.push("</blockquote>"); inQuote = false; }
 
     // Table placeholder
-    if (/^@@TABLE_\d+@@$/.test(trimmed)) {
+    if (/^@@HFTABLE_\d+@@$/.test(trimmed)) {
       out.push(trimmed);
       continue;
     }
 
     // Codeblock placeholder
-    if (/^@@CODEBLOCK_\d+@@$/.test(trimmed)) {
+    if (/^@@HFCODEBLOCK_\d+@@$/.test(trimmed)) {
       out.push(trimmed);
       continue;
     }
@@ -825,16 +825,16 @@ function formatHFMarkdown(md) {
 
   // 12. Restore tables
   tableBlocks.forEach((tbl, idx) => {
-    parsed = parsed.replace(`@@TABLE_${idx}@@`, tbl);
+    parsed = parsed.replace(`@@HFTABLE_${idx}@@`, tbl);
   });
 
   // 13. Restore code blocks
   codeBlocks.forEach((code, idx) => {
-    parsed = parsed.replace(`@@CODEBLOCK_${idx}@@`, code);
+    parsed = parsed.replace(`@@HFCODEBLOCK_${idx}@@`, code);
   });
 
   // 14. Sanitize final HTML to prevent XSS while allowing clean rendering
-  const sanitized = sanitizeHFHtml(parsed);
+  const sanitized = hfSanitizeHtml(parsed);
 
   return `
     <div class="hf-markdown-body">

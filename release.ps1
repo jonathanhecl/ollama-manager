@@ -8,7 +8,9 @@
 #>
 param(
     [Parameter(Mandatory = $false, Position = 0)]
-    [string]$Version = ""
+    [string]$Version = "",
+    [Parameter(Mandatory = $false)]
+    [switch]$Force
 )
 
 Set-StrictMode -Version Latest
@@ -92,10 +94,22 @@ if ([string]::IsNullOrEmpty($branch)) {
 }
 
 # 7. Check if tag already exists locally
-$tagExists = git tag -l $Version
+$tagExists = (git tag -l $Version)
+$overrideTag = $false
 if ($tagExists) {
-    Write-Host "Error: El tag '$Version' ya existe localmente." -ForegroundColor Red
-    exit 1
+    if ($Force) {
+        $overrideTag = $true
+        Write-Host "Aviso: El tag '$Version' ya existe. Se sobrescribirá (-Force activo)." -ForegroundColor Yellow
+    } else {
+        Write-Host "Aviso: El tag '$Version' ya existe localmente." -ForegroundColor Yellow
+        $resp = Read-Host "¿Deseas sobrescribir / pisar el tag existente y reemplazar el Release en GitHub? (y/n)"
+        if ($resp -eq "y" -or $resp -eq "si" -or $resp -eq "yes") {
+            $overrideTag = $true
+        } else {
+            Write-Host "Operación cancelada." -ForegroundColor Red
+            exit 1
+        }
+    }
 }
 
 # 8. Parse Owner and Repo from remote origin URL
@@ -131,6 +145,9 @@ if ($latestTag) {
     Write-Host "Tag anterior:   $latestTag" -ForegroundColor Gray
 }
 Write-Host "Nueva versión:  $Version" -ForegroundColor Green
+if ($overrideTag) {
+    Write-Host "Modo:           PISAR / REEMPLAZAR RELEASE EXISTENTE" -ForegroundColor Yellow
+}
 Write-Host "Repositorio:    $owner/$repo" -ForegroundColor Gray
 Write-Host "Rama origen:    $branch" -ForegroundColor Gray
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -142,7 +159,7 @@ if ($confirmation -ne "y" -and $confirmation -ne "si" -and $confirmation -ne "ye
     exit 0
 }
 
-# 8. Run local compilation and packaging
+# 10. Run local compilation and packaging
 Write-Host "`n[1/4] Compilando binarios locales multiplataforma..." -ForegroundColor Cyan
 $buildScript = Join-Path $PSScriptRoot "build-all.ps1"
 if (-not (Test-Path $buildScript)) {
@@ -156,32 +173,59 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# 9. Create Git tag and push commits/tags
+# 11. Create Git tag and push commits/tags
 Write-Host "`n[2/4] Creando tag local y empujando a GitHub..." -ForegroundColor Cyan
 try {
-    Write-Host "Creando tag local $Version..." -ForegroundColor DarkGray
-    git tag $Version
+    if ($overrideTag) {
+        Write-Host "Sobrescribiendo tag local $Version..." -ForegroundColor DarkGray
+        git tag -f $Version
+    } else {
+        Write-Host "Creando tag local $Version..." -ForegroundColor DarkGray
+        git tag $Version
+    }
     
     Write-Host "Subiendo commits de la rama '$branch' a origin..." -ForegroundColor DarkGray
     git push origin $branch
     
-    Write-Host "Subiendo tag '$Version' a origin..." -ForegroundColor DarkGray
-    git push origin $Version
+    if ($overrideTag) {
+        Write-Host "Sobrescribiendo tag '$Version' en origin (force push)..." -ForegroundColor DarkGray
+        git push origin --force $Version
+    } else {
+        Write-Host "Subiendo tag '$Version' a origin..." -ForegroundColor DarkGray
+        git push origin $Version
+    }
 }
 catch {
     Write-Host "Error: Falló alguna operación de git. Abortando la creación del release en GitHub." -ForegroundColor Red
-    # Intenta borrar el tag local para evitar inconsistencias si falló la subida
-    git tag -d $Version 2>&1 | Out-Null
+    if (-not $overrideTag) {
+        git tag -d $Version 2>&1 | Out-Null
+    }
     exit 1
 }
 
-# 10. Create Release in GitHub via API
-Write-Host "`n[3/4] Creando Release en la API de GitHub..." -ForegroundColor Cyan
+# 12. Create Release in GitHub via API
+Write-Host "`n[3/4] Gestionando Release en la API de GitHub..." -ForegroundColor Cyan
 $releaseUrl = "https://api.github.com/repos/$owner/$repo/releases"
 $headers = @{
     "Authorization"        = "Bearer $token"
     "Accept"               = "application/vnd.github+json"
     "X-GitHub-Api-Version" = "2022-11-28"
+}
+
+# Si estamos pisando un release existente, primero lo eliminamos de GitHub para recrearlo limpio con los nuevos assets
+if ($overrideTag) {
+    try {
+        $tagReleaseUrl = "https://api.github.com/repos/$owner/$repo/releases/tags/$Version"
+        $existingRel = Invoke-RestMethod -Uri $tagReleaseUrl -Method Get -Headers $headers -ErrorAction SilentlyContinue
+        if ($existingRel -and $existingRel.id) {
+            Write-Host "Eliminando release anterior en GitHub (ID: $($existingRel.id))..." -ForegroundColor Yellow
+            $delUrl = "https://api.github.com/repos/$owner/$repo/releases/$($existingRel.id)"
+            Invoke-RestMethod -Uri $delUrl -Method Delete -Headers $headers | Out-Null
+            Start-Sleep -Seconds 1
+        }
+    } catch {
+        # Si no existía release formal asociado al tag, continuamos
+    }
 }
 
 $releaseBody = @{

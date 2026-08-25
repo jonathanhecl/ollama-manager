@@ -416,10 +416,15 @@ function renderHFQuantsTable(m) {
     visionSize = m.vision_files[0].size_bytes || 0;
   }
 
-  // Filter out imatrix and auxiliary non-model files
+  // Filter out imatrix, mtp, draft, and auxiliary non-standalone files
   const validFiles = ggufFiles.filter((f) => {
     const fn = (f.filename || "").toLowerCase();
-    return f.quant !== "IMATRIX" && !fn.includes("imatrix") && !fn.endsWith(".dat");
+    const q = (f.quant || "").toUpperCase();
+    if (q === "IMATRIX" || q === "AUXILIARY" || q === "MMPROJ") return false;
+    if (fn.includes("imatrix") || fn.endsWith(".dat")) return false;
+    if (fn.startsWith("mtp-") || fn.startsWith("mtp_") || fn.includes("-mtp-") || fn.includes("-mtp.") || fn.includes("_mtp_") || fn.includes("_mtp.")) return false;
+    if (fn.startsWith("draft-") || fn.startsWith("draft_") || fn.includes("-draft-") || fn.includes("-draft.") || fn.includes("_draft_") || fn.includes("_draft.")) return false;
+    return true;
   });
 
   // Sort files by size ascending

@@ -65,6 +65,8 @@ var (
 	quantRegex     = regexp.MustCompile(`(?i)(?:^|[-._])(q[0-9]+_[a-z0-9_]+|q[0-9]+_[0-9]+|q[0-9]+|iq[0-9]+_[a-z0-9_]+|ud-iq[0-9]+_[a-z0-9_]+|f16|f32|bf16)(?:[-._]|$)`)
 	mmprojRegex    = regexp.MustCompile(`(?i)mmproj`)
 	imatrixRegex   = regexp.MustCompile(`(?i)(?:^|[-._])imatrix(?:[-._]|$)`)
+	mtpRegex       = regexp.MustCompile(`(?i)(?:^|[-._])mtp(?:[-._]|$)`)
+	draftRegex     = regexp.MustCompile(`(?i)(?:^|[-._])draft(?:[-._]|$)`)
 	paramSizeRegex = regexp.MustCompile(`(?i)(?:^|[-._])([0-9]+(?:\.[0-9]+)?[bm])(?:[-._]|$)`)
 )
 
@@ -74,15 +76,34 @@ func IsImatrixFile(filename string) bool {
 	return imatrixRegex.MatchString(lower) || strings.Contains(lower, "imatrix")
 }
 
+// IsAuxiliaryGGUF checks if the file is an auxiliary, draft, or calibration file (imatrix, mtp, draft).
+func IsAuxiliaryGGUF(filename string) bool {
+	lower := strings.ToLower(filename)
+	if IsImatrixFile(lower) {
+		return true
+	}
+	if mtpRegex.MatchString(lower) || strings.HasPrefix(lower, "mtp-") || strings.HasPrefix(lower, "mtp_") ||
+		strings.Contains(lower, "-mtp-") || strings.Contains(lower, "-mtp.") ||
+		strings.Contains(lower, "_mtp_") || strings.Contains(lower, "_mtp.") {
+		return true
+	}
+	if draftRegex.MatchString(lower) || strings.HasPrefix(lower, "draft-") || strings.HasPrefix(lower, "draft_") ||
+		strings.Contains(lower, "-draft-") || strings.Contains(lower, "-draft.") ||
+		strings.Contains(lower, "_draft_") || strings.Contains(lower, "_draft.") {
+		return true
+	}
+	return false
+}
+
 // ExtractQuantization extracts the quant name from a GGUF filename.
 func ExtractQuantization(filename string) string {
 	lower := strings.ToLower(filename)
 	// Remove .gguf extension
 	base := strings.TrimSuffix(lower, ".gguf")
 
-	// Check if this is an imatrix calibration file
-	if IsImatrixFile(base) {
-		return "IMATRIX"
+	// Check if this is an auxiliary non-standalone file (imatrix, mtp, draft)
+	if IsAuxiliaryGGUF(base) {
+		return "AUXILIARY"
 	}
 
 	// Check if this is a vision mmproj file
@@ -251,7 +272,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		for _, s := range m.Siblings {
 			fn := strings.ToLower(s.RFilename)
 			if strings.HasSuffix(fn, ".gguf") {
-				if IsImatrixFile(s.RFilename) {
+				if IsAuxiliaryGGUF(s.RFilename) {
 					continue
 				}
 				if IsVisionProjector(s.RFilename) {
@@ -469,7 +490,7 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if IsImatrixFile(filename) {
+		if IsAuxiliaryGGUF(filename) {
 			continue
 		}
 

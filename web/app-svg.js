@@ -2255,160 +2255,176 @@ function buildAssistantDebugFooter(m) {
   return `<footer class="chat-debug mono">${escapeHtml(ctxLine)}</footer>`;
 }
 
-function renderChatMessages() {
-  const host = $("chat-messages");
-  if (!chatMessages.length) {
-    host.innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
-    return;
+function bindMessageDetails(el, m) {
+  if (!el) return;
+  el.querySelectorAll("details.chat-think").forEach((dt) => {
+    dt.addEventListener("toggle", () => {
+      const msg = chatMessages.find((x) => x.id === dt.dataset.id);
+      if (!msg) return;
+      if (dt.dataset.tail === "1") {
+        msg.tailThinkOpen = dt.open;
+      } else if (dt.dataset.tlSeg && msg.timeline) {
+        const item = msg.timeline.find((i) => i.segId === dt.dataset.tlSeg);
+        if (item) item.thinkOpen = dt.open;
+      } else {
+        msg.thinkOpen = dt.open;
+      }
+    });
+  });
+
+  el.querySelectorAll("details.chat-tool-preview").forEach((dt) => {
+    dt.addEventListener("toggle", () => {
+      const msg = chatMessages.find((x) => x.id === dt.dataset.msgId);
+      if (!msg) return;
+      const toolIdx = parseInt(dt.dataset.toolIdx, 10);
+      if (msg.toolLog && msg.toolLog[toolIdx]) {
+        msg.toolLog[toolIdx].open = dt.open;
+      }
+    });
+  });
+}
+
+function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
+  const meta = [];
+  if (m.role === "assistant" && !m.streaming && m.stopped) {
+    meta.push(t("chat.stopped_badge_short"));
   }
-  let lastUserMsgIdx = -1;
-  for (let k = chatMessages.length - 1; k >= 0; k--) {
-    if (chatMessages[k].role === "user") {
-      lastUserMsgIdx = k;
-      break;
+
+  const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
+  const canEditUser = m.role === "user" && !chatStreamLock && i === lastUserMsgIdx;
+
+  const files = isEditingUser ? "" : (m.attachments || []).map((a) => {
+    if (a.kind === "image" && a.data) {
+      const src = attachmentImageSrc(a);
+      if (!src) {
+        return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+      }
+      return `<div class="chat-file-item chat-file-item-image">
+        <button type="button" class="image-preview-open chat-msg-file-thumb" data-name="${escapeHtml(a.name)}">
+          <img src="${src}" alt="" />
+        </button>
+        <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+      </div>`;
     }
-  }
-  host.innerHTML = chatMessages.map((m, i) => {
-    const meta = [];
-    if (m.role === "assistant" && !m.streaming && m.stopped) {
-      meta.push(t("chat.stopped_badge_short"));
+    if (a.kind === "audio" && a.data) {
+      const src = attachmentAudioSrc(a);
+      if (!src) {
+        return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+      }
+      return `<div class="chat-file-item chat-file-item-audio">
+        <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
+        <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+      </div>`;
     }
+    if (a.kind === "text") {
+      const prev = attachmentTextPreview(a);
+      return `<div class="chat-file-item chat-file-item-text">
+        <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
+        <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+      </div>`;
+    }
+    return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+  }).join("");
 
-    const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
-    const canEditUser = m.role === "user" && !chatStreamLock && i === lastUserMsgIdx;
+  const hasTl = m.role === "assistant" && m.timeline && m.timeline.length > 0;
+  const acc = m._accRaw || "";
+  const flushI = hasTl ? (Number(m.segmentFlushIndex) || 0) : 0;
+  const tailStr = hasTl && m.streaming && acc && acc.length > flushI ? acc.slice(flushI) : "";
+  const tailParts = tailStr ? splitThink(tailStr) : { think: "", inThink: false, answer: "" };
+  const showTailThink = hasTl && (Boolean((tailParts.think || "").trim()) || (m.streaming && tailParts.inThink));
+  const showTailMd = hasTl && m.streaming && Boolean((tailParts.answer || "").trim());
 
-    const files = isEditingUser ? "" : (m.attachments || []).map((a) => {
-      if (a.kind === "image" && a.data) {
-        const src = attachmentImageSrc(a);
-        if (!src) {
-          return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
+  const thinkSecTitle = formatMetaElapsedSecondsTitle(m.thinkMs || 0);
+  const thinkBlock = hasTl || !m.thinkContent
+    ? ""
+    : `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
+        <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && !!m.inThink))}</summary>
+        <pre>${escapeHtml(m.thinkContent)}</pre>
+      </details>`;
+
+  const toolLogBlock = m.role === "assistant" && !hasTl && m.toolLog?.length
+    ? renderAssistantToolLog(m)
+    : "";
+  const timelineBlock = m.role === "assistant" && hasTl
+    ? renderAssistantTimeline(m)
+    : "";
+  const tailThinkBlock = showTailThink
+    ? `<details class="chat-think" ${m.tailThinkOpen !== false ? "open" : ""} data-id="${escapeHtml(m.id)}" data-tail="1">
+        <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && tailParts.inThink))}</summary>
+        <pre>${escapeHtml(tailParts.think || "")}</pre>
+      </details>`
+    : "";
+  const tailMdBlock = showTailMd
+    ? `<div class="chat-md chat-timeline-md">${renderMarkdownSafe(tailParts.answer || "")}</div>`
+    : "";
+
+  let bodyHTML = "";
+  const isImageModel = m.role === "assistant" && m.model && modelCaps(m.model).has("image");
+  if (m.role === "assistant") {
+    if (isImageModel) {
+      if (m.streaming) {
+        let progressInfo = "";
+        if (m.completedSteps != null && m.totalSteps) {
+          const pct = Math.min(100, Math.round((m.completedSteps / m.totalSteps) * 100));
+          progressInfo = `<div class="chat-image-progress-text">Step ${m.completedSteps}/${m.totalSteps} (${pct}%)</div>
+          <div class="chat-image-progress-bar-wrap">
+            <div class="chat-image-progress-bar" style="width: ${pct}%"></div>
+          </div>`;
         }
-        return `<div class="chat-file-item chat-file-item-image">
-          <button type="button" class="image-preview-open chat-msg-file-thumb" data-name="${escapeHtml(a.name)}">
-            <img src="${src}" alt="" />
-          </button>
-          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
+        bodyHTML = `<div class="chat-image-generating-card">
+          <div class="chat-image-generating">
+            <span class="chat-tool-ic chat-tool-pulse"></span>
+            <span>${escapeHtml(t("chat.generating_image"))}</span>
+          </div>
+          ${progressInfo}
         </div>`;
-      }
-      if (a.kind === "audio" && a.data) {
-        const src = attachmentAudioSrc(a);
-        if (!src) {
-          return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
-        }
-        return `<div class="chat-file-item chat-file-item-audio">
-          <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
-          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
-        </div>`;
-      }
-      if (a.kind === "text") {
-        const prev = attachmentTextPreview(a);
-        return `<div class="chat-file-item chat-file-item-text">
-          <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
-          <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
-        </div>`;
-      }
-      return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
-    }).join("");
-
-    const hasTl = m.role === "assistant" && m.timeline && m.timeline.length > 0;
-    const acc = m._accRaw || "";
-    const flushI = hasTl ? (Number(m.segmentFlushIndex) || 0) : 0;
-    const tailStr = hasTl && m.streaming && acc && acc.length > flushI ? acc.slice(flushI) : "";
-    const tailParts = tailStr ? splitThink(tailStr) : { think: "", inThink: false, answer: "" };
-    const showTailThink = hasTl && (Boolean((tailParts.think || "").trim()) || (m.streaming && tailParts.inThink));
-    const showTailMd = hasTl && m.streaming && Boolean((tailParts.answer || "").trim());
-
-    const thinkSecTitle = formatMetaElapsedSecondsTitle(m.thinkMs || 0);
-    const thinkBlock = hasTl || !m.thinkContent
-      ? ""
-      : `<details class="chat-think" ${m.thinkOpen ? "open" : ""} data-id="${escapeHtml(m.id)}">
-          <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && !!m.inThink))}</summary>
-          <pre>${escapeHtml(m.thinkContent)}</pre>
-        </details>`;
-
-    const toolLogBlock = m.role === "assistant" && !hasTl && m.toolLog?.length
-      ? renderAssistantToolLog(m)
-      : "";
-    const timelineBlock = m.role === "assistant" && hasTl
-      ? renderAssistantTimeline(m)
-      : "";
-    const tailThinkBlock = showTailThink
-      ? `<details class="chat-think" ${m.tailThinkOpen !== false ? "open" : ""} data-id="${escapeHtml(m.id)}" data-tail="1">
-          <summary title="${escapeHtml(thinkSecTitle)}">${escapeHtml(thinkLabel(m.thinkMs || 0, !!m.streaming && tailParts.inThink))}</summary>
-          <pre>${escapeHtml(tailParts.think || "")}</pre>
-        </details>`
-      : "";
-    const tailMdBlock = showTailMd
-      ? `<div class="chat-md chat-timeline-md">${renderMarkdownSafe(tailParts.answer || "")}</div>`
-      : "";
-
-    let bodyHTML = "";
-    const isImageModel = m.role === "assistant" && m.model && modelCaps(m.model).has("image");
-    if (m.role === "assistant") {
-      if (isImageModel) {
-        if (m.streaming) {
-          let progressInfo = "";
-          if (m.completedSteps != null && m.totalSteps) {
-            const pct = Math.min(100, Math.round((m.completedSteps / m.totalSteps) * 100));
-            progressInfo = `<div class="chat-image-progress-text">Step ${m.completedSteps}/${m.totalSteps} (${pct}%)</div>
-            <div class="chat-image-progress-bar-wrap">
-              <div class="chat-image-progress-bar" style="width: ${pct}%"></div>
-            </div>`;
-          }
-          bodyHTML = `<div class="chat-image-generating-card">
-            <div class="chat-image-generating">
-              <span class="chat-tool-ic chat-tool-pulse"></span>
-              <span>${escapeHtml(t("chat.generating_image"))}</span>
+      } else {
+        const cleanedContent = String(m.content || "").replace(/\s+/g, "");
+        const isError = m.isError || String(m.content || "").startsWith("Error:") || String(m.content || "").startsWith("Error ");
+        if (isError) {
+          bodyHTML = renderMarkdownSafe(m.content || "");
+        } else if (cleanedContent) {
+          const imgSrc = `data:image/png;base64,${cleanedContent}`;
+          const imgName = `${m.model.replace(/[^a-zA-Z0-9]/g, "_")}_${m.id}.png`;
+          bodyHTML = `<div class="chat-generated-image-container">
+            <button type="button" class="image-preview-open chat-generated-image-thumb" data-name="${escapeHtml(imgName)}">
+              <img src="${imgSrc}" alt="${escapeHtml(imgName)}" class="chat-generated-image" />
+            </button>
+            <div class="chat-generated-image-actions">
+              <a href="${imgSrc}" download="${escapeHtml(imgName)}" class="btn-icon download-generated-image-btn" title="${escapeHtml(t("chat.download_image"))}">
+                <svg class="chat-download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </a>
             </div>
-            ${progressInfo}
           </div>`;
         } else {
-          const cleanedContent = String(m.content || "").replace(/\s+/g, "");
-          const isError = m.isError || String(m.content || "").startsWith("Error:") || String(m.content || "").startsWith("Error ");
-          if (isError) {
-            bodyHTML = renderMarkdownSafe(m.content || "");
-          } else if (cleanedContent) {
-            const imgSrc = `data:image/png;base64,${cleanedContent}`;
-            const imgName = `${m.model.replace(/[^a-zA-Z0-9]/g, "_")}_${m.id}.png`;
-            bodyHTML = `<div class="chat-generated-image-container">
-              <button type="button" class="image-preview-open chat-generated-image-thumb" data-name="${escapeHtml(imgName)}">
-                <img src="${imgSrc}" alt="${escapeHtml(imgName)}" class="chat-generated-image" />
-              </button>
-              <div class="chat-generated-image-actions">
-                <a href="${imgSrc}" download="${escapeHtml(imgName)}" class="btn-icon download-generated-image-btn" title="${escapeHtml(t("chat.download_image"))}">
-                  <svg class="chat-download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                </a>
-              </div>
-            </div>`;
-          } else {
-            bodyHTML = `<p class="muted">${escapeHtml(t("state.error_prefix"))} Empty response</p>`;
-          }
+          bodyHTML = `<p class="muted">${escapeHtml(t("state.error_prefix"))} Empty response</p>`;
         }
-      } else if (m.isError) {
-        bodyHTML = `<div class="chat-msg-error"><span class="chat-msg-error-icon">⚠️</span><div class="chat-msg-error-text">${renderMarkdownSafe(m.content || "")}</div></div>`;
-        if (m.isOom && m.suggestedPct > 0) {
-          const curTokens = m.effectiveCtx > 0 ? ` (${fmtCtx(m.effectiveCtx)})` : "";
-          const sugTokens = m.suggestedCtx > 0 ? ` (${fmtCtx(m.suggestedCtx)})` : "";
-          bodyHTML += `<div class="chat-oom-hint">
-            <p class="chat-oom-hint-text">${escapeHtml(t("chat.oom_reduce_hint", {
-              pct: m.effectivePct,
-              tokens: curTokens,
-              suggestedPct: m.suggestedPct,
-              suggestedTokens: sugTokens,
-            }))}</p>
-            <button type="button" class="chat-oom-retry-btn" data-msg-id="${escapeHtml(m.id)}" data-suggested-pct="${m.suggestedPct}">${escapeHtml(t("chat.oom_retry", { pct: m.suggestedPct }))}</button>
-          </div>`;
-        }
-      } else {
-        bodyHTML = renderMarkdownSafe(m.content || "");
       }
+    } else if (m.isError) {
+      bodyHTML = `<div class="chat-msg-error"><span class="chat-msg-error-icon">⚠️</span><div class="chat-msg-error-text">${renderMarkdownSafe(m.content || "")}</div></div>`;
+      if (m.isOom && m.suggestedPct > 0) {
+        const curTokens = m.effectiveCtx > 0 ? ` (${fmtCtx(m.effectiveCtx)})` : "";
+        const sugTokens = m.suggestedCtx > 0 ? ` (${fmtCtx(m.suggestedCtx)})` : "";
+        bodyHTML += `<div class="chat-oom-hint">
+          <p class="chat-oom-hint-text">${escapeHtml(t("chat.oom_reduce_hint", {
+            pct: m.effectivePct,
+            tokens: curTokens,
+            suggestedPct: m.suggestedPct,
+            suggestedTokens: sugTokens,
+          }))}</p>
+          <button type="button" class="chat-oom-retry-btn" data-msg-id="${escapeHtml(m.id)}" data-suggested-pct="${m.suggestedPct}">${escapeHtml(t("chat.oom_retry", { pct: m.suggestedPct }))}</button>
+        </div>`;
+      }
+    } else {
+      bodyHTML = renderMarkdownSafe(m.content || "");
     }
-    if (isEditingUser) {
-      bodyHTML = `<div class="chat-edit-box" data-msg-id="${escapeHtml(m.id)}">
+  }
+  if (isEditingUser) {
+    bodyHTML = `<div class="chat-edit-box" data-msg-id="${escapeHtml(m.id)}">
   <div class="chat-edit-attachments" id="chat-edit-attachments">
     ${renderEditAttachmentsHTML(chatEditingAttachments)}
   </div>
@@ -2428,122 +2444,169 @@ function renderChatMessages() {
     </div>
   </div>
 </div>`;
-    } else if (m.role === "user") {
-      bodyHTML = `<p>${escapeHtml(m.content || "")}</p>`;
-    }
-    const roleLabel = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
-    const modelLabel = m.role === "assistant" && m.model
-      ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
-      : "";
-    const hideActions = (m.role === "assistant" && m.streaming) || (m.role === "assistant" && isImageModel) || isEditingUser;
-    const ttsPlaying = m.id === speakingMsgId;
-    const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
-    const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
+  } else if (m.role === "user") {
+    bodyHTML = `<p>${escapeHtml(m.content || "")}</p>`;
+  }
+  const roleLabel = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
+  const modelLabel = m.role === "assistant" && m.model
+    ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
+    : "";
+  const hideActions = (m.role === "assistant" && m.streaming) || (m.role === "assistant" && isImageModel) || isEditingUser;
+  const ttsPlaying = m.id === speakingMsgId;
+  const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
+  const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
 <svg class="chat-tts-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <path d="M11 5L6 9H3v6h3l5 4V5z"/>
 <path d="M15.5 9.5a4 4 0 0 1 0 5"/>
 <path d="M18.5 7a8 8 0 0 1 0 10"/>
 </svg></button>`;
-    const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
-    const copyBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
+  const copyLabel = m.role === "user" ? t("chat.copy_user") : t("chat.copy_assistant");
+  const copyBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-copy-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}">
 <svg class="chat-copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <rect x="9" y="9" width="11" height="11" rx="2"/>
 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
 </svg></button>`;
-    const quoteLabel = t("chat.quote");
-    const quoteBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-quote-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(quoteLabel)}" aria-label="${escapeHtml(quoteLabel)}">
+  const quoteLabel = t("chat.quote");
+  const quoteBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-quote-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(quoteLabel)}" aria-label="${escapeHtml(quoteLabel)}">
 <svg class="chat-quote-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2H4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 1.5 0 2 .5 2 2 0 2-2 3-5 4"/>
   <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2h-4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 1.5 0 2 .5 2 2 0 2-2 3-5 4"/>
 </svg></button>`;
-    const editBtn = !hideActions && canEditUser
-      ? `<button type="button" class="btn-icon chat-edit-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.edit_title"))}" aria-label="${escapeHtml(t("chat.edit"))}">
+  const editBtn = !hideActions && canEditUser
+    ? `<button type="button" class="btn-icon chat-edit-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.edit_title"))}" aria-label="${escapeHtml(t("chat.edit"))}">
 <svg class="chat-edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <path d="M12 20h9"/>
   <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
 </svg></button>`
-      : "";
-    const isLast = i === chatMessages.length - 1;
-    const canRegen = m.role === "assistant" && isLast && !m.streaming;
-    const regenBtn = canRegen
-      ? `<button type="button" class="btn-icon chat-regenerate-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.regenerate_title"))}" aria-label="${escapeHtml(t("chat.regenerate"))}">
+    : "";
+  const isLast = i === chatMessages.length - 1;
+  const canRegen = m.role === "assistant" && isLast && !m.streaming;
+  const regenBtn = canRegen
+    ? `<button type="button" class="btn-icon chat-regenerate-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.regenerate_title"))}" aria-label="${escapeHtml(t("chat.regenerate"))}">
 <svg class="chat-regenerate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v7h-7"/>
 </svg></button>`
-      : "";
+    : "";
 
-    const footActions = `${editBtn}${regenBtn}${ttsBtn}${quoteBtn}${copyBtn}`;
-    const finalMetricsHTML = m.role === "assistant" && !m.streaming ? assistantMetricHTML(m) : "";
-    const finalMetricsTitle = m.role === "assistant" && !m.streaming && m.elapsedMs ? formatMetaElapsedSecondsTitle(m.elapsedMs) : "";
-    const footBlock = footActions || finalMetricsHTML
-      ? `<div class="chat-msg-foot">
-          ${finalMetricsHTML ? `<span class="chat-msg-final-meta mono"${finalMetricsTitle ? ` title="${escapeHtml(finalMetricsTitle)}"` : ""}>${finalMetricsHTML}</span>` : ""}
-          <div class="chat-msg-foot-actions">
-            ${footActions}
-          </div>
-        </div>`
-      : "";
-    const artifactBadge = m.role === "assistant" && (m.artifactUrl || m.artifactGenerating)
-      ? `<div class="chat-artifact-badge">
-           <span class="chat-artifact-badge-icon">✦</span>
-           <span class="chat-artifact-badge-name">${escapeHtml(m.artifactName || "Artifact")}</span>
-           ${m.artifactUrl ? `<button type="button" class="btn-icon chat-artifact-open-btn" data-artifact-url="${escapeHtml(m.artifactUrl)}" data-artifact-name="${escapeHtml(m.artifactName || "Artifact")}" title="${escapeHtml(t("chat.artifact.open"))}" aria-label="${escapeHtml(t("chat.artifact.open"))}">↗</button>` : ""}
-         </div>`
-      : "";
-    const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
-    let contentBlock;
-    if (hasTl) {
-      // Timeline mode: all think/md/tool segments are in the timeline in order.
-      // Add tail (streaming think + md) after the timeline.
-      contentBlock = `${timelineBlock}${tailThinkBlock}${tailMdBlock}`;
-    } else {
-      // Simple mode: no timeline, render think + toolLog + body in order.
-      contentBlock = `${thinkBlock}${toolLogBlock}<div class="chat-md">${bodyHTML || "<p></p>"}</div>`;
+  const footActions = `${editBtn}${regenBtn}${ttsBtn}${quoteBtn}${copyBtn}`;
+  const finalMetricsHTML = m.role === "assistant" && !m.streaming ? assistantMetricHTML(m) : "";
+  const finalMetricsTitle = m.role === "assistant" && !m.streaming && m.elapsedMs ? formatMetaElapsedSecondsTitle(m.elapsedMs) : "";
+  const footBlock = footActions || finalMetricsHTML
+    ? `<div class="chat-msg-foot">
+        ${finalMetricsHTML ? `<span class="chat-msg-final-meta mono"${finalMetricsTitle ? ` title="${escapeHtml(finalMetricsTitle)}"` : ""}>${finalMetricsHTML}</span>` : ""}
+        <div class="chat-msg-foot-actions">
+          ${footActions}
+        </div>
+      </div>`
+    : "";
+  const artifactBadge = m.role === "assistant" && (m.artifactUrl || m.artifactGenerating)
+    ? `<div class="chat-artifact-badge">
+         <span class="chat-artifact-badge-icon">✦</span>
+         <span class="chat-artifact-badge-name">${escapeHtml(m.artifactName || "Artifact")}</span>
+         ${m.artifactUrl ? `<button type="button" class="btn-icon chat-artifact-open-btn" data-artifact-url="${escapeHtml(m.artifactUrl)}" data-artifact-name="${escapeHtml(m.artifactName || "Artifact")}" title="${escapeHtml(t("chat.artifact.open"))}" aria-label="${escapeHtml(t("chat.artifact.open"))}">↗</button>` : ""}
+       </div>`
+    : "";
+  const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
+  let contentBlock;
+  if (hasTl) {
+    // Timeline mode: all think/md/tool segments are in the timeline in order.
+    // Add tail (streaming think + md) after the timeline.
+    contentBlock = `${timelineBlock}${tailThinkBlock}${tailMdBlock}`;
+  } else {
+    // Simple mode: no timeline, render think + toolLog + body in order.
+    contentBlock = `${thinkBlock}${toolLogBlock}<div class="chat-md">${bodyHTML || "<p></p>"}</div>`;
+  }
+  return `
+    <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
+      <header class="chat-msg-head">
+        <div class="chat-msg-head-main">
+          <span class="chat-role">${escapeHtml(roleLabel)}</span>
+          ${modelLabel}
+        </div>
+      </header>
+      ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
+      ${files ? `<div class="chat-file-list">${files}</div>` : ""}
+      ${contentBlock}
+      ${artifactBadge}
+      ${footBlock}
+    </article>
+  `;
+}
+
+function renderChatMessages() {
+  const host = $("chat-messages");
+  if (!chatMessages.length) {
+    host.innerHTML = `<div class="chat-empty muted">${escapeHtml(t("chat.empty"))}</div>`;
+    return;
+  }
+
+  const emptyEl = host.querySelector(".chat-empty");
+  if (emptyEl) emptyEl.remove();
+
+  let lastUserMsgIdx = -1;
+  for (let k = chatMessages.length - 1; k >= 0; k--) {
+    if (chatMessages[k].role === "user") {
+      lastUserMsgIdx = k;
+      break;
     }
-    return `
-      <article class="chat-msg ${m.role === "user" ? "chat-user" : "chat-assistant"}${streamCls}" data-id="${escapeHtml(m.id)}">
-        <header class="chat-msg-head">
-          <div class="chat-msg-head-main">
-            <span class="chat-role">${escapeHtml(roleLabel)}</span>
-            ${modelLabel}
-          </div>
-        </header>
-        ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
-        ${files ? `<div class="chat-file-list">${files}</div>` : ""}
-        ${contentBlock}
-        ${artifactBadge}
-        ${footBlock}
-      </article>
-    `;
-  }).join("");
+  }
 
-  host.querySelectorAll("details.chat-think").forEach((el) => {
-    el.addEventListener("toggle", () => {
-      const msg = chatMessages.find((x) => x.id === el.dataset.id);
-      if (!msg) return;
-      if (el.dataset.tail === "1") {
-        msg.tailThinkOpen = el.open;
-      } else if (el.dataset.tlSeg && msg.timeline) {
-        const item = msg.timeline.find((i) => i.segId === el.dataset.tlSeg);
-        if (item) item.thinkOpen = el.open;
-      } else {
-        msg.thinkOpen = el.open;
-      }
-    });
+  const existingElements = new Map();
+  Array.from(host.querySelectorAll(":scope > article.chat-msg")).forEach((el) => {
+    if (el.dataset.id) {
+      existingElements.set(el.dataset.id, el);
+    }
   });
 
-  host.querySelectorAll("details.chat-tool-preview").forEach((el) => {
-    el.addEventListener("toggle", () => {
-      const msg = chatMessages.find((x) => x.id === el.dataset.msgId);
-      if (!msg) return;
-      const toolIdx = parseInt(el.dataset.toolIdx, 10);
-      if (msg.toolLog && msg.toolLog[toolIdx]) {
-        msg.toolLog[toolIdx].open = el.open;
-      }
-    });
+  const currentIds = new Set(chatMessages.map((m) => m.id));
+
+  // Remove elements no longer in chatMessages
+  existingElements.forEach((el, id) => {
+    if (!currentIds.has(id)) {
+      el.remove();
+      existingElements.delete(id);
+    }
   });
 
-  renderChatMath(host);
+  const tempContainer = document.createElement("div");
+
+  chatMessages.forEach((m, i) => {
+    const newHtml = renderSingleChatMessageHTML(m, i, lastUserMsgIdx).trim();
+    const existingEl = existingElements.get(m.id);
+
+    if (!existingEl) {
+      tempContainer.innerHTML = newHtml;
+      const newEl = tempContainer.firstElementChild;
+      if (newEl) {
+        newEl.dataset.renderedHtml = newHtml;
+        const nextSibling = host.children[i] || null;
+        host.insertBefore(newEl, nextSibling);
+        existingElements.set(m.id, newEl);
+        bindMessageDetails(newEl, m);
+        renderChatMath(newEl);
+      }
+    } else {
+      const isStreaming = Boolean(m.role === "assistant" && m.streaming);
+      const htmlChanged = existingEl.dataset.renderedHtml !== newHtml;
+
+      if (isStreaming || htmlChanged) {
+        tempContainer.innerHTML = newHtml;
+        const newEl = tempContainer.firstElementChild;
+        if (newEl) {
+          newEl.dataset.renderedHtml = newHtml;
+          host.replaceChild(newEl, existingEl);
+          existingElements.set(m.id, newEl);
+          bindMessageDetails(newEl, m);
+          renderChatMath(newEl);
+        }
+      }
+
+      if (host.children[i] !== existingElements.get(m.id)) {
+        host.insertBefore(existingElements.get(m.id), host.children[i] || null);
+      }
+    }
+  });
+
   if (typeof saveActiveChatSession === "function") {
     saveActiveChatSession();
   }

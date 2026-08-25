@@ -25,7 +25,7 @@ func TestExternalModelsStore(t *testing.T) {
 		t.Errorf("expected false for nonexistent model")
 	}
 
-	err := store.Register("my-model", "http://localhost:8000/v1", "secret-key", []string{"completion", "vision"})
+	err := store.Register("my-model", "http://localhost:8000/v1", "secret-key", []string{"completion", "vision"}, false)
 	if err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
@@ -38,8 +38,22 @@ func TestExternalModelsStore(t *testing.T) {
 	}
 
 	rec, ok := store.Get("my-model")
-	if !ok || rec.URL != "http://localhost:8000/v1" || rec.APIKey != "secret-key" {
+	if !ok || rec.URL != "http://localhost:8000/v1" || rec.APIKey != "secret-key" || rec.Disabled {
 		t.Errorf("get returned invalid record: %+v", rec)
+	}
+
+	// Test toggle disabled / paused
+	disabled, err := store.ToggleDisabled("my-model")
+	if err != nil || !disabled {
+		t.Errorf("expected disabled=true, got disabled=%v, err=%v", disabled, err)
+	}
+	rec, _ = store.Get("my-model")
+	if !rec.Disabled {
+		t.Errorf("record should be disabled")
+	}
+	disabled, err = store.ToggleDisabled("my-model")
+	if err != nil || disabled {
+		t.Errorf("expected disabled=false after 2nd toggle, got disabled=%v, err=%v", disabled, err)
 	}
 
 	// Test reload from disk
@@ -134,7 +148,7 @@ func TestChatExternalStreaming(t *testing.T) {
 	srv := &Server{
 		externalModels: newExternalModelsStore(""),
 	}
-	_ = srv.externalModels.Register("ext-model", ts.URL, "api-key", []string{"completion", "thinking"})
+	_ = srv.externalModels.Register("ext-model", ts.URL, "api-key", []string{"completion", "thinking"}, false)
 
 	var chunks []ollama.ChatChunk
 	err := srv.chatWithModel(context.Background(), ollama.ChatRequest{
@@ -179,7 +193,7 @@ func TestChatExternalThinkingLevels(t *testing.T) {
 	srv := &Server{
 		externalModels: newExternalModelsStore(""),
 	}
-	_ = srv.externalModels.Register("ext-thinking-model", ts.URL, "api-key", []string{"completion", "thinking"})
+	_ = srv.externalModels.Register("ext-thinking-model", ts.URL, "api-key", []string{"completion", "thinking"}, false)
 
 	cases := []struct {
 		thinkLevel   ollama.ThinkLevel
@@ -251,7 +265,7 @@ func TestExternalModelArtifacts(t *testing.T) {
 	srv := &Server{
 		externalModels: newExternalModelsStore(""),
 	}
-	_ = srv.externalModels.Register("qwen38-27b-ablitEXT", "http://localhost:8000/v1", "key", []string{"completion", "tools"})
+	_ = srv.externalModels.Register("qwen38-27b-ablitEXT", "http://localhost:8000/v1", "key", []string{"completion", "tools"}, false)
 
 	ctx := context.Background()
 	digest := srv.artifactModelDigest(ctx, "qwen38-27b-ablitEXT")

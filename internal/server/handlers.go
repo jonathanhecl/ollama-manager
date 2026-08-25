@@ -450,6 +450,7 @@ type modelView struct {
 	IsGhost              bool       `json:"is_ghost,omitempty"`
 	IsCustom             bool       `json:"is_custom,omitempty"`
 	IsExternal           bool       `json:"is_external,omitempty"`
+	Disabled             bool       `json:"disabled,omitempty"`
 	URL                  string     `json:"url,omitempty"`
 	BaseModel            string     `json:"base_model,omitempty"`
 }
@@ -569,6 +570,9 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 
 	if s.externalModels != nil {
 		for _, ext := range s.externalModels.All() {
+			if ext.Disabled {
+				continue
+			}
 			caps := ext.Capabilities
 			if len(caps) == 0 {
 				caps = []string{"completion", "tools", "thinking", "vision"}
@@ -579,6 +583,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				Format:       "external",
 				Capabilities: caps,
 				IsExternal:   true,
+				Disabled:     ext.Disabled,
 				URL:          cleanURLDisplay(ext.URL),
 				ModifiedAt:   ext.CreatedAt,
 			}
@@ -1014,6 +1019,7 @@ type modelDetail struct {
 	MinColdLoadAt        *time.Time          `json:"min_cold_load_at,omitempty"`
 	IsCustom             bool                `json:"is_custom,omitempty"`
 	IsExternal           bool                `json:"is_external,omitempty"`
+	Disabled             bool                `json:"disabled,omitempty"`
 	URL                  string              `json:"url,omitempty"`
 	BaseModel            string              `json:"base_model,omitempty"`
 }
@@ -1033,6 +1039,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		detail := modelDetail{
 			Name:         rec.Name,
 			IsExternal:   true,
+			Disabled:     rec.Disabled,
 			URL:          cleanURLDisplay(rec.URL),
 			Capabilities: caps,
 			Details: ollama.ModelDetails{
@@ -3323,6 +3330,7 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		URL          string   `json:"url"`
 		APIKey       string   `json:"api_key"`
 		Capabilities []string `json:"capabilities"`
+		Disabled     bool     `json:"disabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
@@ -3342,11 +3350,33 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, errors.New("external models store unavailable"))
 		return
 	}
-	if err := s.externalModels.Register(name, targetURL, body.APIKey, body.Capabilities); err != nil {
+	if err := s.externalModels.Register(name, targetURL, body.APIKey, body.Capabilities, body.Disabled); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name, "disabled": body.Disabled})
+}
+
+func (s *Server) handleToggleExternalModel(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if s.externalModels == nil {
+		writeError(w, http.StatusInternalServerError, errors.New("external models store unavailable"))
+		return
+	}
+	newDisabled, err := s.externalModels.ToggleDisabled(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":   "ok",
+		"name":     name,
+		"disabled": newDisabled,
+	})
 }
 
 func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request) {

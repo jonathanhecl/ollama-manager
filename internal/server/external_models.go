@@ -26,6 +26,7 @@ type ExternalModelRecord struct {
 	APIKey       string    `json:"api_key,omitempty"`
 	Capabilities []string  `json:"capabilities,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
+	Disabled     bool      `json:"disabled,omitempty"`
 }
 
 type externalModelsFile struct {
@@ -114,7 +115,7 @@ func (s *externalModelsStore) Get(name string) (ExternalModelRecord, bool) {
 	return ExternalModelRecord{}, false
 }
 
-func (s *externalModelsStore) Register(name, targetURL, apiKey string, capabilities []string) error {
+func (s *externalModelsStore) Register(name, targetURL, apiKey string, capabilities []string, disabled bool) error {
 	name = strings.TrimSpace(name)
 	targetURL = strings.TrimSpace(targetURL)
 	apiKey = strings.TrimSpace(apiKey)
@@ -130,11 +131,18 @@ func (s *externalModelsStore) Register(name, targetURL, apiKey string, capabilit
 	}
 
 	s.mu.Lock()
-	rec := s.models[name]
+	rec, exists := s.models[name]
+	if !exists && strings.HasSuffix(name, ":latest") {
+		rec, exists = s.models[strings.TrimSuffix(name, ":latest")]
+	}
+	if (apiKey == "" || apiKey == "••••••••") && exists && rec.APIKey != "" {
+		apiKey = rec.APIKey
+	}
 	rec.Name = name
 	rec.URL = targetURL
 	rec.APIKey = apiKey
 	rec.Capabilities = capabilities
+	rec.Disabled = disabled
 	if rec.CreatedAt.IsZero() {
 		rec.CreatedAt = time.Now().UTC()
 	}
@@ -142,6 +150,33 @@ func (s *externalModelsStore) Register(name, targetURL, apiKey string, capabilit
 	s.mu.Unlock()
 
 	return s.save()
+}
+
+func (s *externalModelsStore) ToggleDisabled(name string) (bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, errors.New("missing model name")
+	}
+	s.mu.Lock()
+	rec, exists := s.models[name]
+	targetKey := name
+	if !exists && strings.HasSuffix(name, ":latest") {
+		targetKey = strings.TrimSuffix(name, ":latest")
+		rec, exists = s.models[targetKey]
+	}
+	if !exists {
+		s.mu.Unlock()
+		return false, errors.New("external model not found")
+	}
+	rec.Disabled = !rec.Disabled
+	s.models[targetKey] = rec
+	newDisabled := rec.Disabled
+	s.mu.Unlock()
+
+	if err := s.save(); err != nil {
+		return false, err
+	}
+	return newDisabled, nil
 }
 
 func (s *externalModelsStore) Unregister(name string) error {

@@ -8,13 +8,11 @@ function openDetail(name) {
   $("detail-name").textContent = name;
   const m = models.find(x => x.name === name);
   const isExternal = !!(m && m.is_external);
-  const isExtDisabled = !!(m && m.disabled);
 
-  if ($("detail-ext-pause")) {
-    $("detail-ext-pause").hidden = !isExternal;
-    $("detail-ext-pause").dataset.name = name;
-    $("detail-ext-pause").textContent = isExtDisabled ? "▶️" : "⏸️";
-    $("detail-ext-pause").title = isExtDisabled ? t("detail.resume_external_title") : t("detail.pause_external_title");
+  if ($("detail-ext-clone")) {
+    $("detail-ext-clone").hidden = !isExternal;
+    $("detail-ext-clone").dataset.name = name;
+    $("detail-ext-clone").title = t("detail.clone_external_title");
   }
   if ($("detail-ext-edit")) {
     $("detail-ext-edit").hidden = !isExternal;
@@ -186,7 +184,7 @@ function renderDetail(d) {
   </div>` : "";
 
   const extActionBlock = isExternal ? `<div class="detail-section detail-update-section" style="display:flex;gap:8px;flex-wrap:wrap;">
-    <button type="button" class="ghost" id="detail-ext-btn-pause" data-name="${escapeHtml(d.name)}" style="font-size:12px;padding:5px 12px;">${d.disabled ? "▶️ " + escapeHtml(t("settings.ext_model_resume")) : "⏸️ " + escapeHtml(t("settings.ext_model_pause"))}</button>
+    <button type="button" class="ghost" id="detail-ext-btn-clone" data-name="${escapeHtml(d.name)}" style="font-size:12px;padding:5px 12px;">📋 ${escapeHtml(t("settings.ext_model_clone"))}</button>
     <button type="button" class="ghost" id="detail-ext-btn-edit" data-name="${escapeHtml(d.name)}" style="font-size:12px;padding:5px 12px;">⚙️ ${escapeHtml(t("settings.ext_model_edit"))}</button>
   </div>` : "";
 
@@ -195,35 +193,14 @@ function renderDetail(d) {
     bindRepairEntry(d);
     bindUpdateButton();
   } else {
-    const pBtn = $("detail-ext-btn-pause");
-    if (pBtn) {
-      pBtn.addEventListener("click", () => toggleExternalModelPause(d.name));
+    const cBtn = $("detail-ext-btn-clone");
+    if (cBtn) {
+      cBtn.addEventListener("click", () => openExternalModelClone(d.name));
     }
     const eBtn = $("detail-ext-btn-edit");
     if (eBtn) {
       eBtn.addEventListener("click", () => openExternalModelSettings(d.name));
     }
-  }
-}
-
-async function toggleExternalModelPause(name) {
-  if (!name) return;
-  try {
-    const res = await api("/api/external-models/toggle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    toast(res.disabled ? t("settings.ext_model_paused_toast", { name }) : t("settings.ext_model_resumed_toast", { name }), "success");
-    await refreshModels();
-    if (typeof loadExternalModels === "function") {
-      loadExternalModels();
-    }
-    if (activeName === name) {
-      openDetail(name);
-    }
-  } catch (err) {
-    toast(t("toast.error", { msg: err.message }), "error");
   }
 }
 
@@ -234,6 +211,16 @@ function openExternalModelSettings(name) {
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
   if (typeof openSettingsExternalModel === "function") {
     openSettingsExternalModel(name);
+  }
+}
+
+function openExternalModelClone(name) {
+  if (!name) return;
+  $("detail-panel").hidden = true;
+  activeName = null;
+  document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+  if (typeof openSettingsCloneExternalModel === "function") {
+    openSettingsCloneExternalModel(name);
   }
 }
 
@@ -294,9 +281,9 @@ function bindUpdateButton() {
 
 $("detail-close").addEventListener("click", () => {
   $("detail-panel").hidden = true;
-  if ($("detail-ext-pause")) {
-    $("detail-ext-pause").hidden = true;
-    $("detail-ext-pause").dataset.name = "";
+  if ($("detail-ext-clone")) {
+    $("detail-ext-clone").hidden = true;
+    $("detail-ext-clone").dataset.name = "";
   }
   if ($("detail-ext-edit")) {
     $("detail-ext-edit").hidden = true;
@@ -322,9 +309,9 @@ $("detail-close").addEventListener("click", () => {
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
 });
 
-$("detail-ext-pause")?.addEventListener("click", (e) => {
+$("detail-ext-clone")?.addEventListener("click", (e) => {
   const name = e.currentTarget?.dataset?.name || activeName;
-  if (name) toggleExternalModelPause(name);
+  if (name) openExternalModelClone(name);
 });
 
 $("detail-ext-edit")?.addEventListener("click", (e) => {
@@ -336,7 +323,7 @@ $("detail-modelfile")?.addEventListener("click", (e) => {
   const name = e.currentTarget?.dataset?.name || activeName;
   if (!name) return;
   $("detail-panel").hidden = true;
-  if ($("detail-ext-pause")) $("detail-ext-pause").hidden = true;
+  if ($("detail-ext-clone")) $("detail-ext-clone").hidden = true;
   if ($("detail-ext-edit")) $("detail-ext-edit").hidden = true;
   if ($("detail-delete")) {
     $("detail-delete").hidden = true;
@@ -365,7 +352,7 @@ $("detail-chat")?.addEventListener("click", (e) => {
   const name = e.currentTarget?.dataset?.name || activeName;
   if (!name) return;
   $("detail-panel").hidden = true;
-  if ($("detail-ext-pause")) $("detail-ext-pause").hidden = true;
+  if ($("detail-ext-clone")) $("detail-ext-clone").hidden = true;
   if ($("detail-ext-edit")) $("detail-ext-edit").hidden = true;
   if ($("detail-delete")) {
     $("detail-delete").hidden = true;

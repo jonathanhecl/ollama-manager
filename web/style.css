@@ -8067,13 +8067,50 @@ button.chat-send:disabled:hover {
   filter: brightness(1.2);
 }
 .ext-cap-pill.active {
-  border-color: rgba(192, 132, 252, 0.4);
-  background: rgba(192, 132, 252, 0.15);
+  border-color: rgba(168, 85, 247, 0.35);
+  background: rgba(168, 85, 247, 0.12);
   color: #c084fc;
+}
+.ext-cap-pill[data-cap="completion"].active {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+.ext-cap-pill[data-cap="vision"].active {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+}
+.ext-cap-pill[data-cap="audio"].active {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+}
+.ext-cap-pill[data-cap="thinking"].active {
+  border-color: rgba(168, 85, 247, 0.35);
+  background: rgba(168, 85, 247, 0.12);
+  color: #c084fc;
+}
+.ext-cap-pill[data-cap="tools"].active {
+  border-color: rgba(234, 179, 8, 0.35);
+  background: rgba(234, 179, 8, 0.12);
+  color: #eab308;
+}
+.ext-cap-pill[data-cap="image"].active {
+  border-color: rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.12);
+  color: #2dd4bf;
+}
+.ext-cap-pill[data-cap="embedding"].active {
+  border-color: rgba(251, 113, 133, 0.35);
+  background: rgba(251, 113, 133, 0.12);
+  color: #fb7185;
 }
 .ext-cap-pill.inactive {
   opacity: 0.45;
-  color: var(--text-dim);
+  color: var(--text-dim) !important;
+  background: var(--bg-panel, #18181f) !important;
+  border-color: var(--border) !important;
   text-decoration: line-through;
 }
 .ext-models-list {

@@ -919,8 +919,10 @@ function editExternalModel(m) {
     resultEl.hidden = false;
     resultEl.className = "ext-test-result ext-test-success";
     const capsHtml = allCaps.map((c) => {
+      const slug = String(c).toLowerCase().trim();
+      const label = typeof formatCapabilityLabel === "function" ? formatCapabilityLabel(c) : (slug.charAt(0).toUpperCase() + slug.slice(1));
       const isActive = activeCaps.includes(c);
-      return `<span class="ext-cap-pill ${isActive ? "active" : "inactive"}" data-cap="${escapeHtml(c)}">${escapeHtml(c)}</span>`;
+      return `<span class="ext-cap-pill ${isActive ? "active" : "inactive"}" data-cap="${escapeHtml(slug)}">${escapeHtml(label)}</span>`;
     }).join("");
     resultEl.innerHTML = `
       <div class="ext-test-head">
@@ -965,8 +967,8 @@ function cancelEditExternalModel() {
 }
 
 async function openSettingsExternalModel(name) {
-  showSettingsView();
-  showSettingsSection("sec-ext-models", false);
+  await showSettingsView();
+  showSettingsSection("sec-ext-models", true);
   try {
     const data = await api("/api/external-models");
     const list = data.models || [];
@@ -977,6 +979,75 @@ async function openSettingsExternalModel(name) {
   } catch { }
 }
 window.openSettingsExternalModel = openSettingsExternalModel;
+
+function cloneExternalModel(m) {
+  if (!m) return;
+  cancelEditExternalModel();
+  const nameInput = $("ext-model-name");
+  const urlInput = $("ext-model-url");
+  const keyInput = $("ext-model-apikey");
+  const cancelBtn = $("ext-model-cancel-btn");
+  const resultEl = $("ext-test-result");
+
+  if (nameInput) {
+    nameInput.value = `${m.name}-copy`;
+    nameInput.focus();
+    nameInput.select();
+  }
+  if (urlInput) urlInput.value = m.url;
+  if (keyInput) {
+    keyInput.value = "";
+    keyInput.placeholder = m.api_key ? "•••••••• (Keep existing key / Mantener clave)" : (t("settings.ext_model_apikey_placeholder") || "Bearer token or secret key");
+  }
+  if (cancelBtn) cancelBtn.hidden = false;
+
+  const allCaps = ["completion", "tools", "thinking", "vision"];
+  const activeCaps = Array.isArray(m.capabilities) && m.capabilities.length > 0 ? m.capabilities : allCaps;
+  lastTestedExtModel = `${m.name}-copy`;
+  lastTestedCapabilities = activeCaps;
+
+  if (resultEl) {
+    resultEl.hidden = false;
+    resultEl.className = "ext-test-result ext-test-success";
+    const capsHtml = allCaps.map((c) => {
+      const slug = String(c).toLowerCase().trim();
+      const label = typeof formatCapabilityLabel === "function" ? formatCapabilityLabel(c) : (slug.charAt(0).toUpperCase() + slug.slice(1));
+      const isActive = activeCaps.includes(c);
+      return `<span class="ext-cap-pill ${isActive ? "active" : "inactive"}" data-cap="${escapeHtml(slug)}">${escapeHtml(label)}</span>`;
+    }).join("");
+    resultEl.innerHTML = `
+      <div class="ext-test-head">
+        <span class="ext-test-badge good">📋</span>
+        <span>${escapeHtml(t("settings.ext_model_clone"))}: <strong>${escapeHtml(m.name)}</strong></span>
+      </div>
+      <div class="ext-test-caps"><span class="muted small">${escapeHtml(t("detail.capabilities"))}:</span> ${capsHtml}</div>
+    `;
+
+    resultEl.querySelectorAll(".ext-cap-pill").forEach((pill) => {
+      pill.addEventListener("click", () => {
+        pill.classList.toggle("active");
+        pill.classList.toggle("inactive");
+      });
+    });
+  }
+
+  const sec = $("sec-ext-models");
+  if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function openSettingsCloneExternalModel(name) {
+  await showSettingsView();
+  showSettingsSection("sec-ext-models", true);
+  try {
+    const data = await api("/api/external-models");
+    const list = data.models || [];
+    const found = list.find((x) => x.name === name || x.name === name + ":latest" || name.startsWith(x.name));
+    if (found) {
+      cloneExternalModel(found);
+    }
+  } catch { }
+}
+window.openSettingsCloneExternalModel = openSettingsCloneExternalModel;
 
 async function loadExternalModels(lang = null) {
   const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
@@ -995,7 +1066,11 @@ async function loadExternalModels(lang = null) {
     }
     listEl.innerHTML = list.map((m) => {
       const caps = (m.capabilities || ["completion", "tools", "thinking", "vision"])
-        .map((c) => `<span class="ext-cap-pill active">${escapeHtml(c)}</span>`)
+        .map((c) => {
+          const slug = String(c).toLowerCase().trim();
+          const label = typeof formatCapabilityLabel === "function" ? formatCapabilityLabel(c) : (slug.charAt(0).toUpperCase() + slug.slice(1));
+          return `<span class="ext-cap-pill active" data-cap="${escapeHtml(slug)}">${escapeHtml(label)}</span>`;
+        })
         .join("");
       const isPaused = !!m.disabled;
       return `
@@ -1011,6 +1086,7 @@ async function loadExternalModels(lang = null) {
           </div>
           <div class="ext-model-card-actions">
             <button type="button" class="btn-icon ext-model-toggle-btn" data-name="${escapeHtml(m.name)}" title="${isPaused ? escapeHtml(t("settings.ext_model_resume", null, targetLang)) : escapeHtml(t("settings.ext_model_pause", null, targetLang))}">${isPaused ? "▶️" : "⏸️"}</button>
+            <button type="button" class="btn-icon ext-model-clone-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("settings.ext_model_clone", null, targetLang))}">📋</button>
             <button type="button" class="btn-icon ext-model-edit-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("settings.ext_model_edit", null, targetLang))}">✏️</button>
             <button type="button" class="btn-icon danger-text ext-model-del-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.delete_external_title", null, targetLang))}">🗑️</button>
           </div>
@@ -1035,6 +1111,15 @@ async function loadExternalModels(lang = null) {
         } catch (err) {
           toast(t("toast.error", { msg: err.message }, targetLang), "error");
         }
+      });
+    });
+
+    listEl.querySelectorAll(".ext-model-clone-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.name;
+        const m = list.find((x) => x.name === name);
+        if (m) cloneExternalModel(m);
       });
     });
 
@@ -1116,8 +1201,10 @@ async function testExternalModel() {
       resultEl.className = "ext-test-result ext-test-success";
       const allCaps = ["completion", "tools", "thinking", "vision"];
       const capsHtml = allCaps.map((c) => {
+        const slug = String(c).toLowerCase().trim();
+        const label = typeof formatCapabilityLabel === "function" ? formatCapabilityLabel(c) : (slug.charAt(0).toUpperCase() + slug.slice(1));
         const isActive = (res.capabilities || []).includes(c);
-        return `<span class="ext-cap-pill ${isActive ? "active" : "inactive"}" data-cap="${escapeHtml(c)}">${escapeHtml(c)}</span>`;
+        return `<span class="ext-cap-pill ${isActive ? "active" : "inactive"}" data-cap="${escapeHtml(slug)}">${escapeHtml(label)}</span>`;
       }).join("");
       resultEl.innerHTML = `
         <div class="ext-test-head">

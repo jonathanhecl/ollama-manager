@@ -3589,10 +3589,22 @@ async function readSSEStream(response, onEvent) {
 
 function isAbortError(e) {
   if (!e) return false;
+  if (chatAbortController && chatAbortController.signal && chatAbortController.signal.aborted) {
+    return true;
+  }
   if (e.name === "AbortError") return true;
   if (e.code === 20) return true; // legacy DOMException
-  const msg = String(e.message || "").toLowerCase();
-  return msg.includes("aborted") || msg.includes("user aborted");
+  const msg = String(e.message || "").toLowerCase().trim();
+  return (
+    msg === "aborted" ||
+    msg === "the user aborted a request." ||
+    msg === "the operation was aborted" ||
+    msg === "the operation was aborted." ||
+    msg === "operation aborted" ||
+    msg === "user aborted" ||
+    msg === "user aborted a request" ||
+    msg === "aborterror"
+  );
 }
 
 function isOomError(e) {

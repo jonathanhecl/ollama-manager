@@ -3358,7 +3358,17 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleToggleExternalModel(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	var body struct {
+		Name string `json:"name"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = strings.TrimSpace(r.URL.Query().Get("name"))
+	}
+	if name == "" {
+		name = strings.TrimSpace(r.PathValue("name"))
+	}
 	if name == "" {
 		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
 		return

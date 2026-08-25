@@ -8,7 +8,19 @@ function openDetail(name) {
   $("detail-name").textContent = name;
   const m = models.find(x => x.name === name);
   const isExternal = !!(m && m.is_external);
+  const isExtDisabled = !!(m && m.disabled);
 
+  if ($("detail-ext-pause")) {
+    $("detail-ext-pause").hidden = !isExternal;
+    $("detail-ext-pause").dataset.name = name;
+    $("detail-ext-pause").textContent = isExtDisabled ? "▶️" : "⏸️";
+    $("detail-ext-pause").title = isExtDisabled ? t("detail.resume_external_title") : t("detail.pause_external_title");
+  }
+  if ($("detail-ext-edit")) {
+    $("detail-ext-edit").hidden = !isExternal;
+    $("detail-ext-edit").dataset.name = name;
+    $("detail-ext-edit").title = t("detail.edit_external_title");
+  }
   if ($("detail-delete")) {
     $("detail-delete").hidden = false;
     $("detail-delete").dataset.name = name;
@@ -107,7 +119,9 @@ function renderDetail(d) {
   }
 
   const stateText = isExternal
-    ? `<span class="badge" style="background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.4);">${escapeHtml(t("models.external_badge"))}</span>`
+    ? (d.disabled
+      ? `<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;border:1px solid rgba(234,179,8,0.4);">${escapeHtml(t("settings.ext_model_paused_badge"))}</span>`
+      : `<span class="badge" style="background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.4);">${escapeHtml(t("models.external_badge"))}</span>`)
     : (m.loaded ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) }) : t("detail.not_loaded"));
   const lastUsedVal = (d.last_used_at || m.last_used_at)
     ? fmtDateTimeFull(d.last_used_at || m.last_used_at)
@@ -124,6 +138,7 @@ function renderDetail(d) {
   if (isExternal) {
     rows.push([t("detail.external_model"), `<span class="model-external-tag">${escapeHtml(t("models.external_badge"))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(t("detail.external_desc"))}</span>`, false]);
     rows.push([t("detail.endpoint_url"), `<span class="mono">${escapeHtml(d.url || m.url || "—")}</span>`, false]);
+    rows.push([t("detail.state"), stateText, false]);
     rows.push([t("detail.record_tokens"), recordToksVal, false]);
     rows.push([t("detail.last_used"), lastUsedVal, false]);
     rows.push([t("detail.modified"), d.modified_at ? new Date(d.modified_at).toLocaleString() : "—", false]);
@@ -170,10 +185,55 @@ function renderDetail(d) {
     <button type="button" class="ghost detail-update-btn" id="detail-update-btn" data-name="${escapeHtml(d.name)}">⟳ ${escapeHtml(t("detail.update_btn"))}</button>
   </div>` : "";
 
-  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${updateBlock}${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}${systemBlock}`;
+  const extActionBlock = isExternal ? `<div class="detail-section detail-update-section" style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="button" class="ghost" id="detail-ext-btn-pause" data-name="${escapeHtml(d.name)}" style="font-size:12px;padding:5px 12px;">${d.disabled ? "▶️ " + escapeHtml(t("settings.ext_model_resume")) : "⏸️ " + escapeHtml(t("settings.ext_model_pause"))}</button>
+    <button type="button" class="ghost" id="detail-ext-btn-edit" data-name="${escapeHtml(d.name)}" style="font-size:12px;padding:5px 12px;">⚙️ ${escapeHtml(t("settings.ext_model_edit"))}</button>
+  </div>` : "";
+
+  $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${updateBlock}${extActionBlock}${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}${systemBlock}`;
   if (!isExternal) {
     bindRepairEntry(d);
     bindUpdateButton();
+  } else {
+    const pBtn = $("detail-ext-btn-pause");
+    if (pBtn) {
+      pBtn.addEventListener("click", () => toggleExternalModelPause(d.name));
+    }
+    const eBtn = $("detail-ext-btn-edit");
+    if (eBtn) {
+      eBtn.addEventListener("click", () => openExternalModelSettings(d.name));
+    }
+  }
+}
+
+async function toggleExternalModelPause(name) {
+  if (!name) return;
+  try {
+    const res = await api("/api/external-models/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    toast(res.disabled ? t("settings.ext_model_paused_toast", { name }) : t("settings.ext_model_resumed_toast", { name }), "success");
+    await refreshModels();
+    if (typeof loadExternalModels === "function") {
+      loadExternalModels();
+    }
+    if (activeName === name) {
+      openDetail(name);
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+function openExternalModelSettings(name) {
+  if (!name) return;
+  $("detail-panel").hidden = true;
+  activeName = null;
+  document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+  if (typeof openSettingsExternalModel === "function") {
+    openSettingsExternalModel(name);
   }
 }
 
@@ -198,7 +258,15 @@ $("detail-body").addEventListener("click", async (e) => {
   const pre = section.querySelector("pre");
   if (!pre) return;
   const ok = await copyTextToClipboard(pre.textContent);
-  toast(ok ? t("chat.copied") : t("chat.copy_failed"), ok ? "success" : "error");
+  if (ok) {
+    const prev = btn.textContent;
+    btn.textContent = t("detail.copied");
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = prev;
+      btn.classList.remove("copied");
+    }, 1500);
+  }
 });
 
 function bindUpdateButton() {
@@ -226,6 +294,14 @@ function bindUpdateButton() {
 
 $("detail-close").addEventListener("click", () => {
   $("detail-panel").hidden = true;
+  if ($("detail-ext-pause")) {
+    $("detail-ext-pause").hidden = true;
+    $("detail-ext-pause").dataset.name = "";
+  }
+  if ($("detail-ext-edit")) {
+    $("detail-ext-edit").hidden = true;
+    $("detail-ext-edit").dataset.name = "";
+  }
   if ($("detail-delete")) {
     $("detail-delete").hidden = true;
     $("detail-delete").dataset.name = "";
@@ -246,10 +322,22 @@ $("detail-close").addEventListener("click", () => {
   document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
 });
 
+$("detail-ext-pause")?.addEventListener("click", (e) => {
+  const name = e.currentTarget?.dataset?.name || activeName;
+  if (name) toggleExternalModelPause(name);
+});
+
+$("detail-ext-edit")?.addEventListener("click", (e) => {
+  const name = e.currentTarget?.dataset?.name || activeName;
+  if (name) openExternalModelSettings(name);
+});
+
 $("detail-modelfile")?.addEventListener("click", (e) => {
   const name = e.currentTarget?.dataset?.name || activeName;
   if (!name) return;
   $("detail-panel").hidden = true;
+  if ($("detail-ext-pause")) $("detail-ext-pause").hidden = true;
+  if ($("detail-ext-edit")) $("detail-ext-edit").hidden = true;
   if ($("detail-delete")) {
     $("detail-delete").hidden = true;
     $("detail-delete").dataset.name = "";
@@ -277,6 +365,8 @@ $("detail-chat")?.addEventListener("click", (e) => {
   const name = e.currentTarget?.dataset?.name || activeName;
   if (!name) return;
   $("detail-panel").hidden = true;
+  if ($("detail-ext-pause")) $("detail-ext-pause").hidden = true;
+  if ($("detail-ext-edit")) $("detail-ext-edit").hidden = true;
   if ($("detail-delete")) {
     $("detail-delete").hidden = true;
     $("detail-delete").dataset.name = "";

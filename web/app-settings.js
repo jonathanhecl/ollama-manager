@@ -1024,7 +1024,11 @@ async function loadExternalModels(lang = null) {
         const name = btn.dataset.name;
         if (!name) return;
         try {
-          const res = await api("/api/external-models/" + encodeURIComponent(name) + "/toggle", { method: "POST" });
+          const res = await api("/api/external-models/toggle", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
           toast(res.disabled ? t("settings.ext_model_paused_toast", { name }, targetLang) : t("settings.ext_model_resumed_toast", { name }, targetLang), "success");
           loadExternalModels(targetLang);
           refreshModels();

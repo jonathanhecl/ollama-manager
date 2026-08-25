@@ -832,6 +832,8 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 	scanner.Buffer(buf, 1024*1024)
 
 	var lastUsagePromptTokens, lastUsageCompletionTokens int
+	var totalContentLen int
+	var lastFinishReason string
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -870,6 +872,7 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 		if thinkingDelta == "" {
 			thinkingDelta = delta.Reasoning
 		}
+		totalContentLen += len(delta.Content) + len(thinkingDelta)
 
 		// Parse tool calls delta
 		var emittedToolCalls []ollama.ToolCall
@@ -907,6 +910,7 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
 			outChunk.DoneReason = *choice.FinishReason
+			lastFinishReason = *choice.FinishReason
 		}
 
 		if err := onChunk(outChunk); err != nil {
@@ -916,6 +920,10 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("error leyendo stream: %w", err)
+	}
+
+	if lastFinishReason == "error" && totalContentLen == 0 {
+		return fmt.Errorf("el servidor del modelo externo (%s) reportó un error al procesar la solicitud (finish_reason: error)", ext.Name)
 	}
 
 	// Emit final done chunk

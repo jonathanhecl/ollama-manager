@@ -388,6 +388,15 @@ function showChatView() {
   currentView = "chat";
   chatView.classList.remove("chat-options-open");
   modelsView.hidden = true;
+  $("tests-view") && ($("tests-view").hidden = true);
+  $("test-editor-view") && ($("test-editor-view").hidden = true);
+  $("opencode-view") && ($("opencode-view").hidden = true);
+  $("analytics-view") && ($("analytics-view").hidden = true);
+  $("settings-view") && ($("settings-view").hidden = true);
+  $("modelfile-view") && ($("modelfile-view").hidden = true);
+  $("hf-view") && ($("hf-view").hidden = true);
+  $("settings-btn")?.classList.remove("active");
+  $("hf-topbar-btn")?.classList.remove("active");
   chatView.hidden = false;
   syncChatPanels(chatView);
   $("chat-btn")?.classList.add("active");
@@ -395,6 +404,9 @@ function showChatView() {
     $("detail-panel").hidden = true;
     activeName = null;
     document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
+  }
+  if (window.location.pathname.startsWith("/settings") || window.location.pathname.startsWith("/hf") || window.location.pathname.startsWith("/modelfile") || window.location.pathname.startsWith("/tests") || window.location.pathname.startsWith("/analytics")) {
+    history.pushState(null, "", "/");
   }
   syncChatModelOptions();
   updateChatCapabilityUI();

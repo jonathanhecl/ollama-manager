@@ -7,26 +7,75 @@
     ./release.ps1 v0.1.0
 #>
 param(
-    [Parameter(Mandatory = $true, Position = 0)]
-    [string]$Version
+    [Parameter(Mandatory = $false, Position = 0)]
+    [string]$Version = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# 1. Validate version format (e.g., v1.0.0)
-if ($Version -notmatch '^v\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
-    Write-Host "Error: La versión debe tener el formato vX.Y.Z (ej. v1.0.0)" -ForegroundColor Red
-    exit 1
-}
-
-# 2. Check for Git repository
+# 1. Check for Git repository
 if (-not (Test-Path .git)) {
     Write-Host "Error: Este script debe ser ejecutado en la raíz del repositorio de Git." -ForegroundColor Red
     exit 1
 }
 
-# 3. Check for uncommitted changes
+# 2. Detect latest Git version tag & calculate suggested next patch version
+$latestTag = ""
+try {
+    $tags = (git tag --sort=-v:refname)
+    if ($tags) {
+        $latestTag = ($tags | Where-Object { $_ -match '^v\d+\.\d+\.\d+' } | Select-Object -First 1)
+    }
+} catch {}
+
+$suggestedVersion = ""
+if ($latestTag -and ($latestTag -match '^v(\d+)\.(\d+)\.(\d+)(.*)$')) {
+    $major = [int]$Matches[1]
+    $minor = [int]$Matches[2]
+    $patch = [int]$Matches[3] + 1
+    $suggestedVersion = "v$major.$minor.$patch"
+}
+
+# 3. Prompt for version if not supplied as argument
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "   LANZAMIENTO DE NUEVA VERSIÓN (RELEASE)   " -ForegroundColor Cyan
+    Write-Host "=============================================" -ForegroundColor Cyan
+    if ($latestTag) {
+        Write-Host "Tag actual más reciente: " -NoNewline -ForegroundColor Gray
+        Write-Host "$latestTag" -ForegroundColor Yellow
+        if ($suggestedVersion) {
+            Write-Host "Siguiente versión sugerida: " -NoNewline -ForegroundColor Gray
+            Write-Host "$suggestedVersion" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "No se encontraron tags de versión previos en el repositorio." -ForegroundColor Gray
+    }
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $promptText = if ($suggestedVersion) { "Introduce la versión a publicar [Default: $suggestedVersion]: " } else { "Introduce la versión a publicar (ej. v1.0.0): " }
+    $userInput = Read-Host $promptText
+    if ([string]::IsNullOrWhiteSpace($userInput)) {
+        if ($suggestedVersion) {
+            $Version = $suggestedVersion
+        } else {
+            Write-Host "Error: No se especificó ninguna versión." -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        $Version = $userInput.Trim()
+    }
+}
+
+# 4. Validate version format (e.g., v1.0.0)
+if ($Version -notmatch '^v\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
+    Write-Host "Error: La versión debe tener el formato vX.Y.Z (ej. v1.0.0)" -ForegroundColor Red
+    exit 1
+}
+
+# 5. Check for uncommitted changes
 $status = git status --porcelain
 if ($status) {
     Write-Host "Error: Hay cambios locales sin commitear en el repositorio:" -ForegroundColor Red
@@ -35,21 +84,21 @@ if ($status) {
     exit 1
 }
 
-# 4. Get current branch
+# 6. Get current branch
 $branch = (git branch --show-current).Trim()
 if ([string]::IsNullOrEmpty($branch)) {
     Write-Host "Error: No se pudo determinar la rama actual (¿estás en estado HEAD separado?)." -ForegroundColor Red
     exit 1
 }
 
-# 5. Check if tag already exists locally
+# 7. Check if tag already exists locally
 $tagExists = git tag -l $Version
 if ($tagExists) {
     Write-Host "Error: El tag '$Version' ya existe localmente." -ForegroundColor Red
     exit 1
 }
 
-# 6. Parse Owner and Repo from remote origin URL
+# 8. Parse Owner and Repo from remote origin URL
 $remoteUrl = (git remote get-url origin).Trim()
 if ($remoteUrl -match 'github\.com[:/]([^/]+)/([^/.]+?)(\.git)?$') {
     $owner = $Matches[1]
@@ -60,7 +109,7 @@ else {
     exit 1
 }
 
-# 7. Get GitHub Personal Access Token (PAT)
+# 9. Get GitHub Personal Access Token (PAT)
 $token = $env:GITHUB_TOKEN
 if ([string]::IsNullOrEmpty($token)) {
     Write-Host "GitHub Personal Access Token (GITHUB_TOKEN) no detectado en el entorno." -ForegroundColor Yellow
@@ -78,7 +127,10 @@ if ([string]::IsNullOrEmpty($token)) {
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "   PREPARANDO LANZAMIENTO LOCAL DE VERSION   " -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Versión:        $Version" -ForegroundColor Gray
+if ($latestTag) {
+    Write-Host "Tag anterior:   $latestTag" -ForegroundColor Gray
+}
+Write-Host "Nueva versión:  $Version" -ForegroundColor Green
 Write-Host "Repositorio:    $owner/$repo" -ForegroundColor Gray
 Write-Host "Rama origen:    $branch" -ForegroundColor Gray
 Write-Host "=============================================" -ForegroundColor Cyan

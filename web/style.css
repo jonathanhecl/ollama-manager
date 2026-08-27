@@ -8866,27 +8866,39 @@ button.chat-send:disabled:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  border-radius: 6px;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
   text-decoration: none;
   flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
 .hf-ext-link:hover {
-  color: var(--accent);
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.hf-ext-link:active {
+  transform: translateY(0);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .hf-ext-link svg {
   display: block;
   pointer-events: none;
+  opacity: 0.9;
+}
+
+.hf-ext-link:hover svg {
+  opacity: 1;
 }
 
 .hf-card-title-wrap {
@@ -9021,6 +9033,37 @@ button.chat-send:disabled:hover {
   align-items: center;
   gap: 6px;
   font-size: 12px;
+}
+
+#hf-detail-link.ghost-site-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+#hf-detail-link.ghost-site-glyph:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+#hf-detail-link.ghost-site-glyph:active {
+  transform: translateY(0);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .hf-detail-title {

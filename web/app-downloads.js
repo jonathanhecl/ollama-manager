@@ -62,7 +62,16 @@ function connectJobsStream() {
       // leave stale entries.
       if (prev && !isTerminal(prev.status) && isTerminal(j.status) && j.status === "done") {
         toast(t("downloads.installed", { name: j.name || "model" }), "success");
-        refreshModels();
+        refreshModels().then(() => {
+          // Re-render HF cards after models are updated so the card shows
+          // the correct installed (green) / previously had (orange) color.
+          if (typeof renderHFModelsList === "function") {
+            try { renderHFModelsList(); } catch {}
+          }
+          if (typeof hfActiveModel !== "undefined" && hfActiveModel && typeof renderHFQuantsTable === "function" && !$("hf-detail-modal")?.hidden) {
+            try { renderHFQuantsTable(hfActiveModel); } catch {}
+          }
+        });
       }
     } catch { }
   });
@@ -115,17 +124,32 @@ function throttleRenderTable() {
   }, 300);
 }
 
+let hfRenderThrottled = false;
+let hfRenderPending = false;
+function throttleHFRender() {
+  if (hfRenderThrottled) { hfRenderPending = true; return; }
+  hfRenderThrottled = true;
+  hfRenderPending = false;
+  try {
+    if (typeof renderHFModelsList === "function") renderHFModelsList();
+    if (typeof hfActiveModel !== "undefined" && hfActiveModel && typeof renderHFQuantsTable === "function" && !$("hf-detail-modal")?.hidden) {
+      renderHFQuantsTable(hfActiveModel);
+    }
+  } catch {}
+  setTimeout(() => {
+    hfRenderThrottled = false;
+    if (hfRenderPending) {
+      hfRenderPending = false;
+      throttleHFRender();
+    }
+  }, 1500);
+}
+
 function onJobsChanged() {
   updateDownloadsBadge();
   if (!$("downloads-modal").hidden) renderDownloads();
   throttleRenderTable(); // Update main model list to show/hide pending downloads
-  // Refresh HF explorer card states (downloading = dark yellow, previously had = dark orange)
-  if (typeof renderHFModelsList === "function") {
-    try { renderHFModelsList(); } catch {}
-  }
-  if (typeof hfActiveModel !== "undefined" && hfActiveModel && typeof renderHFQuantsTable === "function" && !$("hf-detail-modal")?.hidden) {
-    try { renderHFQuantsTable(hfActiveModel); } catch {}
-  }
+  throttleHFRender();
 }
 
 // Re-fetch the authoritative job list so the jobs Map reflects the server's

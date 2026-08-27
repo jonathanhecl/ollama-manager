@@ -275,6 +275,36 @@ function getHFQuantInstallStatus(pullName) {
   return { isInstalled, wasInstalled };
 }
 
+function getHFModelDownloadStatus(repoId) {
+  if (!repoId || typeof jobs === "undefined" || !jobs) return { isDownloading: false, isQueued: false };
+  const target = normalizeHFModelName(repoId);
+  let isDownloading = false;
+  let isQueued = false;
+  for (const j of jobs.values()) {
+    const jName = normalizeHFModelName(j.name || "");
+    // Match: hf.co/repo:quant or repo:quant, or loose contains for fallback
+    const matches = jName === target || jName.startsWith(target + ":") || jName.startsWith("hf.co/" + target + ":") || jName.includes(target);
+    if (!matches) continue;
+    if (j.status === "running") isDownloading = true;
+    else if (j.status === "queued" || j.status === "paused") isQueued = true;
+  }
+  return { isDownloading, isQueued };
+}
+
+function isHFQuantDownloading(pullName) {
+  if (!pullName || typeof jobs === "undefined" || !jobs) return { isDownloading: false, isQueued: false };
+  const target = normalizeHFModelName(pullName);
+  let isDownloading = false;
+  let isQueued = false;
+  for (const j of jobs.values()) {
+    if (normalizeHFModelName(j.name || "") === target) {
+      if (j.status === "running") isDownloading = true;
+      else if (j.status === "queued" || j.status === "paused") isQueued = true;
+    }
+  }
+  return { isDownloading, isQueued };
+}
+
 function hfModelCardHTML(m) {
   const author = escapeHtml(m.author || m.id.split("/")[0] || "");
   const name = escapeHtml(m.name || m.id);
@@ -283,15 +313,22 @@ function hfModelCardHTML(m) {
   const updatedTime = m.last_modified ? fmtRelativeTime(m.last_modified) : "";
 
   const installStatus = getHFModelInstallStatus(m.id);
+  const dlStatus = getHFModelDownloadStatus(m.id);
   let statusBadge = "";
   let cardClass = "hf-card";
 
   if (installStatus.installedCount > 0) {
     cardClass += " hf-card-installed";
     statusBadge = `<span class="badge badge-success" title="${escapeHtml(t("hf.card_installed_tooltip", { count: installStatus.installedCount }))}">💾 ${escapeHtml(t("hf.card_installed"))}</span>`;
+  } else if (dlStatus.isDownloading) {
+    cardClass += " hf-card-downloading";
+    statusBadge = `<span class="badge hf-badge-downloading" title="${escapeHtml(t("hf.downloading_badge"))}">⏳ ${escapeHtml(t("hf.downloading_badge"))}</span>`;
+  } else if (dlStatus.isQueued) {
+    cardClass += " hf-card-downloading";
+    statusBadge = `<span class="badge hf-badge-downloading" title="${escapeHtml(t("hf.queued_badge"))}">⏳ ${escapeHtml(t("hf.queued_badge"))}</span>`;
   } else if (installStatus.ghostCount > 0) {
     cardClass += " hf-card-had";
-    statusBadge = `<span class="badge badge-subtle hf-badge-history" title="${escapeHtml(t("hf.card_had_tooltip", { count: installStatus.ghostCount }))}">🕒 ${escapeHtml(t("hf.card_had"))}</span>`;
+    statusBadge = `<span class="badge hf-badge-history" title="${escapeHtml(t("hf.card_had_tooltip", { count: installStatus.ghostCount }))}">🕒 ${escapeHtml(t("hf.card_had"))}</span>`;
   }
 
   let tagsHTML = "";
@@ -467,22 +504,17 @@ function renderHFQuantsTable(m) {
     const isInstalled = quantStatus.isInstalled;
     const wasInstalled = quantStatus.wasInstalled;
     
-    let isQueued = false;
-    let isDownloading = false;
-    for (const j of jobs.values()) {
-      if (j.name === pullName) {
-        if (j.status === "running") isDownloading = true;
-        else if (j.status === "queued") isQueued = true;
-      }
-    }
+    const quantDl = isHFQuantDownloading(pullName);
+    let isDownloading = quantDl.isDownloading;
+    let isQueued = quantDl.isQueued;
 
     let statusBtn = "";
     if (isInstalled) {
       statusBtn = `<span class="badge badge-success">💾 ${escapeHtml(t("hf.installed_badge"))}</span>`;
     } else if (isDownloading) {
-      statusBtn = `<span class="badge badge-accent">${escapeHtml(t("hf.downloading_badge"))}</span>`;
+      statusBtn = `<span class="badge hf-badge-downloading">⏳ ${escapeHtml(t("hf.downloading_badge"))}</span>`;
     } else if (isQueued) {
-      statusBtn = `<span class="badge badge-subtle">${escapeHtml(t("hf.queued_badge"))}</span>`;
+      statusBtn = `<span class="badge hf-badge-downloading">⏳ ${escapeHtml(t("hf.queued_badge"))}</span>`;
     } else if (wasInstalled) {
       statusBtn = `
         <button type="button" class="secondary btn-sm hf-install-btn" data-pull-name="${escapeHtml(pullName)}" title="ollama pull ${escapeHtml(pullName)}">

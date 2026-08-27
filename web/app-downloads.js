@@ -119,6 +119,13 @@ function onJobsChanged() {
   updateDownloadsBadge();
   if (!$("downloads-modal").hidden) renderDownloads();
   throttleRenderTable(); // Update main model list to show/hide pending downloads
+  // Refresh HF explorer card states (downloading = dark yellow, previously had = dark orange)
+  if (typeof renderHFModelsList === "function") {
+    try { renderHFModelsList(); } catch {}
+  }
+  if (typeof hfActiveModel !== "undefined" && hfActiveModel && typeof renderHFQuantsTable === "function" && !$("hf-detail-modal")?.hidden) {
+    try { renderHFQuantsTable(hfActiveModel); } catch {}
+  }
 }
 
 // Re-fetch the authoritative job list so the jobs Map reflects the server's

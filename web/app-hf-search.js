@@ -585,14 +585,16 @@ function renderHFQuantsTable(m) {
     visionSize = m.vision_files[0].size_bytes || 0;
   }
 
-  // Filter out imatrix, mtp, draft, and auxiliary non-standalone files
+  // Filter out imatrix, mtp, draft, and auxiliary non-standalone files. Mirrors
+  // IsAuxiliaryGGUF in internal/server/hf_models.go: the leading [a-z]* catches
+  // vendor-prefixed variants such as "FastMTP" or "SpecDraft".
+  const auxFileRegex = /(?:^|[-._])[a-z]*(?:mtp|draft)(?:[-._0-9]|$)/;
   const validFiles = ggufFiles.filter((f) => {
-    const fn = (f.filename || "").toLowerCase();
+    const fn = (f.filename || "").toLowerCase().replace(/\.gguf$/, "");
     const q = (f.quant || "").toUpperCase();
     if (q === "IMATRIX" || q === "AUXILIARY" || q === "MMPROJ") return false;
     if (fn.includes("imatrix") || fn.endsWith(".dat")) return false;
-    if (fn.startsWith("mtp-") || fn.startsWith("mtp_") || fn.includes("-mtp-") || fn.includes("-mtp.") || fn.includes("_mtp_") || fn.includes("_mtp.")) return false;
-    if (fn.startsWith("draft-") || fn.startsWith("draft_") || fn.includes("-draft-") || fn.includes("-draft.") || fn.includes("_draft_") || fn.includes("_draft.")) return false;
+    if (auxFileRegex.test(fn)) return false;
     return true;
   });
 

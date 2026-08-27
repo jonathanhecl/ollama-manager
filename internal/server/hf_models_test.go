@@ -18,6 +18,7 @@ func TestExtractQuantization(t *testing.T) {
 		{"mmproj-model-f16.gguf", "MMPROJ"},
 		{"SuperQwen3.8-27b-abliterated.imatrix.gguf", "AUXILIARY"},
 		{"mtp-SuperQwen3.8-27b-abliterated-Q4_0.gguf", "AUXILIARY"},
+		{"Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-FastMTP-32K.gguf", "AUXILIARY"},
 		{"custom_model.gguf", "OTHER"},
 	}
 
@@ -43,8 +44,16 @@ func TestIsAuxiliaryGGUF(t *testing.T) {
 		{"draft-model-q4_k_m.gguf", true},
 		{"model.imatrix", true},
 		{"imatrix.dat", true},
+		// Vendor-prefixed speculative-decoding files.
+		{"Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-FastMTP-32K.gguf", true},
+		{"Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-FastMTP32K.gguf", true},
+		{"model-EagleMTP.gguf", true},
+		{"model-specdraft-q4_0.gguf", true},
 		{"qwen2.5-coder-7b-instruct-q4_k_m.gguf", false},
 		{"model.gguf", false},
+		// "mtp"/"draft" must stay delimited: these are ordinary models.
+		{"promptbench-7b-q4_k_m.gguf", false},
+		{"attempt-tuned-13b-q8_0.gguf", false},
 	}
 
 	for _, tt := range tests {

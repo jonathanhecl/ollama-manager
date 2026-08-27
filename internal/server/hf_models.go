@@ -65,8 +65,10 @@ var (
 	quantRegex     = regexp.MustCompile(`(?i)(?:^|[-._])(q[0-9]+_[a-z0-9_]+|q[0-9]+_[0-9]+|q[0-9]+|iq[0-9]+_[a-z0-9_]+|ud-iq[0-9]+_[a-z0-9_]+|f16|f32|bf16)(?:[-._]|$)`)
 	mmprojRegex    = regexp.MustCompile(`(?i)mmproj`)
 	imatrixRegex   = regexp.MustCompile(`(?i)(?:^|[-._])imatrix(?:[-._]|$)`)
-	mtpRegex       = regexp.MustCompile(`(?i)(?:^|[-._])mtp(?:[-._]|$)`)
-	draftRegex     = regexp.MustCompile(`(?i)(?:^|[-._])draft(?:[-._]|$)`)
+	// The leading [a-z]* catches vendor-prefixed variants such as "FastMTP" or
+	// "SpecDraft"; the trailing digit allows suffixes like "FastMTP32K".
+	mtpRegex   = regexp.MustCompile(`(?i)(?:^|[-._])[a-z]*mtp(?:[-._0-9]|$)`)
+	draftRegex = regexp.MustCompile(`(?i)(?:^|[-._])[a-z]*draft(?:[-._0-9]|$)`)
 	paramSizeRegex = regexp.MustCompile(`(?i)(?:^|[-._])([0-9]+(?:\.[0-9]+)?[bm])(?:[-._]|$)`)
 )
 
@@ -82,17 +84,7 @@ func IsAuxiliaryGGUF(filename string) bool {
 	if IsImatrixFile(lower) {
 		return true
 	}
-	if mtpRegex.MatchString(lower) || strings.HasPrefix(lower, "mtp-") || strings.HasPrefix(lower, "mtp_") ||
-		strings.Contains(lower, "-mtp-") || strings.Contains(lower, "-mtp.") ||
-		strings.Contains(lower, "_mtp_") || strings.Contains(lower, "_mtp.") {
-		return true
-	}
-	if draftRegex.MatchString(lower) || strings.HasPrefix(lower, "draft-") || strings.HasPrefix(lower, "draft_") ||
-		strings.Contains(lower, "-draft-") || strings.Contains(lower, "-draft.") ||
-		strings.Contains(lower, "_draft_") || strings.Contains(lower, "_draft.") {
-		return true
-	}
-	return false
+	return mtpRegex.MatchString(lower) || draftRegex.MatchString(lower)
 }
 
 // ExtractQuantization extracts the quant name from a GGUF filename.

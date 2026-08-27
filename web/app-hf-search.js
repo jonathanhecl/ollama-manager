@@ -14,6 +14,7 @@ let hfPage = 0;
 let hfNextCursor = "";
 let hfHasMore = false;
 let hfLoadingMore = false;
+let hfDetailReturnFocus = null;
 
 function showHFView() {
   if (typeof hideAllMainViews === "function") {
@@ -87,6 +88,7 @@ function computeMemoryFit(modelSizeBytes, visionSizeBytes = 0) {
       level: "optimal",
       badgeClass: "hf-fit-optimal",
       label: t("hf.fit_optimal"),
+      shortLabel: t("hf.fit_optimal_short"),
       desc: t("hf.fit_optimal_desc"),
       totalBytes: totalModelBytes,
     };
@@ -98,6 +100,7 @@ function computeMemoryFit(modelSizeBytes, visionSizeBytes = 0) {
       level: "partial",
       badgeClass: "hf-fit-partial",
       label: t("hf.fit_partial"),
+      shortLabel: t("hf.fit_partial_short"),
       desc: t("hf.fit_partial_desc"),
       totalBytes: totalModelBytes,
     };
@@ -107,6 +110,7 @@ function computeMemoryFit(modelSizeBytes, visionSizeBytes = 0) {
     level: "exceeds",
     badgeClass: "hf-fit-exceeds",
     label: t("hf.fit_exceeds"),
+    shortLabel: t("hf.fit_exceeds_short"),
     desc: t("hf.fit_exceeds_desc"),
     totalBytes: totalModelBytes,
   };
@@ -403,7 +407,7 @@ function hfModelCardHTML(m) {
   const hfUrl = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
 
   return `
-    <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}">
+    <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="${escapeHtml(m.id)}">
       <div class="hf-card-head">
         <div class="hf-card-title-wrap">
           <span class="hf-card-author">${author} /</span>
@@ -433,12 +437,16 @@ async function openHFModelDetail(repoId) {
   const modal = $("hf-detail-modal");
   if (!modal) return;
 
+  // Remember the card that opened the modal so focus can return to it on close.
+  hfDetailReturnFocus = document.activeElement;
+
   $("hf-detail-name").textContent = repoId;
   $("hf-detail-loading").hidden = false;
   $("hf-detail-body").hidden = true;
   modal.hidden = false;
   hfActiveTab = "quants";
   switchHFDetailTab("quants");
+  $("hf-detail-close")?.focus();
 
   try {
     const data = await api(`/api/hf/model?id=${encodeURIComponent(repoId)}`);
@@ -467,6 +475,11 @@ function closeHFModelDetail() {
   const modal = $("hf-detail-modal");
   if (modal) modal.hidden = true;
   hfActiveModel = null;
+
+  if (hfDetailReturnFocus && typeof hfDetailReturnFocus.focus === "function" && hfDetailReturnFocus.isConnected) {
+    hfDetailReturnFocus.focus();
+  }
+  hfDetailReturnFocus = null;
 }
 
 function renderHFModelDetail(m) {
@@ -498,12 +511,63 @@ function renderHFModelDetail(m) {
   renderHFQuantsTable(m);
 }
 
+/**
+ * Fills the strip above the quants table: how many quants the repo offers, how
+ * many of them you already have, the size range, and the system memory the
+ * "Memory Fit" column is measured against.
+ */
+function renderHFQuantsSummary(rows) {
+  const el = $("hf-quants-summary");
+  if (!el) return;
+
+  if (!rows || rows.length === 0) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+
+  const installed = rows.filter((r) => r.status.isInstalled).length;
+  const had = rows.filter((r) => r.status.wasInstalled).length;
+  const sizes = rows.map((r) => Number(r.file.size_bytes) || 0).filter((n) => n > 0);
+
+  const pills = [`<span class="hf-summary-pill">${escapeHtml(t("hf.summary_quants", { n: rows.length }))}</span>`];
+  if (installed > 0) {
+    pills.push(`<span class="hf-summary-pill hf-summary-installed">💾 ${escapeHtml(t("hf.summary_installed", { n: installed }))}</span>`);
+  }
+  if (had > 0) {
+    pills.push(`<span class="hf-summary-pill hf-summary-had">🕒 ${escapeHtml(t("hf.summary_had", { n: had }))}</span>`);
+  }
+  if (sizes.length > 0) {
+    const range = t("hf.summary_size_range", {
+      min: fmtBytes(Math.min(...sizes)),
+      max: fmtBytes(Math.max(...sizes)),
+    });
+    pills.push(`<span class="hf-summary-pill mono">${escapeHtml(range)}</span>`);
+  }
+
+  const vramBytes = Number(lastSystemStatus?.vram_total || 0);
+  const ramBytes = Number(lastSystemStatus?.memory_total || 0);
+  const memInfo = (vramBytes > 0 || ramBytes > 0)
+    ? t("hf.sys_mem_info", {
+        vram: vramBytes > 0 ? fmtBytes(vramBytes) : "—",
+        ram: ramBytes > 0 ? fmtBytes(ramBytes) : "—",
+      })
+    : "";
+
+  el.innerHTML = `
+    <div class="hf-summary-pills">${pills.join("")}</div>
+    ${memInfo ? `<div class="hf-summary-mem mono">${escapeHtml(memInfo)}</div>` : ""}
+  `;
+  el.hidden = false;
+}
+
 function renderHFQuantsTable(m) {
   const tbody = $("hf-quants-tbody");
   if (!tbody) return;
 
   const ggufFiles = Array.isArray(m.gguf_files) ? m.gguf_files : [];
   if (ggufFiles.length === 0) {
+    renderHFQuantsSummary([]);
     tbody.innerHTML = `
       <tr>
         <td colspan="6" class="muted text-center" style="padding: 36px 20px;">
@@ -532,8 +596,19 @@ function renderHFQuantsTable(m) {
     return true;
   });
 
-  // Sort files by size ascending
-  const sortedFiles = [...validFiles].sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0));
+  // Sort files by size ascending, resolving each row's fit/install state once.
+  const rows = [...validFiles]
+    .sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0))
+    .map((f) => {
+      const pullName = f.pull_name || f.pullName || (m.id ? `hf.co/${m.id}:${f.quant}` : "");
+      return {
+        file: f,
+        pullName,
+        fit: computeMemoryFit(f.size_bytes, visionSize),
+        status: getHFQuantInstallStatus(pullName),
+        download: isHFQuantDownloading(pullName),
+      };
+    });
 
   // Determine recommended quant using priority list
   const quantPriority = [
@@ -542,40 +617,37 @@ function renderHFQuantsTable(m) {
     "Q6_K", "Q8_0", "Q2_K"
   ];
 
-  function pickBestQuant(files) {
+  function pickBestQuant(candidates) {
     for (const q of quantPriority) {
-      const match = files.find((f) => f.quant === q);
+      const match = candidates.find((r) => r.file.quant === q);
       if (match) return match;
     }
-    return files.find((f) => f.quant !== "OTHER") || files[0] || null;
+    return candidates.find((r) => r.file.quant !== "OTHER") || candidates[0] || null;
   }
 
-  let recommendedFile = null;
-  const optimalFiles = sortedFiles.filter((f) => computeMemoryFit(f.size_bytes, visionSize).level === "optimal");
-  if (optimalFiles.length > 0) {
-    recommendedFile = pickBestQuant(optimalFiles);
-  } else {
-    const sharedFiles = sortedFiles.filter((f) => computeMemoryFit(f.size_bytes, visionSize).level === "shared");
-    if (sharedFiles.length > 0) {
-      recommendedFile = pickBestQuant(sharedFiles);
-    } else if (sortedFiles.length > 0) {
-      recommendedFile = pickBestQuant(sortedFiles);
-    }
-  }
+  // Prefer a quant that runs fully on the GPU; otherwise settle for one that at
+  // least fits in VRAM+RAM before recommending anything that exceeds memory.
+  const byLevel = (level) => rows.filter((r) => r.fit.level === level);
+  const recommendedRow =
+    pickBestQuant(byLevel("optimal")) ||
+    pickBestQuant(byLevel("partial")) ||
+    pickBestQuant(rows);
 
-  tbody.innerHTML = sortedFiles.map((f) => {
-    const fit = computeMemoryFit(f.size_bytes, visionSize);
-    const isRec = recommendedFile && recommendedFile.filename === f.filename;
-    const pullName = f.pull_name || f.pullName || (m.id ? `hf.co/${m.id}:${f.quant}` : "");
-    
-    const quantStatus = getHFQuantInstallStatus(pullName);
+  renderHFQuantsSummary(rows);
+
+  tbody.innerHTML = rows.map((row) => {
+    const f = row.file;
+    const fit = row.fit;
+    const pullName = row.pullName;
+    const isRec = recommendedRow && recommendedRow.file === f;
+
+    const quantStatus = row.status;
     const isInstalled = quantStatus.isInstalled;
     const wasInstalled = quantStatus.wasInstalled;
     const usageRecord = quantStatus.record;
-    
-    const quantDl = isHFQuantDownloading(pullName);
-    let isDownloading = quantDl.isDownloading;
-    let isQueued = quantDl.isQueued;
+
+    const isDownloading = row.download.isDownloading;
+    const isQueued = row.download.isQueued;
 
     let statusBtn = "";
     if (isInstalled) {
@@ -621,7 +693,7 @@ function renderHFQuantsTable(m) {
         <td class="hf-cell-filename mono" title="${escapeHtml(f.filename)}">${escapeHtml(f.filename)}</td>
         <td class="hf-cell-size mono">${fmtBytes(f.size_bytes)}</td>
         <td class="hf-cell-fit">
-          <span class="badge ${fit.badgeClass}" title="${escapeHtml(fit.desc)}">${escapeHtml(fit.label)}</span>
+          <span class="badge ${fit.badgeClass}" title="${escapeHtml(fit.label + " — " + fit.desc)}">${escapeHtml(fit.shortLabel || fit.label)}</span>
         </td>
         <td class="hf-cell-usage">${hfQuantUsageHTML(usageRecord)}</td>
         <td class="hf-cell-action">${statusBtn}</td>
@@ -1043,6 +1115,14 @@ function bindHFExplorerEvents() {
     if (repoId) openHFModelDetail(repoId);
   });
 
+  $("hf-models-list")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest(".hf-card");
+    if (!card || !card.dataset.repoId) return;
+    e.preventDefault();
+    openHFModelDetail(card.dataset.repoId);
+  });
+
   // Detail Modal tabs
   $("hf-tab-quants")?.addEventListener("click", () => switchHFDetailTab("quants"));
   $("hf-tab-readme")?.addEventListener("click", () => switchHFDetailTab("readme"));
@@ -1051,6 +1131,17 @@ function bindHFExplorerEvents() {
   $("hf-detail-close")?.addEventListener("click", closeHFModelDetail);
   $("hf-detail-modal")?.addEventListener("click", (e) => {
     if (e.target === $("hf-detail-modal")) closeHFModelDetail();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = $("hf-detail-modal");
+    if (modal && !modal.hidden) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      closeHFModelDetail();
+    }
   });
 
   // Install button inside Quants table

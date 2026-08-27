@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260827_01">
+  <link rel="stylesheet" href="/static/style.css?v=20260827_02">
 </head>
 <body>
   <header class="topbar">
@@ -1202,7 +1202,7 @@
   </main>
 
   <!-- HuggingFace Model Detail / Quantizations Modal -->
-  <div id="hf-detail-modal" class="modal" hidden role="dialog" aria-modal="true">
+  <div id="hf-detail-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="hf-detail-name">
     <div class="modal-card hf-detail-card">
       <header class="hf-detail-head">
         <div class="hf-detail-title-wrap">
@@ -1234,6 +1234,7 @@
 
       <div id="hf-detail-body" class="hf-detail-body">
         <section id="hf-section-quants" class="hf-section-quants">
+          <div id="hf-quants-summary" class="hf-quants-summary" hidden></div>
           <div class="table-wrap hf-table-wrap">
             <table class="hf-quants-table">
               <thead>
@@ -1980,7 +1981,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260827"></script>
+  <script src="/static/i18n.js?v=20260827_02"></script>
   <script src="/static/app-helpers.js?v=20260820"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
@@ -1994,7 +1995,7 @@
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>
-  <script src="/static/app-hf-search.js?v=20260827"></script>
+  <script src="/static/app-hf-search.js?v=20260827_02"></script>
   <script src="/static/app-modelfile.js?v=20260822"></script>
   <script src="/static/app-topbar.js?v=20260820"></script>
   <script src="/static/app-settings.js?v=20260820"></script>

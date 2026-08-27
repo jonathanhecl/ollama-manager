@@ -8805,6 +8805,11 @@ button.chat-send:disabled:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
+.hf-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .hf-card.hf-card-installed {
   border-color: rgba(34, 197, 94, 0.45);
   background: rgba(34, 197, 94, 0.04);
@@ -9128,12 +9133,54 @@ button.chat-send:disabled:hover {
   max-height: calc(88vh - 180px);
 }
 
+.hf-quants-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.hf-summary-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hf-summary-pill {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.hf-summary-installed {
+  border-color: rgba(111, 207, 151, 0.45);
+  background: rgba(111, 207, 151, 0.1);
+  color: var(--good);
+}
+
+.hf-summary-had {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.hf-summary-mem {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .hf-table-wrap {
   border: 1px solid var(--border);
   border-radius: 6px;
   /* Own scroll container so the column headers can stick while scrolling. */
   overflow: auto;
-  max-height: calc(88vh - 250px);
+  max-height: calc(88vh - 280px);
 }
 
 .hf-quants-table {

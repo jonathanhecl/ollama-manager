@@ -264,20 +264,73 @@ function getHFModelInstallStatus(repoId) {
 }
 
 function getHFQuantInstallStatus(pullName) {
-  if (!pullName) return { isInstalled: false, wasInstalled: false };
+  if (!pullName) return { isInstalled: false, wasInstalled: false, record: null };
   const target = normalizeHFModelName(pullName);
 
-  const isInstalled = (models || []).some((m) => {
-    const norm = normalizeHFModelName(m.name || "");
+  const matches = (entry) => {
+    const norm = normalizeHFModelName(entry?.name || "");
     return norm === target || norm.startsWith(target + ":");
-  });
+  };
 
-  const wasInstalled = !isInstalled && (ghostModels || []).some((g) => {
-    const norm = normalizeHFModelName(g.name || "");
-    return norm === target || norm.startsWith(target + ":");
-  });
+  const installed = (models || []).find(matches) || null;
+  const ghost = installed ? null : ((ghostModels || []).find(matches) || null);
 
-  return { isInstalled, wasInstalled };
+  return {
+    isInstalled: !!installed,
+    wasInstalled: !!ghost,
+    record: installed || ghost,
+  };
+}
+
+/**
+ * Builds the "Your Record" cell for a quant: best tokens/s ever measured plus
+ * the accumulated tokens and calls. Data comes from the persistent usage store
+ * and survives uninstalling the model, so ghost entries keep their history.
+ */
+function hfQuantUsageHTML(rec) {
+  const tps = Number(rec?.record_tokens_per_sec) || 0;
+  const totalTokens = Number(rec?.total_tokens) || 0;
+  const totalCalls = Number(rec?.total_calls) || 0;
+  const coldLoadMs = Number(rec?.min_cold_load_ms) || 0;
+
+  if (tps <= 0 && totalTokens <= 0 && totalCalls <= 0) {
+    return `<span class="hf-usage-empty" title="${escapeHtml(t("hf.usage_none"))}">—</span>`;
+  }
+
+  const tooltipParts = [];
+  if (rec?.record_tokens_per_sec_at) {
+    tooltipParts.push(t("detail.record_at", { date: fmtDateTimeFull(rec.record_tokens_per_sec_at) }));
+  }
+  if (coldLoadMs > 0) {
+    tooltipParts.push(`${t("detail.min_cold_load")}: ${fmtColdLoad(coldLoadMs)}`);
+  }
+  if (rec?.last_used_at) {
+    tooltipParts.push(`${t("detail.last_used")}: ${fmtDateTimeFull(rec.last_used_at)}`);
+  }
+
+  let tpsHTML;
+  if (tps > 0) {
+    const color = (typeof getToksRecordColor === "function") ? getToksRecordColor(tps) : "";
+    const colorStyle = color ? ` style="color: ${color};"` : "";
+    tpsHTML = `<span class="hf-usage-tps"${colorStyle}>${tps.toFixed(1)}</span> <span class="hf-usage-unit">tok/s</span>`;
+  } else {
+    tpsHTML = `<span class="hf-usage-tps hf-usage-tps-none">—</span> <span class="hf-usage-unit">tok/s</span>`;
+  }
+
+  const subParts = [];
+  if (totalTokens > 0) {
+    subParts.push(`<span title="${escapeHtml(t("hf.usage_total_tokens", { n: totalTokens.toLocaleString() }))}">${escapeHtml(fmtCompactTokens(totalTokens))} tok</span>`);
+  }
+  if (totalCalls > 0) {
+    subParts.push(`<span title="${escapeHtml(t("hf.usage_total_calls", { n: totalCalls.toLocaleString() }))}">${totalCalls.toLocaleString()} ${escapeHtml(t("hf.usage_calls_unit"))}</span>`);
+  }
+
+  return `
+    <div class="hf-usage-cell" title="${escapeHtml(tooltipParts.join(" · "))}">
+      <div class="hf-usage-main">⚡ ${tpsHTML}</div>
+      ${subParts.length ? `<div class="hf-usage-sub">${subParts.join(" · ")}</div>` : ""}
+    </div>
+  `;
 }
 
 function getHFModelDownloadStatus(repoId) {
@@ -393,6 +446,16 @@ async function openHFModelDetail(repoId) {
     renderHFModelDetail(data);
     $("hf-detail-loading").hidden = true;
     $("hf-detail-body").hidden = false;
+
+    // Usage records change as the user chats, so pull fresh stats and repaint
+    // the table once they arrive.
+    if (typeof refreshModels === "function") {
+      refreshModels()
+        .then(() => {
+          if (hfActiveModel === data && !modal.hidden) renderHFQuantsTable(data);
+        })
+        .catch(() => {});
+    }
   } catch (err) {
     $("hf-detail-loading").hidden = true;
     toast(t("toast.error", { msg: err.message }), "error");
@@ -443,7 +506,7 @@ function renderHFQuantsTable(m) {
   if (ggufFiles.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" class="muted text-center" style="padding: 36px 20px;">
+        <td colspan="6" class="muted text-center" style="padding: 36px 20px;">
           <div style="font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text);">⚠️ ${escapeHtml(t("hf.no_gguf_files"))}</div>
           <div class="small muted" style="max-width: 480px; margin: 0 auto; line-height: 1.5;">${escapeHtml(t("hf.no_gguf_files_desc"))}</div>
         </td>
@@ -508,6 +571,7 @@ function renderHFQuantsTable(m) {
     const quantStatus = getHFQuantInstallStatus(pullName);
     const isInstalled = quantStatus.isInstalled;
     const wasInstalled = quantStatus.wasInstalled;
+    const usageRecord = quantStatus.record;
     
     const quantDl = isHFQuantDownloading(pullName);
     let isDownloading = quantDl.isDownloading;
@@ -534,29 +598,33 @@ function renderHFQuantsTable(m) {
       `;
     }
 
-    const recBadge = isRec ? `<span class="badge badge-rec" title="${escapeHtml(t("hf.recommended_quant"))}">★ ${escapeHtml(t("hf.recommended_quant"))}</span>` : "";
+    const recBadge = isRec ? `<span class="badge badge-rec hf-quant-state-badge" title="${escapeHtml(t("hf.recommended_quant"))}">★ ${escapeHtml(t("hf.recommended_quant"))}</span>` : "";
     let quantStatusBadge = "";
     if (isInstalled) {
-      quantStatusBadge = ` <span class="badge badge-success hf-quant-state-badge" title="${escapeHtml(t("hf.quant_installed"))}">💾 ${escapeHtml(t("hf.card_installed"))}</span>`;
+      quantStatusBadge = `<span class="badge badge-success hf-quant-state-badge" title="${escapeHtml(t("hf.quant_installed"))}">💾 ${escapeHtml(t("hf.card_installed"))}</span>`;
     } else if (wasInstalled) {
-      quantStatusBadge = ` <span class="badge badge-subtle hf-badge-history hf-quant-state-badge" title="${escapeHtml(t("hf.quant_was_installed_desc"))}">🕒 ${escapeHtml(t("hf.quant_was_installed"))}</span>`;
+      quantStatusBadge = `<span class="badge badge-subtle hf-badge-history hf-quant-state-badge" title="${escapeHtml(t("hf.quant_was_installed_desc"))}">🕒 ${escapeHtml(t("hf.quant_was_installed"))}</span>`;
     }
+    const quantBadges = recBadge + quantStatusBadge;
+
+    const rowClasses = ["hf-quant-row"];
+    if (isRec) rowClasses.push("hf-row-recommended");
+    if (isInstalled) rowClasses.push("hf-row-installed");
+    else if (wasInstalled) rowClasses.push("hf-row-had");
 
     return `
-      <tr class="${isRec ? "hf-row-recommended" : ""}">
-        <td class="mono font-semibold">
-          ${escapeHtml(f.quant)}
-          ${recBadge}
-          ${quantStatusBadge}
+      <tr class="${rowClasses.join(" ")}">
+        <td class="hf-cell-quant">
+          <div class="hf-quant-name mono">${escapeHtml(f.quant)}</div>
+          ${quantBadges ? `<div class="hf-quant-badges">${quantBadges}</div>` : ""}
         </td>
-        <td class="muted small mono hf-cell-filename" title="${escapeHtml(f.filename)}">${escapeHtml(f.filename)}</td>
-        <td class="mono">${fmtBytes(f.size_bytes)}</td>
-        <td>
+        <td class="hf-cell-filename mono" title="${escapeHtml(f.filename)}">${escapeHtml(f.filename)}</td>
+        <td class="hf-cell-size mono">${fmtBytes(f.size_bytes)}</td>
+        <td class="hf-cell-fit">
           <span class="badge ${fit.badgeClass}" title="${escapeHtml(fit.desc)}">${escapeHtml(fit.label)}</span>
         </td>
-        <td class="text-right">
-          ${statusBtn}
-        </td>
+        <td class="hf-cell-usage">${hfQuantUsageHTML(usageRecord)}</td>
+        <td class="hf-cell-action">${statusBtn}</td>
       </tr>
     `;
   }).join("");

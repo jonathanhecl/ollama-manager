@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260824_04">
+  <link rel="stylesheet" href="/static/style.css?v=20260827_01">
 </head>
 <body>
   <header class="topbar">
@@ -1238,11 +1238,12 @@
             <table class="hf-quants-table">
               <thead>
                 <tr>
-                  <th data-i18n="col.quant">Quant</th>
-                  <th>Filename</th>
-                  <th data-i18n="col.size">Size</th>
-                  <th>Memory Fit</th>
-                  <th></th>
+                  <th class="hf-cell-quant" data-i18n="hf.col_quant">Quant</th>
+                  <th class="hf-cell-filename" data-i18n="hf.col_filename">Filename</th>
+                  <th class="hf-cell-size" data-i18n="col.size">Size</th>
+                  <th class="hf-cell-fit" data-i18n="hf.col_memory_fit">Memory Fit</th>
+                  <th class="hf-cell-usage" data-i18n="hf.col_your_record">Your Record</th>
+                  <th class="hf-cell-action"></th>
                 </tr>
               </thead>
               <tbody id="hf-quants-tbody"></tbody>
@@ -1979,7 +1980,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260821"></script>
+  <script src="/static/i18n.js?v=20260827"></script>
   <script src="/static/app-helpers.js?v=20260820"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
@@ -1993,7 +1994,7 @@
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>
-  <script src="/static/app-hf-search.js?v=20260824"></script>
+  <script src="/static/app-hf-search.js?v=20260827"></script>
   <script src="/static/app-modelfile.js?v=20260822"></script>
   <script src="/static/app-topbar.js?v=20260820"></script>
   <script src="/static/app-settings.js?v=20260820"></script>

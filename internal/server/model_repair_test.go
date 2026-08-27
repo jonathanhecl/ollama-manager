@@ -449,6 +449,73 @@ func TestDeleteModelStoresUninstallReason(t *testing.T) {
 	}
 }
 
+// A model removed before it ever produced usage stats still has the reason the
+// user gave, and the HF quantizations table surfaces it in place of a record.
+func TestListModelsExposesUninstallReasonOnGhosts(t *testing.T) {
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/delete":
+			writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
+		case "/api/tags":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{}})
+		case "/api/ps":
+			writeJSON(w, http.StatusOK, map[string]any{"models": []map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	const name = "hf.co/LiquidAI/LFM2.5-8B-A1B-DSpark-GGUF:Q4_K_M"
+	// Simulate a model that was installed (metadata captured) but never ran.
+	if err := srv.usage.SetMeta(name, modelUsageMeta{Quantization: "Q4_K_M", Size: 190400000}); err != nil {
+		t.Fatalf("SetMeta: %v", err)
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/models/"+url.PathEscape(name), strings.NewReader(`{"reason":"load_failed"}`))
+	delReq.Header.Set("Content-Type", "application/json")
+	delRec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, body = %s", delRec.Code, delRec.Body.String())
+	}
+
+	listRec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/api/models", nil))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listRec.Code, listRec.Body.String())
+	}
+
+	var out struct {
+		GhostModels []modelView `json:"ghost_models"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	var ghost *modelView
+	for i := range out.GhostModels {
+		if out.GhostModels[i].Name == name {
+			ghost = &out.GhostModels[i]
+			break
+		}
+	}
+	if ghost == nil {
+		t.Fatalf("ghost %q missing from response: %+v", name, out.GhostModels)
+	}
+	if ghost.RecordTokensPerSec != 0 {
+		t.Fatalf("expected no speed record, got %v", ghost.RecordTokensPerSec)
+	}
+	if ghost.UninstallReason != "load_failed" {
+		t.Fatalf("uninstall_reason = %q, want %q", ghost.UninstallReason, "load_failed")
+	}
+	if ghost.UninstallAt == nil || ghost.UninstallAt.IsZero() {
+		t.Fatalf("uninstall_at missing: %+v", ghost.UninstallAt)
+	}
+}
+
 func TestBuildModelRepairPreviewFiltersMarkdownStops(t *testing.T) {
 	show := &ollama.ShowResponse{
 		Capabilities: []string{"completion"},

@@ -296,8 +296,12 @@ function hfQuantUsageHTML(rec) {
   const totalTokens = Number(rec?.total_tokens) || 0;
   const totalCalls = Number(rec?.total_calls) || 0;
   const coldLoadMs = Number(rec?.min_cold_load_ms) || 0;
+  const reasonHTML = hfUninstallReasonHTML(rec);
 
   if (tps <= 0 && totalTokens <= 0 && totalCalls <= 0) {
+    // A quant you removed before it ever ran has no numbers, but the reason you
+    // gave when uninstalling it explains exactly why.
+    if (reasonHTML) return `<div class="hf-usage-cell">${reasonHTML}</div>`;
     return `<span class="hf-usage-empty" title="${escapeHtml(t("hf.usage_none"))}">—</span>`;
   }
 
@@ -333,8 +337,27 @@ function hfQuantUsageHTML(rec) {
     <div class="hf-usage-cell" title="${escapeHtml(tooltipParts.join(" · "))}">
       <div class="hf-usage-main">⚡ ${tpsHTML}</div>
       ${subParts.length ? `<div class="hf-usage-sub">${subParts.join(" · ")}</div>` : ""}
+      ${reasonHTML}
     </div>
   `;
+}
+
+/**
+ * Renders the reason given when this quant was last uninstalled, if any.
+ * Only ghost entries carry it, since installed models were never removed.
+ */
+function hfUninstallReasonHTML(rec) {
+  const key = rec?.uninstall_reason;
+  if (!key) return "";
+
+  const text = (typeof uninstallReasonToText === "function") ? uninstallReasonToText(key) : "";
+  if (!text) return "";
+
+  const tooltip = rec.uninstall_at
+    ? `${t("hf.uninstall_reason_label")}: ${text} · ${t("analytics.usage_uninstall_at")} ${fmtDateTimeFull(rec.uninstall_at)}`
+    : `${t("hf.uninstall_reason_label")}: ${text}`;
+
+  return `<div class="hf-usage-reason" title="${escapeHtml(tooltip)}">🗑️ ${escapeHtml(text)}</div>`;
 }
 
 function getHFModelDownloadStatus(repoId) {

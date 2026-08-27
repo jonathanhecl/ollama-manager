@@ -156,6 +156,7 @@ const I18N = {
     "hf.summary_installed": "{n} installed",
     "hf.summary_had": "{n} previously had",
     "hf.summary_size_range": "{min} – {max}",
+    "hf.uninstall_reason_label": "Reason you removed it",
 
     "action.refresh": "Refresh",
     "action.reload_models": "Reload models",
@@ -1135,6 +1136,7 @@ const I18N = {
     "hf.summary_installed": "{n} instaladas",
     "hf.summary_had": "{n} que tuviste",
     "hf.summary_size_range": "{min} – {max}",
+    "hf.uninstall_reason_label": "Motivo por el que lo borraste",
 
     "action.refresh": "Refrescar",
     "action.reload_models": "Recargar modelos",

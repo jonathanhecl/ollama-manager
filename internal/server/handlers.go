@@ -448,6 +448,8 @@ type modelView struct {
 	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
 	Archived             bool       `json:"archived"`
 	IsGhost              bool       `json:"is_ghost,omitempty"`
+	UninstallReason      string     `json:"uninstall_reason,omitempty"`
+	UninstallAt          *time.Time `json:"uninstall_at,omitempty"`
 	IsCustom             bool       `json:"is_custom,omitempty"`
 	IsExternal           bool       `json:"is_external,omitempty"`
 	Disabled             bool       `json:"disabled,omitempty"`
@@ -646,6 +648,17 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			}
 			if rec.LastUsedAt != nil {
 				gv.ModifiedAt = *rec.LastUsedAt
+			}
+			// Why the model was removed is often the only thing worth showing
+			// for a ghost that never ran well enough to record any usage.
+			if s.uninst != nil {
+				if u, ok := s.uninst.Get(name); ok && u.LastReason != "" {
+					gv.UninstallReason = u.LastReason
+					if !u.LastUninstallAt.IsZero() {
+						at := u.LastUninstallAt
+						gv.UninstallAt = &at
+					}
+				}
 			}
 			ghostOut = append(ghostOut, gv)
 		}

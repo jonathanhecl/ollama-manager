@@ -51,6 +51,11 @@ function showHFView() {
   } else {
     renderHFModelsList();
   }
+  // Ensure models/ghostModels are fresh so card colors (installed/green,
+  // previously had/orange, downloading/yellow) reflect current state.
+  if (typeof refreshModels === "function") {
+    refreshModels().then(() => { try { renderHFModelsList(); } catch {} });
+  }
   setTimeout(() => input?.focus(), 50);
 }
 

@@ -690,7 +690,11 @@ function renderHFQuantsTable(m) {
           <div class="hf-quant-name mono">${escapeHtml(f.quant)}</div>
           ${quantBadges ? `<div class="hf-quant-badges">${quantBadges}</div>` : ""}
         </td>
-        <td class="hf-cell-filename mono" title="${escapeHtml(f.filename)}">${escapeHtml(f.filename)}</td>
+        <td class="hf-cell-filename">
+          <div class="hf-filename-track" title="${escapeHtml(f.filename)}">
+            <span class="hf-filename-text mono">${escapeHtml(f.filename)}</span>
+          </div>
+        </td>
         <td class="hf-cell-size mono">${fmtBytes(f.size_bytes)}</td>
         <td class="hf-cell-fit">
           <span class="badge ${fit.badgeClass}" title="${escapeHtml(fit.label + " — " + fit.desc)}">${escapeHtml(fit.shortLabel || fit.label)}</span>
@@ -700,6 +704,20 @@ function renderHFQuantsTable(m) {
       </tr>
     `;
   }).join("");
+
+  updateHFQuantMarquees();
+}
+
+/**
+ * Long GGUF filenames share a common prefix and only differ at the end, which
+ * is exactly the part an ellipsis hides. Scroll them instead.
+ */
+function updateHFQuantMarquees() {
+  if (typeof updateMarquee !== "function") return;
+  document.querySelectorAll("#hf-quants-tbody .hf-filename-track").forEach((track) => {
+    const text = track.querySelector(".hf-filename-text");
+    if (text) updateMarquee(track, text);
+  });
 }
 
 function switchHFDetailTab(tab) {
@@ -714,6 +732,8 @@ function switchHFDetailTab(tab) {
     readmeTab?.classList.remove("active");
     if (quantsSection) quantsSection.hidden = false;
     if (readmeSection) readmeSection.hidden = true;
+    // The section had no width while hidden, so the marquees need re-measuring.
+    updateHFQuantMarquees();
   } else {
     readmeTab?.classList.add("active");
     quantsTab?.classList.remove("active");
@@ -1142,6 +1162,10 @@ function bindHFExplorerEvents() {
       e.stopImmediatePropagation();
       closeHFModelDetail();
     }
+  });
+
+  window.addEventListener("resize", () => {
+    if (!$("hf-detail-modal")?.hidden) updateHFQuantMarquees();
   });
 
   // Install button inside Quants table

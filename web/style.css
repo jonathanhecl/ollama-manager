@@ -9251,9 +9251,31 @@ button.chat-send:disabled:hover {
 .hf-cell-filename {
   color: var(--muted);
   font-size: 11.5px;
-  white-space: nowrap;
+}
+
+.hf-filename-track {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.hf-filename-text {
+  display: inline-block;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hf-filename-text {
+    animation: none !important;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .hf-cell-size {

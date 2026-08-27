@@ -786,7 +786,7 @@ async function loadHFReadme(repoId) {
       container.innerHTML = `<div class="muted text-center" style="padding: 30px;">${escapeHtml(t("hf.readme_error"))}</div>`;
       return;
     }
-    const formatted = formatHFMarkdown(raw);
+    const formatted = formatHFMarkdown(raw, repoId);
     hfReadmeCache.set(repoId, formatted);
     container.innerHTML = formatted;
   } catch (err) {
@@ -914,7 +914,100 @@ function hfExtractGFMTables(text, tables) {
   return result.join("\n");
 }
 
-function formatHFMarkdown(md) {
+/**
+ * Turns README image URLs (absolute, protocol-relative, or repo-relative) into
+ * a safe https URL. javascript: and data: are rejected.
+ */
+function hfResolveReadmeUrl(url, repoId) {
+  const u = String(url || "").trim();
+  if (!u || /^(javascript|data|vbscript):/i.test(u)) return "";
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.startsWith("//")) return "https:" + u;
+  if (!repoId) return "";
+  const path = u.replace(/^\.\//, "").replace(/^\/+/, "");
+  if (!path) return "";
+  return `https://huggingface.co/${repoId}/resolve/main/${path}`;
+}
+
+function hfAttr(raw, name) {
+  const quoted = raw.match(new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i"));
+  if (quoted) return quoted[2];
+  const bare = raw.match(new RegExp(`\\b${name}\\s*=\\s*([^\\s>]+)`, "i"));
+  return bare ? bare[1] : "";
+}
+
+function hfRewriteHtmlImg(raw, repoId) {
+  const src = hfResolveReadmeUrl(hfAttr(raw, "src"), repoId);
+  if (!src) return "";
+  const alt = hfAttr(raw, "alt");
+  const width = hfAttr(raw, "width");
+  const height = hfAttr(raw, "height");
+  const size =
+    (/^\d+%?$/.test(width) ? ` width="${width}"` : "") +
+    (/^\d+%?$/.test(height) ? ` height="${height}"` : "");
+  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${size} loading="lazy" class="hf-readme-img" />`;
+}
+
+/**
+ * Pulls HTML <img> tags — including the multiline form HuggingFace READMEs
+ * use — out of the markdown before the line-by-line parser can wrap each
+ * attribute in a <p> and break the tag.
+ */
+function hfExtractHtmlImages(text, images, repoId) {
+  return text.replace(/<img\b[\s\S]*?(?:\/\s*>|>)/gi, (raw) => {
+    if (raw.length > 2500) return raw;
+    const html = hfRewriteHtmlImg(raw, repoId);
+    if (!html) return "";
+    const key = `@@HFIMG_${images.length}@@`;
+    images.push(html);
+    return key;
+  });
+}
+
+/**
+ * Collapses HTML tags whose attributes are spread over several lines into a
+ * single line. READMEs commonly format <img> that way, and the line-by-line
+ * parser below would otherwise wrap each attribute in its own <p>.
+ */
+function hfJoinMultilineTags(text) {
+  const MAX_JOINED_LINES = 12;
+  const lines = text.split("\n");
+  const out = [];
+  let pending = null;
+  let pendingCount = 0;
+
+  const opensUnclosedTag = (line) => {
+    const re = /<\/?[a-zA-Z][a-zA-Z0-9-]*/g;
+    let lastIdx = -1;
+    let m;
+    while ((m = re.exec(line)) !== null) lastIdx = m.index;
+    return lastIdx !== -1 && !line.slice(lastIdx).includes(">");
+  };
+
+  for (const line of lines) {
+    if (pending !== null) {
+      pending += " " + line.trim();
+      pendingCount++;
+      if (pending.includes(">") || pendingCount >= MAX_JOINED_LINES) {
+        out.push(pending);
+        pending = null;
+        pendingCount = 0;
+      }
+      continue;
+    }
+    if (opensUnclosedTag(line)) {
+      pending = line.trimEnd();
+      pendingCount = 0;
+      continue;
+    }
+    out.push(line);
+  }
+  if (pending !== null) out.push(pending);
+
+  return out.join("\n");
+}
+
+function formatHFMarkdown(md, repoId) {
   if (!md) return "";
 
   // 1. Extract and format YAML frontmatter
@@ -939,6 +1032,14 @@ function formatHFMarkdown(md) {
     return key;
   });
 
+  // HTML <img> tags (often split across lines) must come out before any
+  // per-line wrapping, otherwise the browser eats `<img` and prints the rest.
+  const htmlImages = [];
+  work = hfExtractHtmlImages(work, htmlImages, repoId);
+
+  // Rejoin remaining HTML tags split across lines
+  work = hfJoinMultilineTags(work);
+
   // 3. Extract GFM Tables
   const tableBlocks = [];
   work = hfExtractGFMTables(work, tableBlocks);
@@ -951,8 +1052,14 @@ function formatHFMarkdown(md) {
   work = work.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
   work = work.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
 
-  // 5. Markdown images: ![alt](url)
-  work = work.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" class="hf-readme-img" />');
+  // 5. Markdown images: ![alt](url) — including repo-relative paths
+  work = work.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt, url) => {
+    const src = hfResolveReadmeUrl(url, repoId);
+    if (!src) return "";
+    const key = `@@HFIMG_${htmlImages.length}@@`;
+    htmlImages.push(`<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="lazy" class="hf-readme-img" />`);
+    return key;
+  });
 
   // 6. Markdown links: [text](url)
   work = work.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1 ↗</a>');
@@ -1027,11 +1134,23 @@ function formatHFMarkdown(md) {
       continue;
     }
 
+    // Image placeholder
+    if (/^@@HFIMG_\d+@@$/.test(trimmed)) {
+      out.push(trimmed);
+      continue;
+    }
+
     if (trimmed === "") {
       out.push("");
     } else {
-      // Check if it's already an HTML block tag
-      if (/^<(h[1-6]|div|p|table|blockquote|ul|ol|li|hr|details|summary|pre|img)/i.test(trimmed)) {
+      // Pass HTML through: a full tag, an unclosed start tag (`<img`), a closer
+      // (`/>`), or an attribute continuation (`src="..."`). Wrapping any of
+      // those in <p> is what made README images leak as text.
+      if (
+        /^<\/?[a-zA-Z]/.test(trimmed) ||
+        /^\/?>$/.test(trimmed) ||
+        /^[a-zA-Z_:][\w:.-]*\s*=/.test(trimmed)
+      ) {
         out.push(trimmed);
       } else {
         out.push(`<p>${trimmed}</p>`);
@@ -1055,7 +1174,12 @@ function formatHFMarkdown(md) {
     parsed = parsed.replace(`@@HFCODEBLOCK_${idx}@@`, code);
   });
 
-  // 14. Sanitize final HTML to prevent XSS while allowing clean rendering
+  // 14. Restore extracted images (may sit inside restored tables)
+  htmlImages.forEach((img, idx) => {
+    parsed = parsed.replace(`@@HFIMG_${idx}@@`, img);
+  });
+
+  // 15. Sanitize final HTML to prevent XSS while allowing clean rendering
   const sanitized = hfSanitizeHtml(parsed);
 
   return `

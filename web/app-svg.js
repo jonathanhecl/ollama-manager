@@ -1018,14 +1018,15 @@ async function removeGhost(name) {
   }
 }
 
-function showTestsView() {
+function showTestsView(preserveGroup = false) {
   hideAllMainViews();
   stopSpeechPlayback();
   currentView = "tests";
   $("tests-btn")?.classList.add("active");
   $("tests-view").hidden = false;
-  if (!window.location.pathname.startsWith("/tests")) {
-    history.pushState(null, "", "/tests");
+  const targetPath = (preserveGroup && selectedGroupId) ? "/tests/group/" + encodeURIComponent(selectedGroupId) : "/tests";
+  if (window.location.pathname !== targetPath && (!preserveGroup || !window.location.pathname.startsWith("/tests/group/"))) {
+    history.pushState(null, "", targetPath);
   }
   void refreshTests();
 }
@@ -1213,7 +1214,7 @@ function renderTestsList() {
   empty.hidden = true;
 
   list.innerHTML = filtered.map((test) => {
-    const activeClass = test.active ? "tests-item-active" : "tests-item-suspended";
+    const activeClass = test.active ? "pill-good" : "pill-muted";
     const activeLabel = test.active ? t("tests.status_active") : t("tests.status_suspended");
     let evalLabel = "";
     if (test.cases && test.cases.length > 1) {
@@ -1309,12 +1310,6 @@ function renderTestsList() {
       } catch (err) {
         toast(t("toast.error", { msg: err.message }), "error");
       }
-    });
-  });
-  list.querySelectorAll(".tests-item-run").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      $("coming-soon-modal").hidden = false;
     });
   });
 }

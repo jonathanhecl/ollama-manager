@@ -132,12 +132,6 @@ $("battery-modal-cancel")?.addEventListener("click", closeBatteryModal);
 $("battery-modal-confirm")?.addEventListener("click", () => {
   void confirmBatteryRun();
 });
-$("coming-soon-modal")?.addEventListener("click", (e) => {
-  if (e.target === $("coming-soon-modal")) $("coming-soon-modal").hidden = true;
-});
-$("coming-soon-modal-close")?.addEventListener("click", () => {
-  $("coming-soon-modal").hidden = true;
-});
 $("battery-results-back")?.addEventListener("click", () => {
   showTestsView();
 });

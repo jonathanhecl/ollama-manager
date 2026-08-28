@@ -143,6 +143,10 @@ function renderBatteryModalModels() {
     const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
     const paramsText = m.parameter_size || "";
     const quantText = (m.quantization && m.quantization !== "unknown") ? m.quantization : "";
+    const coldLoadMs = m.min_cold_load_ms || 0;
+    const coldLoadHtml = (typeof fmtColdLoad === "function" && coldLoadMs > 0)
+      ? `<span class="battery-model-coldload muted mono" title="${escapeHtml(t("col.min_load"))}">⏱️ ${fmtColdLoad(coldLoadMs)}</span>`
+      : "";
     const isChecked = batterySelectedModels.has(m.name);
 
     return `
@@ -156,6 +160,7 @@ function renderBatteryModalModels() {
           <div class="battery-model-specs mono muted">
             ${paramsText ? `<span class="battery-model-param">${escapeHtml(paramsText)}</span>` : ""}
             ${quantText ? `<span class="battery-model-quant">${escapeHtml(quantText)}</span>` : ""}
+            ${coldLoadHtml}
           </div>
           <div class="battery-model-tps-box">
             ${tps > 0
@@ -651,13 +656,17 @@ function renderBatteryResults(run) {
   // Build per-model stats.
   const modelStats = {};
   for (const m of run.models) {
-    modelStats[m] = { pass: 0, fail: 0, human: 0, total: 0, timeSum: 0, reasoning: 0 };
+    modelStats[m] = { pass: 0, fail: 0, human: 0, total: 0, timeSum: 0, reasoning: 0, tpsSum: 0, tpsCount: 0 };
   }
   for (const r of run.results) {
     const s = modelStats[r.model];
     if (!s) continue;
     s.total++;
     s.timeSum += r.response_time_ms;
+    if (r.tokens_per_sec > 0) {
+      s.tpsSum += r.tokens_per_sec;
+      s.tpsCount++;
+    }
     if (r.reasoning_used) s.reasoning++;
     if (r.passed === true) s.pass++;
     else if (r.passed === false) s.fail++;
@@ -668,12 +677,23 @@ function renderBatteryResults(run) {
   let summaryHtml = `<div class="battery-summary">`;
   for (const m of run.models) {
     const s = modelStats[m];
-    const avg = s.total > 0 ? Math.round(s.timeSum / s.total) : 0;
+    const avgMs = s.total > 0 ? Math.round(s.timeSum / s.total) : 0;
+    const avgTps = s.tpsCount > 0 ? (s.tpsSum / s.tpsCount).toFixed(1) : null;
+    const avgTpsColor = avgTps ? (typeof getToksRecordColor === "function" ? getToksRecordColor(Number(avgTps)) : "") : "";
+    const pct = Math.round((s.pass / (s.total || 1)) * 100);
+    const okClass = s.pass === s.total && s.total > 0 ? "pill-good" : (s.pass > 0 ? "pill-warn" : "pill-bad");
+
     summaryHtml += `
       <div class="battery-summary-card">
         <h4>${escapeHtml(m)}</h4>
-        <div class="big">${s.pass} / ${s.total}</div>
-        <div class="sub">${t("battery.response_time")}: ${avg}ms · ${t("battery.reasoning_used")}: ${s.reasoning}</div>
+        <div class="battery-summary-card-body">
+          <div class="big">${s.pass} / ${s.total} <span class="pill ${okClass}" style="font-size:12px;margin-left:6px;">${pct}%</span></div>
+          <div class="battery-summary-metrics">
+            <span class="battery-summary-time mono">⏱️ ${fmtDuration(avgMs)}</span>
+            ${avgTps ? `<span class="battery-summary-tps mono" style="color: ${avgTpsColor}">⚡ <strong>${avgTps}</strong> <span class="unit">tok/s</span></span>` : ""}
+            ${s.reasoning > 0 ? `<span class="battery-summary-reasoning">🧠 ${s.reasoning}</span>` : ""}
+          </div>
+        </div>
       </div>
     `;
   }
@@ -726,7 +746,7 @@ function renderBatteryResults(run) {
       }
 
       const reasoningIcon = r.reasoning_used ? "🧠" : "";
-      const tps = r.tokens_per_sec ? `${r.tokens_per_sec.toFixed(1)} tok/s` : "";
+      const tokColor = (typeof getToksRecordColor === "function" && r.tokens_per_sec > 0) ? getToksRecordColor(r.tokens_per_sec) : "";
       const resp = r.model_response || "";
       const respId = `br-${run.id}-${r.test_id}-${escapeHtml(r.model)}`;
       const respShort = escapeHtml(resp.slice(0, 200));
@@ -737,7 +757,13 @@ function renderBatteryResults(run) {
           ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${evalLabel}${humanReviewLabel}${promptBtn}</td>` : ""}
           <td class="cell-model">${escapeHtml(r.model)}</td>
           <td>${resultCell}</td>
-          <td class="cell-time">${fmtDuration(r.response_time_ms)} ${reasoningIcon}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
+          <td class="cell-time">
+            <div class="battery-res-time mono">⏱️ ${fmtDuration(r.response_time_ms)} ${reasoningIcon}</div>
+            ${r.tokens_per_sec > 0
+              ? `<div class="battery-res-tps mono" style="color: ${tokColor}">⚡ <strong>${r.tokens_per_sec.toFixed(1)}</strong> <span class="unit">tok/s</span></div>`
+              : `<div class="battery-res-tps mono muted">— <span class="unit">tok/s</span></div>`
+            }
+          </td>
           <td class="cell-response">
             <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
             ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}

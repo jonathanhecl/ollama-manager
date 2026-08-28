@@ -27,18 +27,38 @@ type BatteryRun struct {
 	SysInfo   SysInfo      `json:"sys_info,omitempty"`
 }
 
-// TestResult holds the outcome of a single test for a single model.
-type TestResult struct {
-	TestID         string  `json:"test_id"`
-	TestName       string  `json:"test_name"`
-	Model          string  `json:"model"`
+// SubResult holds the detailed outcome and analytics of a single step or case within a test.
+type SubResult struct {
+	Index          int     `json:"index"`
+	Name           string  `json:"name,omitempty"`
+	Prompt         string  `json:"prompt,omitempty"`
 	Passed         *bool   `json:"passed,omitempty"`
 	ResponseTimeMs int64   `json:"response_time_ms"`
 	TokensPerSec   float64 `json:"tokens_per_sec,omitempty"`
+	PromptTokens   int     `json:"prompt_tokens,omitempty"`
+	EvalTokens     int     `json:"eval_tokens,omitempty"`
+	TotalTokens    int     `json:"total_tokens,omitempty"`
 	ReasoningUsed  bool    `json:"reasoning_used"`
-	HumanRating    string  `json:"human_rating,omitempty"` // "bad", "regular", "good"
 	ModelResponse  string  `json:"model_response,omitempty"`
 	Error          string  `json:"error,omitempty"`
+}
+
+// TestResult holds the outcome of a single test for a single model.
+type TestResult struct {
+	TestID         string      `json:"test_id"`
+	TestName       string      `json:"test_name"`
+	Model          string      `json:"model"`
+	Passed         *bool       `json:"passed,omitempty"`
+	ResponseTimeMs int64       `json:"response_time_ms"`
+	TokensPerSec   float64     `json:"tokens_per_sec,omitempty"`
+	PromptTokens   int         `json:"prompt_tokens,omitempty"`
+	EvalTokens     int         `json:"eval_tokens,omitempty"`
+	TotalTokens    int         `json:"total_tokens,omitempty"`
+	ReasoningUsed  bool        `json:"reasoning_used"`
+	HumanRating    string      `json:"human_rating,omitempty"` // "bad", "regular", "good"
+	ModelResponse  string      `json:"model_response,omitempty"`
+	Error          string      `json:"error,omitempty"`
+	SubResults     []SubResult `json:"sub_results,omitempty"`
 }
 
 // Progress tracks the current state of a battery run.
@@ -203,6 +223,19 @@ func (c *Client) CancelRun(runID string) bool {
 	return false
 }
 
+type turnResult struct {
+	Content            string
+	Thinking           string
+	TokensPerSec       float64
+	PromptTokens       int
+	EvalTokens         int
+	TotalTokens        int
+	ResponseTimeMs     int64
+	PromptEvalDuration int64
+	EvalDuration       int64
+	Error              error
+}
+
 func (c *Client) runTest(ctx context.Context, runID string, model string, test tests.Test) TestResult {
 	res := TestResult{
 		TestID:   test.ID,
@@ -241,33 +274,35 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		allPassed := true
 		hasScored := false
 		var responsesSummary []string
+		var totalEvalDuration int64
 
-		for _, step := range test.Steps {
+		for i, step := range test.Steps {
 			if ctx.Err() != nil {
 				res.Error = ctx.Err().Error()
 				break
 			}
 
 			history = append(history, ollama.ChatMessage{Role: "user", Content: step.Prompt})
-			respContent, thinking, tps, _, err := c.execChatTurn(ctx, runID, model, history, opts)
-			if err != nil {
-				res.Error = err.Error()
+			turn := c.execChatTurn(ctx, runID, model, history, opts)
+			if turn.Error != nil {
+				res.Error = turn.Error.Error()
 				break
 			}
 
-			if thinking != "" {
+			if turn.Thinking != "" {
 				res.ReasoningUsed = true
 			}
-			if tps > 0 {
-				res.TokensPerSec = tps
-			}
+			res.PromptTokens += turn.PromptTokens
+			res.EvalTokens += turn.EvalTokens
+			res.TotalTokens += turn.TotalTokens
+			totalEvalDuration += turn.EvalDuration
 
-			history = append(history, ollama.ChatMessage{Role: "assistant", Content: respContent})
+			history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
 
-			stepPassed := scoreEval(step.Evaluation, test.EvaluationType, test.EvaluationConfig, respContent)
+			stepPassed := scoreEval(step.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
 			stepLabel := step.Name
 			if stepLabel == "" {
-				stepLabel = fmt.Sprintf("Paso %d", step.Step)
+				stepLabel = fmt.Sprintf("Step %d", step.Step)
 			}
 
 			status := "PASS"
@@ -280,11 +315,28 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			} else {
 				status = "REVIEW"
 			}
-			responsesSummary = append(responsesSummary, fmt.Sprintf("[%s] %s: %s", status, stepLabel, strings.TrimSpace(respContent)))
+			responsesSummary = append(responsesSummary, fmt.Sprintf("[%s] %s: %s", status, stepLabel, strings.TrimSpace(turn.Content)))
+
+			res.SubResults = append(res.SubResults, SubResult{
+				Index:          i + 1,
+				Name:           stepLabel,
+				Prompt:         step.Prompt,
+				Passed:         stepPassed,
+				ResponseTimeMs: turn.ResponseTimeMs,
+				TokensPerSec:   turn.TokensPerSec,
+				PromptTokens:   turn.PromptTokens,
+				EvalTokens:     turn.EvalTokens,
+				TotalTokens:    turn.TotalTokens,
+				ReasoningUsed:  turn.Thinking != "",
+				ModelResponse:  turn.Content,
+			})
 		}
 
 		res.ResponseTimeMs = time.Since(start).Milliseconds()
 		res.ModelResponse = strings.Join(responsesSummary, "\n\n")
+		if totalEvalDuration > 0 && res.EvalTokens > 0 {
+			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
+		}
 		if hasScored && res.Error == "" {
 			res.Passed = &allPassed
 		}
@@ -296,6 +348,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		allPassed := true
 		hasScored := false
 		var casesSummary []string
+		var totalEvalDuration int64
 
 		for i, tc := range test.Cases {
 			if ctx.Err() != nil {
@@ -309,23 +362,24 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			}
 			msgs = append(msgs, ollama.ChatMessage{Role: "user", Content: tc.Prompt})
 
-			respContent, thinking, tps, _, err := c.execChatTurn(ctx, runID, model, msgs, opts)
-			if err != nil {
-				res.Error = err.Error()
+			turn := c.execChatTurn(ctx, runID, model, msgs, opts)
+			if turn.Error != nil {
+				res.Error = turn.Error.Error()
 				break
 			}
 
-			if thinking != "" {
+			if turn.Thinking != "" {
 				res.ReasoningUsed = true
 			}
-			if tps > 0 {
-				res.TokensPerSec = tps
-			}
+			res.PromptTokens += turn.PromptTokens
+			res.EvalTokens += turn.EvalTokens
+			res.TotalTokens += turn.TotalTokens
+			totalEvalDuration += turn.EvalDuration
 
-			casePassed := scoreEval(tc.Evaluation, test.EvaluationType, test.EvaluationConfig, respContent)
+			casePassed := scoreEval(tc.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
 			caseLabel := tc.Name
 			if caseLabel == "" {
-				caseLabel = fmt.Sprintf("Caso %d", i+1)
+				caseLabel = fmt.Sprintf("Case %d", i+1)
 			}
 
 			status := "PASS"
@@ -338,11 +392,28 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			} else {
 				status = "REVIEW"
 			}
-			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, caseLabel, strings.TrimSpace(respContent)))
+			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, caseLabel, strings.TrimSpace(turn.Content)))
+
+			res.SubResults = append(res.SubResults, SubResult{
+				Index:          i + 1,
+				Name:           caseLabel,
+				Prompt:         tc.Prompt,
+				Passed:         casePassed,
+				ResponseTimeMs: turn.ResponseTimeMs,
+				TokensPerSec:   turn.TokensPerSec,
+				PromptTokens:   turn.PromptTokens,
+				EvalTokens:     turn.EvalTokens,
+				TotalTokens:    turn.TotalTokens,
+				ReasoningUsed:  turn.Thinking != "",
+				ModelResponse:  turn.Content,
+			})
 		}
 
 		res.ResponseTimeMs = time.Since(start).Milliseconds()
 		res.ModelResponse = strings.Join(casesSummary, "\n\n")
+		if totalEvalDuration > 0 && res.EvalTokens > 0 {
+			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
+		}
 		if hasScored && res.Error == "" {
 			res.Passed = &allPassed
 		}
@@ -385,18 +456,19 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		}
 	}
 
-	respContent, thinking, tps, elapsed, err := c.execChatTurn(ctx, runID, model, messages, opts)
-	res.ResponseTimeMs = elapsed
-	if err != nil {
-		res.Error = err.Error()
+	turn := c.execChatTurn(ctx, runID, model, messages, opts)
+	res.ResponseTimeMs = turn.ResponseTimeMs
+	if turn.Error != nil {
+		res.Error = turn.Error.Error()
 		return res
 	}
 
-	res.ModelResponse = respContent
-	res.ReasoningUsed = thinking != ""
-	if tps > 0 {
-		res.TokensPerSec = tps
-	}
+	res.ModelResponse = turn.Content
+	res.ReasoningUsed = turn.Thinking != ""
+	res.TokensPerSec = turn.TokensPerSec
+	res.PromptTokens = turn.PromptTokens
+	res.EvalTokens = turn.EvalTokens
+	res.TotalTokens = turn.TotalTokens
 
 	passed := scoreEval(test.Evaluation, test.EvaluationType, test.EvaluationConfig, res.ModelResponse)
 	if passed != nil {
@@ -406,7 +478,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	return res
 }
 
-func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages []ollama.ChatMessage, opts map[string]any) (string, string, float64, int64, error) {
+func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages []ollama.ChatMessage, opts map[string]any) turnResult {
 	req := ollama.ChatRequest{
 		Model:    model,
 		Messages: messages,
@@ -477,16 +549,25 @@ retryLoop:
 	}
 
 	elapsed := time.Since(start).Milliseconds()
-	if chatErr != nil {
-		return "", "", 0, elapsed, chatErr
+	res := turnResult{
+		Content:        fullContent.String(),
+		Thinking:       fullThinking.String(),
+		ResponseTimeMs: elapsed,
+		Error:          chatErr,
 	}
 
-	var tps float64
-	if chunkMeta != nil && chunkMeta.EvalCount > 0 && chunkMeta.EvalDuration > 0 {
-		tps = float64(chunkMeta.EvalCount) / (float64(chunkMeta.EvalDuration) / 1e9)
+	if chunkMeta != nil {
+		res.PromptTokens = chunkMeta.PromptEvalCount
+		res.EvalTokens = chunkMeta.EvalCount
+		res.TotalTokens = chunkMeta.PromptEvalCount + chunkMeta.EvalCount
+		res.PromptEvalDuration = chunkMeta.PromptEvalDuration
+		res.EvalDuration = chunkMeta.EvalDuration
+		if chunkMeta.EvalCount > 0 && chunkMeta.EvalDuration > 0 {
+			res.TokensPerSec = float64(chunkMeta.EvalCount) / (float64(chunkMeta.EvalDuration) / 1e9)
+		}
 	}
 
-	return fullContent.String(), fullThinking.String(), tps, elapsed, nil
+	return res
 }
 
 func (c *Client) isModelLoaded(ctx context.Context, model string) (bool, error) {

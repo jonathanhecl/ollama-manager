@@ -185,18 +185,22 @@ func (s *ResultStore) UpdateResultPassed(runID, testID, model string, passed boo
 
 // TestHistoryItem is a single result for a test across all runs.
 type TestHistoryItem struct {
-	RunID          string    `json:"run_id"`
-	Timestamp      time.Time `json:"timestamp"`
-	GroupName      string    `json:"group_name"`
-	Model          string    `json:"model"`
-	Passed         *bool     `json:"passed,omitempty"`
-	ResponseTimeMs int64     `json:"response_time_ms"`
-	TokensPerSec   float64   `json:"tokens_per_sec,omitempty"`
-	ReasoningUsed  bool      `json:"reasoning_used"`
-	HumanRating    string    `json:"human_rating,omitempty"`
-	ModelResponse  string    `json:"model_response,omitempty"`
-	Error          string    `json:"error,omitempty"`
-	SysInfo        SysInfo   `json:"sys_info,omitempty"`
+	RunID          string      `json:"run_id"`
+	Timestamp      time.Time   `json:"timestamp"`
+	GroupName      string      `json:"group_name"`
+	Model          string      `json:"model"`
+	Passed         *bool       `json:"passed,omitempty"`
+	ResponseTimeMs int64       `json:"response_time_ms"`
+	TokensPerSec   float64     `json:"tokens_per_sec,omitempty"`
+	PromptTokens   int         `json:"prompt_tokens,omitempty"`
+	EvalTokens     int         `json:"eval_tokens,omitempty"`
+	TotalTokens    int         `json:"total_tokens,omitempty"`
+	ReasoningUsed  bool        `json:"reasoning_used"`
+	HumanRating    string      `json:"human_rating,omitempty"`
+	ModelResponse  string      `json:"model_response,omitempty"`
+	Error          string      `json:"error,omitempty"`
+	SubResults     []SubResult `json:"sub_results,omitempty"`
+	SysInfo        SysInfo     `json:"sys_info,omitempty"`
 }
 
 // GetTestHistory returns all historical results for a specific test, newest first.
@@ -215,10 +219,14 @@ func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
 					Passed:         res.Passed,
 					ResponseTimeMs: res.ResponseTimeMs,
 					TokensPerSec:   res.TokensPerSec,
+					PromptTokens:   res.PromptTokens,
+					EvalTokens:     res.EvalTokens,
+					TotalTokens:    res.TotalTokens,
 					ReasoningUsed:  res.ReasoningUsed,
 					HumanRating:    res.HumanRating,
 					ModelResponse:  res.ModelResponse,
 					Error:          res.Error,
+					SubResults:     res.SubResults,
 					SysInfo:        run.SysInfo,
 				})
 			}

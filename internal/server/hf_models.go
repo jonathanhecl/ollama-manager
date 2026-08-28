@@ -262,12 +262,13 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		ggufCount := 0
 		hasVisionFile := false
 		for _, s := range m.Siblings {
-			fn := strings.ToLower(s.RFilename)
+			baseName := path.Base(s.RFilename)
+			fn := strings.ToLower(baseName)
 			if strings.HasSuffix(fn, ".gguf") {
-				if IsAuxiliaryGGUF(s.RFilename) {
+				if IsAuxiliaryGGUF(baseName) {
 					continue
 				}
-				if IsVisionProjector(s.RFilename) {
+				if IsVisionProjector(baseName) {
 					hasVisionFile = true
 				} else {
 					ggufCount++
@@ -431,8 +432,8 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Fetch repository file tree from https://huggingface.co/api/models/{id}/tree/main
-	treeURL := fmt.Sprintf("https://huggingface.co/api/models/%s/tree/main", cleanedPath)
+	// 2. Fetch repository file tree from https://huggingface.co/api/models/{id}/tree/main?recursive=true
+	treeURL := fmt.Sprintf("https://huggingface.co/api/models/%s/tree/main?recursive=true", cleanedPath)
 	treeReq, err := http.NewRequestWithContext(ctx, http.MethodGet, treeURL, nil)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -477,19 +478,19 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 		if f.Type != "file" {
 			continue
 		}
-		filename := path.Base(f.Path)
-		if !strings.HasSuffix(strings.ToLower(filename), ".gguf") {
+		baseName := path.Base(f.Path)
+		if !strings.HasSuffix(strings.ToLower(baseName), ".gguf") {
 			continue
 		}
 
-		if IsAuxiliaryGGUF(filename) {
+		if IsAuxiliaryGGUF(baseName) {
 			continue
 		}
 
-		if IsVisionProjector(filename) {
+		if IsVisionProjector(baseName) {
 			hasVision = true
 			visionFiles = append(visionFiles, HFQuantFile{
-				Filename:     filename,
+				Filename:     f.Path,
 				Quant:        "MMPROJ",
 				SizeBytes:    f.Size,
 				IsVisionProj: true,
@@ -498,14 +499,14 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		quant := ExtractQuantization(filename)
+		quant := ExtractQuantization(baseName)
 		pullName := fmt.Sprintf("hf.co/%s:%s", rawDetail.ID, quant)
 		if quant == "OTHER" {
 			pullName = fmt.Sprintf("hf.co/%s", rawDetail.ID)
 		}
 
 		ggufFiles = append(ggufFiles, HFQuantFile{
-			Filename:     filename,
+			Filename:     f.Path,
 			Quant:        quant,
 			SizeBytes:    f.Size,
 			IsVisionProj: false,

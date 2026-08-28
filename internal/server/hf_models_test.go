@@ -20,6 +20,8 @@ func TestExtractQuantization(t *testing.T) {
 		{"mtp-SuperQwen3.8-27b-abliterated-Q4_0.gguf", "AUXILIARY"},
 		{"Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-FastMTP-32K.gguf", "AUXILIARY"},
 		{"custom_model.gguf", "OTHER"},
+		{"gguf/gemma-3-12b-it-heretic-v2-Q4_K_M.gguf", "Q4_K_M"},
+		{"quantized/sub/model-IQ3_XS.gguf", "IQ3_XS"},
 	}
 
 	for _, tt := range tests {
@@ -51,6 +53,8 @@ func TestIsAuxiliaryGGUF(t *testing.T) {
 		{"model-specdraft-q4_0.gguf", true},
 		{"qwen2.5-coder-7b-instruct-q4_k_m.gguf", false},
 		{"model.gguf", false},
+		{"gguf/sub/model.gguf", false},
+		{"gguf/sub/model.imatrix.gguf", true},
 		// "mtp"/"draft" must stay delimited: these are ordinary models.
 		{"promptbench-7b-q4_k_m.gguf", false},
 		{"attempt-tuned-13b-q8_0.gguf", false},
@@ -74,6 +78,7 @@ func TestIsVisionProjector(t *testing.T) {
 		{"mmproj-model-f16.gguf", true},
 		{"model-mmproj.gguf", true},
 		{"qwen2-vl-7b-instruct-mmproj-f16.gguf", true},
+		{"gguf/qwen2-vl-7b-instruct-mmproj-f16.gguf", true},
 		{"qwen2.5-coder-7b-instruct-q4_k_m.gguf", false},
 		{"model.gguf", false},
 	}

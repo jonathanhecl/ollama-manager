@@ -24,39 +24,39 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 		return Test{
 			ID:           "example-arithmetic",
 			Name:         "Math Suite (Multiple Exercises)",
-			Description:  "Evaluates multiple diverse arithmetic and mathematical operations.",
+			Description:  "Evaluates multiple diverse arithmetic and mathematical operations in a single test.",
 			GroupID:      "examples",
 			Active:       true,
 			Order:        0,
-			SystemPrompt: "Eres un calculador conciso. Responde únicamente con el número o resultado final.",
+			SystemPrompt: "You are a concise calculator. Reply with only the final numerical answer or expression.",
 			Cases: []TestCase{
 				{
-					Name:   "Jerarquía de operaciones básica",
-					Prompt: "¿Cuánto es 2 + 3 * 4? Devuelve solo el número.",
+					Name:   "Basic order of operations",
+					Prompt: "What is 2 + 3 * 4? Return only the final number.",
 					Evaluation: &Evaluation{
 						Type:     "contains",
 						Expected: "14",
 					},
 				},
 				{
-					Name:   "Simplificación de fracción",
-					Prompt: "Simplifica la fracción 18/24 a su mínima expresión. Responde solo con la fracción reducida.",
+					Name:   "Fraction simplification",
+					Prompt: "Simplify the fraction 18/24 to its lowest terms. Answer with plain text only.",
 					Evaluation: &Evaluation{
 						Type:     "contains",
 						Expected: "3/4",
 					},
 				},
 				{
-					Name:   "Potenciación",
-					Prompt: "¿Cuánto es 2 elevado a la potencia 8 (2^8)? Solo el número.",
+					Name:   "Exponentiation",
+					Prompt: "What is 2 raised to the power of 8 (2^8)? Return only the number.",
 					Evaluation: &Evaluation{
 						Type:     "contains",
 						Expected: "256",
 					},
 				},
 				{
-					Name:   "Porcentajes",
-					Prompt: "¿Cuál es el 15% de 200? Devuelve únicamente el número.",
+					Name:   "Percentages",
+					Prompt: "What is 15% of 200? Return only the number.",
 					Evaluation: &Evaluation{
 						Type:     "contains",
 						Expected: "30",
@@ -90,16 +90,16 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 		return Test{
 			ID:           "example-multi-turn",
 			Name:         "Sequential Dialogue Chain",
-			Description:  "Multi-step interactive chain testing sequential retention across turns.",
+			Description:  "Multi-step interactive chain testing sequential context retention across turns.",
 			GroupID:      "examples",
 			Active:       true,
 			Order:        2,
-			SystemPrompt: "Eres un asistente de programación conciso y servicial.",
+			SystemPrompt: "You are a helpful and concise programming assistant.",
 			Steps: []Step{
 				{
 					Step:   1,
-					Name:   "Pregunta de contexto inicial",
-					Prompt: "Estoy aprendiendo Python para análisis de datos y machine learning. ¿Cuál es su biblioteca principal para tablas de datos?",
+					Name:   "Initial context inquiry",
+					Prompt: "I am learning Python for data analysis and machine learning. What is the primary library used for dataframes?",
 					Evaluation: &Evaluation{
 						Type:     "contains",
 						Expected: "pandas",
@@ -107,8 +107,8 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 				},
 				{
 					Step:   2,
-					Name:   "Seguimiento contextual",
-					Prompt: "¿Y qué lenguaje te mencioné que estoy aprendiendo en mi mensaje anterior? Responde solo con el nombre.",
+					Name:   "Contextual follow-up",
+					Prompt: "What programming language did I mention I was learning in my previous message? Reply with just the language name.",
 					Evaluation: &Evaluation{
 						Type:     "contains",
 						Expected: "Python",

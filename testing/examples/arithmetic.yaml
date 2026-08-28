@@ -6,29 +6,29 @@ active: true
 order: 0
 
 system_prompt: |
-  Eres un calculador conciso. Responde únicamente con el número o resultado final.
+  You are a concise calculator. Reply with only the final numerical answer or expression.
 
 cases:
-  - name: Jerarquía de operaciones básica
-    prompt: ¿Cuánto es 2 + 3 * 4? Devuelve solo el número.
+  - name: Basic order of operations
+    prompt: What is 2 + 3 * 4? Return only the final number.
     evaluation:
       type: contains
       expected: "14"
 
-  - name: Simplificación de fracción
-    prompt: Simplifica la fracción 18/24 a su mínima expresión. Responde solo con la fracción reducida.
+  - name: Fraction simplification
+    prompt: Simplify the fraction 18/24 to its lowest terms. Answer with plain text only.
     evaluation:
       type: contains
       expected: "3/4"
 
-  - name: Potenciación
-    prompt: ¿Cuánto es 2 elevado a la potencia 8 (2^8)? Solo el número.
+  - name: Exponentiation
+    prompt: What is 2 raised to the power of 8 (2^8)? Return only the number.
     evaluation:
       type: contains
       expected: "256"
 
-  - name: Porcentajes
-    prompt: ¿Cuál es el 15% de 200? Devuelve únicamente el número.
+  - name: Percentages
+    prompt: What is 15% of 200? Return only the number.
     evaluation:
       type: contains
       expected: "30"

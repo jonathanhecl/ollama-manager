@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -8,8 +9,7 @@ import (
 
 func TestDeleteTestHistory(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "tests-history.json")
-	store := NewResultStore(path)
+	store := NewResultStore(dir)
 
 	passed := true
 	store.runs = []BatteryRun{
@@ -32,6 +32,15 @@ func TestDeleteTestHistory(t *testing.T) {
 				{TestID: "t1", TestName: "A", Model: "m2", Passed: &passed},
 			},
 		},
+	}
+
+	if err := store.saveGroupLocked("core"); err != nil {
+		t.Fatalf("saveGroupLocked: %v", err)
+	}
+
+	histFile := filepath.Join(dir, "core", "_history.json")
+	if _, err := os.Stat(histFile); err != nil {
+		t.Fatalf("expected _history.json to exist in core folder: %v", err)
 	}
 
 	if err := store.DeleteTestHistory("t1"); err != nil {

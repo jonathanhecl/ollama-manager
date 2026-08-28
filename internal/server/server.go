@@ -5,7 +5,6 @@ package server
 import (
 	"context"
 	"embed"
-	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -115,16 +114,9 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 
 	agentStore := agent.NewSessionStore(filepath.Dir(cfg.Path()))
 
-	runnerPath := filepath.Join(testingDir, ".history.json")
-	legacyRunnerPath := filepath.Join(filepath.Dir(cfg.Path()), "tests-history.json")
-	if _, err := os.Stat(legacyRunnerPath); err == nil {
-		if _, err := os.Stat(runnerPath); errors.Is(err, os.ErrNotExist) {
-			_ = os.Rename(legacyRunnerPath, runnerPath)
-		}
-	}
-	runnerStore := runner.NewResultStore(runnerPath)
+	runnerStore := runner.NewResultStore(testingDir)
 	if err := runnerStore.Load(); err != nil {
-		log.Printf("runner: could not load %s: %v", runnerPath, err)
+		log.Printf("runner: could not load history in %s: %v", testingDir, err)
 	}
 
 	usagePath := filepath.Join(filepath.Dir(cfg.Path()), "model_usage.json")

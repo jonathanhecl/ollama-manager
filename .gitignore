@@ -37,6 +37,9 @@ tests*.json
 archived*.json
 testing/.backup/
 testing/.history.json
+testing/**/_history.json
+testing/**/.history.json
+*_history.json
 
 # Runtime state: generated artifact projects
 artifacts/

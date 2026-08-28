@@ -1,60 +1,122 @@
-// Package runner implements the test battery execution engine.
+// Package runner implements the test battery execution engine and results persistence.
 package runner
 
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
-// persistFile is the on-disk format for tests-history.json.
+// persistFile is the on-disk format for _history.json.
 type persistFile struct {
 	Runs []BatteryRun `json:"runs"`
 }
 
-// ResultStore persists battery runs to disk atomically.
+// ResultStore persists battery runs to disk within each category folder alongside the test files.
 type ResultStore struct {
 	mu   sync.Mutex
-	path string
+	dir  string // root testing directory (e.g. /path/to/testing)
 	runs []BatteryRun
 }
 
-// NewResultStore creates a store backed by path (e.g. /data/test_results.json).
-func NewResultStore(path string) *ResultStore {
-	return &ResultStore{path: path}
+// NewResultStore creates a store backed by the testing directory.
+func NewResultStore(pathOrDir string) *ResultStore {
+	dir := pathOrDir
+	if strings.HasSuffix(strings.ToLower(dir), ".json") || strings.HasSuffix(strings.ToLower(dir), ".yaml") || strings.HasSuffix(strings.ToLower(dir), ".yml") {
+		dir = filepath.Dir(dir)
+	}
+	return &ResultStore{dir: dir}
 }
 
-// Load reads existing runs from disk.
+// Load reads existing runs from all category folders in the testing directory.
 func (s *ResultStore) Load() error {
-	if s.path == "" {
+	if s.dir == "" {
 		return nil
 	}
-	data, err := os.ReadFile(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.runs = make([]BatteryRun, 0)
+	runMap := make(map[string]BatteryRun)
+
+	// Check legacy single-file history for migration
+	legacyPaths := []string{
+		filepath.Join(s.dir, ".history.json"),
+		filepath.Join(s.dir, "tests-history.json"),
+		filepath.Join(filepath.Dir(s.dir), "tests-history.json"),
 	}
-	if err != nil {
-		return fmt.Errorf("read %s: %w", s.path, err)
+	for _, lp := range legacyPaths {
+		if data, err := os.ReadFile(lp); err == nil {
+			var pf persistFile
+			if err := json.Unmarshal(data, &pf); err == nil {
+				for _, r := range pf.Runs {
+					if r.ID != "" {
+						runMap[r.ID] = r
+					}
+				}
+			}
+			_ = os.Remove(lp)
+		}
 	}
-	var pf persistFile
-	if err := json.Unmarshal(data, &pf); err != nil {
-		return fmt.Errorf("parse %s: %w", s.path, err)
+
+	// Scan category subdirectories in testing dir
+	entries, err := os.ReadDir(s.dir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			catDir := filepath.Join(s.dir, entry.Name())
+			histPaths := []string{
+				filepath.Join(catDir, "_history.json"),
+				filepath.Join(catDir, ".history.json"),
+				filepath.Join(catDir, "history.json"),
+			}
+			for _, hp := range histPaths {
+				data, err := os.ReadFile(hp)
+				if err != nil {
+					continue
+				}
+				var pf persistFile
+				if err := json.Unmarshal(data, &pf); err == nil {
+					for _, r := range pf.Runs {
+						if r.ID != "" {
+							runMap[r.ID] = r
+						}
+					}
+				}
+			}
+		}
 	}
-	s.runs = pf.Runs
+
+	for _, r := range runMap {
+		s.runs = append(s.runs, r)
+	}
+
+	// Persist per-group history files if migrated from legacy
+	groups := make(map[string]struct{})
+	for _, r := range s.runs {
+		groups[r.GroupID] = struct{}{}
+	}
+	for gid := range groups {
+		_ = s.saveGroupLocked(gid)
+	}
+
 	return nil
 }
 
-// SaveRun appends a run and persists atomically.
+// SaveRun appends a run and persists to its category's _history.json.
 func (s *ResultStore) SaveRun(run *BatteryRun) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.runs = append(s.runs, *run)
-	return s.saveLocked()
+	return s.saveGroupLocked(run.GroupID)
 }
 
 // GetRuns returns all runs sorted newest first.
@@ -82,7 +144,6 @@ func (s *ResultStore) GetRun(id string) (BatteryRun, bool) {
 }
 
 // UpdateHumanRating updates the human rating for a specific test result within a run.
-// It also sets Passed based on the rating: good = true, bad/regular = false.
 func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -96,7 +157,7 @@ func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) err
 				res.HumanRating = rating
 				passed := rating == "good"
 				res.Passed = &passed
-				return s.saveLocked()
+				return s.saveGroupLocked(s.runs[i].GroupID)
 			}
 		}
 	}
@@ -115,7 +176,7 @@ func (s *ResultStore) UpdateResultPassed(runID, testID, model string, passed boo
 			res := &s.runs[i].Results[j]
 			if res.TestID == testID && res.Model == model {
 				res.Passed = &passed
-				return s.saveLocked()
+				return s.saveGroupLocked(s.runs[i].GroupID)
 			}
 		}
 	}
@@ -281,21 +342,19 @@ func (s *ResultStore) DeleteTestHistory(testID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	changed := false
+	affectedGroups := make(map[string]struct{})
 	kept := make([]BatteryRun, 0, len(s.runs))
 	for _, run := range s.runs {
 		filtered := run.Results[:0]
 		for _, res := range run.Results {
 			if res.TestID == testID {
-				changed = true
+				affectedGroups[run.GroupID] = struct{}{}
 				continue
 			}
 			filtered = append(filtered, res)
 		}
 		if len(filtered) == 0 {
-			if len(run.Results) > 0 {
-				changed = true
-			}
+			affectedGroups[run.GroupID] = struct{}{}
 			continue
 		}
 		if len(filtered) != len(run.Results) {
@@ -303,11 +362,15 @@ func (s *ResultStore) DeleteTestHistory(testID string) error {
 		}
 		kept = append(kept, run)
 	}
-	if !changed {
+
+	if len(affectedGroups) == 0 {
 		return nil
 	}
 	s.runs = kept
-	return s.saveLocked()
+	for gid := range affectedGroups {
+		_ = s.saveGroupLocked(gid)
+	}
+	return nil
 }
 
 // DeleteRun removes a run by ID.
@@ -316,29 +379,52 @@ func (s *ResultStore) DeleteRun(id string) error {
 	defer s.mu.Unlock()
 	for i, r := range s.runs {
 		if r.ID == id {
+			gid := r.GroupID
 			s.runs = append(s.runs[:i], s.runs[i+1:]...)
-			return s.saveLocked()
+			return s.saveGroupLocked(gid)
 		}
 	}
 	return errors.New("run not found")
 }
 
-func (s *ResultStore) saveLocked() error {
-	if s.path == "" {
+func (s *ResultStore) saveGroupLocked(groupID string) error {
+	if s.dir == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(persistFile{Runs: s.runs}, "", "  ")
+	if groupID == "" {
+		groupID = "examples"
+	}
+
+	catDir := filepath.Join(s.dir, groupID)
+	_ = os.MkdirAll(catDir, 0o755)
+	target := filepath.Join(catDir, "_history.json")
+
+	var groupRuns []BatteryRun
+	for _, r := range s.runs {
+		if r.GroupID == groupID {
+			groupRuns = append(groupRuns, r)
+		}
+	}
+
+	if len(groupRuns) == 0 {
+		_ = os.Remove(target)
+		return nil
+	}
+
+	data, err := json.MarshalIndent(persistFile{Runs: groupRuns}, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	data = append(data, '\n')
+
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	return os.Rename(tmp, target)
 }
 
-// DataDir returns the directory portion of the store path.
+// DataDir returns the root testing directory path.
 func (s *ResultStore) DataDir() string {
-	return filepath.Dir(s.path)
+	return s.dir
 }

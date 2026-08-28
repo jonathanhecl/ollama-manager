@@ -1,24 +1,24 @@
 id: example-multi-turn
 name: Sequential Dialogue Chain
-description: Multi-step interactive chain testing sequential retention across turns.
+description: Multi-step interactive chain testing sequential context retention across turns.
 group_id: examples
 active: true
 order: 2
 
 system_prompt: |
-  Eres un asistente de programación conciso y servicial.
+  You are a helpful and concise programming assistant.
 
 steps:
   - step: 1
-    name: Pregunta de contexto inicial
-    prompt: Estoy aprendiendo Python para análisis de datos y machine learning. ¿Cuál es su biblioteca principal para tablas de datos?
+    name: Initial context inquiry
+    prompt: I am learning Python for data analysis and machine learning. What is the primary library used for dataframes?
     evaluation:
       type: contains
       expected: pandas
 
   - step: 2
-    name: Seguimiento contextual
-    prompt: ¿Y qué lenguaje te mencioné que estoy aprendiendo en mi mensaje anterior? Responde solo con el nombre.
+    name: Contextual follow-up
+    prompt: What programming language did I mention I was learning in my previous message? Reply with just the language name.
     evaluation:
       type: contains
       expected: Python

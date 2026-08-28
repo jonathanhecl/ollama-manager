@@ -1197,12 +1197,12 @@ function renderTestsList() {
 
   const runBtn = $("tests-run-battery-btn");
   if (runBtn) {
-    const hasActiveNonAgent = filtered.some((t) => t.active && t.evaluation_type !== "agent");
-    runBtn.hidden = selectedGroupId === "" || !hasActiveNonAgent;
+    const hasActiveNonAgent = (selectedGroupId === "" ? tests : filtered).some((t) => t.active && t.evaluation_type !== "agent");
+    runBtn.hidden = !hasActiveNonAgent;
   }
   const groupHistBtn = $("tests-group-history-btn");
   if (groupHistBtn) {
-    groupHistBtn.hidden = selectedGroupId === "";
+    groupHistBtn.hidden = false;
   }
 
   if (!filtered.length) {
@@ -1238,7 +1238,7 @@ function renderTestsList() {
           ${test.description ? `<div class="tests-item-desc muted">${escapeHtml(test.description)}</div>` : ""}
         </div>
         <div class="tests-item-actions">
-          ${test.evaluation_type === "agent" ? `<button class="ghost tests-item-run" data-id="${escapeHtml(test.id)}">${t("tests.agent_run")}</button>` : ""}
+          <button class="primary tests-item-run" data-id="${escapeHtml(test.id)}" title="${t("tests.run")}">▶ ${t("tests.run")}</button>
           <button class="ghost tests-item-history" data-id="${escapeHtml(test.id)}">${t("tests.history_short")}</button>
           <button class="ghost tests-item-edit" data-i18n="action.edit">Edit</button>
           <button class="ghost tests-item-toggle" data-id="${escapeHtml(test.id)}">${test.active ? t("tests.suspend") : t("tests.activate")}</button>
@@ -1254,6 +1254,20 @@ function renderTestsList() {
       void showTestEditorView(el.dataset.id);
     });
   });
+  list.querySelectorAll(".tests-item-run").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (id) {
+        const test = tests.find((t) => t.id === id);
+        if (test?.evaluation_type === "agent") {
+          showAgentSessionView(id);
+        } else {
+          openBatteryModal({ testId: id });
+        }
+      }
+    });
+  });
   list.querySelectorAll(".tests-item-edit").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1265,7 +1279,7 @@ function renderTestsList() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
-      if (id) openTestHistoryModal(id);
+      if (id) showBatteryHistoryView(id);
     });
   });
   list.querySelectorAll(".tests-item-toggle").forEach((btn) => {

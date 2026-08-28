@@ -1,12 +1,69 @@
 "use strict";
 
 // ---------- battery runner ----------
+let currentRunTarget = null; // { type: 'single' | 'group' | 'all', testId?: string, groupId?: string, name?: string }
+let currentHistoryFilterTestId = null;
 
-async function openBatteryModal() {
-  if (selectedGroupId === "") return;
+async function openBatteryModal(options = {}) {
   batterySelectedModels.clear();
   $("battery-modal").hidden = false;
+
+  if (options.testId) {
+    const test = tests.find((t) => t.id === options.testId);
+    currentRunTarget = { type: "single", testId: options.testId, groupId: test?.group_id, name: test?.name || options.testId };
+    const titleEl = $("battery-modal-title");
+    if (titleEl) titleEl.textContent = t("battery.run_single", { name: test?.name || options.testId });
+  } else if (options.groupId && options.groupId !== "" && options.groupId !== "all") {
+    const group = testsGroups.find((g) => g.id === options.groupId);
+    currentRunTarget = { type: "group", groupId: options.groupId, name: group?.name || options.groupId };
+    const titleEl = $("battery-modal-title");
+    if (titleEl) titleEl.textContent = t("battery.run_group", { name: group?.name || options.groupId });
+  } else {
+    currentRunTarget = { type: "all", groupId: "all", name: t("battery.all_tests") };
+    const titleEl = $("battery-modal-title");
+    if (titleEl) titleEl.textContent = t("battery.run_all");
+  }
+
+  // Pre-fetch models and usage if needed
+  if (typeof models === "undefined" || models.length === 0) {
+    try { await refreshModels(); } catch { }
+  }
+
   renderBatteryModalModels();
+
+  // Wire toolbar quick buttons if not wired
+  const selectAllBtn = $("battery-modal-select-all");
+  if (selectAllBtn && !selectAllBtn.dataset.wired) {
+    selectAllBtn.dataset.wired = "1";
+    selectAllBtn.addEventListener("click", () => {
+      const cbs = $("battery-modal-models")?.querySelectorAll('input[type="checkbox"]:not(:disabled)');
+      if (cbs) {
+        cbs.forEach((cb) => {
+          cb.checked = true;
+          batterySelectedModels.add(cb.value);
+          cb.closest(".battery-model-item")?.classList.add("selected");
+        });
+        updateBatteryModalSelectionUI();
+      }
+    });
+  }
+
+  const clearBtn = $("battery-modal-clear");
+  if (clearBtn && !clearBtn.dataset.wired) {
+    clearBtn.dataset.wired = "1";
+    clearBtn.addEventListener("click", () => {
+      const cbs = $("battery-modal-models")?.querySelectorAll('input[type="checkbox"]');
+      if (cbs) {
+        cbs.forEach((cb) => {
+          cb.checked = false;
+          cb.closest(".battery-model-item")?.classList.remove("selected");
+        });
+        batterySelectedModels.clear();
+        updateBatteryModalSelectionUI();
+      }
+    });
+  }
+
   // Load system info preview.
   const sysEl = $("battery-modal-sysinfo");
   if (sysEl) {
@@ -28,6 +85,13 @@ async function openBatteryModal() {
   }
 }
 
+function updateBatteryModalSelectionUI() {
+  const countEl = $("battery-modal-count");
+  if (countEl) {
+    countEl.textContent = batterySelectedModels.size > 0 ? t("battery.models_count", { count: batterySelectedModels.size }) : "";
+  }
+}
+
 function closeBatteryModal() {
   $("battery-modal").hidden = true;
 }
@@ -36,14 +100,18 @@ function renderBatteryModalModels() {
   const container = $("battery-modal-models");
   if (!container) return;
 
-  // Reuse main list cache (capabilities + archived state); skip archived models.
-  const activeModels = models.filter((m) => !m.archived);
+  const activeModels = (typeof models !== "undefined" ? models : []).filter((m) => !m.archived);
 
-  // Determine required caps for the selected group.
-  const groupTests = tests.filter((t) => t.group_id === selectedGroupId && t.active && t.evaluation_type !== "agent");
-  const requiredCaps = new Set();
-  for (const t of groupTests) {
-    for (const c of t.required_caps || []) requiredCaps.add(c);
+  // Determine required caps based on currentRunTarget
+  let requiredCaps = new Set();
+  if (currentRunTarget?.type === "single") {
+    const test = tests.find((t) => t.id === currentRunTarget.testId);
+    requiredCaps = new Set(test?.required_caps || []);
+  } else if (currentRunTarget?.type === "group") {
+    const groupTests = tests.filter((t) => t.group_id === currentRunTarget.groupId && t.active && t.evaluation_type !== "agent");
+    for (const t of groupTests) {
+      for (const c of t.required_caps || []) requiredCaps.add(c);
+    }
   }
 
   const items = activeModels
@@ -58,31 +126,53 @@ function renderBatteryModalModels() {
       const disabled = !hasAnyRequired;
       const title = disabled ? t("battery.model_unsupported_caps") + ": " + missing.join(", ") : "";
       return { m, disabled, title };
-    })
-    .filter(({ disabled }) => !disabled);
+    });
 
   if (items.length === 0) {
     container.innerHTML = `<div class="muted">${t("state.empty_models")}</div>`;
+    updateBatteryModalSelectionUI();
     return;
   }
 
   container.innerHTML = items.map(({ m, disabled, title }) => {
     const capsHtml = (m.capabilities || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
+    const tps = Number(m.record_tokens_per_sec) || 0;
+    const metaParts = [];
+    if (m.parameter_size) metaParts.push(m.parameter_size);
+    if (m.quantization) metaParts.push(m.quantization);
+    const metaStr = metaParts.join(" · ");
+    const isChecked = batterySelectedModels.has(m.name);
+
     return `
-      <label class="battery-model-item" title="${escapeHtml(title)}">
-        <input type="checkbox" value="${escapeHtml(m.name)}" ${disabled ? "disabled" : ""} />
-        <span class="battery-model-name">${escapeHtml(m.name)}</span>
-        <span class="battery-model-caps">${capsHtml}</span>
+      <label class="battery-model-item ${isChecked ? "selected" : ""} ${disabled ? "disabled" : ""}" title="${escapeHtml(title)}">
+        <input type="checkbox" value="${escapeHtml(m.name)}" ${isChecked ? "checked" : ""} ${disabled ? "disabled" : ""} />
+        <div class="battery-model-info">
+          <span class="battery-model-name">${escapeHtml(m.name)}</span>
+          ${metaStr ? `<span class="battery-model-meta muted">${escapeHtml(metaStr)}</span>` : ""}
+        </div>
+        <div class="battery-model-metrics">
+          ${tps > 0 ? `<span class="cell-record-tok battery-model-tps" title="${tps.toFixed(1)} tok/s"><span class="record-num">${tps.toFixed(1)}</span> <span class="unit">tok/s</span></span>` : `<span class="cell-record-tok battery-model-tps muted"><span class="record-num">—</span> <span class="unit">tok/s</span></span>`}
+          <div class="battery-model-caps">${capsHtml}</div>
+        </div>
       </label>
     `;
   }).join("");
 
   container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
     cb.addEventListener("change", () => {
-      if (cb.checked) batterySelectedModels.add(cb.value);
-      else batterySelectedModels.delete(cb.value);
+      const parentLabel = cb.closest(".battery-model-item");
+      if (cb.checked) {
+        batterySelectedModels.add(cb.value);
+        parentLabel?.classList.add("selected");
+      } else {
+        batterySelectedModels.delete(cb.value);
+        parentLabel?.classList.remove("selected");
+      }
+      updateBatteryModalSelectionUI();
     });
   });
+
+  updateBatteryModalSelectionUI();
 }
 
 let batteryPollTimer = null;
@@ -470,18 +560,29 @@ async function confirmBatteryRun() {
   }
   closeBatteryModal();
   const modelIDs = Array.from(batterySelectedModels);
+  const payload = { model_ids: modelIDs };
+  if (currentRunTarget?.type === "single" && currentRunTarget.testId) {
+    payload.test_id = currentRunTarget.testId;
+  } else if (currentRunTarget?.type === "group" && currentRunTarget.groupId) {
+    payload.group_id = currentRunTarget.groupId;
+  } else if (selectedGroupId && selectedGroupId !== "") {
+    payload.group_id = selectedGroupId;
+  } else {
+    payload.group_id = "all";
+  }
+
   try {
     const data = await api("/api/runner/battery", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group_id: selectedGroupId, model_ids: modelIDs }),
+      body: JSON.stringify(payload),
     });
     const runID = data.run_id;
     if (!runID) {
       toast(t("toast.error", { msg: "No run_id returned" }), "error");
       return;
     }
-    showBatteryProgressView(modelIDs, runID, selectedGroupId);
+    showBatteryProgressView(modelIDs, runID, payload.group_id || "all");
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
     showTestsView();
@@ -517,12 +618,14 @@ function showBatteryResultsView(runId) {
   })();
 }
 
-function showBatteryHistoryView() {
+function showBatteryHistoryView(filterTestId = null) {
   hideAllMainViews();
   currentView = "battery-history";
+  currentHistoryFilterTestId = filterTestId || null;
   $("battery-history-view").hidden = false;
-  if (window.location.pathname !== "/tests/battery/history") {
-    history.pushState(null, "", "/tests/battery/history");
+  const path = filterTestId ? "/tests/history/" + encodeURIComponent(filterTestId) : "/tests/battery/history";
+  if (window.location.pathname !== path) {
+    history.pushState(null, "", path);
   }
   void renderBatteryHistory();
 }
@@ -787,28 +890,72 @@ async function renderBatteryHistory() {
   body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
   try {
     const data = await api("/api/runner/runs");
-    const runs = data.runs || [];
-    if (runs.length === 0) {
-      body.innerHTML = `<div class="battery-empty">${t("battery.no_history")}</div>`;
-      return;
-    }
-    body.innerHTML = runs.map((run) => {
-      const date = fmtDateTimeFull(run.timestamp);
-      return `
-        <div class="battery-history-item" data-run-id="${escapeHtml(run.id)}">
-          <span class="battery-history-date">${escapeHtml(date)}</span>
-          <span class="battery-history-group">${escapeHtml(run.group_name)}</span>
-          <span class="battery-history-models">${escapeHtml((run.models || []).join(", "))}</span>
-          <span class="battery-history-counts">${run.pass_count || 0} / ${run.total_count || 0}</span>
-          <button type="button" class="ghost danger-text battery-history-delete" data-run-id="${escapeHtml(run.id)}">×</button>
+    let runs = data.runs || [];
+
+    let filterHtml = "";
+    if (currentHistoryFilterTestId) {
+      const test = tests.find((t) => t.id === currentHistoryFilterTestId);
+      const testName = test?.name || currentHistoryFilterTestId;
+      filterHtml = `
+        <div class="battery-history-filter-banner">
+          <span>${escapeHtml(t("battery.history_for", { name: testName }))}</span>
+          <button type="button" class="ghost battery-mini-btn" id="battery-history-clear-filter">✕ ${t("analytics.source_all")}</button>
         </div>
       `;
-    }).join("");
+    }
 
-    body.querySelectorAll(".battery-history-item").forEach((el) => {
-      el.addEventListener("click", (e) => {
+    if (runs.length === 0) {
+      body.innerHTML = filterHtml + `<div class="battery-empty">${t("battery.no_history")}</div>`;
+      setupHistoryClearFilterListener();
+      return;
+    }
+
+    body.innerHTML = filterHtml + `
+      <div class="battery-history-list">
+        ${runs.map((run) => {
+          const date = fmtDateTimeFull(run.timestamp);
+          const modelsBadges = (run.models || []).map((m) => `<span class="pill">${escapeHtml(m)}</span>`).join("");
+          const passCount = run.pass_count || 0;
+          const totalCount = run.total_count || 0;
+          const passClass = passCount === totalCount && totalCount > 0 ? "tests-item-active" : (passCount > 0 ? "" : "tests-item-suspended");
+
+          return `
+            <div class="battery-history-card" data-run-id="${escapeHtml(run.id)}">
+              <div class="battery-history-card-left">
+                <div class="battery-history-card-title-row">
+                  <span class="battery-history-group-name">${escapeHtml(run.group_name || t("battery.all_tests"))}</span>
+                  <span class="pill ${passClass}">${passCount} / ${totalCount} OK</span>
+                </div>
+                <div class="battery-history-meta-row">
+                  <span class="battery-history-date muted mono">${escapeHtml(date)}</span>
+                  <div class="battery-history-models-wrap">${modelsBadges}</div>
+                </div>
+              </div>
+              <div class="battery-history-card-actions">
+                <button type="button" class="primary battery-history-view-btn" data-run-id="${escapeHtml(run.id)}">${t("battery.results")}</button>
+                <button type="button" class="ghost danger-text battery-history-delete" data-run-id="${escapeHtml(run.id)}" title="${t("action.delete")}">🗑️</button>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+
+    setupHistoryClearFilterListener();
+
+    body.querySelectorAll(".battery-history-view-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.runId;
+        history.pushState(null, "", "/tests/battery/results/" + id);
+        showBatteryResultsView(id);
+      });
+    });
+
+    body.querySelectorAll(".battery-history-card").forEach((card) => {
+      card.addEventListener("click", (e) => {
         if (e.target.closest("button")) return;
-        const id = el.dataset.runId;
+        const id = card.dataset.runId;
         history.pushState(null, "", "/tests/battery/results/" + id);
         showBatteryResultsView(id);
       });
@@ -835,6 +982,17 @@ async function renderBatteryHistory() {
     });
   } catch (err) {
     body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function setupHistoryClearFilterListener() {
+  const clearBtn = $("battery-history-clear-filter");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      currentHistoryFilterTestId = null;
+      history.pushState(null, "", "/tests/battery/history");
+      void renderBatteryHistory();
+    });
   }
 }
 

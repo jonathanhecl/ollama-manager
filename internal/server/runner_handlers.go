@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gense/ollama-manager/internal/runner"
+	"github.com/gense/ollama-manager/internal/tests"
 )
 
 // ---------- battery runner ----------
@@ -14,14 +15,11 @@ import (
 func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		GroupID  string   `json:"group_id"`
+		TestID   string   `json:"test_id"`
 		ModelIDs []string `json:"model_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
-		return
-	}
-	if body.GroupID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("group_id is required"))
 		return
 	}
 	if len(body.ModelIDs) == 0 {
@@ -29,13 +27,35 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	group, ok := s.testsStore.GetGroup(body.GroupID)
-	if !ok {
-		writeError(w, http.StatusNotFound, errors.New("group not found"))
-		return
-	}
+	var group tests.Group
+	var testsList []tests.Test
 
-	_, testsList := s.testsStore.List()
+	if body.TestID != "" {
+		test, ok := s.testsStore.GetTest(body.TestID)
+		if !ok {
+			writeError(w, http.StatusNotFound, errors.New("test not found"))
+			return
+		}
+		if g, ok := s.testsStore.GetGroup(test.GroupID); ok {
+			group = g
+		} else {
+			group = tests.Group{ID: test.GroupID, Name: test.Name}
+		}
+		testsList = []tests.Test{test}
+	} else if body.GroupID == "" || body.GroupID == "all" {
+		group = tests.Group{ID: "all", Name: "All Tests"}
+		_, allTests := s.testsStore.List()
+		testsList = allTests
+	} else {
+		g, ok := s.testsStore.GetGroup(body.GroupID)
+		if !ok {
+			writeError(w, http.StatusNotFound, errors.New("group not found"))
+			return
+		}
+		group = g
+		_, allTests := s.testsStore.List()
+		testsList = allTests
+	}
 
 	// Fetch capabilities for selected models.
 	ctx := r.Context()
@@ -69,6 +89,11 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 						s.recordModelTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
 					} else {
 						s.recordModelTPS(testRes.Model, 0, run.Timestamp)
+					}
+					for _, sub := range testRes.SubResults {
+						if sub.TokensPerSec > 0 {
+							s.recordModelTPS(testRes.Model, sub.TokensPerSec, run.Timestamp)
+						}
 					}
 				}
 			}

@@ -119,10 +119,10 @@ $("response-view-modal")?.addEventListener("click", (e) => {
 $("response-view-modal-close")?.addEventListener("click", closeResponseViewModal);
 
 $("tests-group-history-btn")?.addEventListener("click", () => {
-  if (selectedGroupId) openGroupHistoryModal(selectedGroupId);
+  showBatteryHistoryView();
 });
 $("tests-run-battery-btn")?.addEventListener("click", () => {
-  openBatteryModal();
+  openBatteryModal({ groupId: selectedGroupId });
 });
 $("battery-modal")?.addEventListener("click", (e) => {
   if (e.target === $("battery-modal")) closeBatteryModal();

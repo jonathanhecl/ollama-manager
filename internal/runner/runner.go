@@ -130,10 +130,10 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 		SysInfo:   sysInfo,
 	}
 
-	// Filter active non-agent tests that belong to this group.
+	// Filter active non-agent tests.
 	var activeTests []tests.Test
 	for _, t := range testsList {
-		if t.GroupID != group.ID {
+		if group.ID != "" && group.ID != "all" && len(testsList) > 1 && t.GroupID != group.ID {
 			continue
 		}
 		if !t.Active {

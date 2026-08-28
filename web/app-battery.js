@@ -3,9 +3,14 @@
 // ---------- battery runner ----------
 let currentRunTarget = null; // { type: 'single' | 'group' | 'all', testId?: string, groupId?: string, name?: string }
 let currentHistoryFilterTestId = null;
+let currentHistoryFilterModel = null;
 
 async function openBatteryModal(options = {}) {
   batterySelectedModels.clear();
+  const defaultModel = options.initialModel || (typeof selectedTestModel !== "undefined" ? selectedTestModel : "");
+  if (defaultModel) {
+    batterySelectedModels.add(defaultModel);
+  }
   $("battery-modal").hidden = false;
 
   if (options.testId) {
@@ -30,6 +35,7 @@ async function openBatteryModal(options = {}) {
   }
 
   renderBatteryModalModels();
+  updateBatteryModalSelectionUI();
 
   // Wire toolbar quick buttons if not wired
   const selectAllBtn = $("battery-modal-select-all");
@@ -635,13 +641,20 @@ function showBatteryResultsView(runId) {
   })();
 }
 
-function showBatteryHistoryView(filterTestId = null) {
+function showBatteryHistoryView(filterTestId = null, filterModel = null) {
   hideAllMainViews();
   currentView = "battery-history";
   currentHistoryFilterTestId = filterTestId || null;
+  currentHistoryFilterModel = filterModel || null;
   $("battery-history-view").hidden = false;
-  const path = filterTestId ? "/tests/history/" + encodeURIComponent(filterTestId) : "/tests/battery/history";
-  if (window.location.pathname !== path) {
+  let path = "/tests/battery/history";
+  if (filterTestId) {
+    path = "/tests/history/" + encodeURIComponent(filterTestId);
+  }
+  if (filterModel) {
+    path += (path.includes("?") ? "&" : "?") + "model=" + encodeURIComponent(filterModel);
+  }
+  if (window.location.pathname + window.location.search !== path) {
     history.pushState(null, "", path);
   }
   void renderBatteryHistory();
@@ -1002,41 +1015,142 @@ async function renderBatteryHistory() {
   body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
   try {
     const data = await api("/api/runner/runs");
-    let runs = data.runs || [];
+    let allRuns = data.runs || [];
 
-    let filterHtml = "";
+    // Setup header model dropdown
+    const modelSel = $("battery-history-model-select");
+    if (modelSel) {
+      const activeModels = (typeof models !== "undefined" ? models : []).filter((m) => !m.archived);
+      let opts = `<option value="">${escapeHtml(t("tests.all_models"))}</option>`;
+      for (const m of activeModels) {
+        const sel = m.name === currentHistoryFilterModel;
+        opts += `<option value="${escapeHtml(m.name)}" ${sel ? "selected" : ""}>${escapeHtml(m.name)}</option>`;
+      }
+      modelSel.innerHTML = opts;
+      if (!modelSel.dataset.wired) {
+        modelSel.dataset.wired = "1";
+        modelSel.addEventListener("change", () => {
+          currentHistoryFilterModel = modelSel.value || null;
+          let path = "/tests/battery/history";
+          if (currentHistoryFilterTestId) path = "/tests/history/" + encodeURIComponent(currentHistoryFilterTestId);
+          if (currentHistoryFilterModel) path += (path.includes("?") ? "&" : "?") + "model=" + encodeURIComponent(currentHistoryFilterModel);
+          history.pushState(null, "", path);
+          void renderBatteryHistory();
+        });
+      }
+    }
+
+    let runs = allRuns;
     if (currentHistoryFilterTestId) {
-      const test = tests.find((t) => t.id === currentHistoryFilterTestId);
+      runs = runs.filter((r) => (r.results || []).some((res) => res.test_id === currentHistoryFilterTestId));
+    }
+    if (currentHistoryFilterModel) {
+      runs = runs.filter((r) => (r.models || []).includes(currentHistoryFilterModel));
+    }
+
+    let bannerHtml = "";
+    if (currentHistoryFilterTestId || currentHistoryFilterModel) {
+      const test = currentHistoryFilterTestId ? tests.find((t) => t.id === currentHistoryFilterTestId) : null;
       const testName = test?.name || currentHistoryFilterTestId;
-      filterHtml = `
+      const filterParts = [];
+      if (testName) filterParts.push(t("battery.history_for", { name: testName }));
+      if (currentHistoryFilterModel) filterParts.push(`🤖 ${currentHistoryFilterModel}`);
+      bannerHtml = `
         <div class="battery-history-filter-banner">
-          <span>${escapeHtml(t("battery.history_for", { name: testName }))}</span>
+          <span>${escapeHtml(filterParts.join(" · "))}</span>
           <button type="button" class="ghost battery-mini-btn" id="battery-history-clear-filter">✕ ${t("analytics.source_all")}</button>
         </div>
       `;
     }
 
+    let modelSummaryHtml = "";
+    if (currentHistoryFilterModel) {
+      let modelTotalTests = 0;
+      let modelPassTests = 0;
+      let modelTimeSum = 0;
+      let modelTpsSum = 0;
+      let modelTpsCount = 0;
+
+      for (const run of runs) {
+        for (const res of run.results || []) {
+          if (res.model === currentHistoryFilterModel) {
+            modelTotalTests++;
+            if (res.passed === true) modelPassTests++;
+            modelTimeSum += res.response_time_ms || 0;
+            if (res.tokens_per_sec > 0) {
+              modelTpsSum += res.tokens_per_sec;
+              modelTpsCount++;
+            }
+          }
+        }
+      }
+
+      const avgMs = modelTotalTests > 0 ? Math.round(modelTimeSum / modelTotalTests) : 0;
+      const avgTps = modelTpsCount > 0 ? (modelTpsSum / modelTpsCount).toFixed(1) : null;
+      const avgTpsColor = avgTps ? (typeof getToksRecordColor === "function" ? getToksRecordColor(Number(avgTps)) : "") : "";
+      const passPct = modelTotalTests > 0 ? Math.round((modelPassTests / modelTotalTests) * 100) : 0;
+      const passClass = passPct === 100 ? "pill-good" : (passPct > 0 ? "pill-warn" : "pill-bad");
+
+      modelSummaryHtml = `
+        <div class="battery-history-model-summary">
+          <div class="battery-history-model-summary-left">
+            <h3>🤖 ${escapeHtml(currentHistoryFilterModel)}</h3>
+            <p>${escapeHtml(t("battery.model_stats_title"))}</p>
+          </div>
+          <div class="battery-history-model-summary-stats">
+            <div class="battery-history-model-stat-item">
+              <span class="battery-history-model-stat-val pill ${passClass}" style="font-size:16px;">${modelPassTests} / ${modelTotalTests} (${passPct}%)</span>
+              <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.model_overall_pass"))}</span>
+            </div>
+            <div class="battery-history-model-stat-item">
+              <span class="battery-history-model-stat-val mono">⏱️ ${fmtDuration(avgMs)}</span>
+              <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.response_time"))}</span>
+            </div>
+            ${avgTps ? `
+              <div class="battery-history-model-stat-item">
+                <span class="battery-history-model-stat-val mono" style="color:${avgTpsColor}">⚡ ${avgTps} tok/s</span>
+                <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.avg_tok_sec"))}</span>
+              </div>
+            ` : ""}
+          </div>
+        </div>
+      `;
+    }
+
     if (runs.length === 0) {
-      body.innerHTML = filterHtml + `<div class="battery-empty">${t("battery.no_history")}</div>`;
+      body.innerHTML = bannerHtml + modelSummaryHtml + `<div class="battery-empty">${t("battery.no_history")}</div>`;
       setupHistoryClearFilterListener();
       return;
     }
 
-    body.innerHTML = filterHtml + `
+    body.innerHTML = bannerHtml + modelSummaryHtml + `
       <div class="battery-history-list">
         ${runs.map((run) => {
           const date = fmtDateTimeFull(run.timestamp);
-          const modelsBadges = (run.models || []).map((m) => `<span class="pill">${escapeHtml(m)}</span>`).join("");
+          const modelsBadges = (run.models || []).map((m) => {
+            const isTarget = m === currentHistoryFilterModel;
+            return `<span class="pill ${isTarget ? "pill-good" : ""}">${escapeHtml(m)}</span>`;
+          }).join("");
           const passCount = run.pass_count || 0;
           const totalCount = run.total_count || 0;
-          const passClass = passCount === totalCount && totalCount > 0 ? "tests-item-active" : (passCount > 0 ? "" : "tests-item-suspended");
+          const passClass = passCount === totalCount && totalCount > 0 ? "pill-good" : (passCount > 0 ? "pill-warn" : "pill-bad");
+
+          let scoreBadgeHtml = `<span class="pill ${passClass}">${passCount} / ${totalCount} OK</span>`;
+          if (currentHistoryFilterModel) {
+            const modelResults = (run.results || []).filter((r) => r.model === currentHistoryFilterModel);
+            const mPass = modelResults.filter((r) => r.passed === true).length;
+            const mTotal = modelResults.length;
+            const mTpsList = modelResults.filter((r) => r.tokens_per_sec > 0).map((r) => r.tokens_per_sec);
+            const mAvgTps = mTpsList.length > 0 ? (mTpsList.reduce((a, b) => a + b, 0) / mTpsList.length).toFixed(1) : null;
+            scoreBadgeHtml = `<span class="pill ${mPass === mTotal && mTotal > 0 ? "pill-good" : (mPass > 0 ? "pill-warn" : "pill-bad")}">${mPass} / ${mTotal} OK ${mAvgTps ? `· ⚡ ${mAvgTps} tok/s` : ""}</span>`;
+          }
 
           return `
             <div class="battery-history-card" data-run-id="${escapeHtml(run.id)}">
               <div class="battery-history-card-left">
                 <div class="battery-history-card-title-row">
                   <span class="battery-history-group-name">${escapeHtml(run.group_name || t("battery.all_tests"))}</span>
-                  <span class="pill ${passClass}">${passCount} / ${totalCount} OK</span>
+                  ${scoreBadgeHtml}
                 </div>
                 <div class="battery-history-meta-row">
                   <span class="battery-history-date muted mono">${escapeHtml(date)}</span>
@@ -1102,6 +1216,9 @@ function setupHistoryClearFilterListener() {
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
       currentHistoryFilterTestId = null;
+      currentHistoryFilterModel = null;
+      const modelSel = $("battery-history-model-select");
+      if (modelSel) modelSel.value = "";
       history.pushState(null, "", "/tests/battery/history");
       void renderBatteryHistory();
     });

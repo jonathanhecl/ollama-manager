@@ -1102,15 +1102,43 @@ async function showTestEditorView(id) {
   }
 }
 
+let selectedTestModel = "";
+let testRunsCache = [];
+
 async function refreshTests() {
   try {
-    const data = await api("/api/tests");
+    const [data, runsData] = await Promise.all([
+      api("/api/tests"),
+      api("/api/runner/runs").catch(() => ({ runs: [] })),
+    ]);
     testsGroups = data.groups || [];
     tests = data.tests || [];
+    testRunsCache = runsData.runs || [];
     renderTestsSidebar();
+    renderTestsModelSelect();
     renderTestsList();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+function renderTestsModelSelect() {
+  const select = $("tests-model-filter");
+  if (!select) return;
+  const activeModels = (typeof models !== "undefined" ? models : []).filter((m) => !m.archived);
+  let optionsHtml = `<option value="">${escapeHtml(t("tests.all_models"))}</option>`;
+  for (const m of activeModels) {
+    const isSel = m.name === selectedTestModel;
+    optionsHtml += `<option value="${escapeHtml(m.name)}" ${isSel ? "selected" : ""}>${escapeHtml(m.name)}</option>`;
+  }
+  select.innerHTML = optionsHtml;
+
+  if (!select.dataset.wired) {
+    select.dataset.wired = "1";
+    select.addEventListener("change", () => {
+      selectedTestModel = select.value || "";
+      renderTestsList();
+    });
   }
 }
 
@@ -1200,10 +1228,22 @@ function renderTestsList() {
   if (runBtn) {
     const hasActiveNonAgent = (selectedGroupId === "" ? tests : filtered).some((t) => t.active && t.evaluation_type !== "agent");
     runBtn.hidden = !hasActiveNonAgent;
+    if (!runBtn.dataset.wired) {
+      runBtn.dataset.wired = "1";
+      runBtn.addEventListener("click", () => {
+        openBatteryModal({ groupId: selectedGroupId || "all", initialModel: selectedTestModel || undefined });
+      });
+    }
   }
   const groupHistBtn = $("tests-group-history-btn");
   if (groupHistBtn) {
     groupHistBtn.hidden = false;
+    if (!groupHistBtn.dataset.wired) {
+      groupHistBtn.dataset.wired = "1";
+      groupHistBtn.addEventListener("click", () => {
+        showBatteryHistoryView(null, selectedTestModel || null);
+      });
+    }
   }
 
   if (!filtered.length) {
@@ -1227,6 +1267,31 @@ function renderTestsList() {
       evalLabel = (tr && tr !== "tests.eval_" + test.cases[0].evaluation_type) ? tr : test.cases[0].evaluation_type;
     }
     const caps = (test.required_caps || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
+
+    let modelResultBadge = "";
+    if (selectedTestModel) {
+      let foundRes = null;
+      for (const run of testRunsCache) {
+        const r = (run.results || []).find((x) => x.test_id === test.id && x.model === selectedTestModel);
+        if (r) {
+          foundRes = r;
+          break;
+        }
+      }
+      if (foundRes) {
+        if (foundRes.passed === true) {
+          const tpsText = foundRes.tokens_per_sec > 0 ? ` · ⚡ ${foundRes.tokens_per_sec.toFixed(1)} tok/s` : "";
+          modelResultBadge = `<span class="pill pill-good pill-model-result" title="${escapeHtml(selectedTestModel)}">✔ OK (${fmtDuration(foundRes.response_time_ms)}${tpsText})</span>`;
+        } else if (foundRes.passed === false) {
+          modelResultBadge = `<span class="pill pill-bad pill-model-result" title="${escapeHtml(selectedTestModel)}">✖ FAIL (${fmtDuration(foundRes.response_time_ms)})</span>`;
+        } else {
+          modelResultBadge = `<span class="pill pill-human pill-model-result" title="${escapeHtml(selectedTestModel)}">👁️ ${t("battery.human_review")}</span>`;
+        }
+      } else {
+        modelResultBadge = `<span class="pill pill-muted pill-model-result" title="${escapeHtml(selectedTestModel)}">— ${t("tests.model_not_tested")}</span>`;
+      }
+    }
+
     return `
       <div class="tests-item" data-id="${escapeHtml(test.id)}">
         <div class="tests-item-main">
@@ -1235,6 +1300,7 @@ function renderTestsList() {
             <span class="pill ${activeClass}">${escapeHtml(activeLabel)}</span>
             ${evalLabel ? `<span class="pill">${escapeHtml(evalLabel)}</span>` : ""}
             ${caps}
+            ${modelResultBadge}
           </div>
           ${test.description ? `<div class="tests-item-desc muted">${escapeHtml(test.description)}</div>` : ""}
         </div>
@@ -1264,7 +1330,7 @@ function renderTestsList() {
         if (test?.evaluation_type === "agent") {
           showAgentSessionView(id);
         } else {
-          openBatteryModal({ testId: id });
+          openBatteryModal({ testId: id, initialModel: selectedTestModel || undefined });
         }
       }
     });
@@ -1280,7 +1346,7 @@ function renderTestsList() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
-      if (id) showBatteryHistoryView(id);
+      if (id) showBatteryHistoryView(id, selectedTestModel || null);
     });
   });
   list.querySelectorAll(".tests-item-toggle").forEach((btn) => {
@@ -1598,10 +1664,14 @@ async function handleRouting() {
   } else if (path === "/chat" || path === "/chat/") {
     showChatView();
   } else if (path === "/tests" || path === "/tests/") {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has("model")) selectedTestModel = urlParams.get("model") || "";
     showTestsView();
   } else if (path.startsWith("/tests/group/")) {
     selectedGroupId = path.substring(13);
-    showTestsView();
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has("model")) selectedTestModel = urlParams.get("model") || "";
+    showTestsView(true);
   } else if (path === "/tests/new") {
     await showTestEditorView(null);
   } else if (path.startsWith("/tests/edit/")) {
@@ -1628,8 +1698,11 @@ async function handleRouting() {
   } else if (path.startsWith("/tests/battery/results/")) {
     const id = path.substring(23);
     void showBatteryResultsView(id);
-  } else if (path === "/tests/battery/history") {
-    showBatteryHistoryView();
+  } else if (path === "/tests/battery/history" || path.startsWith("/tests/history/")) {
+    const filterTestId = path.startsWith("/tests/history/") ? decodeURIComponent(path.substring(15)) : null;
+    const urlParams = new URLSearchParams(window.location.search);
+    const filterModel = urlParams.get("model") || null;
+    showBatteryHistoryView(filterTestId, filterModel);
   } else if (path === "/analytics" || path === "/analytics/") {
     showAnalyticsView();
   } else if (path === "/settings" || path.startsWith("/settings/")) {

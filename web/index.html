@@ -401,6 +401,14 @@
         <div class="tests-main-container">
           <header class="tests-main-head">
             <h2 id="tests-group-title" data-i18n="tests.all_tests">All Tests</h2>
+            <div class="tests-main-filters">
+              <div class="tests-filter-control">
+                <span class="tests-filter-icon">🤖</span>
+                <select id="tests-model-filter" class="tests-model-select">
+                  <option value="" data-i18n="tests.all_models">All models</option>
+                </select>
+              </div>
+            </div>
           </header>
           <div id="tests-list" class="tests-list"></div>
           <div id="tests-empty" class="tests-empty muted" data-i18n="tests.empty" hidden>No tests yet.</div>
@@ -2026,7 +2034,14 @@
           <span data-i18n="battery.history">History</span>
         </h2>
       </div>
-      <div class="battery-head-actions"></div>
+      <div class="battery-head-actions">
+        <div class="battery-history-filter-control">
+          <label for="battery-history-model-select" class="muted" style="font-size:12px;" data-i18n="chat.model">Model:</label>
+          <select id="battery-history-model-select" class="battery-history-model-select">
+            <option value="" data-i18n="tests.all_models">All models</option>
+          </select>
+        </div>
+      </div>
     </header>
     <div class="battery-body">
       <div class="battery-container">

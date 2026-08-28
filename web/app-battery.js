@@ -752,6 +752,54 @@ function renderBatteryResults(run) {
       const respShort = escapeHtml(resp.slice(0, 200));
       const respRest = escapeHtml(resp.slice(200));
 
+      let responseCellHtml = "";
+      if (r.sub_results && r.sub_results.length > 0) {
+        responseCellHtml = `
+          <div class="battery-subresults-list">
+            ${r.sub_results.map((sub, sidx) => {
+              const isPass = sub.passed === true;
+              const isFail = sub.passed === false;
+              const badgeClass = isPass ? "badge-pass" : (isFail ? "badge-fail" : "badge-human");
+              const statusIcon = isPass ? "✔" : (isFail ? "✖" : "•");
+              const name = sub.name || `Case #${sub.index + 1 || sidx + 1}`;
+              const tpsColor = (typeof getToksRecordColor === "function" && sub.tokens_per_sec > 0) ? getToksRecordColor(sub.tokens_per_sec) : "";
+              const timeStr = sub.response_time_ms > 0 ? fmtDuration(sub.response_time_ms) : "";
+              const tpsStr = sub.tokens_per_sec > 0 ? `${sub.tokens_per_sec.toFixed(1)} tok/s` : "";
+
+              return `
+                <div class="battery-subresult-row">
+                  <div class="battery-subresult-left">
+                    <span class="badge ${badgeClass} battery-subresult-pill">${statusIcon}</span>
+                    <span class="battery-subresult-title">${escapeHtml(name)}</span>
+                  </div>
+                  <div class="battery-subresult-right">
+                    ${timeStr ? `<span class="battery-subresult-time mono muted">⏱️ ${timeStr}</span>` : ""}
+                    ${tpsStr ? `<span class="battery-subresult-tps mono" style="color:${tpsColor}">⚡ ${tpsStr}</span>` : ""}
+                    <button type="button" class="ghost battery-subresult-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}" data-sub-idx="${sidx}" title="${t("chat.response")}">
+                      ${t("action.view") || "View"} ↗
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      } else {
+        responseCellHtml = `
+          <div class="battery-single-response">
+            <div class="resp-text-wrap">
+              <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
+              ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
+            </div>
+            ${resp.length > 0 ? `
+              <button type="button" class="ghost battery-single-raw-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
+                ${t("action.view") || "View"} ↗
+              </button>
+            ` : ""}
+          </div>
+        `;
+      }
+
       rowsHtml += `
         <tr>
           ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${evalLabel}${humanReviewLabel}${promptBtn}</td>` : ""}
@@ -765,8 +813,7 @@ function renderBatteryResults(run) {
             }
           </td>
           <td class="cell-response">
-            <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
-            ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
+            ${responseCellHtml}
           </td>
         </tr>
       `;
@@ -796,6 +843,33 @@ function renderBatteryResults(run) {
       if (!target) return;
       target.hidden = !target.hidden;
       btn.textContent = target.hidden ? "…" : "▲";
+    });
+  });
+
+  body.querySelectorAll(".battery-subresult-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const testId = btn.dataset.testId;
+      const model = btn.dataset.model;
+      const sidx = Number(btn.dataset.subIdx);
+      const res = run.results.find((x) => x.test_id === testId && x.model === model);
+      const sub = res?.sub_results?.[sidx];
+      const caseName = sub?.name || `Case #${sidx + 1}`;
+      const titleEl = $("response-view-modal-title");
+      if (titleEl) titleEl.textContent = `${res?.test_name || testId} — ${caseName}`;
+      openResponseViewModal(model, sub?.model_response || sub?.error || t("battery.no_response"));
+    });
+  });
+
+  body.querySelectorAll(".battery-single-raw-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const testId = btn.dataset.testId;
+      const model = btn.dataset.model;
+      const res = run.results.find((x) => x.test_id === testId && x.model === model);
+      const titleEl = $("response-view-modal-title");
+      if (titleEl) titleEl.textContent = `${res?.test_name || testId} (${model})`;
+      openResponseViewModal(model, res?.model_response || res?.error || t("battery.no_response"));
     });
   });
 

@@ -54,7 +54,11 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		}
 		group = g
 		_, allTests := s.testsStore.List()
-		testsList = allTests
+		for _, t := range allTests {
+			if t.GroupID == body.GroupID {
+				testsList = append(testsList, t)
+			}
+		}
 	}
 
 	// Fetch capabilities for selected models.

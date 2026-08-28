@@ -47,6 +47,7 @@ func (s *ResultStore) Load() error {
 
 	// Check legacy single-file history for migration
 	legacyPaths := []string{
+		filepath.Join(s.dir, "_history_all.json"),
 		filepath.Join(s.dir, ".history.json"),
 		filepath.Join(s.dir, "tests-history.json"),
 		filepath.Join(filepath.Dir(s.dir), "tests-history.json"),
@@ -61,7 +62,6 @@ func (s *ResultStore) Load() error {
 					}
 				}
 			}
-			_ = os.Remove(lp)
 		}
 	}
 
@@ -403,9 +403,14 @@ func (s *ResultStore) saveGroupLocked(groupID string) error {
 		groupID = "examples"
 	}
 
-	catDir := filepath.Join(s.dir, groupID)
-	_ = os.MkdirAll(catDir, 0o755)
-	target := filepath.Join(catDir, "_history.json")
+	var target string
+	if groupID == "all" {
+		target = filepath.Join(s.dir, "_history_all.json")
+	} else {
+		catDir := filepath.Join(s.dir, groupID)
+		_ = os.MkdirAll(catDir, 0o755)
+		target = filepath.Join(catDir, "_history.json")
+	}
 
 	var groupRuns []BatteryRun
 	for _, r := range s.runs {

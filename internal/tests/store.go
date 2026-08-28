@@ -161,8 +161,8 @@ func (s *Store) Load() error {
 			continue
 		}
 		dirName := entry.Name()
-		// Ignore hidden directories (.backup, .history, etc.)
-		if strings.HasPrefix(dirName, ".") {
+		// Ignore hidden directories (.backup, .history, etc.) and private prefixes (_*)
+		if strings.HasPrefix(dirName, ".") || strings.HasPrefix(dirName, "_") {
 			continue
 		}
 
@@ -181,7 +181,7 @@ func (s *Store) Load() error {
 				continue
 			}
 			tName := testEntry.Name()
-			if strings.HasPrefix(tName, ".") || strings.HasPrefix(tName, "_category") {
+			if strings.HasPrefix(tName, ".") || strings.HasPrefix(tName, "_") || strings.EqualFold(tName, "history.json") {
 				continue
 			}
 
@@ -206,6 +206,10 @@ func (s *Store) Load() error {
 				if err := json.Unmarshal(data, &t); err != nil {
 					continue
 				}
+			}
+
+			if t.Name == "" && t.Prompt == "" && len(t.Cases) == 0 && len(t.Steps) == 0 && len(t.Messages) == 0 {
+				continue
 			}
 
 			if t.ID == "" {
@@ -520,6 +524,10 @@ type DeleteTestResult struct {
 func (s *Store) DeleteTest(id string) (DeleteTestResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if strings.HasPrefix(id, ".") || strings.HasPrefix(id, "_") {
+		return DeleteTestResult{}, errors.New("cannot delete internal files")
+	}
 
 	t, ok := s.tests[id]
 	if !ok || t == nil {

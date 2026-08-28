@@ -21,6 +21,7 @@ function hideAllMainViews() {
   $("modelfile-view") && ($("modelfile-view").hidden = true);
   $("hf-view") && ($("hf-view").hidden = true);
   $("detail-panel") && ($("detail-panel").hidden = true);
+  document.querySelectorAll(".topbar-actions button").forEach((b) => b.classList.remove("active"));
 }
 
 function showOpenCodeView() {
@@ -37,6 +38,7 @@ function showAnalyticsView() {
   hideAllMainViews();
   stopSpeechPlayback();
   currentView = "analytics";
+  $("analytics-btn")?.classList.add("active");
   $("analytics-view").hidden = false;
   if (!window.location.pathname.startsWith("/analytics")) {
     history.pushState(null, "", "/analytics");

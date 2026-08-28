@@ -759,6 +759,7 @@
     }
 
     currentView = "modelfile";
+    $("modelfile-btn")?.classList.add("active");
     const view = $("modelfile-view");
     if (view) view.hidden = false;
 

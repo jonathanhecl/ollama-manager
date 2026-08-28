@@ -6455,6 +6455,18 @@ button.chat-send:disabled:hover {
   gap: 6px;
 }
 .analytics-filter-sep { color: var(--muted); }
+.analytics-filter-group--actions {
+  margin-left: auto;
+  align-self: flex-end;
+}
+.analytics-filter-reset-btn {
+  height: 32px;
+  font-size: 12px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 
 /* Analytics Grid & Cards */
 .analytics-grid {

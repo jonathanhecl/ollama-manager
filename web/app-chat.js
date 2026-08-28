@@ -260,9 +260,7 @@ function showModelsView() {
   $("settings-view") && ($("settings-view").hidden = true);
   $("modelfile-view") && ($("modelfile-view").hidden = true);
   $("hf-view") && ($("hf-view").hidden = true);
-  $("chat-btn")?.classList.remove("active");
-  $("settings-btn")?.classList.remove("active");
-  $("hf-topbar-btn")?.classList.remove("active");
+  document.querySelectorAll(".topbar-actions button").forEach((b) => b.classList.remove("active"));
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
   }

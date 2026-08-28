@@ -420,9 +420,7 @@
         </h2>
         <span id="analytics-count" class="badge badge-muted"></span>
       </div>
-      <div class="analytics-head-actions">
-        <button id="analytics-filter-reset" type="button" class="ghost" data-i18n="analytics.filter_reset">Reset Filters</button>
-      </div>
+      <div class="analytics-head-actions"></div>
     </header>
     <div class="analytics-body">
       <div class="analytics-container">
@@ -464,6 +462,9 @@
               <option value="dense" data-i18n="analytics.type_dense">Dense</option>
               <option value="moe" data-i18n="analytics.type_moe">MoE</option>
             </select>
+          </div>
+          <div class="analytics-filter-group analytics-filter-group--actions">
+            <button id="analytics-filter-reset" type="button" class="ghost analytics-filter-reset-btn" data-i18n="analytics.filter_reset">Reset filters</button>
           </div>
         </div>
         <div id="analytics-kpis" class="analytics-kpis"></div>
@@ -1176,9 +1177,7 @@
           <span data-i18n="hf.title">HuggingFace Models</span>
         </h2>
       </div>
-      <div class="hf-head-actions">
-        <div id="hf-memory-banner" class="hf-mem-banner badge badge-subtle mono"></div>
-      </div>
+      <div class="hf-head-actions"></div>
     </header>
 
     <div class="hf-body">

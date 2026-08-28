@@ -1022,6 +1022,7 @@ function showTestsView() {
   hideAllMainViews();
   stopSpeechPlayback();
   currentView = "tests";
+  $("tests-btn")?.classList.add("active");
   $("tests-view").hidden = false;
   if (!window.location.pathname.startsWith("/tests")) {
     history.pushState(null, "", "/tests");
@@ -1032,6 +1033,7 @@ function showTestsView() {
 async function showTestEditorView(id) {
   hideAllMainViews();
   currentView = "test-editor";
+  $("tests-btn")?.classList.add("active");
   $("test-editor-view").hidden = false;
   currentTestId = id;
   if (id) {
@@ -1213,7 +1215,16 @@ function renderTestsList() {
   list.innerHTML = filtered.map((test) => {
     const activeClass = test.active ? "tests-item-active" : "tests-item-suspended";
     const activeLabel = test.active ? t("tests.status_active") : t("tests.status_suspended");
-    const evalLabel = t("tests.eval_" + test.evaluation_type) || test.evaluation_type;
+    let evalLabel = "";
+    if (test.cases && test.cases.length > 1) {
+      evalLabel = t("tests.cases_count", { n: test.cases.length });
+    } else if (test.evaluation_type) {
+      const tr = t("tests.eval_" + test.evaluation_type);
+      evalLabel = (tr && tr !== "tests.eval_" + test.evaluation_type) ? tr : test.evaluation_type;
+    } else if (test.cases && test.cases.length === 1 && test.cases[0]?.evaluation_type) {
+      const tr = t("tests.eval_" + test.cases[0].evaluation_type);
+      evalLabel = (tr && tr !== "tests.eval_" + test.cases[0].evaluation_type) ? tr : test.cases[0].evaluation_type;
+    }
     const caps = (test.required_caps || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
     return `
       <div class="tests-item" data-id="${escapeHtml(test.id)}">
@@ -1221,7 +1232,7 @@ function renderTestsList() {
           <div class="tests-item-name">${escapeHtml(test.name)}</div>
           <div class="tests-item-meta">
             <span class="pill ${activeClass}">${escapeHtml(activeLabel)}</span>
-            <span class="pill">${escapeHtml(evalLabel)}</span>
+            ${evalLabel ? `<span class="pill">${escapeHtml(evalLabel)}</span>` : ""}
             ${caps}
           </div>
           ${test.description ? `<div class="tests-item-desc muted">${escapeHtml(test.description)}</div>` : ""}

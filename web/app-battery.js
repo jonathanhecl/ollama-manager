@@ -135,24 +135,34 @@ function renderBatteryModalModels() {
   }
 
   container.innerHTML = items.map(({ m, disabled, title }) => {
-    const capsHtml = (m.capabilities || []).map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join("");
+    const capsHtml = (m.capabilities || [])
+      .map((c) => `<span class="pill" data-cap="${escapeHtml(c)}">${escapeHtml(c)}</span>`)
+      .join("");
     const tps = Number(m.record_tokens_per_sec) || 0;
-    const metaParts = [];
-    if (m.parameter_size) metaParts.push(m.parameter_size);
-    if (m.quantization) metaParts.push(m.quantization);
-    const metaStr = metaParts.join(" · ");
+    const tokColor = (typeof getToksRecordColor === "function" && tps > 0) ? getToksRecordColor(tps) : "";
+    const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
+    const paramsText = m.parameter_size || "";
+    const quantText = (m.quantization && m.quantization !== "unknown") ? m.quantization : "";
     const isChecked = batterySelectedModels.has(m.name);
 
     return `
       <label class="battery-model-item ${isChecked ? "selected" : ""} ${disabled ? "disabled" : ""}" title="${escapeHtml(title)}">
         <input type="checkbox" value="${escapeHtml(m.name)}" ${isChecked ? "checked" : ""} ${disabled ? "disabled" : ""} />
-        <div class="battery-model-info">
-          <span class="battery-model-name">${escapeHtml(m.name)}</span>
-          ${metaStr ? `<span class="battery-model-meta muted">${escapeHtml(metaStr)}</span>` : ""}
+        <div class="battery-model-main">
+          <div class="battery-model-name">${escapeHtml(m.name)}</div>
+          ${capsHtml ? `<div class="battery-model-caps cap-list model-cap-list">${capsHtml}</div>` : ""}
         </div>
-        <div class="battery-model-metrics">
-          ${tps > 0 ? `<span class="cell-record-tok battery-model-tps" title="${tps.toFixed(1)} tok/s"><span class="record-num">${tps.toFixed(1)}</span> <span class="unit">tok/s</span></span>` : `<span class="cell-record-tok battery-model-tps muted"><span class="record-num">—</span> <span class="unit">tok/s</span></span>`}
-          <div class="battery-model-caps">${capsHtml}</div>
+        <div class="battery-model-right-cols">
+          <div class="battery-model-specs mono muted">
+            ${paramsText ? `<span class="battery-model-param">${escapeHtml(paramsText)}</span>` : ""}
+            ${quantText ? `<span class="battery-model-quant">${escapeHtml(quantText)}</span>` : ""}
+          </div>
+          <div class="battery-model-tps-box">
+            ${tps > 0
+              ? `<span class="cell-record-tok battery-model-tps" title="${tps.toFixed(1)} tok/s"><span class="record-num"${colorStyle}>${tps.toFixed(1)}</span> <span class="unit">tok/s</span></span>`
+              : `<span class="cell-record-tok battery-model-tps muted"><span class="record-num">—</span> <span class="unit">tok/s</span></span>`
+            }
+          </div>
         </div>
       </label>
     `;

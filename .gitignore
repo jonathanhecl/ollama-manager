@@ -35,6 +35,8 @@ config.json
 jobs.json
 tests*.json
 archived*.json
+testing/.backup/
+testing/.history.json
 
 # Runtime state: generated artifact projects
 artifacts/

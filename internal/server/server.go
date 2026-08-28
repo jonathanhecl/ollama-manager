@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -103,10 +104,10 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		log.Printf("archived-models: could not load %s: %v", archivedPath, err)
 	}
 
-	testsPath := filepath.Join(filepath.Dir(cfg.Path()), "tests.json")
-	testsStore := tests.New(testsPath)
+	testingDir := getTestingDir(cfg.Path())
+	testsStore := tests.New(testingDir)
 	if err := testsStore.Load(); err != nil {
-		log.Printf("tests: could not load %s: %v", testsPath, err)
+		log.Printf("tests: could not load %s: %v", testingDir, err)
 	}
 	if err := testsStore.PopulateSeed(); err != nil {
 		log.Printf("tests: seed populate failed: %v", err)
@@ -114,7 +115,13 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 
 	agentStore := agent.NewSessionStore(filepath.Dir(cfg.Path()))
 
-	runnerPath := filepath.Join(filepath.Dir(cfg.Path()), "tests-history.json")
+	runnerPath := filepath.Join(testingDir, ".history.json")
+	legacyRunnerPath := filepath.Join(filepath.Dir(cfg.Path()), "tests-history.json")
+	if _, err := os.Stat(legacyRunnerPath); err == nil {
+		if _, err := os.Stat(runnerPath); errors.Is(err, os.ErrNotExist) {
+			_ = os.Rename(legacyRunnerPath, runnerPath)
+		}
+	}
 	runnerStore := runner.NewResultStore(runnerPath)
 	if err := runnerStore.Load(); err != nil {
 		log.Printf("runner: could not load %s: %v", runnerPath, err)
@@ -330,3 +337,15 @@ func getPromptsDir(cfgPath string) string {
 	}
 	return filepath.Join(filepath.Dir(cfgPath), "prompts")
 }
+
+func getTestingDir(cfgPath string) string {
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		lower := strings.ToLower(exeDir)
+		if !strings.Contains(lower, "go-build") && !strings.Contains(lower, "temp") && !strings.Contains(lower, "tmp") {
+			return filepath.Join(exeDir, "testing")
+		}
+	}
+	return filepath.Join(filepath.Dir(cfgPath), "testing")
+}
+

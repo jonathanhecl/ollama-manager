@@ -1,0 +1,33 @@
+{
+  "id": "example-arithmetic",
+  "name": "Basic Arithmetic",
+  "description": "Evaluates whether the model can follow order of operations.",
+  "group_id": "examples",
+  "active": true,
+  "order": 0,
+  "prompt": "What is 2 + 3 * 4? Return only the final number.",
+  "system_prompt": "You are a concise calculator. Reply with only the final numerical answer.",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a concise calculator. Reply with only the final numerical answer."
+    },
+    {
+      "role": "user",
+      "content": "What is 2 + 3 * 4? Return only the final number."
+    }
+  ],
+  "evaluation": {
+    "type": "contains",
+    "config": {
+      "expected": "14"
+    }
+  },
+  "evaluation_type": "contains",
+  "evaluation_config": {
+    "expected": "14"
+  },
+  "filename": "arithmetic.json",
+  "created_at": "2026-08-28T05:01:23.9036267Z",
+  "updated_at": "2026-08-28T05:01:23.9036267Z"
+}

@@ -7,118 +7,111 @@ import (
 )
 
 func TestIsSeedTestID(t *testing.T) {
-	if !IsSeedTestID("t1") {
-		t.Fatal("expected t1 to be a seed test")
+	if !IsSeedTestID("example-arithmetic") {
+		t.Fatal("expected example-arithmetic to be a seed test")
 	}
-	if IsSeedTestID("abcdef0123456789abcd") {
-		t.Fatal("expected user id not to be seed test")
+	if IsSeedTestID("non-existent-test-id") {
+		t.Fatal("expected random id not to be seed test")
 	}
 }
 
-func TestPopulateSeedAddsMissingOnly(t *testing.T) {
+func TestPopulateSeedCreatesExamples(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "tests.json")
-	store := New(path)
+	store := New(dir)
 
 	if err := store.PopulateSeed(); err != nil {
 		t.Fatalf("PopulateSeed: %v", err)
 	}
-	_, tests := store.List()
-	if len(tests) == 0 {
-		t.Fatal("expected seed tests")
+
+	groups, testsList := store.List()
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group (examples), got %d", len(groups))
+	}
+	if len(testsList) != 3 {
+		t.Fatalf("expected 3 example tests, got %d", len(testsList))
 	}
 
-	first := tests[0]
-	if _, err := store.DeleteTest(first.ID); err != nil {
-		t.Fatalf("DeleteTest: %v", err)
-	}
-	result, err := store.DeleteTest(first.ID)
-	if err != nil {
-		t.Fatalf("DeleteTest reseed: %v", err)
-	}
-	if !result.Reseeded {
-		t.Fatal("expected reseeded seed test")
+	// Verify file structure on disk
+	catFile := filepath.Join(dir, "examples", "_category.json")
+	if _, err := os.Stat(catFile); err != nil {
+		t.Fatalf("expected _category.json in examples folder: %v", err)
 	}
 
-	got, ok := store.GetTest(first.ID)
-	if !ok {
-		t.Fatal("expected reseeded test to exist")
+	arithFile := filepath.Join(dir, "examples", "arithmetic.json")
+	if _, err := os.Stat(arithFile); err != nil {
+		t.Fatalf("expected arithmetic.json in examples folder: %v", err)
 	}
-	if got.Name != first.Name {
-		t.Fatalf("reseeded name = %q, want %q", got.Name, first.Name)
+
+	// Test reload from disk
+	storeReloaded := New(dir)
+	if err := storeReloaded.Load(); err != nil {
+		t.Fatalf("Load reloaded: %v", err)
+	}
+	g2, t2 := storeReloaded.List()
+	if len(g2) != 1 || len(t2) != 3 {
+		t.Fatalf("expected 1 group and 3 tests on reload, got %d groups and %d tests", len(g2), len(t2))
 	}
 }
 
-func TestDeleteUserTestDoesNotReseed(t *testing.T) {
+func TestCreateUpdateDeleteTest(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "tests.json")
-	store := New(path)
+	store := New(dir)
 	_ = store.PopulateSeed()
 
 	created, err := store.CreateTest(Test{
-		Name:           "Custom",
-		GroupID:        "core",
+		Name:           "Custom Logic Test",
+		GroupID:        "custom",
 		Active:         true,
-		Prompt:         "Say hi",
+		Prompt:         "Solve this puzzle",
 		EvaluationType: "contains",
+		EvaluationConfig: mustJSON(map[string]any{"expected": "solved"}),
 	})
 	if err != nil {
 		t.Fatalf("CreateTest: %v", err)
 	}
 
-	result, err := store.DeleteTest(created.ID)
+	if created.GroupID != "custom" {
+		t.Fatalf("expected group custom, got %s", created.GroupID)
+	}
+
+	// Verify file on disk in custom directory
+	createdPath := filepath.Join(dir, "custom", created.Filename)
+	if _, err := os.Stat(createdPath); err != nil {
+		t.Fatalf("expected file on disk %s: %v", createdPath, err)
+	}
+
+	// Update test
+	updated, err := store.UpdateTest(created.ID, Test{
+		Name:           "Updated Logic Test",
+		GroupID:        "custom",
+		Active:         false,
+		Prompt:         "Solve this puzzle updated",
+		EvaluationType: "exact_match",
+	})
+	if err != nil {
+		t.Fatalf("UpdateTest: %v", err)
+	}
+	if updated.Active {
+		t.Fatal("expected Active to be false after update")
+	}
+
+	// Delete test
+	res, err := store.DeleteTest(created.ID)
 	if err != nil {
 		t.Fatalf("DeleteTest: %v", err)
 	}
-	if result.Reseeded {
+	if res.Reseeded {
 		t.Fatal("user test should not reseed")
 	}
+
 	if _, ok := store.GetTest(created.ID); ok {
-		t.Fatal("user test should be deleted")
+		t.Fatal("deleted test still found in store")
+	}
+	if _, err := os.Stat(createdPath); !errorsIsNotExist(err) {
+		t.Fatalf("expected file to be removed from disk, stat err: %v", err)
 	}
 }
 
-func TestPopulateSeedAfterManualDelete(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "tests.json")
-	store := New(path)
-	if err := store.PopulateSeed(); err != nil {
-		t.Fatalf("PopulateSeed: %v", err)
-	}
-
-	// Simulate removing a seed test file entry without reseed (direct map edit not possible).
-	// Delete a non-seed test path: remove t5 and don't reseed by using a temp store hack.
-	// Instead verify PopulateSeed adds a test that was fully removed from disk.
-	store2 := New(filepath.Join(dir, "tests2.json"))
-	_ = store2.PopulateSeed()
-	if _, err := store2.DeleteTest("t5"); err != nil {
-		t.Fatalf("DeleteTest t5: %v", err)
-	}
-	// Reseed puts t5 back; delete user-created duplicate scenario:
-	user, err := store2.CreateTest(Test{
-		Name:           "Temp",
-		GroupID:        "tools",
-		Active:         true,
-		Prompt:         "x",
-		EvaluationType: "contains",
-	})
-	if err != nil {
-		t.Fatalf("CreateTest: %v", err)
-	}
-	if _, err := store2.DeleteTest(user.ID); err != nil {
-		t.Fatalf("DeleteTest user: %v", err)
-	}
-
-	// Reload from disk and populate should still have all seed tests.
-	store3 := New(filepath.Join(dir, "tests2.json"))
-	if err := store3.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if err := store3.PopulateSeed(); err != nil {
-		t.Fatalf("PopulateSeed reload: %v", err)
-	}
-	if _, ok := store3.GetTest("t5"); !ok {
-		t.Fatal("expected t5 after reseed delete")
-	}
-	_ = os.Remove(filepath.Join(dir, "tests-tools.json"))
+func errorsIsNotExist(err error) bool {
+	return os.IsNotExist(err)
 }

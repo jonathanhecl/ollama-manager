@@ -214,13 +214,24 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		return res
 	}
 
-	messages := []ollama.ChatMessage{
-		{Role: "system", Content: test.SystemPrompt},
-		{Role: "user", Content: test.Prompt},
-	}
-	// Remove empty system message.
-	if messages[0].Content == "" {
-		messages = messages[1:]
+	var messages []ollama.ChatMessage
+	if len(test.Messages) > 0 {
+		for _, m := range test.Messages {
+			messages = append(messages, ollama.ChatMessage{
+				Role:    m.Role,
+				Content: m.Content,
+				Images:  m.Images,
+			})
+		}
+	} else {
+		messages = []ollama.ChatMessage{
+			{Role: "system", Content: test.SystemPrompt},
+			{Role: "user", Content: test.Prompt},
+		}
+		// Remove empty system message.
+		if messages[0].Content == "" {
+			messages = messages[1:]
+		}
 	}
 
 	// Attach images and audio if present.
@@ -242,9 +253,24 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		}
 	}
 
+	var opts map[string]any
+	if test.Options != nil {
+		opts = make(map[string]any)
+		if test.Options.Temperature != nil {
+			opts["temperature"] = *test.Options.Temperature
+		}
+		if test.Options.TopP != nil {
+			opts["top_p"] = *test.Options.TopP
+		}
+		if test.Options.MaxTokens != nil {
+			opts["num_predict"] = *test.Options.MaxTokens
+		}
+	}
+
 	req := ollama.ChatRequest{
 		Model:    model,
 		Messages: messages,
+		Options:  opts,
 		Stream:   true,
 	}
 

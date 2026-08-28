@@ -157,16 +157,18 @@ function renderBatteryModalModels() {
           ${capsHtml ? `<div class="battery-model-caps cap-list model-cap-list">${capsHtml}</div>` : ""}
         </div>
         <div class="battery-model-right-cols">
+          <div class="battery-model-tps-wrap">
+            <div class="battery-model-tps-box">
+              ${tps > 0
+                ? `<span class="cell-record-tok battery-model-tps" title="${tps.toFixed(1)} tok/s"><span class="record-num"${colorStyle}>${tps.toFixed(1)}</span> <span class="unit">tok/s</span></span>`
+                : `<span class="cell-record-tok battery-model-tps muted"><span class="record-num">—</span> <span class="unit">tok/s</span></span>`
+              }
+            </div>
+            ${coldLoadHtml ? `<div class="battery-model-coldload-box">${coldLoadHtml}</div>` : ""}
+          </div>
           <div class="battery-model-specs mono muted">
             ${paramsText ? `<span class="battery-model-param">${escapeHtml(paramsText)}</span>` : ""}
             ${quantText ? `<span class="battery-model-quant">${escapeHtml(quantText)}</span>` : ""}
-            ${coldLoadHtml}
-          </div>
-          <div class="battery-model-tps-box">
-            ${tps > 0
-              ? `<span class="cell-record-tok battery-model-tps" title="${tps.toFixed(1)} tok/s"><span class="record-num"${colorStyle}>${tps.toFixed(1)}</span> <span class="unit">tok/s</span></span>`
-              : `<span class="cell-record-tok battery-model-tps muted"><span class="record-num">—</span> <span class="unit">tok/s</span></span>`
-            }
           </div>
         </div>
       </label>

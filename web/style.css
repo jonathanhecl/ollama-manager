@@ -6006,15 +6006,46 @@ button.chat-send:disabled:hover {
 .battery-model-right-cols {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
   flex-shrink: 0;
+}
+.battery-model-tps-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 100px;
+  gap: 1px;
+}
+.battery-model-tps-box {
+  display: flex;
+  justify-content: flex-end;
+}
+.battery-model-tps {
+  font-size: 13.5px;
+  text-align: right;
+  white-space: nowrap;
+}
+.battery-model-tps .record-num {
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.battery-model-coldload-box {
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.battery-model-coldload {
+  font-size: 11px;
+  color: var(--muted);
 }
 .battery-model-specs {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  min-width: 100px;
+  min-width: 90px;
   justify-content: flex-end;
 }
 .battery-model-param {
@@ -6027,20 +6058,6 @@ button.chat-send:disabled:hover {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
   font-size: 11px;
-}
-.battery-model-tps-box {
-  min-width: 95px;
-  display: flex;
-  justify-content: flex-end;
-}
-.battery-model-tps {
-  font-size: 13px;
-  text-align: right;
-  white-space: nowrap;
-}
-.battery-model-tps .record-num {
-  font-weight: 700;
-  font-family: var(--mono);
 }
 
 .battery-summary { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }

@@ -671,7 +671,9 @@ const I18N = {
     "toast.unarchived": "{name} unarchived",
     "state.empty_archived": "No archived models.",
 
+    "nav.models": "Models",
     "tests.button": "Tests",
+    "tests.title": "Tests",
     "analytics.button": "Analytics",
     "analytics.title": "Analytics",
     "analytics.count": "{models} models ({ghosts} not installed)",
@@ -1651,7 +1653,9 @@ const I18N = {
     "toast.unarchived": "{name} desarchivado",
     "state.empty_archived": "No hay modelos archivados.",
 
+    "nav.models": "Modelos",
     "tests.button": "Tests",
+    "tests.title": "Tests",
     "analytics.button": "Análisis",
     "analytics.title": "Análisis",
     "analytics.count": "{models} modelos ({ghosts} no instalados)",

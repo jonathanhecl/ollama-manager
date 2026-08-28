@@ -1187,6 +1187,32 @@ select:focus { border-color: var(--accent); }
   font-size: 14px;
   flex-shrink: 0;
 }
+.header-breadcrumb-back {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+.header-breadcrumb-back:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+}
+.breadcrumb-separator {
+  color: var(--muted);
+  font-size: 13px;
+  user-select: none;
+  opacity: 0.5;
+  margin: 0 -2px;
+}
 .settings-view-head-actions,
 .hf-head-actions,
 .modelfile-head-actions,

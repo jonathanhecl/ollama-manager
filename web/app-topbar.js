@@ -16,6 +16,9 @@ $("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 $("tests-btn")?.addEventListener("click", () => {
   showTestsView();
 });
+$("tests-back-btn")?.addEventListener("click", () => {
+  showModelsView();
+});
 $("analytics-btn")?.addEventListener("click", () => {
   showAnalyticsView();
 });

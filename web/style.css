@@ -1095,7 +1095,18 @@ select {
 select:focus { border-color: var(--accent); }
 
 /* ---------- Full Settings View ---------- */
-.settings-view {
+/* ==========================================================================
+   UNIFIED VIEW LAYOUTS & HEADERS (Settings, HuggingFace, Modelfile, Analytics, Tests)
+   ========================================================================== */
+.settings-view,
+.hf-view,
+.modelfile-view,
+.analytics-view,
+.tests-view,
+.test-editor-view,
+.battery-progress-view,
+.battery-results-view,
+.battery-history-view {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 60px);
@@ -1103,10 +1114,24 @@ select:focus { border-color: var(--accent); }
   overflow: hidden;
   background: var(--bg);
 }
-.settings-view[hidden] {
+.settings-view[hidden],
+.hf-view[hidden],
+.modelfile-view[hidden],
+.analytics-view[hidden],
+.tests-view[hidden],
+.test-editor-view[hidden],
+.battery-progress-view[hidden],
+.battery-results-view[hidden],
+.battery-history-view[hidden] {
   display: none !important;
 }
-.settings-view-head {
+.settings-view-head,
+.hf-head,
+.modelfile-head,
+.analytics-head,
+.tests-head,
+.test-editor-head,
+.battery-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1115,21 +1140,42 @@ select:focus { border-color: var(--accent); }
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
   flex-shrink: 0;
+  min-height: 54px;
+  box-sizing: border-box;
 }
-.settings-view-head-left {
+.settings-view-head-left,
+.hf-head-left,
+.modelfile-head-left,
+.analytics-head-left,
+.tests-head-left,
+.test-editor-head-left,
+.battery-head-left {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.settings-view-head h2 {
+.settings-view-head h2,
+.hf-head h2,
+.modelfile-head h2,
+.analytics-head h2,
+.tests-head h2,
+.test-editor-head h2,
+.battery-head h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--text);
 }
-.settings-view-head .gear {
+.settings-view-head .gear,
+.hf-head .gear,
+.modelfile-head .gear,
+.analytics-head .gear,
+.tests-head .gear,
+.test-editor-head .gear,
+.battery-head .gear {
   display: inline-grid;
   place-items: center;
   width: 26px;
@@ -1139,6 +1185,18 @@ select:focus { border-color: var(--accent); }
   border: 1px solid var(--border);
   color: var(--accent);
   font-size: 14px;
+  flex-shrink: 0;
+}
+.settings-view-head-actions,
+.hf-head-actions,
+.modelfile-head-actions,
+.analytics-head-actions,
+.tests-head-actions,
+.test-editor-head-actions,
+.battery-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .settings-layout {
   display: flex;
@@ -5375,49 +5433,80 @@ button.chat-send:disabled:hover {
 /* ---------- Tests panel ---------- */
 .tests-layout {
   display: flex;
-  gap: 16px;
-  height: calc(100vh - 60px);
-  height: calc(100dvh - 60px);
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  background: var(--bg);
 }
 .tests-sidebar {
-  width: 220px;
+  width: 250px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
-  padding: 12px;
+  background: var(--panel);
+  padding: 16px 12px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .tests-sidebar-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  padding: 0 4px;
 }
 .tests-sidebar-head h2 {
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--muted);
+  font-weight: 600;
   margin: 0;
+}
+.tests-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .tests-group-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border-radius: var(--radius);
   cursor: pointer;
-  margin-bottom: 4px;
-  transition: background .12s;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
 }
-.tests-group-item:hover { background: var(--panel-2); }
-.tests-group-item.active { background: var(--panel-2); border-left: 3px solid var(--accent); }
-.tests-group-name { font-size: 13px; }
+.tests-group-item:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.tests-group-item.active {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--border);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+.tests-group-name {
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tests-group-count {
   font-size: 11px;
   color: var(--muted);
-  font-family: var(--mono);
-  margin-left: auto;
+  font-family: var(--font-mono, monospace);
+  margin-left: 6px;
 }
 .tests-group-actions {
   display: flex;
@@ -5443,49 +5532,66 @@ button.chat-send:disabled:hover {
   line-height: 1;
   cursor: pointer;
   padding: 0;
+  transition: all 0.15s ease;
 }
-.te-group-rename:hover { color: var(--accent); background: rgba(122,162,255,0.08); }
-.te-group-delete:hover { color: #ff6b6b; background: rgba(255,107,107,0.08); }
+.te-group-rename:hover { color: var(--accent); background: rgba(122,162,255,0.12); }
+.te-group-delete:hover { color: #ff6b6b; background: rgba(255,107,107,0.12); }
 .tests-main {
   flex: 1;
-  padding: 12px;
+  min-width: 0;
   overflow-y: auto;
+  padding: 24px 32px 48px;
+  background: var(--bg);
+}
+.tests-main-container {
+  max-width: 1000px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 .tests-main-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 .tests-main-head h2 {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
+  color: var(--text);
   margin: 0;
 }
-.tests-list { display: flex; flex-direction: column; gap: 8px; }
-.tests-empty { text-align: center; padding: 40px 0; }
+.tests-list { display: flex; flex-direction: column; gap: 10px; }
+.tests-empty { text-align: center; padding: 40px 0; color: var(--muted); font-size: 13px; }
 .tests-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 14px 18px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: border-color .12s, background .12s;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  transition: border-color .15s ease, background .15s ease, transform .15s ease;
 }
-.tests-item:hover { border-color: var(--border-strong); background: var(--panel-2); }
+.tests-item:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.02);
+  transform: translateY(-1px);
+}
 .tests-item-main { flex: 1; min-width: 0; }
-.tests-item-name { font-weight: 500; font-size: 14px; margin-bottom: 4px; }
+.tests-item-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: var(--text); }
 .tests-item-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
 }
-.tests-item-desc { font-size: 12px; margin-top: 4px; }
+.tests-item-desc { font-size: 12px; margin-top: 4px; color: var(--muted); }
 .tests-item-actions {
   display: flex;
   gap: 6px;
@@ -5495,34 +5601,46 @@ button.chat-send:disabled:hover {
 .tests-item-suspended { color: var(--warn); border-color: #5a4326; background: #1f1810; }
 
 /* Test editor */
-.test-editor-wrap {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 18px;
+.test-editor-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+  background: var(--bg);
 }
-.test-editor-head {
+.test-editor-container {
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+}
+.test-editor-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
   display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.test-editor-card .field {
+  display: grid;
+  grid-template-columns: 160px 1fr;
   align-items: center;
   gap: 12px;
-  margin-bottom: 18px;
 }
-.test-editor-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.test-editor-body { display: flex; flex-direction: column; gap: 14px; }
-.test-editor-body .field { grid-template-columns: 160px 1fr; }
-.test-editor-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+.test-editor-card .field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
 }
-.test-editor-foot-right { display: flex; gap: 8px; }
 
 @media (max-width: 900px) {
   .tests-layout { flex-direction: column; height: auto; }
   .tests-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
-  .test-editor-body .field { grid-template-columns: 1fr; }
+  .tests-main { padding: 16px; }
+  .test-editor-body { padding: 16px; }
+  .test-editor-card .field { grid-template-columns: 1fr; }
 }
 
 /* ---------- Test editor attachments ---------- */
@@ -5758,10 +5876,25 @@ button.chat-send:disabled:hover {
 }
 
 /* ---------- battery runner ---------- */
-.battery-wrap { padding: 16px 20px 24px; max-width: 1400px; margin: 0 auto; }
-.battery-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.battery-head h2 { margin: 0; font-size: 18px; }
-.battery-head-actions { margin-left: auto; display: flex; gap: 8px; }
+.battery-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+  background: var(--bg);
+}
+.battery-container {
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.battery-wrap {
+  width: 100%;
+  margin: 0 auto;
+}
 
 .battery-modal-card { width: min(560px, 100%); }
 .battery-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -6166,15 +6299,21 @@ button.chat-send:disabled:hover {
 
 
 /* ---------- Analytics view ---------- */
-.analytics-view { padding: 20px; max-width: 1400px; margin: 0 auto; }
-.analytics-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+.analytics-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+  background: var(--bg);
 }
-.analytics-head h2 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.analytics-head .badge { margin-left: auto; font-size: 12px; padding: 4px 10px; }
+.analytics-container {
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
 
 /* KPI Cards Row */
 .analytics-kpis {
@@ -6921,79 +7060,21 @@ button.chat-send:disabled:hover {
    Modelfile Studio (View)
    ========================================================================== */
 
-.modelfile-view {
-  width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 20px 28px 60px;
-  box-sizing: border-box;
-}
-
-.modelfile-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 22px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.modelfile-head-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.modelfile-head-left h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.modelfile-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.modelfile-tabs {
-  display: flex;
-  background: var(--surface, rgba(255, 255, 255, 0.04));
-  padding: 3px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  gap: 2px;
-}
-
-.mf-tab-btn {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.mf-tab-btn:hover {
-  color: var(--text);
-}
-
-.mf-tab-btn.active {
-  background: var(--panel, #1e222d);
-  color: var(--text);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-}
-
 .modelfile-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+  background: var(--bg);
+}
+
+.modelfile-container {
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
 .modelfile-grid {
@@ -8590,59 +8671,27 @@ button.chat-send:disabled:hover {
    HuggingFace Model Explorer & Downloader
    ========================================================================== */
 
-.hf-view {
-  width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 20px 28px 60px;
-  box-sizing: border-box;
+.hf-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+  background: var(--bg);
 }
 
-.hf-layout {
+.hf-container {
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hf-results-wrap {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.hf-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-}
-
-.hf-head-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.hf-head-left h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.hf-back-btn {
-  font-size: 16px;
-  padding: 4px 10px;
-  border-radius: 6px;
-}
-
-.hf-logo-emoji {
-  font-size: 24px;
-}
-
-.hf-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .hf-mem-banner {

@@ -373,310 +373,334 @@
     </aside>
   </main>
 
-  <main id="tests-view" hidden>
+  <main id="tests-view" class="tests-view" hidden>
+    <header class="tests-head">
+      <div class="tests-head-left">
+        <button id="tests-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+        <h2>
+          <span class="gear">🧪</span>
+          <span data-i18n="tests.title">Tests Battery</span>
+        </h2>
+      </div>
+      <div class="tests-head-actions">
+        <button id="tests-group-history-btn" class="ghost" data-i18n="battery.group_history" hidden>Group History</button>
+        <button id="tests-run-battery-btn" class="primary" data-i18n="battery.run" hidden>Run Tests</button>
+        <button id="tests-new-test-btn" class="primary" data-i18n="tests.new_test">New Test</button>
+      </div>
+    </header>
     <div class="tests-layout">
       <aside class="tests-sidebar">
         <header class="tests-sidebar-head">
-          <h2 data-i18n="tests.groups_title">Groups</h2>
+          <h2 data-i18n="tests.groups_title">Categories</h2>
           <button id="tests-new-group-btn" class="ghost" data-i18n="tests.new_group" title="New group">+</button>
         </header>
         <div id="tests-groups-list" class="tests-groups-list"></div>
       </aside>
       <section class="tests-main">
-        <header class="tests-main-head">
-          <h2 id="tests-group-title" data-i18n="tests.all_tests">All Tests</h2>
-          <div class="tests-main-actions">
-            <button id="tests-group-history-btn" class="ghost" data-i18n="battery.group_history" hidden>Group History</button>
-            <button id="tests-run-battery-btn" class="primary" data-i18n="battery.run" hidden>Run Tests</button>
-            <button id="tests-new-test-btn" class="primary" data-i18n="tests.new_test">New Test</button>
-          </div>
-        </header>
-        <div id="tests-list" class="tests-list"></div>
-        <div id="tests-empty" class="tests-empty muted" data-i18n="tests.empty" hidden>No tests yet.</div>
+        <div class="tests-main-container">
+          <header class="tests-main-head">
+            <h2 id="tests-group-title" data-i18n="tests.all_tests">All Tests</h2>
+          </header>
+          <div id="tests-list" class="tests-list"></div>
+          <div id="tests-empty" class="tests-empty muted" data-i18n="tests.empty" hidden>No tests yet.</div>
+        </div>
       </section>
     </div>
   </main>
 
   <main id="analytics-view" class="analytics-view" hidden>
     <header class="analytics-head">
-      <button id="analytics-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
-      <h2>
-        <span class="gear">📊</span>
-        <span data-i18n="analytics.title">Analytics</span>
-      </h2>
-      <span id="analytics-count" class="badge badge-muted"></span>
+      <div class="analytics-head-left">
+        <button id="analytics-back-btn" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+        <h2>
+          <span class="gear">📊</span>
+          <span data-i18n="analytics.title">Analytics</span>
+        </h2>
+        <span id="analytics-count" class="badge badge-muted"></span>
+      </div>
+      <div class="analytics-head-actions">
+        <button id="analytics-filter-reset" type="button" class="ghost" data-i18n="analytics.filter_reset">Reset Filters</button>
+      </div>
     </header>
-    <div class="analytics-filters">
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label" data-i18n="analytics.filter_name">Model name</label>
-        <input id="analytics-filter-name" type="text" class="analytics-filter-input analytics-filter-input-text" data-i18n-attr="placeholder aria-label" data-i18n="analytics.name_placeholder" placeholder="Search model name…" aria-label="Search model name">
-      </div>
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label" data-i18n="analytics.filter_source">Source</label>
-        <select id="analytics-filter-source" class="analytics-filter-select">
-          <option value="all" data-i18n="analytics.source_all">All</option>
-          <option value="installed" data-i18n="analytics.source_installed">Installed</option>
-          <option value="ghost" data-i18n="analytics.source_ghost">Not installed</option>
-        </select>
-      </div>
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label" data-i18n="analytics.filter_params">Params (B)</label>
-        <div class="analytics-filter-range">
-          <input id="analytics-filter-params-min" type="number" min="0" step="0.1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.min" placeholder="Min" aria-label="Min params">
-          <span class="analytics-filter-sep">–</span>
-          <input id="analytics-filter-params-max" type="number" min="0" step="0.1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.max" placeholder="Max" aria-label="Max params">
+    <div class="analytics-body">
+      <div class="analytics-container">
+        <div class="analytics-filters">
+          <div class="analytics-filter-group">
+            <label class="analytics-filter-label" data-i18n="analytics.filter_name">Model name</label>
+            <input id="analytics-filter-name" type="text" class="analytics-filter-input analytics-filter-input-text" data-i18n-attr="placeholder aria-label" data-i18n="analytics.name_placeholder" placeholder="Search model name…" aria-label="Search model name">
+          </div>
+          <div class="analytics-filter-group">
+            <label class="analytics-filter-label" data-i18n="analytics.filter_source">Source</label>
+            <select id="analytics-filter-source" class="analytics-filter-select">
+              <option value="all" data-i18n="analytics.source_all">All</option>
+              <option value="installed" data-i18n="analytics.source_installed">Installed</option>
+              <option value="ghost" data-i18n="analytics.source_ghost">Not installed</option>
+            </select>
+          </div>
+          <div class="analytics-filter-group">
+            <label class="analytics-filter-label" data-i18n="analytics.filter_params">Params (B)</label>
+            <div class="analytics-filter-range">
+              <input id="analytics-filter-params-min" type="number" min="0" step="0.1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.min" placeholder="Min" aria-label="Min params">
+              <span class="analytics-filter-sep">–</span>
+              <input id="analytics-filter-params-max" type="number" min="0" step="0.1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.max" placeholder="Max" aria-label="Max params">
+            </div>
+          </div>
+          <div class="analytics-filter-group">
+            <label class="analytics-filter-label" data-i18n="analytics.filter_tps">Min tok/s</label>
+            <input id="analytics-filter-tps-min" type="number" min="0" step="1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.min" placeholder="Min" aria-label="Min tok/s">
+          </div>
+          <div class="analytics-filter-group">
+            <label class="analytics-filter-label" data-i18n="analytics.filter_family">Family</label>
+            <select id="analytics-filter-family" class="analytics-filter-select">
+              <option value="all" data-i18n="analytics.family_all">All</option>
+            </select>
+          </div>
+          <div class="analytics-filter-group">
+            <label class="analytics-filter-label" data-i18n="analytics.filter_type">Type</label>
+            <select id="analytics-filter-type" class="analytics-filter-select">
+              <option value="all" data-i18n="analytics.type_all">All</option>
+              <option value="dense" data-i18n="analytics.type_dense">Dense</option>
+              <option value="moe" data-i18n="analytics.type_moe">MoE</option>
+            </select>
+          </div>
         </div>
-      </div>
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label" data-i18n="analytics.filter_tps">Min tok/s</label>
-        <input id="analytics-filter-tps-min" type="number" min="0" step="1" class="analytics-filter-input" data-i18n-attr="placeholder aria-label" data-i18n="analytics.min" placeholder="Min" aria-label="Min tok/s">
-      </div>
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label" data-i18n="analytics.filter_family">Family</label>
-        <select id="analytics-filter-family" class="analytics-filter-select">
-          <option value="all" data-i18n="analytics.family_all">All</option>
-        </select>
-      </div>
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label" data-i18n="analytics.filter_type">Type</label>
-        <select id="analytics-filter-type" class="analytics-filter-select">
-          <option value="all" data-i18n="analytics.type_all">All</option>
-          <option value="dense" data-i18n="analytics.type_dense">Dense</option>
-          <option value="moe" data-i18n="analytics.type_moe">MoE</option>
-        </select>
-      </div>
-      <button id="analytics-filter-reset" type="button" class="ghost" data-i18n="analytics.filter_reset">Reset</button>
-    </div>
-    <div id="analytics-kpis" class="analytics-kpis"></div>
+        <div id="analytics-kpis" class="analytics-kpis"></div>
 
-    <div class="analytics-grid">
-      <section class="analytics-card analytics-card--wide">
-        <div class="analytics-card-head">
-          <div>
-            <h3 data-i18n="analytics.tps_title">Inference Speed vs Model Parameters</h3>
-            <span class="analytics-sub muted" data-i18n="analytics.tps_sub">X: Parameters (Billions) · Y: Record Speed (Tok/s) with trendline & Pareto frontier</span>
-          </div>
-          <div class="analytics-legend">
-            <span class="analytics-legend-item"><span class="analytics-legend-dot dot-model"></span> <span data-i18n="analytics.meta_model">Model</span></span>
-            <span class="analytics-legend-item"><span class="analytics-legend-line line-trend"></span> <span data-i18n="analytics.trendline">Trendline</span></span>
-            <span class="analytics-legend-item"><span class="analytics-legend-line line-pareto"></span> <span data-i18n="analytics.pareto">Pareto Frontier</span></span>
-          </div>
+        <div class="analytics-grid">
+          <section class="analytics-card analytics-card--wide">
+            <div class="analytics-card-head">
+              <div>
+                <h3 data-i18n="analytics.tps_title">Inference Speed vs Model Parameters</h3>
+                <span class="analytics-sub muted" data-i18n="analytics.tps_sub">X: Parameters (Billions) · Y: Record Speed (Tok/s) with trendline &amp; Pareto frontier</span>
+              </div>
+              <div class="analytics-legend">
+                <span class="analytics-legend-item"><span class="analytics-legend-dot dot-model"></span> <span data-i18n="analytics.meta_model">Model</span></span>
+                <span class="analytics-legend-item"><span class="analytics-legend-line line-trend"></span> <span data-i18n="analytics.trendline">Trendline</span></span>
+                <span class="analytics-legend-item"><span class="analytics-legend-line line-pareto"></span> <span data-i18n="analytics.pareto">Pareto Frontier</span></span>
+              </div>
+            </div>
+            <div id="analytics-chart-tps" class="analytics-chart"></div>
+          </section>
+          <section class="analytics-card analytics-card--wide">
+            <div class="analytics-card-head">
+              <div>
+                <h3 data-i18n="analytics.size_title">Disk Size vs Model Parameters</h3>
+                <span class="analytics-sub muted" data-i18n="analytics.size_sub">X: Parameters (Billions) · Y: Size on Disk (GB)</span>
+              </div>
+            </div>
+            <div id="analytics-chart-size" class="analytics-chart"></div>
+          </section>
+          <section class="analytics-card">
+            <div class="analytics-card-head">
+              <div>
+                <h3 data-i18n="analytics.efficiency_title">Hardware Efficiency (Tok/s per GB)</h3>
+                <span class="analytics-sub muted" data-i18n="analytics.efficiency_sub">Inference throughput normalized by memory/disk footprint</span>
+              </div>
+            </div>
+            <div id="analytics-chart-efficiency" class="analytics-chart"></div>
+          </section>
+          <section class="analytics-card">
+            <div class="analytics-card-head">
+              <div>
+                <h3 data-i18n="analytics.coldload_title">Cold Load Throughput (MB/s)</h3>
+                <span class="analytics-sub muted" data-i18n="analytics.coldload_sub">Transfer rate from storage to memory during model startup</span>
+              </div>
+            </div>
+            <div id="analytics-chart-coldload" class="analytics-chart"></div>
+          </section>
         </div>
-        <div id="analytics-chart-tps" class="analytics-chart"></div>
-      </section>
-      <section class="analytics-card analytics-card--wide">
-        <div class="analytics-card-head">
-          <div>
-            <h3 data-i18n="analytics.size_title">Disk Size vs Model Parameters</h3>
-            <span class="analytics-sub muted" data-i18n="analytics.size_sub">X: Parameters (Billions) · Y: Size on Disk (GB)</span>
-          </div>
-        </div>
-        <div id="analytics-chart-size" class="analytics-chart"></div>
-      </section>
-      <section class="analytics-card">
-        <div class="analytics-card-head">
-          <div>
-            <h3 data-i18n="analytics.efficiency_title">Hardware Efficiency (Tok/s per GB)</h3>
-            <span class="analytics-sub muted" data-i18n="analytics.efficiency_sub">Inference throughput normalized by memory/disk footprint</span>
-          </div>
-        </div>
-        <div id="analytics-chart-efficiency" class="analytics-chart"></div>
-      </section>
-      <section class="analytics-card">
-        <div class="analytics-card-head">
-          <div>
-            <h3 data-i18n="analytics.coldload_title">Cold Load Throughput (MB/s)</h3>
-            <span class="analytics-sub muted" data-i18n="analytics.coldload_sub">Transfer rate from storage to memory during model startup</span>
-          </div>
-        </div>
-        <div id="analytics-chart-coldload" class="analytics-chart"></div>
-      </section>
-    </div>
 
-    <div id="analytics-tooltip" class="analytics-tooltip" hidden></div>
+        <div id="analytics-tooltip" class="analytics-tooltip" hidden></div>
 
-    <section class="analytics-card analytics-card--wide analytics-meta-card">
-      <div class="analytics-meta-head">
-        <div>
-          <h3 data-i18n="analytics.meta_title">Model metadata</h3>
-          <span class="analytics-sub muted" data-i18n="analytics.meta_sub">Detailed info stored for each model (installed and not installed)</span>
-        </div>
-        <div class="analytics-meta-search">
-          <input type="search" id="analytics-meta-search" data-i18n-attr="placeholder aria-label" data-i18n="analytics.meta_search" placeholder="Filter models…" aria-label="Filter models" autocomplete="off" spellcheck="false">
-        </div>
-      </div>
-      <div class="analytics-meta-lists">
-        <section class="analytics-meta-list">
-          <h4 data-i18n="analytics.installed_title">Installed models</h4>
-          <div class="analytics-table-wrap">
-            <table class="analytics-table">
-              <thead>
-                <tr>
-                  <th data-i18n="analytics.meta_model">Model</th>
-                  <th data-i18n="col.params">Params</th>
-                  <th data-i18n="analytics.meta_params_exact">Exact params</th>
-                  <th data-i18n="analytics.meta_arch">Architecture</th>
-                  <th data-i18n="analytics.meta_filetype">File type</th>
-                  <th data-i18n="analytics.meta_quant">Quant.</th>
-                  <th data-i18n="analytics.meta_family">Family</th>
-                  <th data-i18n="analytics.meta_size">Size</th>
-                </tr>
-              </thead>
-              <tbody id="analytics-meta-tbody-installed">
-                <tr class="empty"><td colspan="8" data-i18n="state.loading">Loading…</td></tr>
-              </tbody>
-            </table>
+        <section class="analytics-card analytics-card--wide analytics-meta-card">
+          <div class="analytics-meta-head">
+            <div>
+              <h3 data-i18n="analytics.meta_title">Model metadata</h3>
+              <span class="analytics-sub muted" data-i18n="analytics.meta_sub">Detailed info stored for each model (installed and not installed)</span>
+            </div>
+            <div class="analytics-meta-search">
+              <input type="search" id="analytics-meta-search" data-i18n-attr="placeholder aria-label" data-i18n="analytics.meta_search" placeholder="Filter models…" aria-label="Filter models" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+          <div class="analytics-meta-lists">
+            <section class="analytics-meta-list">
+              <h4 data-i18n="analytics.installed_title">Installed models</h4>
+              <div class="analytics-table-wrap">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="analytics.meta_model">Model</th>
+                      <th data-i18n="col.params">Params</th>
+                      <th data-i18n="analytics.meta_params_exact">Exact params</th>
+                      <th data-i18n="analytics.meta_arch">Architecture</th>
+                      <th data-i18n="analytics.meta_filetype">File type</th>
+                      <th data-i18n="analytics.meta_quant">Quant.</th>
+                      <th data-i18n="analytics.meta_family">Family</th>
+                      <th data-i18n="analytics.meta_size">Size</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analytics-meta-tbody-installed">
+                    <tr class="empty"><td colspan="8" data-i18n="state.loading">Loading…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <section class="analytics-meta-list">
+              <h4 data-i18n="analytics.uninstalled_title">Not installed</h4>
+              <div class="analytics-table-wrap">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="analytics.meta_model">Model</th>
+                      <th data-i18n="col.params">Params</th>
+                      <th data-i18n="analytics.meta_params_exact">Exact params</th>
+                      <th data-i18n="analytics.meta_arch">Architecture</th>
+                      <th data-i18n="analytics.meta_filetype">File type</th>
+                      <th data-i18n="analytics.meta_quant">Quant.</th>
+                      <th data-i18n="analytics.meta_family">Family</th>
+                      <th data-i18n="analytics.meta_size">Size</th>
+                      <th data-i18n="analytics.remove_ghost">Remove</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analytics-meta-tbody-uninstalled">
+                    <tr class="empty"><td colspan="9" data-i18n="state.loading">Loading…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </div>
         </section>
-        <section class="analytics-meta-list">
-          <h4 data-i18n="analytics.uninstalled_title">Not installed</h4>
-          <div class="analytics-table-wrap">
-            <table class="analytics-table">
-              <thead>
-                <tr>
-                  <th data-i18n="analytics.meta_model">Model</th>
-                  <th data-i18n="col.params">Params</th>
-                  <th data-i18n="analytics.meta_params_exact">Exact params</th>
-                  <th data-i18n="analytics.meta_arch">Architecture</th>
-                  <th data-i18n="analytics.meta_filetype">File type</th>
-                  <th data-i18n="analytics.meta_quant">Quant.</th>
-                  <th data-i18n="analytics.meta_family">Family</th>
-                  <th data-i18n="analytics.meta_size">Size</th>
-                  <th data-i18n="analytics.remove_ghost">Remove</th>
-                </tr>
-              </thead>
-              <tbody id="analytics-meta-tbody-uninstalled">
-                <tr class="empty"><td colspan="9" data-i18n="state.loading">Loading…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
       </div>
-    </section>
+    </div>
   </main>
 
-  <main id="test-editor-view" hidden>
-    <div class="test-editor-wrap">
-      <header class="test-editor-head">
-        <button id="test-editor-back" class="ghost" data-i18n="tests.back_to_list">← Back to list</button>
-        <h2 id="test-editor-title" data-i18n="tests.new_test">New Test</h2>
-      </header>
-      <div class="test-editor-body">
-        <div class="field">
-          <label for="te-name" data-i18n="tests.name">Name</label>
-          <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition" autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="te-description" data-i18n="tests.description">Description</label>
-          <input id="te-description" type="text" data-i18n-attr="placeholder" data-i18n="tests.description_placeholder" placeholder="Optional description" autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="te-group" data-i18n="tests.group">Group</label>
-          <select id="te-group" autocomplete="off"></select>
-        </div>
-        <div class="field switch-field">
-          <div class="switch-label">
-            <span data-i18n="tests.active">Active</span>
-            <small class="muted" data-i18n="tests.active_hint">Inactive tests are skipped in battery runs.</small>
+  <main id="test-editor-view" class="test-editor-view" hidden>
+    <header class="test-editor-head">
+      <div class="test-editor-head-left">
+        <button id="test-editor-back" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+        <h2>
+          <span class="gear">🧪</span>
+          <span id="test-editor-title" data-i18n="tests.new_test">New Test</span>
+        </h2>
+      </div>
+      <div class="test-editor-head-actions">
+        <button id="test-editor-delete" class="ghost danger-text" data-i18n="action.delete" hidden>Delete</button>
+        <button id="test-editor-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
+        <button id="test-editor-save" class="primary" data-i18n="action.save">Save</button>
+      </div>
+    </header>
+    <div class="test-editor-body">
+      <div class="test-editor-container">
+        <section class="test-editor-card">
+          <div class="field">
+            <label for="te-name" data-i18n="tests.name">Name</label>
+            <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition" autocomplete="off">
           </div>
-          <label class="switch">
-            <input id="te-active" type="checkbox" checked autocomplete="off">
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-        <div class="field">
-          <label for="te-prompt" data-i18n="tests.prompt">Prompt</label>
-          <textarea id="te-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="tests.prompt_placeholder" placeholder="The prompt sent to the model..." autocomplete="off"></textarea>
-        </div>
-        <div class="field">
-          <label for="te-system" data-i18n="tests.system_prompt">System prompt</label>
-          <textarea id="te-system" rows="3" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
-        </div>
-        <div class="field te-attach-field">
-          <label>Attachments</label>
-          <div class="te-attach-col">
-            <div class="te-attach-actions">
-              <button type="button" id="te-add-image-btn" class="ghost te-attach-btn" title="Add image">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/><path d="M21 15l-5-5L5 21"/></svg>
-                <span>Image</span>
-              </button>
-              <button type="button" id="te-add-audio-btn" class="ghost te-attach-btn" title="Add audio">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v3"/></svg>
-                <span>Audio</span>
-              </button>
-              <input id="te-image-input" type="file" accept="image/*" multiple hidden autocomplete="off">
-              <input id="te-audio-input" type="file" accept="audio/wav" multiple hidden autocomplete="off">
-              <small class="muted">WAV only</small>
-            </div>
-            <div id="te-attach-list" class="te-attach-list"></div>
+          <div class="field">
+            <label for="te-description" data-i18n="tests.description">Description</label>
+            <input id="te-description" type="text" data-i18n-attr="placeholder" data-i18n="tests.description_placeholder" placeholder="Optional description" autocomplete="off">
           </div>
-        </div>
-        <div class="field">
-          <label for="te-eval-type" data-i18n="tests.eval_type">Evaluation type</label>
-          <select id="te-eval-type" autocomplete="off">
-            <option value="exact_match" data-i18n="tests.eval_exact_match">Exact match</option>
-            <option value="contains" data-i18n="tests.eval_contains">Contains</option>
-            <option value="contains_list" data-i18n="tests.eval_contains_list">Contains list</option>
-            <option value="regex" data-i18n="tests.eval_regex">Regex</option>
-            <option value="json_schema" data-i18n="tests.eval_json_schema">JSON schema</option>
-            <option value="human_review" data-i18n="tests.eval_human_review">Human review</option>
-            <option value="agent" data-i18n="tests.eval_agent">Agent (multi-turn)</option>
-          </select>
-        </div>
-        <div id="te-eval-expected-wrap" class="field">
-          <label for="te-eval-expected" data-i18n="tests.eval_expected">Expected answer</label>
-          <textarea id="te-eval-expected" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_expected_placeholder" placeholder="42" autocomplete="off"></textarea>
-        </div>
-        <div id="te-eval-pattern-wrap" class="field" hidden>
-          <label for="te-eval-pattern" data-i18n="tests.eval_pattern">Regex pattern</label>
-          <input id="te-eval-pattern" type="text" placeholder="^[A-Z]+$" autocomplete="off">
-        </div>
-        <div id="te-eval-config-wrap" class="field" hidden>
-          <label for="te-eval-config" data-i18n="tests.eval_config">Evaluation config (JSON)</label>
-          <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"required": ["color"]}' autocomplete="off"></textarea>
-        </div>
-        <div id="te-agent-settings" class="field te-agent-settings" hidden>
-          <label data-i18n="tests.agent_settings">Agent settings</label>
-          <div class="te-agent-settings-body">
-            <div class="field">
-              <label for="te-agent-max-turns" data-i18n="tests.agent_max_turns">Max turns</label>
-              <input id="te-agent-max-turns" type="number" value="10" min="1" max="50" autocomplete="off">
+          <div class="field">
+            <label for="te-group" data-i18n="tests.group">Group</label>
+            <select id="te-group" autocomplete="off"></select>
+          </div>
+          <div class="field switch-field">
+            <div class="switch-label">
+              <span data-i18n="tests.active">Active</span>
+              <small class="muted" data-i18n="tests.active_hint">Inactive tests are skipped in battery runs.</small>
             </div>
-            <div class="field">
-              <label for="te-agent-initial-files" data-i18n="tests.agent_initial_files">Initial files</label>
-              <textarea id="te-agent-initial-files" rows="6" placeholder='[{"path":"index.html","content":"<!DOCTYPE html>..."}]' autocomplete="off"></textarea>
-              <small class="muted">JSON array of {path, content} objects</small>
+            <label class="switch">
+              <input id="te-active" type="checkbox" checked autocomplete="off">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div class="field">
+            <label for="te-prompt" data-i18n="tests.prompt">Prompt</label>
+            <textarea id="te-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="tests.prompt_placeholder" placeholder="The prompt sent to the model..." autocomplete="off"></textarea>
+          </div>
+          <div class="field">
+            <label for="te-system" data-i18n="tests.system_prompt">System prompt</label>
+            <textarea id="te-system" rows="3" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
+          </div>
+          <div class="field te-attach-field">
+            <label>Attachments</label>
+            <div class="te-attach-col">
+              <div class="te-attach-actions">
+                <button type="button" id="te-add-image-btn" class="ghost te-attach-btn" title="Add image">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/><path d="M21 15l-5-5L5 21"/></svg>
+                  <span>Image</span>
+                </button>
+                <button type="button" id="te-add-audio-btn" class="ghost te-attach-btn" title="Add audio">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v3"/></svg>
+                  <span>Audio</span>
+                </button>
+                <input id="te-image-input" type="file" accept="image/*" multiple hidden autocomplete="off">
+                <input id="te-audio-input" type="file" accept="audio/wav" multiple hidden autocomplete="off">
+                <small class="muted">WAV only</small>
+              </div>
+              <div id="te-attach-list" class="te-attach-list"></div>
             </div>
-            <div class="field">
-              <label data-i18n="tests.agent_tools">Available tools</label>
-              <div class="te-agent-tools">
-                <label><input type="checkbox" value="read_file" checked autocomplete="off"> read_file</label>
-                <label><input type="checkbox" value="write_file" checked autocomplete="off"> write_file</label>
-                <label><input type="checkbox" value="list_dir" checked autocomplete="off"> list_dir</label>
-                <label><input type="checkbox" value="exec" checked autocomplete="off"> exec</label>
+          </div>
+          <div class="field">
+            <label for="te-eval-type" data-i18n="tests.eval_type">Evaluation type</label>
+            <select id="te-eval-type" autocomplete="off">
+              <option value="exact_match" data-i18n="tests.eval_exact_match">Exact match</option>
+              <option value="contains" data-i18n="tests.eval_contains">Contains</option>
+              <option value="contains_list" data-i18n="tests.eval_contains_list">Contains list</option>
+              <option value="regex" data-i18n="tests.eval_regex">Regex</option>
+              <option value="json_schema" data-i18n="tests.eval_json_schema">JSON schema</option>
+              <option value="human_review" data-i18n="tests.eval_human_review">Human review</option>
+              <option value="agent" data-i18n="tests.eval_agent">Agent (multi-turn)</option>
+            </select>
+          </div>
+          <div id="te-eval-expected-wrap" class="field">
+            <label for="te-eval-expected" data-i18n="tests.eval_expected">Expected answer</label>
+            <textarea id="te-eval-expected" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_expected_placeholder" placeholder="42" autocomplete="off"></textarea>
+          </div>
+          <div id="te-eval-pattern-wrap" class="field" hidden>
+            <label for="te-eval-pattern" data-i18n="tests.eval_pattern">Regex pattern</label>
+            <input id="te-eval-pattern" type="text" placeholder="^[A-Z]+$" autocomplete="off">
+          </div>
+          <div id="te-eval-config-wrap" class="field" hidden>
+            <label for="te-eval-config" data-i18n="tests.eval_config">Evaluation config (JSON)</label>
+            <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"required": ["color"]}' autocomplete="off"></textarea>
+          </div>
+          <div id="te-agent-settings" class="field te-agent-settings" hidden>
+            <label data-i18n="tests.agent_settings">Agent settings</label>
+            <div class="te-agent-settings-body">
+              <div class="field">
+                <label for="te-agent-max-turns" data-i18n="tests.agent_max_turns">Max turns</label>
+                <input id="te-agent-max-turns" type="number" value="10" min="1" max="50" autocomplete="off">
+              </div>
+              <div class="field">
+                <label for="te-agent-initial-files" data-i18n="tests.agent_initial_files">Initial files</label>
+                <textarea id="te-agent-initial-files" rows="6" placeholder='[{"path":"index.html","content":"<!DOCTYPE html>..."}]' autocomplete="off"></textarea>
+                <small class="muted">JSON array of {path, content} objects</small>
+              </div>
+              <div class="field">
+                <label data-i18n="tests.agent_tools">Available tools</label>
+                <div class="te-agent-tools">
+                  <label><input type="checkbox" value="read_file" checked autocomplete="off"> read_file</label>
+                  <label><input type="checkbox" value="write_file" checked autocomplete="off"> write_file</label>
+                  <label><input type="checkbox" value="list_dir" checked autocomplete="off"> list_dir</label>
+                  <label><input type="checkbox" value="exec" checked autocomplete="off"> exec</label>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <div class="field">
-          <label for="te-required-caps" data-i18n="tests.required_caps">Required capabilities</label>
-          <div class="te-caps-col">
-            <input id="te-required-caps" type="text" data-i18n-attr="placeholder" data-i18n="tests.required_caps_placeholder" placeholder="tools, vision (comma-separated)" autocomplete="off">
-            <div id="te-auto-caps" class="te-auto-caps"></div>
+          <div class="field">
+            <label for="te-required-caps" data-i18n="tests.required_caps">Required capabilities</label>
+            <div class="te-caps-col">
+              <input id="te-required-caps" type="text" data-i18n-attr="placeholder" data-i18n="tests.required_caps_placeholder" placeholder="tools, vision (comma-separated)" autocomplete="off">
+              <div id="te-auto-caps" class="te-auto-caps"></div>
+            </div>
           </div>
-        </div>
-        <div class="field">
-          <label for="te-order" data-i18n="tests.order">Order</label>
-          <input id="te-order" type="number" value="0" autocomplete="off">
-        </div>
+          <div class="field">
+            <label for="te-order" data-i18n="tests.order">Order</label>
+            <input id="te-order" type="number" value="0" autocomplete="off">
+          </div>
+        </section>
       </div>
-      <footer class="test-editor-foot">
-        <button id="test-editor-delete" class="ghost danger-text" data-i18n="action.delete" hidden>Delete</button>
-        <div class="test-editor-foot-right">
-          <button id="test-editor-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
-          <button id="test-editor-save" class="primary" data-i18n="action.save">Save</button>
-        </div>
-      </footer>
     </div>
   </main>
 
@@ -759,6 +783,7 @@
     </header>
 
     <div class="modelfile-body">
+      <div class="modelfile-container">
       <div id="mf-status-wrap" class="mf-status-wrap" hidden>
         <div class="mf-progress-track">
           <div id="mf-progress-fill" class="mf-progress-fill"></div>
@@ -1054,6 +1079,7 @@
         </div>
       </div>
     </div>
+  </div>
   </main>
 
   <div id="running-modal" class="modal" hidden>
@@ -1137,65 +1163,67 @@
 
   <!-- HuggingFace Explorer Section View -->
   <main id="hf-view" class="hf-view" hidden>
-    <div class="hf-layout">
-      <header class="hf-head">
-        <div class="hf-head-left">
-          <button id="hf-back-btn" class="ghost hf-back-btn" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
-          <h2>
-            <span class="hf-logo-emoji">🤗</span>
-            <span data-i18n="hf.title">HuggingFace Models</span>
-          </h2>
-        </div>
-        <div class="hf-head-actions">
-          <div id="hf-memory-banner" class="hf-mem-banner badge badge-subtle mono"></div>
-        </div>
-      </header>
-
-      <div class="hf-toolbar">
-        <div class="hf-search-box">
-          <svg class="models-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input type="search" id="hf-search-input" class="hf-search-input" data-i18n-attr="placeholder" data-i18n="hf.search_placeholder" placeholder="Search models (e.g. Qwen2.5, DeepSeek, Llama-3.2, Gemma)..." autocomplete="off" spellcheck="false">
-          <button type="button" id="hf-search-clear" class="btn-icon models-search-clear hf-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
-        </div>
-        <div class="hf-sort-wrap">
-          <select id="hf-sort-select" class="hf-sort-select">
-            <option value="trending" selected data-i18n="hf.sort_trending">Trending</option>
-            <option value="downloads" data-i18n="hf.sort_downloads">Most Downloads</option>
-            <option value="likes" data-i18n="hf.sort_likes">Most Likes</option>
-            <option value="recent" data-i18n="hf.sort_recent">Recently Updated</option>
-          </select>
-        </div>
+    <header class="hf-head">
+      <div class="hf-head-left">
+        <button id="hf-back-btn" class="ghost hf-back-btn" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+        <h2>
+          <span class="gear">🤗</span>
+          <span data-i18n="hf.title">HuggingFace Models</span>
+        </h2>
       </div>
-
-      <div class="hf-filters-row">
-        <div class="hf-filter-group">
-          <button type="button" class="hf-filter-chip active" data-filter="all" data-i18n="hf.filter_all">All GGUF</button>
-          <button type="button" class="hf-filter-chip" data-filter="ollama" data-i18n="hf.filter_ollama">Ollama Tagged</button>
-          <button type="button" class="hf-filter-chip" data-filter="vision" data-i18n="hf.filter_vision">Vision (mmproj)</button>
-        </div>
-        <div class="hf-filter-divider"></div>
-        <div class="hf-filter-group">
-          <button type="button" class="hf-time-chip active" data-time="all" data-i18n="hf.time_all">All time</button>
-          <button type="button" class="hf-time-chip" data-time="week" data-i18n="hf.time_week">This week</button>
-          <button type="button" class="hf-time-chip" data-time="month" data-i18n="hf.time_month">This month</button>
-          <button type="button" class="hf-time-chip" data-time="6months" data-i18n="hf.time_6months">6 months</button>
-          <button type="button" class="hf-time-chip" data-time="year" data-i18n="hf.time_year">This year</button>
-        </div>
+      <div class="hf-head-actions">
+        <div id="hf-memory-banner" class="hf-mem-banner badge badge-subtle mono"></div>
       </div>
+    </header>
 
-      <div class="hf-body">
-        <div id="hf-loading" class="hf-loading muted text-center" hidden>
-          <div class="battery-progress-spinner" style="margin: 30px auto 12px;"></div>
-          <span data-i18n="hf.loading">Searching HuggingFace models...</span>
+    <div class="hf-body">
+      <div class="hf-container">
+        <div class="hf-toolbar">
+          <div class="hf-search-box">
+            <svg class="models-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="search" id="hf-search-input" class="hf-search-input" data-i18n-attr="placeholder" data-i18n="hf.search_placeholder" placeholder="Search models (e.g. Qwen2.5, DeepSeek, Llama-3.2, Gemma)..." autocomplete="off" spellcheck="false">
+            <button type="button" id="hf-search-clear" class="btn-icon models-search-clear hf-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
+          </div>
+          <div class="hf-sort-wrap">
+            <select id="hf-sort-select" class="hf-sort-select">
+              <option value="trending" selected data-i18n="hf.sort_trending">Trending</option>
+              <option value="downloads" data-i18n="hf.sort_downloads">Most Downloads</option>
+              <option value="likes" data-i18n="hf.sort_likes">Most Likes</option>
+              <option value="recent" data-i18n="hf.sort_recent">Recently Updated</option>
+            </select>
+          </div>
         </div>
-        <div id="hf-empty" class="hf-empty muted text-center" hidden data-i18n="hf.no_results">No models found matching your search.</div>
-        <div id="hf-error" class="callout callout-warn" hidden></div>
-        <div id="hf-models-list" class="hf-models-list"></div>
-        <div id="hf-load-more-wrap" class="hf-load-more-wrap" hidden>
-          <button type="button" id="hf-load-more-btn" class="ghost hf-load-more-btn" data-i18n="hf.load_more">Load more models</button>
+
+        <div class="hf-filters-row">
+          <div class="hf-filter-group">
+            <button type="button" class="hf-filter-chip active" data-filter="all" data-i18n="hf.filter_all">All GGUF</button>
+            <button type="button" class="hf-filter-chip" data-filter="ollama" data-i18n="hf.filter_ollama">Ollama Tagged</button>
+            <button type="button" class="hf-filter-chip" data-filter="vision" data-i18n="hf.filter_vision">Vision (mmproj)</button>
+          </div>
+          <div class="hf-filter-divider"></div>
+          <div class="hf-filter-group">
+            <button type="button" class="hf-time-chip active" data-time="all" data-i18n="hf.time_all">All time</button>
+            <button type="button" class="hf-time-chip" data-time="week" data-i18n="hf.time_week">This week</button>
+            <button type="button" class="hf-time-chip" data-time="month" data-i18n="hf.time_month">This month</button>
+            <button type="button" class="hf-time-chip" data-time="6months" data-i18n="hf.time_6months">6 months</button>
+            <button type="button" class="hf-time-chip" data-time="year" data-i18n="hf.time_year">This year</button>
+          </div>
+        </div>
+
+        <div class="hf-results-wrap">
+          <div id="hf-loading" class="hf-loading muted text-center" hidden>
+            <div class="battery-progress-spinner" style="margin: 30px auto 12px;"></div>
+            <span data-i18n="hf.loading">Searching HuggingFace models...</span>
+          </div>
+          <div id="hf-empty" class="hf-empty muted text-center" hidden data-i18n="hf.no_results">No models found matching your search.</div>
+          <div id="hf-error" class="callout callout-warn" hidden></div>
+          <div id="hf-models-list" class="hf-models-list"></div>
+          <div id="hf-load-more-wrap" class="hf-load-more-wrap" hidden>
+            <button type="button" id="hf-load-more-btn" class="ghost hf-load-more-btn" data-i18n="hf.load_more">Load more models</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1907,74 +1935,100 @@
   </div>
 
   <!-- Battery progress view -->
-  <main id="battery-progress-view" hidden>
-    <div class="battery-progress-layout">
-      <!-- Left: Timeline & progress -->
-      <div class="battery-progress-left">
-        <div class="battery-progress-header">
-          <div class="battery-progress-spinner"></div>
-          <h2 data-i18n="battery.running">Running battery…</h2>
-          <div class="battery-progress-meta" id="battery-progress-sub"></div>
-        </div>
-
-        <div class="battery-progress-bar-wrap">
-          <div class="battery-progress-track">
-            <div class="battery-progress-fill" id="battery-progress-fill"></div>
-          </div>
-          <div class="battery-progress-count" id="battery-progress-count">0 / 0</div>
-        </div>
-
-        <div class="battery-timeline" id="battery-timeline"></div>
-
-        <button id="battery-progress-cancel" class="ghost danger-text battery-cancel-btn" data-i18n="action.cancel">Cancel</button>
+  <main id="battery-progress-view" class="battery-progress-view" hidden>
+    <header class="battery-head">
+      <div class="battery-head-left">
+        <h2>
+          <span class="gear">⚡</span>
+          <span data-i18n="battery.running">Running Battery…</span>
+        </h2>
       </div>
+      <div class="battery-head-actions">
+        <button id="battery-progress-cancel" class="ghost danger-text" data-i18n="action.cancel">Cancel</button>
+      </div>
+    </header>
+    <div class="battery-body">
+      <div class="battery-progress-layout">
+        <!-- Left: Timeline & progress -->
+        <div class="battery-progress-left">
+          <div class="battery-progress-header">
+            <div class="battery-progress-spinner"></div>
+            <h3 data-i18n="battery.running_sub">Executing tests…</h3>
+            <div class="battery-progress-meta" id="battery-progress-sub"></div>
+          </div>
 
-      <!-- Right: Models & streaming -->
-      <div class="battery-progress-right">
-        <div id="battery-progress-models" class="battery-progress-models"></div>
-        <div id="battery-stream-panel" class="battery-stream-panel" hidden>
-          <div class="battery-stream-header">
-            <span data-i18n="battery.stream_prompt">Prompt</span>
-            <span class="muted" id="battery-stream-prompt-name"></span>
+          <div class="battery-progress-bar-wrap">
+            <div class="battery-progress-track">
+              <div class="battery-progress-fill" id="battery-progress-fill"></div>
+            </div>
+            <div class="battery-progress-count" id="battery-progress-count">0 / 0</div>
           </div>
-          <div class="battery-stream-block" id="battery-stream-prompt"></div>
-          <div class="battery-stream-header">
-            <span data-i18n="battery.stream_thinking">Thinking</span>
-          </div>
-          <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
-          <div class="battery-stream-header">
-            <span data-i18n="battery.stream_response">Response</span>
-          </div>
-          <div class="battery-stream-block response" id="battery-stream-response"></div>
+
+          <div class="battery-timeline" id="battery-timeline"></div>
         </div>
-        <h3 id="battery-completed-tests-heading" class="battery-completed-tests-heading" data-i18n="battery.completed_tests_title" hidden>Completed tests in this run</h3>
-        <div id="battery-completed-tests" class="battery-completed-tests" hidden></div>
+
+        <!-- Right: Models & streaming -->
+        <div class="battery-progress-right">
+          <div id="battery-progress-models" class="battery-progress-models"></div>
+          <div id="battery-stream-panel" class="battery-stream-panel" hidden>
+            <div class="battery-stream-header">
+              <span data-i18n="battery.stream_prompt">Prompt</span>
+              <span class="muted" id="battery-stream-prompt-name"></span>
+            </div>
+            <div class="battery-stream-block" id="battery-stream-prompt"></div>
+            <div class="battery-stream-header">
+              <span data-i18n="battery.stream_thinking">Thinking</span>
+            </div>
+            <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
+            <div class="battery-stream-header">
+              <span data-i18n="battery.stream_response">Response</span>
+            </div>
+            <div class="battery-stream-block response" id="battery-stream-response"></div>
+          </div>
+          <h3 id="battery-completed-tests-heading" class="battery-completed-tests-heading" data-i18n="battery.completed_tests_title" hidden>Completed tests in this run</h3>
+          <div id="battery-completed-tests" class="battery-completed-tests" hidden></div>
+        </div>
       </div>
     </div>
   </main>
 
   <!-- Battery results view -->
-  <main id="battery-results-view" hidden>
-    <div class="battery-wrap">
-      <header class="battery-head">
-        <button id="battery-results-back" class="ghost" data-i18n="tests.back_to_list">← Back to list</button>
-        <h2 id="battery-results-title" data-i18n="battery.results">Results</h2>
-        <div class="battery-head-actions">
-          <button id="battery-results-history" class="ghost" data-i18n="battery.history">History</button>
-        </div>
-      </header>
-      <div id="battery-results-body" class="battery-results-body"></div>
+  <main id="battery-results-view" class="battery-results-view" hidden>
+    <header class="battery-head">
+      <div class="battery-head-left">
+        <button id="battery-results-back" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+        <h2>
+          <span class="gear">📊</span>
+          <span id="battery-results-title" data-i18n="battery.results">Results</span>
+        </h2>
+      </div>
+      <div class="battery-head-actions">
+        <button id="battery-results-history" class="ghost" data-i18n="battery.history">History</button>
+      </div>
+    </header>
+    <div class="battery-body">
+      <div class="battery-container">
+        <div id="battery-results-body" class="battery-results-body"></div>
+      </div>
     </div>
   </main>
 
   <!-- Battery history view -->
-  <main id="battery-history-view" hidden>
-    <div class="battery-wrap">
-      <header class="battery-head">
-        <button id="battery-history-back" class="ghost" data-i18n="tests.back_to_list">← Back to list</button>
-        <h2 data-i18n="battery.history">History</h2>
-      </header>
-      <div id="battery-history-body" class="battery-history-body"></div>
+  <main id="battery-history-view" class="battery-history-view" hidden>
+    <header class="battery-head">
+      <div class="battery-head-left">
+        <button id="battery-history-back" class="ghost" data-i18n-attr="title" data-i18n="action.back" title="Back">&lt;</button>
+        <h2>
+          <span class="gear">📜</span>
+          <span data-i18n="battery.history">History</span>
+        </h2>
+      </div>
+      <div class="battery-head-actions"></div>
+    </header>
+    <div class="battery-body">
+      <div class="battery-container">
+        <div id="battery-history-body" class="battery-history-body"></div>
+      </div>
     </div>
   </main>
 

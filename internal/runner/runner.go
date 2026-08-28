@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -214,45 +215,6 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		return res
 	}
 
-	var messages []ollama.ChatMessage
-	if len(test.Messages) > 0 {
-		for _, m := range test.Messages {
-			messages = append(messages, ollama.ChatMessage{
-				Role:    m.Role,
-				Content: m.Content,
-				Images:  m.Images,
-			})
-		}
-	} else {
-		messages = []ollama.ChatMessage{
-			{Role: "system", Content: test.SystemPrompt},
-			{Role: "user", Content: test.Prompt},
-		}
-		// Remove empty system message.
-		if messages[0].Content == "" {
-			messages = messages[1:]
-		}
-	}
-
-	// Attach images and audio if present.
-	// Ollama puts both in the same `images` array; it does not distinguish
-	// image vs audio at the field level.
-	var media []string
-	for _, att := range test.Attachments {
-		if att.Kind == "image" || att.Kind == "audio" {
-			media = append(media, att.Data)
-		}
-	}
-	if len(media) > 0 {
-		// Attach to the last user message.
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == "user" {
-				messages[i].Images = append(messages[i].Images, media...)
-				break
-			}
-		}
-	}
-
 	var opts map[string]any
 	if test.Options != nil {
 		opts = make(map[string]any)
@@ -267,6 +229,184 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		}
 	}
 
+	start := time.Now()
+
+	// Multi-step interactive sequential test
+	if len(test.Steps) > 0 {
+		var history []ollama.ChatMessage
+		if test.SystemPrompt != "" {
+			history = append(history, ollama.ChatMessage{Role: "system", Content: test.SystemPrompt})
+		}
+
+		allPassed := true
+		hasScored := false
+		var responsesSummary []string
+
+		for _, step := range test.Steps {
+			if ctx.Err() != nil {
+				res.Error = ctx.Err().Error()
+				break
+			}
+
+			history = append(history, ollama.ChatMessage{Role: "user", Content: step.Prompt})
+			respContent, thinking, tps, _, err := c.execChatTurn(ctx, runID, model, history, opts)
+			if err != nil {
+				res.Error = err.Error()
+				break
+			}
+
+			if thinking != "" {
+				res.ReasoningUsed = true
+			}
+			if tps > 0 {
+				res.TokensPerSec = tps
+			}
+
+			history = append(history, ollama.ChatMessage{Role: "assistant", Content: respContent})
+
+			stepPassed := scoreEval(step.Evaluation, test.EvaluationType, test.EvaluationConfig, respContent)
+			stepLabel := step.Name
+			if stepLabel == "" {
+				stepLabel = fmt.Sprintf("Paso %d", step.Step)
+			}
+
+			status := "PASS"
+			if stepPassed != nil {
+				hasScored = true
+				if !*stepPassed {
+					allPassed = false
+					status = "FAIL"
+				}
+			} else {
+				status = "REVIEW"
+			}
+			responsesSummary = append(responsesSummary, fmt.Sprintf("[%s] %s: %s", status, stepLabel, strings.TrimSpace(respContent)))
+		}
+
+		res.ResponseTimeMs = time.Since(start).Milliseconds()
+		res.ModelResponse = strings.Join(responsesSummary, "\n\n")
+		if hasScored && res.Error == "" {
+			res.Passed = &allPassed
+		}
+		return res
+	}
+
+	// Multi-case test suite
+	if len(test.Cases) > 0 {
+		allPassed := true
+		hasScored := false
+		var casesSummary []string
+
+		for i, tc := range test.Cases {
+			if ctx.Err() != nil {
+				res.Error = ctx.Err().Error()
+				break
+			}
+
+			var msgs []ollama.ChatMessage
+			if test.SystemPrompt != "" {
+				msgs = append(msgs, ollama.ChatMessage{Role: "system", Content: test.SystemPrompt})
+			}
+			msgs = append(msgs, ollama.ChatMessage{Role: "user", Content: tc.Prompt})
+
+			respContent, thinking, tps, _, err := c.execChatTurn(ctx, runID, model, msgs, opts)
+			if err != nil {
+				res.Error = err.Error()
+				break
+			}
+
+			if thinking != "" {
+				res.ReasoningUsed = true
+			}
+			if tps > 0 {
+				res.TokensPerSec = tps
+			}
+
+			casePassed := scoreEval(tc.Evaluation, test.EvaluationType, test.EvaluationConfig, respContent)
+			caseLabel := tc.Name
+			if caseLabel == "" {
+				caseLabel = fmt.Sprintf("Caso %d", i+1)
+			}
+
+			status := "PASS"
+			if casePassed != nil {
+				hasScored = true
+				if !*casePassed {
+					allPassed = false
+					status = "FAIL"
+				}
+			} else {
+				status = "REVIEW"
+			}
+			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, caseLabel, strings.TrimSpace(respContent)))
+		}
+
+		res.ResponseTimeMs = time.Since(start).Milliseconds()
+		res.ModelResponse = strings.Join(casesSummary, "\n\n")
+		if hasScored && res.Error == "" {
+			res.Passed = &allPassed
+		}
+		return res
+	}
+
+	// Standard single prompt / messages test
+	var messages []ollama.ChatMessage
+	if len(test.Messages) > 0 {
+		for _, m := range test.Messages {
+			messages = append(messages, ollama.ChatMessage{
+				Role:    m.Role,
+				Content: m.Content,
+				Images:  m.Images,
+			})
+		}
+	} else {
+		messages = []ollama.ChatMessage{
+			{Role: "system", Content: test.SystemPrompt},
+			{Role: "user", Content: test.Prompt},
+		}
+		if messages[0].Content == "" {
+			messages = messages[1:]
+		}
+	}
+
+	// Attach media
+	var media []string
+	for _, att := range test.Attachments {
+		if att.Kind == "image" || att.Kind == "audio" {
+			media = append(media, att.Data)
+		}
+	}
+	if len(media) > 0 {
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "user" {
+				messages[i].Images = append(messages[i].Images, media...)
+				break
+			}
+		}
+	}
+
+	respContent, thinking, tps, elapsed, err := c.execChatTurn(ctx, runID, model, messages, opts)
+	res.ResponseTimeMs = elapsed
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+
+	res.ModelResponse = respContent
+	res.ReasoningUsed = thinking != ""
+	if tps > 0 {
+		res.TokensPerSec = tps
+	}
+
+	passed := scoreEval(test.Evaluation, test.EvaluationType, test.EvaluationConfig, res.ModelResponse)
+	if passed != nil {
+		res.Passed = passed
+	}
+
+	return res
+}
+
+func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages []ollama.ChatMessage, opts map[string]any) (string, string, float64, int64, error) {
 	req := ollama.ChatRequest{
 		Model:    model,
 		Messages: messages,
@@ -284,7 +424,6 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 retryLoop:
 	for attempt := 0; attempt <= 3; attempt++ {
 		if attempt > 0 {
-			// Before retrying, check if the model is loaded in Ollama.
 			if loaded, psErr := c.isModelLoaded(ctx, model); psErr == nil && !loaded {
 				select {
 				case <-time.After(2 * time.Second):
@@ -302,7 +441,6 @@ retryLoop:
 			if chatErr != nil {
 				break retryLoop
 			}
-			// Reset accumulators for the retry.
 			fullContent.Reset()
 			fullThinking.Reset()
 			chunkMeta = nil
@@ -317,7 +455,6 @@ retryLoop:
 				fullThinking.WriteString(chunk.Message.Thinking)
 			}
 			content := fullContent.String()
-			wasThinking := isThinking
 			if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
 				isThinking = true
 			}
@@ -325,7 +462,6 @@ retryLoop:
 				isThinking = false
 			}
 			c.updateProgressStream(runID, isThinking, content, fullThinking.String())
-			_ = wasThinking
 			if chunk.Done {
 				chunkMeta = &chunk
 			}
@@ -333,41 +469,26 @@ retryLoop:
 		})
 
 		if chatErr != nil {
-			break // Hard error, don't retry.
+			break
 		}
 		if strings.TrimSpace(fullContent.String()) != "" {
-			break // Got a non-empty response.
+			break
 		}
-		// Empty response: will retry unless this was the last attempt.
 	}
 
 	elapsed := time.Since(start).Milliseconds()
-	res.ResponseTimeMs = elapsed
-
 	if chatErr != nil {
-		res.Error = chatErr.Error()
-		return res
+		return "", "", 0, elapsed, chatErr
 	}
 
-	res.ModelResponse = fullContent.String()
-	res.ReasoningUsed = strings.TrimSpace(fullThinking.String()) != ""
-
-	// Compute tokens per second from Ollama metadata.
+	var tps float64
 	if chunkMeta != nil && chunkMeta.EvalCount > 0 && chunkMeta.EvalDuration > 0 {
-		res.TokensPerSec = float64(chunkMeta.EvalCount) / (float64(chunkMeta.EvalDuration) / 1e9)
+		tps = float64(chunkMeta.EvalCount) / (float64(chunkMeta.EvalDuration) / 1e9)
 	}
 
-	// Score based on evaluation type.
-	passed := scoreTest(test, res.ModelResponse)
-	if passed != nil {
-		res.Passed = passed
-	}
-	// For human_review, passed stays nil and human_rating stays empty.
-
-	return res
+	return fullContent.String(), fullThinking.String(), tps, elapsed, nil
 }
 
-// isModelLoaded queries Ollama /api/ps to check whether a model is currently loaded in memory.
 func (c *Client) isModelLoaded(ctx context.Context, model string) (bool, error) {
 	running, err := c.ollama.PS(ctx)
 	if err != nil {
@@ -391,37 +512,81 @@ func (c *Client) updateProgressStream(runID string, thinking bool, content, reas
 	}
 }
 
-func scoreTest(test tests.Test, response string) *bool {
-	switch test.EvaluationType {
+func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMessage, response string) *bool {
+	evalType := defaultType
+	cfgBytes := defaultCfg
+	var directExpected any
+	var directPattern string
+	var directSchema any
+
+	if eval != nil {
+		if eval.Type != "" {
+			evalType = eval.Type
+		}
+		if len(eval.Config) > 0 {
+			cfgBytes = eval.Config
+		}
+		directExpected = eval.Expected
+		directPattern = eval.Pattern
+		directSchema = eval.Schema
+	}
+
+	switch evalType {
 	case "exact_match":
-		var cfg struct {
-			Expected string `json:"expected"`
+		expected := ""
+		if s, ok := directExpected.(string); ok {
+			expected = s
+		} else if directExpected != nil {
+			expected = fmt.Sprintf("%v", directExpected)
+		} else if len(cfgBytes) > 0 {
+			var cfg struct {
+				Expected string `json:"expected"`
+			}
+			_ = json.Unmarshal(cfgBytes, &cfg)
+			expected = cfg.Expected
 		}
-		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
-		v := strings.TrimSpace(response) == strings.TrimSpace(cfg.Expected)
+		v := strings.TrimSpace(response) == strings.TrimSpace(expected)
 		return &v
+
 	case "contains":
-		var cfg struct {
-			Expected string `json:"expected"`
+		expected := ""
+		if s, ok := directExpected.(string); ok {
+			expected = s
+		} else if directExpected != nil {
+			expected = fmt.Sprintf("%v", directExpected)
+		} else if len(cfgBytes) > 0 {
+			var cfg struct {
+				Expected string `json:"expected"`
+			}
+			_ = json.Unmarshal(cfgBytes, &cfg)
+			expected = cfg.Expected
 		}
-		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
 		normResponse := normalizeForContains(response)
-		normExpected := normalizeForContains(cfg.Expected)
-		// When expected contains code with real newlines/tabs, compress
-		// whitespace on both sides so formatting differences don't matter.
+		normExpected := normalizeForContains(expected)
 		if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
 			normResponse = stripWhitespace(normResponse)
 			normExpected = stripWhitespace(normExpected)
 		}
 		v := strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
 		return &v
+
 	case "contains_list":
-		var cfg struct {
-			Expected []string `json:"expected"`
+		var expectedList []string
+		if list, ok := directExpected.([]any); ok {
+			for _, it := range list {
+				expectedList = append(expectedList, fmt.Sprintf("%v", it))
+			}
+		} else if list, ok := directExpected.([]string); ok {
+			expectedList = list
+		} else if len(cfgBytes) > 0 {
+			var cfg struct {
+				Expected []string `json:"expected"`
+			}
+			_ = json.Unmarshal(cfgBytes, &cfg)
+			expectedList = cfg.Expected
 		}
-		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
 		normResponse := normalizeForContains(response)
-		for _, exp := range cfg.Expected {
+		for _, exp := range expectedList {
 			normExpected := normalizeForContains(exp)
 			if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
 				if strings.Contains(strings.ToLower(stripWhitespace(normResponse)), strings.ToLower(stripWhitespace(normExpected))) {
@@ -437,22 +602,28 @@ func scoreTest(test tests.Test, response string) *bool {
 		}
 		v := false
 		return &v
+
 	case "regex":
-		var cfg struct {
-			Pattern string `json:"pattern"`
+		pattern := directPattern
+		if pattern == "" && len(cfgBytes) > 0 {
+			var cfg struct {
+				Pattern string `json:"pattern"`
+			}
+			_ = json.Unmarshal(cfgBytes, &cfg)
+			pattern = cfg.Pattern
 		}
-		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
-		if cfg.Pattern == "" {
+		if pattern == "" {
 			v := false
 			return &v
 		}
-		re, err := regexp.Compile(cfg.Pattern)
+		re, err := regexp.Compile(pattern)
 		if err != nil {
 			v := false
 			return &v
 		}
 		v := re.MatchString(response)
 		return &v
+
 	case "json_schema":
 		var cfg struct {
 			Schema struct {
@@ -465,7 +636,12 @@ func scoreTest(test tests.Test, response string) *bool {
 				} `json:"items"`
 			} `json:"schema"`
 		}
-		_ = json.Unmarshal(test.EvaluationConfig, &cfg)
+		if directSchema != nil {
+			b, _ := json.Marshal(map[string]any{"schema": directSchema})
+			_ = json.Unmarshal(b, &cfg)
+		} else if len(cfgBytes) > 0 {
+			_ = json.Unmarshal(cfgBytes, &cfg)
+		}
 		var raw any
 		if err := json.Unmarshal([]byte(response), &raw); err != nil {
 			v := false
@@ -511,8 +687,10 @@ func scoreTest(test tests.Test, response string) *bool {
 			v := true
 			return &v
 		}
+
 	case "human_review":
-		return nil // no auto-score
+		return nil
+
 	default:
 		v := false
 		return &v

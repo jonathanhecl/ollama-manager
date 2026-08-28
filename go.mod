@@ -7,6 +7,8 @@ require (
 	golang.org/x/net v0.53.0
 )
 
+require gopkg.in/yaml.v3 v3.0.1 // indirect
+
 require (
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect

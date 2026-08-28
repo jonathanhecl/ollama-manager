@@ -1,0 +1,34 @@
+id: example-arithmetic
+name: Math Suite (Multiple Exercises)
+description: Evaluates multiple diverse arithmetic and mathematical operations in a single test.
+group_id: examples
+active: true
+order: 0
+
+system_prompt: |
+  Eres un calculador conciso. Responde únicamente con el número o resultado final.
+
+cases:
+  - name: Jerarquía de operaciones básica
+    prompt: ¿Cuánto es 2 + 3 * 4? Devuelve solo el número.
+    evaluation:
+      type: contains
+      expected: "14"
+
+  - name: Simplificación de fracción
+    prompt: Simplifica la fracción 18/24 a su mínima expresión. Responde solo con la fracción reducida.
+    evaluation:
+      type: contains
+      expected: "3/4"
+
+  - name: Potenciación
+    prompt: ¿Cuánto es 2 elevado a la potencia 8 (2^8)? Solo el número.
+    evaluation:
+      type: contains
+      expected: "256"
+
+  - name: Porcentajes
+    prompt: ¿Cuál es el 15% de 200? Devuelve únicamente el número.
+    evaluation:
+      type: contains
+      expected: "30"

@@ -1,7 +1,7 @@
-// Package tests implements a filesystem-backed store for test scripts and test categories.
+// Package tests implements a filesystem-backed store for YAML/JSON test scripts and test categories.
 //
 // Categories are represented as subdirectories inside the testing root folder.
-// Tests are individual .json script files within each category directory.
+// Tests are individual .yaml/.yml or .json script files within each category directory.
 // All mutations are protected by a mutex and persisted directly to disk.
 package tests
 
@@ -17,67 +17,89 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Group is a collection of related tests (corresponds to a category directory).
 type Group struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description,omitempty"`
-	RequiredCaps []string `json:"required_caps,omitempty"`
-	Order        int      `json:"order"`
+	ID           string   `json:"id" yaml:"id"`
+	Name         string   `json:"name" yaml:"name"`
+	Description  string   `json:"description,omitempty" yaml:"description,omitempty"`
+	RequiredCaps []string `json:"required_caps,omitempty" yaml:"required_caps,omitempty"`
+	Order        int      `json:"order" yaml:"order"`
 }
 
 // Attachment is a file attached to a test (image, audio, or document).
 type Attachment struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"` // "image", "audio", "file"
-	Name string `json:"name"` // original filename
-	Mime string `json:"mime"` // MIME type
-	Data string `json:"data"` // base64 content or relative file path
+	ID   string `json:"id" yaml:"id"`
+	Kind string `json:"kind" yaml:"kind"` // "image", "audio", "file"
+	Name string `json:"name" yaml:"name"` // original filename
+	Mime string `json:"mime" yaml:"mime"` // MIME type
+	Data string `json:"data" yaml:"data"` // base64 content or relative file path
 }
 
 // Message represents a single chat turn in a multi-message test script.
 type Message struct {
-	Role      string   `json:"role"`
-	Content   string   `json:"content"`
-	Images    []string `json:"images,omitempty"`
-	ToolCalls any      `json:"tool_calls,omitempty"`
+	Role      string   `json:"role" yaml:"role"`
+	Content   string   `json:"content" yaml:"content"`
+	Images    []string `json:"images,omitempty" yaml:"images,omitempty"`
+	ToolCalls any      `json:"tool_calls,omitempty" yaml:"tool_calls,omitempty"`
 }
 
 // Evaluation specifies the evaluation strategy and parameters.
 type Evaluation struct {
-	Type   string          `json:"type"`
-	Config json.RawMessage `json:"config,omitempty"`
+	Type     string          `json:"type" yaml:"type"`
+	Expected any             `json:"expected,omitempty" yaml:"expected,omitempty"`
+	Pattern  string          `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	Schema   any             `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Config   json.RawMessage `json:"config,omitempty" yaml:"config,omitempty"`
+}
+
+// Step represents one turn in a sequential multi-step interactive test.
+type Step struct {
+	Step        int         `json:"step" yaml:"step"`
+	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt      string      `json:"prompt" yaml:"prompt"`
+	Evaluation  *Evaluation `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+}
+
+// TestCase represents an individual case in a batch/matrix test suite.
+type TestCase struct {
+	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt      string      `json:"prompt" yaml:"prompt"`
+	Evaluation  *Evaluation `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
 }
 
 // TestOptions represents optional inference parameters.
 type TestOptions struct {
-	Temperature *float64 `json:"temperature,omitempty"`
-	TopP        *float64 `json:"top_p,omitempty"`
-	MaxTokens   *int     `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 }
 
 // Test is an individual evaluation test script.
 type Test struct {
-	ID               string          `json:"id"`
-	Name             string          `json:"name"`
-	Description      string          `json:"description,omitempty"`
-	GroupID          string          `json:"group_id"`
-	Active           bool            `json:"active"`
-	Order            int             `json:"order"`
-	Prompt           string          `json:"prompt,omitempty"`
-	SystemPrompt     string          `json:"system_prompt,omitempty"`
-	Messages         []Message       `json:"messages,omitempty"`
-	Evaluation       *Evaluation     `json:"evaluation,omitempty"`
-	EvaluationType   string          `json:"evaluation_type,omitempty"`
-	EvaluationConfig json.RawMessage `json:"evaluation_config,omitempty"`
-	RequiredCaps     []string        `json:"required_caps,omitempty"`
-	Attachments      []Attachment    `json:"attachments,omitempty"`
-	Options          *TestOptions    `json:"options,omitempty"`
-	Filename         string          `json:"filename,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
+	ID               string          `json:"id" yaml:"id"`
+	Name             string          `json:"name" yaml:"name"`
+	Description      string          `json:"description,omitempty" yaml:"description,omitempty"`
+	GroupID          string          `json:"group_id" yaml:"group_id"`
+	Active           bool            `json:"active" yaml:"active"`
+	Order            int             `json:"order" yaml:"order"`
+	SystemPrompt     string          `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	Prompt           string          `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Messages         []Message       `json:"messages,omitempty" yaml:"messages,omitempty"`
+	Steps            []Step          `json:"steps,omitempty" yaml:"steps,omitempty"`
+	Cases            []TestCase      `json:"cases,omitempty" yaml:"cases,omitempty"`
+	Evaluation       *Evaluation     `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	EvaluationType   string          `json:"evaluation_type,omitempty" yaml:"evaluation_type,omitempty"`
+	EvaluationConfig json.RawMessage `json:"evaluation_config,omitempty" yaml:"evaluation_config,omitempty"`
+	RequiredCaps     []string        `json:"required_caps,omitempty" yaml:"required_caps,omitempty"`
+	Attachments      []Attachment    `json:"attachments,omitempty" yaml:"attachments,omitempty"`
+	Options          *TestOptions    `json:"options,omitempty" yaml:"options,omitempty"`
+	Filename         string          `json:"filename,omitempty" yaml:"filename,omitempty"`
+	CreatedAt        time.Time       `json:"created_at" yaml:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at" yaml:"updated_at"`
 }
 
 // Store holds groups and tests in memory and syncs them to the filesystem directory.
@@ -91,7 +113,7 @@ type Store struct {
 // New creates an empty store backed by the given testing directory.
 func New(pathOrDir string) *Store {
 	dir := pathOrDir
-	if strings.HasSuffix(strings.ToLower(dir), ".json") {
+	if strings.HasSuffix(strings.ToLower(dir), ".json") || strings.HasSuffix(strings.ToLower(dir), ".yaml") || strings.HasSuffix(strings.ToLower(dir), ".yml") {
 		dir = filepath.Dir(dir)
 		if filepath.Base(dir) != "testing" {
 			dir = filepath.Join(dir, "testing")
@@ -110,7 +132,6 @@ func (s *Store) Dir() string {
 }
 
 // Load scans the testing directory, discovering categories and test script files.
-// It also migrates legacy root JSON test files if present.
 func (s *Store) Load() error {
 	if s.dir == "" {
 		return nil
@@ -160,10 +181,13 @@ func (s *Store) Load() error {
 				continue
 			}
 			tName := testEntry.Name()
-			if strings.HasPrefix(tName, ".") || strings.EqualFold(tName, "_category.json") {
+			if strings.HasPrefix(tName, ".") || strings.HasPrefix(tName, "_category") {
 				continue
 			}
-			if !strings.HasSuffix(strings.ToLower(tName), ".json") {
+
+			isYaml := strings.HasSuffix(strings.ToLower(tName), ".yaml") || strings.HasSuffix(strings.ToLower(tName), ".yml")
+			isJson := strings.HasSuffix(strings.ToLower(tName), ".json")
+			if !isYaml && !isJson {
 				continue
 			}
 
@@ -174,8 +198,14 @@ func (s *Store) Load() error {
 			}
 
 			var t Test
-			if err := json.Unmarshal(data, &t); err != nil {
-				continue
+			if isYaml {
+				if err := yaml.Unmarshal(data, &t); err != nil {
+					continue
+				}
+			} else {
+				if err := json.Unmarshal(data, &t); err != nil {
+					continue
+				}
 			}
 
 			if t.ID == "" {
@@ -184,20 +214,8 @@ func (s *Store) Load() error {
 			t.GroupID = group.ID
 			t.Filename = tName
 
-			// Sync Evaluation struct and legacy fields
-			if t.Evaluation != nil {
-				if t.EvaluationType == "" {
-					t.EvaluationType = t.Evaluation.Type
-				}
-				if len(t.EvaluationConfig) == 0 {
-					t.EvaluationConfig = t.Evaluation.Config
-				}
-			} else if t.EvaluationType != "" {
-				t.Evaluation = &Evaluation{
-					Type:   t.EvaluationType,
-					Config: t.EvaluationConfig,
-				}
-			}
+			// Normalize Evaluation
+			t.normalizeEvaluation()
 
 			// Sync messages vs prompt
 			if len(t.Messages) > 0 && t.Prompt == "" {
@@ -217,18 +235,57 @@ func (s *Store) Load() error {
 	return nil
 }
 
+func (t *Test) normalizeEvaluation() {
+	if t.Evaluation != nil {
+		if t.EvaluationType == "" {
+			t.EvaluationType = t.Evaluation.Type
+		}
+		if len(t.EvaluationConfig) == 0 && t.Evaluation.Config != nil {
+			t.EvaluationConfig = t.Evaluation.Config
+		} else if len(t.EvaluationConfig) == 0 {
+			cfgMap := make(map[string]any)
+			if t.Evaluation.Expected != nil {
+				cfgMap["expected"] = t.Evaluation.Expected
+			}
+			if t.Evaluation.Pattern != "" {
+				cfgMap["pattern"] = t.Evaluation.Pattern
+			}
+			if t.Evaluation.Schema != nil {
+				cfgMap["schema"] = t.Evaluation.Schema
+			}
+			if len(cfgMap) > 0 {
+				t.EvaluationConfig, _ = json.Marshal(cfgMap)
+			}
+		}
+	} else if t.EvaluationType != "" {
+		t.Evaluation = &Evaluation{
+			Type:   t.EvaluationType,
+			Config: t.EvaluationConfig,
+		}
+	}
+}
+
 func (s *Store) loadCategoryLocked(dirName, catPath string) *Group {
-	catMetaPath := filepath.Join(catPath, "_category.json")
-	if data, err := os.ReadFile(catMetaPath); err == nil {
-		var g Group
-		if err := json.Unmarshal(data, &g); err == nil {
-			if g.ID == "" {
-				g.ID = dirName
+	// Try _category.yaml first, then _category.json
+	for _, fn := range []string{"_category.yaml", "_category.yml", "_category.json"} {
+		catMetaPath := filepath.Join(catPath, fn)
+		if data, err := os.ReadFile(catMetaPath); err == nil {
+			var g Group
+			var parseErr error
+			if strings.HasSuffix(fn, ".json") {
+				parseErr = json.Unmarshal(data, &g)
+			} else {
+				parseErr = yaml.Unmarshal(data, &g)
 			}
-			if g.Name == "" {
-				g.Name = humanizeName(dirName)
+			if parseErr == nil {
+				if g.ID == "" {
+					g.ID = dirName
+				}
+				if g.Name == "" {
+					g.Name = humanizeName(dirName)
+				}
+				return &g
 			}
-			return &g
 		}
 	}
 
@@ -285,21 +342,21 @@ func (s *Store) GetTest(id string) (Test, bool) {
 	return cp, true
 }
 
-// CreateTest adds a new test and writes its individual .json file.
+// CreateTest adds a new test and writes its individual .yaml file.
 func (s *Store) CreateTest(in Test) (Test, error) {
 	if in.Name == "" {
 		return Test{}, errors.New("test name is required")
 	}
-	if in.Prompt == "" && len(in.Messages) == 0 {
-		return Test{}, errors.New("test prompt or messages are required")
+	if in.Prompt == "" && len(in.Messages) == 0 && len(in.Steps) == 0 && len(in.Cases) == 0 {
+		return Test{}, errors.New("test prompt, messages, steps, or cases are required")
 	}
 
 	evalType := in.EvaluationType
 	if evalType == "" && in.Evaluation != nil {
 		evalType = in.Evaluation.Type
 	}
-	if evalType == "" {
-		return Test{}, errors.New("evaluation_type is required")
+	if evalType == "" && len(in.Steps) == 0 && len(in.Cases) == 0 {
+		evalType = "contains"
 	}
 
 	s.mu.Lock()
@@ -310,7 +367,6 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 		groupID = "default"
 	}
 	if _, ok := s.groups[groupID]; !ok {
-		// Auto-create category if needed
 		s.groups[groupID] = &Group{
 			ID:    groupID,
 			Name:  humanizeName(groupID),
@@ -333,7 +389,7 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 	t.ID = id
 	t.GroupID = groupID
 	t.EvaluationType = evalType
-	if t.Evaluation == nil {
+	if t.Evaluation == nil && evalType != "" {
 		t.Evaluation = &Evaluation{
 			Type:   evalType,
 			Config: in.EvaluationConfig,
@@ -342,9 +398,9 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 	t.CreatedAt = now
 	t.UpdatedAt = now
 
-	// Determine unique filename
+	// Determine unique filename (.yaml by default)
 	baseFilename := sanitizeFilename(t.Name)
-	filename := baseFilename + ".json"
+	filename := baseFilename + ".yaml"
 	targetDir := filepath.Join(s.dir, groupID)
 	_ = os.MkdirAll(targetDir, 0o755)
 
@@ -354,7 +410,7 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 		if _, err := os.Stat(targetPath); errors.Is(err, os.ErrNotExist) {
 			break
 		}
-		filename = fmt.Sprintf("%s_%d.json", baseFilename, count)
+		filename = fmt.Sprintf("%s_%d.yaml", baseFilename, count)
 		count++
 	}
 	t.Filename = filename
@@ -391,12 +447,16 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	t.GroupID = newGroup
 	t.Active = in.Active
 	t.Order = in.Order
-	if in.Prompt != "" {
-		t.Prompt = in.Prompt
-	}
+	t.Prompt = in.Prompt
 	t.SystemPrompt = in.SystemPrompt
 	if len(in.Messages) > 0 {
 		t.Messages = in.Messages
+	}
+	if len(in.Steps) > 0 {
+		t.Steps = in.Steps
+	}
+	if len(in.Cases) > 0 {
+		t.Cases = in.Cases
 	}
 	if in.EvaluationType != "" {
 		t.EvaluationType = in.EvaluationType
@@ -422,8 +482,12 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 		oldPath := filepath.Join(s.dir, oldGroup, oldFilename)
 		_ = os.Remove(oldPath)
 
+		ext := filepath.Ext(oldFilename)
+		if ext == "" {
+			ext = ".yaml"
+		}
 		baseFilename := sanitizeFilename(t.Name)
-		filename := baseFilename + ".json"
+		filename := baseFilename + ext
 		targetDir := filepath.Join(s.dir, newGroup)
 		_ = os.MkdirAll(targetDir, 0o755)
 
@@ -433,7 +497,7 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 			if _, err := os.Stat(targetPath); errors.Is(err, os.ErrNotExist) {
 				break
 			}
-			filename = fmt.Sprintf("%s_%d.json", baseFilename, count)
+			filename = fmt.Sprintf("%s_%d%s", baseFilename, count, ext)
 			count++
 		}
 		t.Filename = filename
@@ -496,7 +560,7 @@ func (s *Store) GetGroup(id string) (Group, bool) {
 	return cp, true
 }
 
-// CreateGroup adds a new category and creates its directory and _category.json.
+// CreateGroup adds a new category and creates its directory and _category.yaml.
 func (s *Store) CreateGroup(in Group) (Group, error) {
 	if in.Name == "" {
 		return Group{}, errors.New("group name is required")
@@ -565,7 +629,6 @@ func (s *Store) DeleteGroup(id string) error {
 		return errors.New("group not found")
 	}
 
-	// Remove all tests belonging to this group
 	for tid, t := range s.tests {
 		if t.GroupID == id {
 			delete(s.tests, tid)
@@ -584,15 +647,21 @@ func (s *Store) saveTestLocked(t *Test) error {
 	}
 
 	if t.Filename == "" {
-		t.Filename = sanitizeFilename(t.Name) + ".json"
+		t.Filename = sanitizeFilename(t.Name) + ".yaml"
 	}
 	targetPath := filepath.Join(catDir, t.Filename)
 
-	data, err := json.MarshalIndent(t, "", "  ")
+	var data []byte
+	var err error
+	if strings.HasSuffix(strings.ToLower(t.Filename), ".json") {
+		data, err = json.MarshalIndent(t, "", "  ")
+		data = append(data, '\n')
+	} else {
+		data, err = yaml.Marshal(t)
+	}
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 
 	tmp := targetPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
@@ -606,13 +675,12 @@ func (s *Store) saveCategoryLocked(g *Group) error {
 	if err := os.MkdirAll(catDir, 0o755); err != nil {
 		return err
 	}
-	targetPath := filepath.Join(catDir, "_category.json")
+	targetPath := filepath.Join(catDir, "_category.yaml")
 
-	data, err := json.MarshalIndent(g, "", "  ")
+	data, err := yaml.Marshal(g)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 
 	tmp := targetPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
@@ -621,7 +689,7 @@ func (s *Store) saveCategoryLocked(g *Group) error {
 	return os.Rename(tmp, targetPath)
 }
 
-// PopulateSeed creates the initial 3 example tests in testing/examples if testing dir is empty.
+// PopulateSeed creates the initial 3 example tests in YAML format in testing/examples if testing dir is empty.
 func (s *Store) PopulateSeed() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -633,7 +701,7 @@ func (s *Store) PopulateSeed() error {
 	examplesGroup := &Group{
 		ID:          "examples",
 		Name:        "Examples",
-		Description: "Reference tests and standard evaluation templates",
+		Description: "Reference test suites and evaluation templates in YAML",
 		Order:       0,
 	}
 
@@ -646,26 +714,49 @@ func (s *Store) PopulateSeed() error {
 	seedExamples := []Test{
 		{
 			ID:           "example-arithmetic",
-			Name:         "Basic Arithmetic",
-			Description:  "Evaluates whether the model can follow order of operations.",
+			Name:         "Math Suite (Multiple Exercises)",
+			Description:  "Evaluates multiple diverse arithmetic and mathematical operations.",
 			GroupID:      "examples",
 			Active:       true,
 			Order:        0,
-			SystemPrompt: "You are a concise calculator. Reply with only the final numerical answer.",
-			Prompt:       "What is 2 + 3 * 4? Return only the final number.",
-			Messages: []Message{
-				{Role: "system", Content: "You are a concise calculator. Reply with only the final numerical answer."},
-				{Role: "user", Content: "What is 2 + 3 * 4? Return only the final number."},
+			SystemPrompt: "Eres un calculador conciso. Responde únicamente con el número o resultado final.",
+			Cases: []TestCase{
+				{
+					Name:   "Jerarquía de operaciones básica",
+					Prompt: "¿Cuánto es 2 + 3 * 4? Devuelve solo el número.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "14",
+					},
+				},
+				{
+					Name:   "Simplificación de fracción",
+					Prompt: "Simplifica la fracción 18/24 a su mínima expresión. Responde solo con la fracción reducida.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "3/4",
+					},
+				},
+				{
+					Name:   "Potenciación",
+					Prompt: "¿Cuánto es 2 elevado a la potencia 8 (2^8)? Solo el número.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "256",
+					},
+				},
+				{
+					Name:   "Porcentajes",
+					Prompt: "¿Cuál es el 15% de 200? Devuelve únicamente el número.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "30",
+					},
+				},
 			},
-			Evaluation: &Evaluation{
-				Type:   "contains",
-				Config: mustJSON(map[string]any{"expected": "14"}),
-			},
-			EvaluationType:   "contains",
-			EvaluationConfig: mustJSON(map[string]any{"expected": "14"}),
-			Filename:         "arithmetic.json",
-			CreatedAt:        now,
-			UpdatedAt:        now,
+			Filename:  "arithmetic.yaml",
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		{
 			ID:           "example-weather-tool",
@@ -677,49 +768,51 @@ func (s *Store) PopulateSeed() error {
 			RequiredCaps: []string{"tools"},
 			SystemPrompt: "You have access to the following tool:\nget_weather(location: string) -> {temperature: number, condition: string}\nWhen the user asks about weather, respond ONLY with the tool call. Example:\nget_weather(\"London\")\nDo not add any other text.",
 			Prompt:       "What is the weather like in Paris right now?",
-			Messages: []Message{
-				{Role: "system", Content: "You have access to the following tool:\nget_weather(location: string) -> {temperature: number, condition: string}\nWhen the user asks about weather, respond ONLY with the tool call. Example:\nget_weather(\"London\")\nDo not add any other text."},
-				{Role: "user", Content: "What is the weather like in Paris right now?"},
-			},
 			Evaluation: &Evaluation{
-				Type:   "regex",
-				Config: mustJSON(map[string]any{"pattern": `(?i)get_weather\s*\(\s*"Paris"\s*\)`}),
+				Type:    "regex",
+				Pattern: `(?i)get_weather\s*\(\s*"Paris"\s*\)`,
 			},
-			EvaluationType:   "regex",
-			EvaluationConfig: mustJSON(map[string]any{"pattern": `(?i)get_weather\s*\(\s*"Paris"\s*\)`}),
-			Filename:         "weather_tool.json",
-			CreatedAt:        now,
-			UpdatedAt:        now,
+			Filename:  "weather_tool.yaml",
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		{
 			ID:           "example-multi-turn",
-			Name:         "Multi-Turn Dialogue",
-			Description:  "Tests multi-turn context retention and following previous instructions.",
+			Name:         "Sequential Dialogue Chain",
+			Description:  "Multi-step interactive chain testing sequential retention across turns.",
 			GroupID:      "examples",
 			Active:       true,
 			Order:        2,
-			SystemPrompt: "You are a helpful programming assistant.",
-			Prompt:       "What programming language was I asking about in my first question? Answer with just the language name.",
-			Messages: []Message{
-				{Role: "system", Content: "You are a helpful programming assistant."},
-				{Role: "user", Content: "I am learning Python for data analysis. Is it a good choice?"},
-				{Role: "assistant", Content: "Yes, Python is an excellent choice for data analysis due to libraries like pandas, numpy, and matplotlib."},
-				{Role: "user", Content: "What programming language was I asking about in my first question? Answer with just the language name."},
+			SystemPrompt: "Eres un asistente de programación conciso y servicial.",
+			Steps: []Step{
+				{
+					Step:   1,
+					Name:   "Pregunta de contexto inicial",
+					Prompt: "Estoy aprendiendo Python para análisis de datos y machine learning. ¿Cuál es su biblioteca principal para tablas de datos?",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "pandas",
+					},
+				},
+				{
+					Step:   2,
+					Name:   "Seguimiento contextual",
+					Prompt: "¿Y qué lenguaje te mencioné que estoy aprendiendo en mi mensaje anterior? Responde solo con el nombre.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "Python",
+					},
+				},
 			},
-			Evaluation: &Evaluation{
-				Type:   "contains",
-				Config: mustJSON(map[string]any{"expected": "Python"}),
-			},
-			EvaluationType:   "contains",
-			EvaluationConfig: mustJSON(map[string]any{"expected": "Python"}),
-			Filename:         "multi_turn.json",
-			CreatedAt:        now,
-			UpdatedAt:        now,
+			Filename:  "multi_turn.yaml",
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
 
 	for i := range seedExamples {
 		t := seedExamples[i]
+		t.normalizeEvaluation()
 		if err := s.saveTestLocked(&t); err != nil {
 			return fmt.Errorf("save seed test %s: %w", t.ID, err)
 		}
@@ -809,8 +902,8 @@ func (s *Store) migrateLegacyFilesLocked() {
 		if g, ok := groupsMap[gid]; ok {
 			catDir := filepath.Join(backupDir, gid)
 			_ = os.MkdirAll(catDir, 0o755)
-			cData, _ := json.MarshalIndent(g, "", "  ")
-			_ = os.WriteFile(filepath.Join(catDir, "_category.json"), cData, 0o644)
+			cData, _ := yaml.Marshal(g)
+			_ = os.WriteFile(filepath.Join(catDir, "_category.yaml"), cData, 0o644)
 		}
 	}
 
@@ -834,19 +927,19 @@ func (s *Store) migrateLegacyFilesLocked() {
 func saveBackupTest(backupDir, groupID string, t Test) {
 	catDir := filepath.Join(backupDir, groupID)
 	_ = os.MkdirAll(catDir, 0o755)
-	fn := sanitizeFilename(t.Name) + ".json"
+	fn := sanitizeFilename(t.Name) + ".yaml"
 	target := filepath.Join(catDir, fn)
 	count := 1
 	for {
 		if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
 			break
 		}
-		fn = fmt.Sprintf("%s_%d.json", sanitizeFilename(t.Name), count)
+		fn = fmt.Sprintf("%s_%d.yaml", sanitizeFilename(t.Name), count)
 		target = filepath.Join(catDir, fn)
 		count++
 	}
 	t.Filename = fn
-	data, err := json.MarshalIndent(t, "", "  ")
+	data, err := yaml.Marshal(t)
 	if err == nil {
 		_ = os.WriteFile(target, data, 0o644)
 	}
@@ -903,9 +996,4 @@ func newID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
-}
-
-func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
 }

@@ -32,14 +32,14 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 	}
 
 	// Verify file structure on disk
-	catFile := filepath.Join(dir, "examples", "_category.json")
+	catFile := filepath.Join(dir, "examples", "_category.yaml")
 	if _, err := os.Stat(catFile); err != nil {
-		t.Fatalf("expected _category.json in examples folder: %v", err)
+		t.Fatalf("expected _category.yaml in examples folder: %v", err)
 	}
 
-	arithFile := filepath.Join(dir, "examples", "arithmetic.json")
+	arithFile := filepath.Join(dir, "examples", "arithmetic.yaml")
 	if _, err := os.Stat(arithFile); err != nil {
-		t.Fatalf("expected arithmetic.json in examples folder: %v", err)
+		t.Fatalf("expected arithmetic.yaml in examples folder: %v", err)
 	}
 
 	// Test reload from disk
@@ -50,6 +50,24 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 	g2, t2 := storeReloaded.List()
 	if len(g2) != 1 || len(t2) != 3 {
 		t.Fatalf("expected 1 group and 3 tests on reload, got %d groups and %d tests", len(g2), len(t2))
+	}
+
+	// Verify multi-case and multi-step parsing
+	foundCases := false
+	foundSteps := false
+	for _, tst := range t2 {
+		if len(tst.Cases) > 0 {
+			foundCases = true
+		}
+		if len(tst.Steps) > 0 {
+			foundSteps = true
+		}
+	}
+	if !foundCases {
+		t.Fatal("expected test with Cases")
+	}
+	if !foundSteps {
+		t.Fatal("expected test with Steps")
 	}
 }
 
@@ -64,7 +82,10 @@ func TestCreateUpdateDeleteTest(t *testing.T) {
 		Active:         true,
 		Prompt:         "Solve this puzzle",
 		EvaluationType: "contains",
-		EvaluationConfig: mustJSON(map[string]any{"expected": "solved"}),
+		Evaluation: &Evaluation{
+			Type:     "contains",
+			Expected: "solved",
+		},
 	})
 	if err != nil {
 		t.Fatalf("CreateTest: %v", err)

@@ -23,26 +23,49 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 	case "example-arithmetic":
 		return Test{
 			ID:           "example-arithmetic",
-			Name:         "Basic Arithmetic",
-			Description:  "Evaluates whether the model can follow order of operations.",
+			Name:         "Math Suite (Multiple Exercises)",
+			Description:  "Evaluates multiple diverse arithmetic and mathematical operations.",
 			GroupID:      "examples",
 			Active:       true,
 			Order:        0,
-			SystemPrompt: "You are a concise calculator. Reply with only the final numerical answer.",
-			Prompt:       "What is 2 + 3 * 4? Return only the final number.",
-			Messages: []Message{
-				{Role: "system", Content: "You are a concise calculator. Reply with only the final numerical answer."},
-				{Role: "user", Content: "What is 2 + 3 * 4? Return only the final number."},
+			SystemPrompt: "Eres un calculador conciso. Responde únicamente con el número o resultado final.",
+			Cases: []TestCase{
+				{
+					Name:   "Jerarquía de operaciones básica",
+					Prompt: "¿Cuánto es 2 + 3 * 4? Devuelve solo el número.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "14",
+					},
+				},
+				{
+					Name:   "Simplificación de fracción",
+					Prompt: "Simplifica la fracción 18/24 a su mínima expresión. Responde solo con la fracción reducida.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "3/4",
+					},
+				},
+				{
+					Name:   "Potenciación",
+					Prompt: "¿Cuánto es 2 elevado a la potencia 8 (2^8)? Solo el número.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "256",
+					},
+				},
+				{
+					Name:   "Porcentajes",
+					Prompt: "¿Cuál es el 15% de 200? Devuelve únicamente el número.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "30",
+					},
+				},
 			},
-			Evaluation: &Evaluation{
-				Type:   "contains",
-				Config: mustJSON(map[string]any{"expected": "14"}),
-			},
-			EvaluationType:   "contains",
-			EvaluationConfig: mustJSON(map[string]any{"expected": "14"}),
-			Filename:         "arithmetic.json",
-			CreatedAt:        now,
-			UpdatedAt:        now,
+			Filename:  "arithmetic.yaml",
+			CreatedAt: now,
+			UpdatedAt: now,
 		}, true
 	case "example-weather-tool":
 		return Test{
@@ -55,45 +78,46 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 			RequiredCaps: []string{"tools"},
 			SystemPrompt: "You have access to the following tool:\nget_weather(location: string) -> {temperature: number, condition: string}\nWhen the user asks about weather, respond ONLY with the tool call. Example:\nget_weather(\"London\")\nDo not add any other text.",
 			Prompt:       "What is the weather like in Paris right now?",
-			Messages: []Message{
-				{Role: "system", Content: "You have access to the following tool:\nget_weather(location: string) -> {temperature: number, condition: string}\nWhen the user asks about weather, respond ONLY with the tool call. Example:\nget_weather(\"London\")\nDo not add any other text."},
-				{Role: "user", Content: "What is the weather like in Paris right now?"},
-			},
 			Evaluation: &Evaluation{
-				Type:   "regex",
-				Config: mustJSON(map[string]any{"pattern": `(?i)get_weather\s*\(\s*"Paris"\s*\)`}),
+				Type:    "regex",
+				Pattern: `(?i)get_weather\s*\(\s*"Paris"\s*\)`,
 			},
-			EvaluationType:   "regex",
-			EvaluationConfig: mustJSON(map[string]any{"pattern": `(?i)get_weather\s*\(\s*"Paris"\s*\)`}),
-			Filename:         "weather_tool.json",
-			CreatedAt:        now,
-			UpdatedAt:        now,
+			Filename:  "weather_tool.yaml",
+			CreatedAt: now,
+			UpdatedAt: now,
 		}, true
 	case "example-multi-turn":
 		return Test{
 			ID:           "example-multi-turn",
-			Name:         "Multi-Turn Dialogue",
-			Description:  "Tests multi-turn context retention and following previous instructions.",
+			Name:         "Sequential Dialogue Chain",
+			Description:  "Multi-step interactive chain testing sequential retention across turns.",
 			GroupID:      "examples",
 			Active:       true,
 			Order:        2,
-			SystemPrompt: "You are a helpful programming assistant.",
-			Prompt:       "What programming language was I asking about in my first question? Answer with just the language name.",
-			Messages: []Message{
-				{Role: "system", Content: "You are a helpful programming assistant."},
-				{Role: "user", Content: "I am learning Python for data analysis. Is it a good choice?"},
-				{Role: "assistant", Content: "Yes, Python is an excellent choice for data analysis due to libraries like pandas, numpy, and matplotlib."},
-				{Role: "user", Content: "What programming language was I asking about in my first question? Answer with just the language name."},
+			SystemPrompt: "Eres un asistente de programación conciso y servicial.",
+			Steps: []Step{
+				{
+					Step:   1,
+					Name:   "Pregunta de contexto inicial",
+					Prompt: "Estoy aprendiendo Python para análisis de datos y machine learning. ¿Cuál es su biblioteca principal para tablas de datos?",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "pandas",
+					},
+				},
+				{
+					Step:   2,
+					Name:   "Seguimiento contextual",
+					Prompt: "¿Y qué lenguaje te mencioné que estoy aprendiendo en mi mensaje anterior? Responde solo con el nombre.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "Python",
+					},
+				},
 			},
-			Evaluation: &Evaluation{
-				Type:   "contains",
-				Config: mustJSON(map[string]any{"expected": "Python"}),
-			},
-			EvaluationType:   "contains",
-			EvaluationConfig: mustJSON(map[string]any{"expected": "Python"}),
-			Filename:         "multi_turn.json",
-			CreatedAt:        now,
-			UpdatedAt:        now,
+			Filename:  "multi_turn.yaml",
+			CreatedAt: now,
+			UpdatedAt: now,
 		}, true
 	}
 	return Test{}, false

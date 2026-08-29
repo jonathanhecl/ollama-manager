@@ -115,6 +115,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 	agentStore := agent.NewSessionStore(filepath.Dir(cfg.Path()))
 
 	runnerStore := runner.NewResultStore(testingDir)
+	runnerStore.SetTestsStore(testsStore)
 	if err := runnerStore.Load(); err != nil {
 		log.Printf("runner: could not load history in %s: %v", testingDir, err)
 	}

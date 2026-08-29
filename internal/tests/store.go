@@ -181,7 +181,12 @@ func (s *Store) Load() error {
 				continue
 			}
 			tName := testEntry.Name()
-			if strings.HasPrefix(tName, ".") || strings.HasPrefix(tName, "_") || strings.EqualFold(tName, "history.json") {
+			lower := strings.ToLower(tName)
+			if strings.HasPrefix(tName, ".") || strings.HasPrefix(tName, "_") ||
+				strings.EqualFold(tName, "history.json") ||
+				strings.HasSuffix(lower, "._history.json") ||
+				strings.HasSuffix(lower, ".history.json") ||
+				strings.HasSuffix(lower, "_history.json") {
 				continue
 			}
 
@@ -505,6 +510,17 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 			count++
 		}
 		t.Filename = filename
+
+		// If an exercise history file existed for the old filename, move it to the new filename
+		oldHistBase := strings.TrimSuffix(oldFilename, filepath.Ext(oldFilename))
+		newHistBase := strings.TrimSuffix(filename, filepath.Ext(filename))
+		if oldHistBase != "" && newHistBase != "" {
+			oldHistPath := filepath.Join(s.dir, oldGroup, oldHistBase+"._history.json")
+			newHistPath := filepath.Join(targetDir, newHistBase+"._history.json")
+			if _, err := os.Stat(oldHistPath); err == nil {
+				_ = os.Rename(oldHistPath, newHistPath)
+			}
+		}
 	}
 
 	if err := s.saveTestLocked(t); err != nil {

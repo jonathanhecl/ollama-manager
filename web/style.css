@@ -5723,7 +5723,7 @@ button.chat-send:disabled:hover {
   background: var(--bg);
 }
 .test-editor-container {
-  max-width: 1360px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
 }
@@ -5731,47 +5731,51 @@ button.chat-send:disabled:hover {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 22px 24px;
+  padding: 24px 28px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-.te-top-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr 100px auto;
-  gap: 16px;
-  align-items: end;
-}
-.te-top-grid .field {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-.te-top-grid .field.switch-field {
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-end;
-  height: 40px;
-  margin-bottom: 2px;
-}
-.test-editor-card .field.te-field-full {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
+  gap: 18px;
 }
 .test-editor-card .field {
-  display: grid;
-  grid-template-columns: 160px 1fr;
-  align-items: center;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
 }
 .test-editor-card .field label {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-dim);
+}
+.te-top-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.te-top-row .te-field-name {
+  flex: 3;
+  min-width: 240px;
+}
+.te-top-row .te-field-group {
+  flex: 2;
+  min-width: 180px;
+}
+.te-top-row .te-field-order {
+  width: 110px;
+  flex-shrink: 0;
+}
+.te-top-row .te-field-active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+.te-top-row .te-field-active .switch {
+  margin-top: 4px;
 }
 
 @media (max-width: 900px) {
@@ -5779,7 +5783,9 @@ button.chat-send:disabled:hover {
   .tests-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
   .tests-main { padding: 16px; }
   .test-editor-body { padding: 16px; }
-  .test-editor-card .field { grid-template-columns: 1fr; }
+  .te-top-row { flex-direction: column; align-items: stretch; }
+  .te-top-row .te-field-order { width: 100%; }
+  .te-top-row .te-field-active { align-items: flex-start; flex-direction: row; justify-content: space-between; }
 }
 
 /* ---------- Test editor attachments ---------- */

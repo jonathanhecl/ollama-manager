@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260828_04">
+  <link rel="stylesheet" href="/static/style.css?v=20260828_05">
 </head>
 <body>
   <header class="topbar">
@@ -604,7 +604,7 @@
     <div class="test-editor-body">
       <div class="test-editor-container">
         <section class="test-editor-card">
-          <div class="te-top-grid">
+          <div class="te-top-row">
             <div class="field te-field-name">
               <label for="te-name" data-i18n="tests.name">Name</label>
               <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition" autocomplete="off">
@@ -617,10 +617,8 @@
               <label for="te-order" data-i18n="tests.order">Order</label>
               <input id="te-order" type="number" value="0" autocomplete="off">
             </div>
-            <div class="field switch-field te-field-active">
-              <div class="switch-label">
-                <span data-i18n="tests.active">Active</span>
-              </div>
+            <div class="field te-field-active">
+              <label for="te-active" data-i18n="tests.active">Active</label>
               <label class="switch">
                 <input id="te-active" type="checkbox" checked autocomplete="off">
                 <span class="switch-slider"></span>
@@ -628,12 +626,12 @@
             </div>
           </div>
 
-          <div class="field te-field-full">
+          <div class="field">
             <label for="te-description" data-i18n="tests.description">Description</label>
             <input id="te-description" type="text" data-i18n-attr="placeholder" data-i18n="tests.description_placeholder" placeholder="Optional description" autocomplete="off">
           </div>
 
-          <div class="field te-field-full">
+          <div class="field">
             <label for="te-system" data-i18n="tests.system_prompt">System prompt</label>
             <textarea id="te-system" rows="2" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
           </div>
@@ -2068,7 +2066,7 @@
   <script src="/static/app-chat.js?v=20260820"></script>
   <script src="/static/app-tests.js?v=20260820"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-svg.js?v=20260828_03"></script>
+  <script src="/static/app-svg.js?v=20260828_04"></script>
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>

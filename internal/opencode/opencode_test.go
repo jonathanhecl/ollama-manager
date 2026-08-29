@@ -94,6 +94,31 @@ func TestLocalOllamaProvider(t *testing.T) {
 			want: "",
 		},
 		{
+			name: "llamacpp port 8080 must not match",
+			raw:  `{"provider":{"llamacpp":{"options":{"baseURL":"http://127.0.0.1:8080/v1"}}}}`,
+			want: "",
+		},
+		{
+			name: "llamacpp 8080 and ollama 11434 together picks ollama",
+			raw:  `{"provider":{"llamacpp":{"options":{"baseURL":"http://127.0.0.1:8080/v1"}},"ollama":{"options":{"baseURL":"http://localhost:11434/v1"}}}}`,
+			want: "ollama",
+		},
+		{
+			name: "localhost without port does not match 11434",
+			raw:  `{"provider":{"o":{"options":{"baseURL":"http://localhost/v1"}}}}`,
+			want: "",
+		},
+		{
+			name: "ipv6 loopback 11434",
+			raw:  `{"provider":{"ollama-ipv6":{"options":{"baseURL":"http://[::1]:11434/v1"}}}}`,
+			want: "ollama-ipv6",
+		},
+		{
+			name: "deterministic preference for ollama key over arbitrary key",
+			raw:  `{"provider":{"zebra":{"options":{"baseURL":"http://localhost:11434/v1"}},"ollama":{"options":{"baseURL":"http://127.0.0.1:11434/v1"}}}}`,
+			want: "ollama",
+		},
+		{
 			name: "empty provider",
 			raw:  `{}`,
 			want: "",
@@ -155,12 +180,24 @@ func TestEnsureLocalProvider(t *testing.T) {
 
 func TestEnsureLocalProviderCustomBaseURL(t *testing.T) {
 	doc := &Document{Path: filepath.Join(t.TempDir(), "c.json"), Raw: map[string]any{}}
-	_, created := doc.EnsureLocalProvider("http://localhost:9999/v1")
+	_, created := doc.EnsureLocalProvider("http://localhost:11434/custom/v1")
 	if !created {
 		t.Fatal("expected creation")
 	}
-	if got := doc.LocalOllamaProvider().BaseURL; got != "http://localhost:9999/v1" {
+	if got := doc.LocalOllamaProvider().BaseURL; got != "http://localhost:11434/custom/v1" {
 		t.Fatalf("custom baseURL = %q", got)
+	}
+
+	doc2 := &Document{Path: filepath.Join(t.TempDir(), "c2.json"), Raw: map[string]any{}}
+	_, created2 := doc2.EnsureLocalProvider("http://localhost:9999/v1")
+	if !created2 {
+		t.Fatal("expected creation")
+	}
+	if got := doc2.LocalOllamaProvider("9999").BaseURL; got != "http://localhost:9999/v1" {
+		t.Fatalf("custom baseURL with port 9999 = %q", got)
+	}
+	if p := doc2.LocalOllamaProvider(); p != nil {
+		t.Fatalf("port 9999 should not match default port 11434, got %+v", p)
 	}
 }
 

@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -139,9 +141,27 @@ type Provider struct {
 }
 
 // LocalOllamaProvider returns the provider whose options.baseURL points at a
-// local Ollama server (localhost or 127.0.0.1), or nil when none matches.
-func (d *Document) LocalOllamaProvider() *Provider {
+// local Ollama server (localhost or 127.0.0.1 on port 11434, or targetPort if
+// provided), or nil when none matches.
+// If multiple providers match, it deterministically prefers exact key "ollama",
+// then "ollama-local", then keys containing "ollama", and finally alphabetical key order.
+func (d *Document) LocalOllamaProvider(targetPort ...string) *Provider {
 	providers, _ := d.Raw["provider"].(map[string]any)
+	if len(providers) == 0 {
+		return nil
+	}
+
+	expectedPort := "11434"
+	if len(targetPort) > 0 && strings.TrimSpace(targetPort[0]) != "" {
+		expectedPort = strings.TrimSpace(targetPort[0])
+	}
+
+	type candidate struct {
+		provider Provider
+		score    int
+	}
+	var candidates []candidate
+
 	for key, raw := range providers {
 		entry, ok := raw.(map[string]any)
 		if !ok {
@@ -149,15 +169,51 @@ func (d *Document) LocalOllamaProvider() *Provider {
 		}
 		opts, _ := entry["options"].(map[string]any)
 		baseURL, _ := opts["baseURL"].(string)
-		if isLocalBaseURL(baseURL) {
-			return &Provider{
-				Key:     key,
-				Name:    firstNonEmpty(entry["name"], key),
-				BaseURL: baseURL,
-			}
+		if !isLocalBaseURL(baseURL, expectedPort) {
+			continue
 		}
+
+		name := firstNonEmpty(entry["name"], key)
+		score := 0
+		lk := strings.ToLower(key)
+		ln := strings.ToLower(name)
+		if lk == "ollama" {
+			score = 4
+		} else if lk == "ollama-local" {
+			score = 3
+		} else if strings.Contains(lk, "ollama") {
+			score = 2
+		} else if strings.Contains(ln, "ollama") {
+			score = 1
+		}
+
+		candidates = append(candidates, candidate{
+			provider: Provider{
+				Key:     key,
+				Name:    name,
+				BaseURL: baseURL,
+			},
+			score: score,
+		})
 	}
-	return nil
+
+	if len(candidates) == 0 {
+		return nil
+	}
+	if len(candidates) == 1 {
+		p := candidates[0].provider
+		return &p
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].provider.Key < candidates[j].provider.Key
+	})
+
+	p := candidates[0].provider
+	return &p
 }
 
 // EnsureLocalProvider adds a local Ollama provider when none exists.
@@ -165,6 +221,15 @@ func (d *Document) LocalOllamaProvider() *Provider {
 // http://localhost:11434/v1. It returns the provider key and whether the
 // provider was created.
 func (d *Document) EnsureLocalProvider(baseURL string) (string, bool) {
+	targetPort := "11434"
+	if strings.TrimSpace(baseURL) != "" {
+		if _, p := baseURLHostPort(baseURL); p != "" {
+			targetPort = p
+		}
+	}
+	if p := d.LocalOllamaProvider(targetPort); p != nil {
+		return p.Key, false
+	}
 	if p := d.LocalOllamaProvider(); p != nil {
 		return p.Key, false
 	}
@@ -175,7 +240,14 @@ func (d *Document) EnsureLocalProvider(baseURL string) (string, bool) {
 	if providers == nil {
 		providers = map[string]any{}
 	}
-	const key = "ollama-local"
+	key := "ollama-local"
+	if _, exists := providers[key]; exists {
+		if _, exists := providers["ollama"]; !exists {
+			key = "ollama"
+		} else {
+			key = fmt.Sprintf("ollama-%s", targetPort)
+		}
+	}
 	entry := map[string]any{
 		"npm":   "@ai-sdk/openai-compatible",
 		"name":  "Ollama (local)",
@@ -319,24 +391,45 @@ func (d *Document) Save() error {
 	return os.Rename(tmp, d.Path)
 }
 
-func isLocalBaseURL(baseURL string) bool {
-	host := baseURLHost(baseURL)
-	if host == "" {
+func isLocalBaseURL(baseURL string, targetPort ...string) bool {
+	expectedPort := "11434"
+	if len(targetPort) > 0 && strings.TrimSpace(targetPort[0]) != "" {
+		expectedPort = strings.TrimSpace(targetPort[0])
+	}
+	host, port := baseURLHostPort(baseURL)
+	if host == "" || !isLocalHost(host) {
 		return false
 	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	return host == "localhost" || host == "127.0.0.1"
+	return port == expectedPort
 }
 
-func baseURLHost(baseURL string) string {
+func isLocalHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(strings.Trim(host, "[]"), "."))
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func baseURLHostPort(baseURL string) (host, port string) {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return "", ""
+	}
 	if !strings.Contains(baseURL, "://") {
 		baseURL = "http://" + baseURL
 	}
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return u.Hostname()
+	return strings.ToLower(u.Hostname()), u.Port()
+}
+
+func baseURLHost(baseURL string) string {
+	h, _ := baseURLHostPort(baseURL)
+	return h
 }
 
 func firstNonEmpty(v any, fallback string) string {

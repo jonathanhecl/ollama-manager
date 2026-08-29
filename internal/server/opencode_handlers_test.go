@@ -205,6 +205,141 @@ func TestOpenCodeSetModelsRequiresProvider(t *testing.T) {
 	}
 }
 
+func TestOpenCodeDoesNotOverwriteLlamacppOnPort8080(t *testing.T) {
+	s, ocPath := newOpenCodeTestServer(t)
+	raw := `{
+	"provider": {
+		"llamacpp": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "llama.cpp local",
+			"options": {
+				"baseURL": "http://127.0.0.1:8080/v1"
+			},
+			"models": {
+				"llama3-8b": {
+					"name": "Llama 3 8B"
+				}
+			}
+		},
+		"ollama": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "Ollama",
+			"options": {
+				"baseURL": "http://localhost:11434/v1"
+			},
+			"models": {}
+		}
+	}
+}`
+	if err := os.WriteFile(ocPath, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. GET /api/opencode must detect ollama, NOT llamacpp.
+	w := s.doOpenCode(t, http.MethodGet, "/api/opencode", nil)
+	var state opencodeStateView
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Provider == nil {
+		t.Fatal("expected provider to be detected")
+	}
+	if state.Provider.Key != "ollama" {
+		t.Fatalf("detected provider key = %q; want %q (must NOT pick llamacpp)", state.Provider.Key, "ollama")
+	}
+	if state.Provider.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("detected baseURL = %q", state.Provider.BaseURL)
+	}
+
+	// 2. POST /api/opencode/models must update only the ollama provider.
+	w = s.doOpenCode(t, http.MethodPost, "/api/opencode/models", map[string]any{
+		"enabled": []string{"tag-a"},
+		"names":   map[string]string{"tag-a": "Friendly Tag A"},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+
+	data, err := os.ReadFile(ocPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reloaded map[string]any
+	if err := json.Unmarshal(data, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	providers, _ := reloaded["provider"].(map[string]any)
+
+	// llamacpp must be completely untouched.
+	llamacpp, ok := providers["llamacpp"].(map[string]any)
+	if !ok {
+		t.Fatal("llamacpp provider was deleted or missing")
+	}
+	llamaModels, _ := llamacpp["models"].(map[string]any)
+	if _, exists := llamaModels["llama3-8b"]; !exists {
+		t.Fatal("llama3-8b model was overwritten/removed from llamacpp")
+	}
+	if _, exists := llamaModels["tag-a"]; exists {
+		t.Fatal("tag-a was erroneously added to llamacpp")
+	}
+
+	// ollama must contain tag-a.
+	ollamaProv, ok := providers["ollama"].(map[string]any)
+	if !ok {
+		t.Fatal("ollama provider missing")
+	}
+	ollamaModels, _ := ollamaProv["models"].(map[string]any)
+	if _, exists := ollamaModels["tag-a"]; !exists {
+		t.Fatal("tag-a missing in ollama provider")
+	}
+}
+
+func TestOpenCodeDoesNotTouchLlamacppWhenNoOllamaConfigured(t *testing.T) {
+	s, ocPath := newOpenCodeTestServer(t)
+	raw := `{
+	"provider": {
+		"llamacpp": {
+			"options": {
+				"baseURL": "http://127.0.0.1:8080/v1"
+			},
+			"models": {
+				"my-model": {}
+			}
+		}
+	}
+}`
+	if err := os.WriteFile(ocPath, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// GET must report no local ollama provider.
+	w := s.doOpenCode(t, http.MethodGet, "/api/opencode", nil)
+	var state opencodeStateView
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Provider != nil {
+		t.Fatalf("expected nil provider when only llamacpp:8080 exists, got %+v", state.Provider)
+	}
+
+	// POST /api/opencode/models must fail with 409 and NOT overwrite llamacpp.
+	w = s.doOpenCode(t, http.MethodPost, "/api/opencode/models", map[string]any{
+		"enabled": []string{"tag-a"},
+	})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// llamacpp content preserved.
+	after, err := os.ReadFile(ocPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "my-model") || strings.Contains(string(after), "tag-a") {
+		t.Fatalf("llamacpp was modified on disk:\n%s", after)
+	}
+}
+
 func TestIsLoopbackRequest(t *testing.T) {
 	cases := []struct {
 		remote string

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -102,7 +103,7 @@ func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request)
 	path := opencode.Resolve()
 	doc, err := opencode.Load(path)
 	if err == nil {
-		provider := doc.LocalOllamaProvider()
+		provider := doc.LocalOllamaProvider(s.ollamaPort())
 		if provider == nil {
 			err = errors.New("no local Ollama provider configured in opencode; create one first")
 		} else {
@@ -153,7 +154,7 @@ func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeSt
 		Exists:     configFileExists(path),
 		Remote:     remote,
 	}
-	if p := doc.LocalOllamaProvider(); p != nil {
+	if p := doc.LocalOllamaProvider(s.ollamaPort()); p != nil {
 		view.Provider = &opencodeProviderView{Key: p.Key, Name: p.Name, BaseURL: p.BaseURL}
 		view.DefaultBaseURL = p.BaseURL
 	} else {
@@ -227,4 +228,22 @@ func (s *Server) ollamaOpenAIBaseURL() string {
 		return base
 	}
 	return strings.TrimSuffix(base, "/") + "/v1"
+}
+
+// ollamaPort returns the port configured for Ollama, defaulting to "11434".
+func (s *Server) ollamaPort() string {
+	s.cfgMu.RLock()
+	base := strings.TrimSpace(s.cfg.OllamaURL)
+	s.cfgMu.RUnlock()
+	if base == "" {
+		return "11434"
+	}
+	if !strings.Contains(base, "://") {
+		base = "http://" + base
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.Port() == "" {
+		return "11434"
+	}
+	return u.Port()
 }

@@ -5538,11 +5538,12 @@ button.chat-send:disabled:hover {
   display: flex;
   gap: 2px;
   align-items: center;
-  opacity: 0;
-  transition: opacity .12s;
+  opacity: 0.6;
+  transition: opacity .15s;
   margin-left: 6px;
 }
 .tests-group-item:hover .tests-group-actions { opacity: 1; }
+.te-group-settings,
 .te-group-rename,
 .te-group-delete {
   width: 22px;
@@ -5560,6 +5561,7 @@ button.chat-send:disabled:hover {
   padding: 0;
   transition: all 0.15s ease;
 }
+.te-group-settings:hover { color: var(--accent); background: rgba(122,162,255,0.15); }
 .te-group-rename:hover { color: var(--accent); background: rgba(122,162,255,0.12); }
 .te-group-delete:hover { color: #ff6b6b; background: rgba(255,107,107,0.12); }
 .tests-main {

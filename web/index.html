@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260828_06">
+  <link rel="stylesheet" href="/static/style.css?v=20260828_07">
 </head>
 <body>
   <header class="topbar">
@@ -1809,6 +1809,52 @@
     </div>
   </div>
 
+  <!-- New group modal -->
+  <div id="new-group-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 id="new-group-modal-title" data-i18n="tests.new_group_title">New Test Group</h3>
+        <button type="button" id="new-group-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px;">
+        <div class="field" style="margin: 0; display: flex; flex-direction: column; gap: 6px;">
+          <label for="new-group-name-input" data-i18n="tests.group_name_label" style="font-size: 13px; font-weight: 600;">Group Name</label>
+          <input type="text" id="new-group-name-input" placeholder="e.g. Math, Reasoning, Code" autocomplete="off" style="width: 100%;">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="new-group-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
+        <button type="button" id="new-group-submit" class="primary" data-i18n="action.create">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage / settings group modal -->
+  <div id="manage-group-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 id="manage-group-modal-title" data-i18n="tests.manage_group_title">Group Settings</h3>
+        <button type="button" id="manage-group-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 16px;">
+        <input type="hidden" id="manage-group-id-input">
+        <div class="field" style="display: flex; flex-direction: column; gap: 6px;">
+          <label for="manage-group-name-input" data-i18n="tests.group_name_label" style="font-size: 13px; font-weight: 600;">Group Name</label>
+          <input type="text" id="manage-group-name-input" autocomplete="off" style="width: 100%;">
+        </div>
+        <div class="field" style="border-top: 1px solid var(--border); padding-top: 14px;">
+          <label style="font-size: 13px; font-weight: 600; color: var(--warn); display: block; margin-bottom: 4px;" data-i18n="tests.danger_zone">Danger Zone</label>
+          <small class="muted" style="display: block; margin-bottom: 10px;" data-i18n="tests.delete_group_hint">Deleting this group will not delete its tests. They will become ungrouped.</small>
+          <button type="button" id="manage-group-delete-btn" class="ghost danger-text" data-i18n="tests.delete_group_btn">🗑️ Delete Group</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="manage-group-cancel" class="ghost" data-i18n="action.cancel">Cancel</button>
+        <button type="button" id="manage-group-save" class="primary" data-i18n="action.save">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Group history modal -->
   <div id="group-history-modal" class="modal" hidden role="dialog" aria-modal="true">
     <div class="modal-card group-history-modal-card">
@@ -2053,7 +2099,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260828_03"></script>
+  <script src="/static/i18n.js?v=20260828_04"></script>
   <script src="/static/app-helpers.js?v=20260820"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
@@ -2063,7 +2109,7 @@
   <script src="/static/app-chat.js?v=20260820"></script>
   <script src="/static/app-tests.js?v=20260820"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-svg.js?v=20260828_05"></script>
+  <script src="/static/app-svg.js?v=20260828_06"></script>
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>

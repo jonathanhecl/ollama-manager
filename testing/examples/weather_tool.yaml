@@ -4,18 +4,76 @@ description: One-shot tool call evaluation for weather query.
 group_id: examples
 active: true
 order: 1
-required_caps:
-  - tools
-
 system_prompt: |
-  You have access to the following tool:
-  get_weather(location: string) -> {temperature: number, condition: string}
-  When the user asks about weather, respond ONLY with the tool call. Example:
-  get_weather("London")
-  Do not add any other text.
-
+    You have access to the following tool:
+    get_weather(location: string) -> {temperature: number, condition: string}
+    When the user asks about weather, respond ONLY with the tool call. Example:
+    get_weather("London")
+    Do not add any other text.
 prompt: What is the weather like in Paris right now?
-
 evaluation:
-  type: regex
-  pattern: '(?i)get_weather\s*\(\s*"Paris"\s*\)'
+    type: regex
+    pattern: (?i)get_weather\s*\(\s*"Paris"\s*\)
+evaluation_type: regex
+evaluation_config:
+    - 123
+    - 34
+    - 112
+    - 97
+    - 116
+    - 116
+    - 101
+    - 114
+    - 110
+    - 34
+    - 58
+    - 34
+    - 40
+    - 63
+    - 105
+    - 41
+    - 103
+    - 101
+    - 116
+    - 95
+    - 119
+    - 101
+    - 97
+    - 116
+    - 104
+    - 101
+    - 114
+    - 92
+    - 92
+    - 115
+    - 42
+    - 92
+    - 92
+    - 40
+    - 92
+    - 92
+    - 115
+    - 42
+    - 92
+    - 34
+    - 80
+    - 97
+    - 114
+    - 105
+    - 115
+    - 92
+    - 34
+    - 92
+    - 92
+    - 115
+    - 42
+    - 92
+    - 92
+    - 41
+    - 34
+    - 125
+required_caps:
+    - tools
+filename: weather_tool.yaml
+created_at: 0001-01-01T00:00:00Z
+updated_at: 2026-08-29T02:55:40.2242151Z

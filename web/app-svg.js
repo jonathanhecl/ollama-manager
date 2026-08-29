@@ -1024,6 +1024,7 @@ function showTestsView(preserveGroup = false) {
   currentView = "tests";
   $("tests-btn")?.classList.add("active");
   $("tests-view").hidden = false;
+  setupGroupModals();
   const targetPath = (preserveGroup && selectedGroupId) ? "/tests/group/" + encodeURIComponent(selectedGroupId) : "/tests";
   if (window.location.pathname !== targetPath && (!preserveGroup || !window.location.pathname.startsWith("/tests/group/"))) {
     history.pushState(null, "", targetPath);
@@ -1325,8 +1326,7 @@ function renderTestsSidebar() {
     html += `<div class="${cls}" data-group-id="${escapeHtml(g.id)}">
       <span class="tests-group-name">${escapeHtml(g.name)}</span>
       <span class="tests-group-actions">
-        <button type="button" class="btn-icon te-group-rename" data-group-id="${escapeHtml(g.id)}" data-group-name="${escapeHtml(g.name)}" title="Rename">✎</button>
-        <button type="button" class="btn-icon te-group-delete" data-group-id="${escapeHtml(g.id)}" title="Delete">×</button>
+        <button type="button" class="btn-icon te-group-settings" data-group-id="${escapeHtml(g.id)}" data-group-name="${escapeHtml(g.name)}" title="${t("tests.group_settings")}">⚙️</button>
       </span>
       <span class="tests-group-count">${count}</span>
     </div>`;
@@ -1334,7 +1334,7 @@ function renderTestsSidebar() {
   container.innerHTML = html;
   container.querySelectorAll(".tests-group-item").forEach((el) => {
     el.addEventListener("click", (e) => {
-      if (e.target.closest(".te-group-rename") || e.target.closest(".te-group-delete")) return;
+      if (e.target.closest(".te-group-settings")) return;
       selectedGroupId = el.dataset.groupId;
       const newPath = selectedGroupId ? "/tests/group/" + encodeURIComponent(selectedGroupId) : "/tests";
       if (window.location.pathname !== newPath) {
@@ -1344,16 +1344,10 @@ function renderTestsSidebar() {
       renderTestsList();
     });
   });
-  container.querySelectorAll(".te-group-rename").forEach((btn) => {
+  container.querySelectorAll(".te-group-settings").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      void renameGroup(btn.dataset.groupId, btn.dataset.groupName);
-    });
-  });
-  container.querySelectorAll(".te-group-delete").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void deleteGroup(btn.dataset.groupId);
+      openManageGroupModal(btn.dataset.groupId, btn.dataset.groupName);
     });
   });
 }
@@ -1753,48 +1747,99 @@ async function deleteTestEditor() {
   }
 }
 
-async function createNewGroup() {
-  const name = prompt(t("tests.group_name_prompt"));
-  if (!name || !name.trim()) return;
+function openNewGroupModal() {
+  setupGroupModals();
+  const modal = $("new-group-modal");
+  const input = $("new-group-name-input");
+  if (!modal || !input) return;
+  input.value = "";
+  modal.hidden = false;
+  setTimeout(() => input.focus(), 50);
+}
+
+function closeNewGroupModal() {
+  const modal = $("new-group-modal");
+  if (modal) modal.hidden = true;
+}
+
+async function submitNewGroup() {
+  const input = $("new-group-name-input");
+  const name = input?.value?.trim();
+  if (!name) {
+    input?.focus();
+    return;
+  }
   try {
-    await api("/api/test-groups", {
+    const res = await api("/api/test-groups", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), order: testsGroups.length }),
+      body: JSON.stringify({ name, order: testsGroups.length }),
     });
+    closeNewGroupModal();
+    if (res && res.id) {
+      selectedGroupId = res.id;
+    }
     await refreshTests();
+    toast(t("toast.saved"), "success");
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }
 }
 
-async function renameGroup(id, currentName) {
-  const name = prompt("Rename group:", currentName);
-  if (!name || !name.trim() || name.trim() === currentName) return;
+function openManageGroupModal(id, name) {
+  setupGroupModals();
+  const modal = $("manage-group-modal");
+  const idInput = $("manage-group-id-input");
+  const nameInput = $("manage-group-name-input");
+  if (!modal || !idInput || !nameInput) return;
+  idInput.value = id;
+  nameInput.value = name || "";
+  modal.hidden = false;
+  setTimeout(() => nameInput.focus(), 50);
+}
+
+function closeManageGroupModal() {
+  const modal = $("manage-group-modal");
+  if (modal) modal.hidden = true;
+}
+
+async function submitSaveManageGroup() {
+  const id = $("manage-group-id-input")?.value;
+  const input = $("manage-group-name-input");
+  const name = input?.value?.trim();
+  if (!id || !name) {
+    input?.focus();
+    return;
+  }
   try {
     await api("/api/test-groups/" + encodeURIComponent(id), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim() }),
+      body: JSON.stringify({ name }),
     });
+    closeManageGroupModal();
     await refreshTests();
+    toast(t("toast.saved"), "success");
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }
 }
 
-async function deleteGroup(id) {
+async function submitDeleteManageGroup() {
+  const id = $("manage-group-id-input")?.value;
+  if (!id) return;
   const group = testsGroups.find((g) => g.id === id);
   const name = group ? group.name : id;
   const { ok } = await askConfirm({
-    title: "Delete group",
-    text: `Delete "${name}"? Tests in this group will become ungrouped.`,
+    title: t("tests.delete_group_btn"),
+    text: `¿Eliminar grupo "${name}"? Los tests de este grupo no se borrarán, quedarán sin grupo.`,
     okText: t("action.delete"),
     okClass: "danger",
   });
   if (!ok) return;
   try {
     await api("/api/test-groups/" + encodeURIComponent(id), { method: "DELETE" });
+    closeManageGroupModal();
     if (selectedGroupId === id) {
       selectedGroupId = "";
       if (window.location.pathname !== "/tests") {
@@ -1802,9 +1847,43 @@ async function deleteGroup(id) {
       }
     }
     await refreshTests();
+    toast(t("toast.deleted"), "success");
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
   }
+}
+
+async function createNewGroup() {
+  openNewGroupModal();
+}
+
+function setupGroupModals() {
+  if (setupGroupModals.wired) return;
+  setupGroupModals.wired = true;
+  $("new-group-modal-close")?.addEventListener("click", closeNewGroupModal);
+  $("new-group-cancel")?.addEventListener("click", closeNewGroupModal);
+  $("new-group-submit")?.addEventListener("click", submitNewGroup);
+  $("new-group-name-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void submitNewGroup();
+    } else if (e.key === "Escape") {
+      closeNewGroupModal();
+    }
+  });
+
+  $("manage-group-modal-close")?.addEventListener("click", closeManageGroupModal);
+  $("manage-group-cancel")?.addEventListener("click", closeManageGroupModal);
+  $("manage-group-save")?.addEventListener("click", submitSaveManageGroup);
+  $("manage-group-delete-btn")?.addEventListener("click", submitDeleteManageGroup);
+  $("manage-group-name-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void submitSaveManageGroup();
+    } else if (e.key === "Escape") {
+      closeManageGroupModal();
+    }
+  });
 }
 
 async function showChatViewWithModel(name) {

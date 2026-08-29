@@ -4,21 +4,21 @@ description: Multi-step interactive chain testing sequential context retention a
 group_id: examples
 active: true
 order: 2
-
 system_prompt: |
-  You are a helpful and concise programming assistant.
-
+    You are a helpful and concise programming assistant.
 steps:
-  - step: 1
-    name: Initial context inquiry
-    prompt: I am learning Python for data analysis and machine learning. What is the primary library used for dataframes?
-    evaluation:
-      type: contains
-      expected: pandas
-
-  - step: 2
-    name: Contextual follow-up
-    prompt: What programming language did I mention I was learning in my previous message? Reply with just the language name.
-    evaluation:
-      type: contains
-      expected: Python
+    - step: 1
+      name: Initial context inquiry
+      prompt: I am learning Python for data analysis and machine learning. What is the primary library used for dataframes?
+      evaluation:
+        type: contains
+        expected: pandas
+    - step: 2
+      name: Contextual follow-up
+      prompt: What programming language did I mention I was learning in my previous message? Reply with just the language name.
+      evaluation:
+        type: contains
+        expected: Python
+filename: multi_turn.yaml
+created_at: 0001-01-01T00:00:00Z
+updated_at: 2026-08-29T02:55:40.223496Z

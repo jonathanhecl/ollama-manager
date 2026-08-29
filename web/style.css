@@ -10510,6 +10510,92 @@ button.chat-send:disabled:hover {
   border-left: 3px solid var(--accent);
 }
 
+/* Test Cases Editor */
+.te-cases-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.te-cases-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.te-cases-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.te-cases-title-wrap label {
+  margin: 0;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+}
+.te-add-case-btn {
+  font-size: 12px;
+  padding: 5px 12px;
+}
+.te-cases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.te-case-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.te-case-card:hover {
+  border-color: var(--accent);
+}
+.te-case-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.te-case-card-badge {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background: rgba(122, 162, 255, 0.18);
+  color: var(--accent);
+  white-space: nowrap;
+}
+.te-case-name {
+  flex: 1;
+  font-weight: 600;
+}
+.te-case-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  display: block;
+}
+.te-case-eval-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .te-case-eval-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+
 
 
 

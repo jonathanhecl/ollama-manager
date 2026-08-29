@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260828_02">
+  <link rel="stylesheet" href="/static/style.css?v=20260828_03">
 </head>
 <body>
   <header class="topbar">
@@ -627,13 +627,29 @@
             </label>
           </div>
           <div class="field">
-            <label for="te-prompt" data-i18n="tests.prompt">Prompt</label>
-            <textarea id="te-prompt" rows="6" data-i18n-attr="placeholder" data-i18n="tests.prompt_placeholder" placeholder="The prompt sent to the model..." autocomplete="off"></textarea>
-          </div>
-          <div class="field">
             <label for="te-system" data-i18n="tests.system_prompt">System prompt</label>
             <textarea id="te-system" rows="3" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
           </div>
+
+          <!-- Multi-case test cases section -->
+          <div class="field te-cases-section">
+            <div class="te-cases-section-header">
+              <div class="te-cases-title-wrap">
+                <label data-i18n="tests.cases_title">Test Cases</label>
+                <span id="te-cases-count-badge" class="pill pill-good">1</span>
+              </div>
+              <button type="button" id="te-add-case-btn" class="primary te-add-case-btn" data-i18n="tests.add_case">+ Add Case</button>
+            </div>
+            <div id="te-cases-list" class="te-cases-list"></div>
+          </div>
+
+          <!-- Hidden fallback elements for legacy references -->
+          <input type="hidden" id="te-prompt">
+          <input type="hidden" id="te-eval-type" value="contains">
+          <input type="hidden" id="te-eval-expected">
+          <input type="hidden" id="te-eval-pattern">
+          <input type="hidden" id="te-eval-config">
+
           <div class="field te-attach-field">
             <label>Attachments</label>
             <div class="te-attach-col">
@@ -651,53 +667,6 @@
                 <small class="muted">WAV only</small>
               </div>
               <div id="te-attach-list" class="te-attach-list"></div>
-            </div>
-          </div>
-          <div class="field">
-            <label for="te-eval-type" data-i18n="tests.eval_type">Evaluation type</label>
-            <select id="te-eval-type" autocomplete="off">
-              <option value="exact_match" data-i18n="tests.eval_exact_match">Exact match</option>
-              <option value="contains" data-i18n="tests.eval_contains">Contains</option>
-              <option value="contains_list" data-i18n="tests.eval_contains_list">Contains list</option>
-              <option value="regex" data-i18n="tests.eval_regex">Regex</option>
-              <option value="json_schema" data-i18n="tests.eval_json_schema">JSON schema</option>
-              <option value="human_review" data-i18n="tests.eval_human_review">Human review</option>
-              <option value="agent" data-i18n="tests.eval_agent">Agent (multi-turn)</option>
-            </select>
-          </div>
-          <div id="te-eval-expected-wrap" class="field">
-            <label for="te-eval-expected" data-i18n="tests.eval_expected">Expected answer</label>
-            <textarea id="te-eval-expected" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_expected_placeholder" placeholder="42" autocomplete="off"></textarea>
-          </div>
-          <div id="te-eval-pattern-wrap" class="field" hidden>
-            <label for="te-eval-pattern" data-i18n="tests.eval_pattern">Regex pattern</label>
-            <input id="te-eval-pattern" type="text" placeholder="^[A-Z]+$" autocomplete="off">
-          </div>
-          <div id="te-eval-config-wrap" class="field" hidden>
-            <label for="te-eval-config" data-i18n="tests.eval_config">Evaluation config (JSON)</label>
-            <textarea id="te-eval-config" rows="3" data-i18n-attr="placeholder" data-i18n="tests.eval_config_placeholder" placeholder='{"required": ["color"]}' autocomplete="off"></textarea>
-          </div>
-          <div id="te-agent-settings" class="field te-agent-settings" hidden>
-            <label data-i18n="tests.agent_settings">Agent settings</label>
-            <div class="te-agent-settings-body">
-              <div class="field">
-                <label for="te-agent-max-turns" data-i18n="tests.agent_max_turns">Max turns</label>
-                <input id="te-agent-max-turns" type="number" value="10" min="1" max="50" autocomplete="off">
-              </div>
-              <div class="field">
-                <label for="te-agent-initial-files" data-i18n="tests.agent_initial_files">Initial files</label>
-                <textarea id="te-agent-initial-files" rows="6" placeholder='[{"path":"index.html","content":"<!DOCTYPE html>..."}]' autocomplete="off"></textarea>
-                <small class="muted">JSON array of {path, content} objects</small>
-              </div>
-              <div class="field">
-                <label data-i18n="tests.agent_tools">Available tools</label>
-                <div class="te-agent-tools">
-                  <label><input type="checkbox" value="read_file" checked autocomplete="off"> read_file</label>
-                  <label><input type="checkbox" value="write_file" checked autocomplete="off"> write_file</label>
-                  <label><input type="checkbox" value="list_dir" checked autocomplete="off"> list_dir</label>
-                  <label><input type="checkbox" value="exec" checked autocomplete="off"> exec</label>
-                </div>
-              </div>
             </div>
           </div>
           <div class="field">
@@ -2081,7 +2050,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260828_01"></script>
+  <script src="/static/i18n.js?v=20260828_02"></script>
   <script src="/static/app-helpers.js?v=20260820"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
@@ -2091,7 +2060,7 @@
   <script src="/static/app-chat.js?v=20260820"></script>
   <script src="/static/app-tests.js?v=20260820"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-svg.js?v=20260828_01"></script>
+  <script src="/static/app-svg.js?v=20260828_02"></script>
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>

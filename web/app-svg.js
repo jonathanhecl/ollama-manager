@@ -1031,6 +1031,117 @@ function showTestsView(preserveGroup = false) {
   void refreshTests();
 }
 
+let currentEditorCases = [];
+
+function renderEditorCasesList() {
+  const container = $("te-cases-list");
+  const countBadge = $("te-cases-count-badge");
+  if (!container) return;
+  if (countBadge) countBadge.textContent = String(currentEditorCases.length);
+
+  container.innerHTML = currentEditorCases.map((c, idx) => {
+    const isRegex = c.type === "regex";
+    const isHuman = c.type === "human_review";
+    const deleteBtn = currentEditorCases.length > 1
+      ? `<button type="button" class="btn-icon te-case-delete" data-idx="${idx}" title="${t("tests.delete_case")}">🗑️</button>`
+      : "";
+
+    return `
+      <div class="te-case-card" data-idx="${idx}">
+        <div class="te-case-card-header">
+          <span class="te-case-card-badge">${t("tests.case_num", { n: idx + 1 })}</span>
+          <input type="text" class="te-case-name" value="${escapeHtml(c.name || "")}" placeholder="${t("tests.case_name_placeholder")}" autocomplete="off">
+          ${deleteBtn}
+        </div>
+        <div class="te-case-card-body">
+          <div class="field" style="margin-bottom:10px;">
+            <label class="te-case-label">${t("tests.case_prompt")}</label>
+            <textarea class="te-case-prompt" rows="3" placeholder="${t("tests.case_prompt_placeholder")}" autocomplete="off">${escapeHtml(c.prompt || "")}</textarea>
+          </div>
+          <div class="te-case-eval-row">
+            <div class="field te-case-eval-type-field">
+              <label class="te-case-label">${t("tests.case_eval_type")}</label>
+              <select class="te-case-eval-type" autocomplete="off">
+                <option value="contains" ${c.type === "contains" ? "selected" : ""}>${t("tests.eval_contains")}</option>
+                <option value="exact_match" ${c.type === "exact_match" ? "selected" : ""}>${t("tests.eval_exact_match")}</option>
+                <option value="regex" ${c.type === "regex" ? "selected" : ""}>${t("tests.eval_regex")}</option>
+                <option value="human_review" ${c.type === "human_review" ? "selected" : ""}>${t("tests.eval_human_review")}</option>
+              </select>
+            </div>
+            <div class="field te-case-expected-field" ${isHuman ? "hidden" : ""}>
+              <label class="te-case-label">${isRegex ? t("tests.eval_pattern") : t("tests.case_expected")}</label>
+              <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || "") : (c.expected || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  container.querySelectorAll(".te-case-delete").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.idx);
+      syncEditorCasesFromDOM();
+      currentEditorCases.splice(idx, 1);
+      renderEditorCasesList();
+    });
+  });
+
+  container.querySelectorAll(".te-case-eval-type").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const card = sel.closest(".te-case-card");
+      const expectedField = card?.querySelector(".te-case-expected-field");
+      const label = expectedField?.querySelector("label");
+      const input = expectedField?.querySelector("input");
+      const type = sel.value;
+      if (expectedField) {
+        expectedField.hidden = type === "human_review";
+        if (label) label.textContent = type === "regex" ? t("tests.eval_pattern") : t("tests.case_expected");
+        if (input) input.placeholder = type === "regex" ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
+      }
+    });
+  });
+
+  const addCaseBtn = $("te-add-case-btn");
+  if (addCaseBtn && !addCaseBtn.dataset.wired) {
+    addCaseBtn.dataset.wired = "1";
+    addCaseBtn.addEventListener("click", () => {
+      syncEditorCasesFromDOM();
+      currentEditorCases.push({
+        name: `Case ${currentEditorCases.length + 1}`,
+        prompt: "",
+        type: "contains",
+        expected: "",
+        pattern: "",
+      });
+      renderEditorCasesList();
+      const lastCard = $("te-cases-list")?.lastElementChild;
+      lastCard?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      lastCard?.querySelector(".te-case-prompt")?.focus();
+    });
+  }
+}
+
+function syncEditorCasesFromDOM() {
+  const container = $("te-cases-list");
+  if (!container) return;
+  const cards = container.querySelectorAll(".te-case-card");
+  if (cards.length === 0) return;
+  currentEditorCases = Array.from(cards).map((card, idx) => {
+    const name = card.querySelector(".te-case-name")?.value.trim() || `Case ${idx + 1}`;
+    const prompt = card.querySelector(".te-case-prompt")?.value.trim() || "";
+    const type = card.querySelector(".te-case-eval-type")?.value || "contains";
+    const val = card.querySelector(".te-case-expected")?.value.trim() || "";
+    return {
+      name,
+      prompt,
+      type,
+      expected: type !== "regex" ? val : "",
+      pattern: type === "regex" ? val : "",
+    };
+  });
+}
+
 async function showTestEditorView(id) {
   hideAllMainViews();
   currentView = "test-editor";
@@ -1050,27 +1161,30 @@ async function showTestEditorView(id) {
       $("te-description").value = test.description || "";
       $("te-group").value = test.group_id || "";
       $("te-active").checked = !!test.active;
-      $("te-prompt").value = test.prompt || "";
       $("te-system").value = test.system_prompt || "";
-      $("te-eval-type").value = test.evaluation_type || "exact_match";
-      updateAgentSettingsVisibility();
-      updateEvalConfigVisibility();
-      const cfg = test.evaluation_config || {};
-      $("te-eval-expected").value = cfg.expected || "";
-      $("te-eval-pattern").value = cfg.pattern || "";
-      $("te-eval-config").value = test.evaluation_config ? JSON.stringify(test.evaluation_config, null, 2) : "";
-      if (test.evaluation_type === "agent" && test.evaluation_config) {
-        const cfg = test.evaluation_config;
-        $("te-agent-max-turns").value = String(cfg.max_turns || 10);
-        $("te-agent-initial-files").value = cfg.initial_files ? JSON.stringify(cfg.initial_files, null, 2) : "";
-        const toolChecks = $("te-agent-settings")?.querySelectorAll('input[type="checkbox"]');
-        if (toolChecks) {
-          const allowed = new Set(cfg.tools || []);
-          toolChecks.forEach((cb) => { cb.checked = allowed.has(cb.value); });
-        }
-      }
       $("te-required-caps").value = (test.required_caps || []).join(", ");
       $("te-order").value = String(test.order || 0);
+
+      // Load cases
+      if (Array.isArray(test.cases) && test.cases.length > 0) {
+        currentEditorCases = test.cases.map((c, i) => ({
+          name: c.name || `Case ${i + 1}`,
+          prompt: c.prompt || "",
+          type: c.evaluation?.type || test.evaluation_type || "contains",
+          expected: c.evaluation?.expected != null ? String(c.evaluation.expected) : (test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : ""),
+          pattern: c.evaluation?.pattern || test.evaluation_config?.pattern || "",
+        }));
+      } else {
+        currentEditorCases = [{
+          name: "Case 1",
+          prompt: test.prompt || "",
+          type: test.evaluation_type || "contains",
+          expected: test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : "",
+          pattern: test.evaluation_config?.pattern || "",
+        }];
+      }
+      renderEditorCasesList();
+
       testEditorAttachments = (test.attachments || []).map((a) => ({ ...a }));
       renderTestEditorAttachments();
       $("test-editor-delete").hidden = false;
@@ -1086,14 +1200,17 @@ async function showTestEditorView(id) {
   $("te-description").value = "";
   $("te-group").value = selectedGroupId || "";
   $("te-active").checked = true;
-  $("te-prompt").value = "";
   $("te-system").value = "";
-  $("te-eval-type").value = "exact_match";
-  $("te-eval-expected").value = "";
-  $("te-eval-pattern").value = "";
-  $("te-eval-config").value = "";
   $("te-required-caps").value = "";
   $("te-order").value = "0";
+  currentEditorCases = [{
+    name: "Case 1",
+    prompt: "",
+    type: "contains",
+    expected: "",
+    pattern: "",
+  }];
+  renderEditorCasesList();
   testEditorAttachments = [];
   renderTestEditorAttachments();
   $("test-editor-delete").hidden = true;
@@ -1473,44 +1590,28 @@ function populateTestEditorGroupSelect() {
 }
 
 async function saveTestEditor() {
-  const evalType = $("te-eval-type").value;
-  let evalConfig = null;
-  if (evalType === "exact_match" || evalType === "contains") {
-    const expected = $("te-eval-expected").value.trim();
-    if (expected) evalConfig = { expected };
-  } else if (evalType === "regex") {
-    const pattern = $("te-eval-pattern").value.trim();
-    if (pattern) evalConfig = { pattern };
-  } else if (evalType === "json_schema") {
-    const raw = $("te-eval-config").value.trim();
-    if (raw) {
-      try { evalConfig = JSON.parse(raw); } catch {
-        toast(t("tests.invalid_json"), "error");
-        return;
-      }
-    }
-  }
-  let agentConfig = evalConfig;
-  if ($("te-eval-type").value === "agent") {
-    const maxTurns = Number($("te-agent-max-turns").value) || 10;
-    const initialFilesRaw = $("te-agent-initial-files").value.trim();
-    let initialFiles = [];
-    if (initialFilesRaw) {
-      try { initialFiles = JSON.parse(initialFilesRaw); } catch { /* ignore */ }
-    }
-    const toolChecks = $("te-agent-settings")?.querySelectorAll('input[type="checkbox"]');
-    const tools = [];
-    if (toolChecks) {
-      toolChecks.forEach((cb) => { if (cb.checked) tools.push(cb.value); });
-    }
-    agentConfig = {
-      max_turns: maxTurns,
-      initial_files: Array.isArray(initialFiles) ? initialFiles : [],
-      tools: tools,
-      human_review: true,
-    };
+  syncEditorCasesFromDOM();
+  if (currentEditorCases.length === 0) {
+    currentEditorCases = [{ name: "Case 1", prompt: "", type: "contains", expected: "", pattern: "" }];
   }
 
+  const cases = currentEditorCases.map((c, i) => {
+    const item = {
+      name: c.name || `Case ${i + 1}`,
+      prompt: c.prompt || "",
+      evaluation: {
+        type: c.type || "contains",
+      },
+    };
+    if (c.type === "regex") {
+      item.evaluation.pattern = c.pattern || c.expected;
+    } else if (c.type !== "human_review" && c.expected) {
+      item.evaluation.expected = c.expected;
+    }
+    return item;
+  });
+
+  const firstCase = cases[0] || { prompt: "", evaluation: { type: "contains" } };
   const autoCaps = getAutoCapsFromAttachments();
   const userCaps = $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean);
   const payload = {
@@ -1518,10 +1619,11 @@ async function saveTestEditor() {
     description: $("te-description").value.trim(),
     group_id: $("te-group").value,
     active: $("te-active").checked,
-    prompt: $("te-prompt").value,
     system_prompt: $("te-system").value,
-    evaluation_type: evalType,
-    evaluation_config: agentConfig,
+    prompt: firstCase.prompt,
+    cases: cases,
+    evaluation_type: firstCase.evaluation.type,
+    evaluation_config: firstCase.evaluation.expected ? { expected: firstCase.evaluation.expected } : (firstCase.evaluation.pattern ? { pattern: firstCase.evaluation.pattern } : null),
     required_caps: Array.from(new Set([...userCaps, ...autoCaps])),
     attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
     order: Number($("te-order").value) || 0,

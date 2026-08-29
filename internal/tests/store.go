@@ -464,7 +464,7 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	if len(in.Steps) > 0 {
 		t.Steps = in.Steps
 	}
-	if len(in.Cases) > 0 {
+	if in.Cases != nil {
 		t.Cases = in.Cases
 	}
 	if in.EvaluationType != "" {

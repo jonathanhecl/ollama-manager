@@ -115,6 +115,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		Timestamp  string   `json:"timestamp"`
 		GroupName  string   `json:"group_name"`
 		Models     []string `json:"models"`
+		TestIDs    []string `json:"test_ids"`
 		TestCount  int      `json:"test_count"`
 		PassCount  int      `json:"pass_count"`
 		FailCount  int      `json:"fail_count"`
@@ -128,7 +129,11 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			GroupName: run.GroupName,
 			Models:    run.Models,
 		}
+		tids := make(map[string]bool)
 		for _, res := range run.Results {
+			if res.TestID != "" {
+				tids[res.TestID] = true
+			}
 			lr.TotalCount++
 			if res.Passed != nil {
 				if *res.Passed {
@@ -139,6 +144,10 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			} else {
 				lr.TestCount++ // human_review or skipped
 			}
+		}
+		lr.TestIDs = make([]string, 0, len(tids))
+		for tid := range tids {
+			lr.TestIDs = append(lr.TestIDs, tid)
 		}
 		out = append(out, lr)
 	}

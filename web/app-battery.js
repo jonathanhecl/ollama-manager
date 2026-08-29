@@ -1377,7 +1377,7 @@ async function renderBatteryHistory() {
 
     let runs = allRuns;
     if (currentHistoryFilterTestId) {
-      runs = runs.filter((r) => (r.results || []).some((res) => res.test_id === currentHistoryFilterTestId));
+      runs = runs.filter((r) => (r.test_ids || []).includes(currentHistoryFilterTestId) || (r.results || []).some((res) => res.test_id === currentHistoryFilterTestId));
     }
     if (currentHistoryFilterModel) {
       runs = runs.filter((r) => (r.models || []).includes(currentHistoryFilterModel));
@@ -1390,9 +1390,13 @@ async function renderBatteryHistory() {
       const filterParts = [];
       if (testName) filterParts.push(t("battery.history_for", { name: testName }));
       if (currentHistoryFilterModel) filterParts.push(`🤖 ${currentHistoryFilterModel}`);
+      const lbBtn = currentHistoryFilterTestId
+        ? `<button type="button" class="primary battery-mini-btn" id="battery-history-open-leaderboard" style="margin-left:auto;margin-right:8px;">🏆 ${t("tests.leaderboard_title")}</button>`
+        : "";
       bannerHtml = `
         <div class="battery-history-filter-banner">
           <span>${escapeHtml(filterParts.join(" · "))}</span>
+          ${lbBtn}
           <button type="button" class="ghost battery-mini-btn" id="battery-history-clear-filter">✕ ${t("analytics.source_all")}</button>
         </div>
       `;
@@ -1453,7 +1457,14 @@ async function renderBatteryHistory() {
     }
 
     if (runs.length === 0) {
-      body.innerHTML = bannerHtml + modelSummaryHtml + `<div class="battery-empty">${t("battery.no_history")}</div>`;
+      const emptyAction = currentHistoryFilterTestId
+        ? `<div style="margin-top:12px;"><button type="button" class="primary" id="battery-empty-open-lb">🏆 ${t("tests.leaderboard_title")}</button></div>`
+        : "";
+      body.innerHTML = bannerHtml + modelSummaryHtml + `
+        <div class="battery-empty">
+          <div>${t("battery.no_history")}</div>
+          ${emptyAction}
+        </div>`;
       setupHistoryClearFilterListener();
       return;
     }
@@ -1556,6 +1567,18 @@ function setupHistoryClearFilterListener() {
       if (modelSel) modelSel.value = "";
       history.pushState(null, "", "/tests/battery/history");
       void renderBatteryHistory();
+    });
+  }
+  const lbBtn = $("battery-history-open-leaderboard");
+  if (lbBtn && currentHistoryFilterTestId) {
+    lbBtn.addEventListener("click", () => {
+      openTestHistoryModal(currentHistoryFilterTestId);
+    });
+  }
+  const emptyLbBtn = $("battery-empty-open-lb");
+  if (emptyLbBtn && currentHistoryFilterTestId) {
+    emptyLbBtn.addEventListener("click", () => {
+      openTestHistoryModal(currentHistoryFilterTestId);
     });
   }
 }

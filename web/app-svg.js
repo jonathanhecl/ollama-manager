@@ -1346,7 +1346,13 @@ function renderTestsList() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
-      if (id) showBatteryHistoryView(id, selectedTestModel || null);
+      if (id) {
+        if (typeof openTestHistoryModal === "function") {
+          openTestHistoryModal(id);
+        } else {
+          showBatteryHistoryView(id, selectedTestModel || null);
+        }
+      }
     });
   });
   list.querySelectorAll(".tests-item-toggle").forEach((btn) => {
@@ -1703,6 +1709,9 @@ async function handleRouting() {
     const urlParams = new URLSearchParams(window.location.search);
     const filterModel = urlParams.get("model") || null;
     showBatteryHistoryView(filterTestId, filterModel);
+    if (filterTestId && typeof openTestHistoryModal === "function") {
+      openTestHistoryModal(filterTestId);
+    }
   } else if (path === "/analytics" || path === "/analytics/") {
     showAnalyticsView();
   } else if (path === "/settings" || path.startsWith("/settings/")) {

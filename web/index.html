@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260828_05">
+  <link rel="stylesheet" href="/static/style.css?v=20260828_06">
 </head>
 <body>
   <header class="topbar">
@@ -613,10 +613,7 @@
               <label for="te-group" data-i18n="tests.group">Group</label>
               <select id="te-group" autocomplete="off"></select>
             </div>
-            <div class="field te-field-order">
-              <label for="te-order" data-i18n="tests.order">Order</label>
-              <input id="te-order" type="number" value="0" autocomplete="off">
-            </div>
+            <input type="hidden" id="te-order" value="0">
             <div class="field te-field-active">
               <label for="te-active" data-i18n="tests.active">Active</label>
               <label class="switch">
@@ -2066,7 +2063,7 @@
   <script src="/static/app-chat.js?v=20260820"></script>
   <script src="/static/app-tests.js?v=20260820"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-svg.js?v=20260828_04"></script>
+  <script src="/static/app-svg.js?v=20260828_05"></script>
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>

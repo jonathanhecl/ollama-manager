@@ -5711,8 +5711,36 @@ button.chat-send:disabled:hover {
   gap: 6px;
   flex-shrink: 0;
 }
-.tests-item-active { color: var(--good); border-color: #2c4a3a; background: #112018; }
-.tests-item-suspended { color: var(--warn); border-color: #5a4326; background: #1f1810; }
+.tests-item-reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.tests-item-reorder button {
+  width: 24px;
+  height: 22px;
+  font-size: 9px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.tests-item-reorder button:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.tests-item-reorder button:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
 
 /* Test editor */
 .test-editor-body {

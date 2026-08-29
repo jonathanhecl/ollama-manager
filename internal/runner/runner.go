@@ -187,13 +187,13 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 				idx++
 				res := c.runTest(runCtx, run.ID, model, test, idx, total)
 				run.Results = append(run.Results, res)
-				// Unload model from memory after each test to prevent accumulation.
-				_ = c.ollama.Unload(runCtx, model)
 				if runCtx.Err() != nil {
 					runErr = runCtx.Err().Error()
 					break
 				}
 			}
+			// Unload model from memory only after ALL tests for this model have completed.
+			_ = c.ollama.Unload(runCtx, model)
 			if runCtx.Err() != nil {
 				break
 			}

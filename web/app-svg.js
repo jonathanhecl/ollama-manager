@@ -1364,9 +1364,9 @@ function renderTestsList() {
   const title = $("tests-group-title");
   if (!list || !empty || !title) return;
 
-  let filtered = tests;
+  let filtered = selectedGroupId !== "" ? tests.filter((t) => t.group_id === selectedGroupId) : [...tests];
+  filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
   if (selectedGroupId !== "") {
-    filtered = tests.filter((t) => t.group_id === selectedGroupId);
     const g = testsGroups.find((x) => x.id === selectedGroupId);
     title.textContent = g ? g.name : t("tests.all_tests");
   } else {
@@ -1402,7 +1402,9 @@ function renderTestsList() {
   }
   empty.hidden = true;
 
-  list.innerHTML = filtered.map((test) => {
+  list.innerHTML = filtered.map((test, idx) => {
+    const isFirst = idx === 0;
+    const isLast = idx === filtered.length - 1;
     const activeClass = test.active ? "pill-good" : "pill-muted";
     const activeLabel = test.active ? t("tests.status_active") : t("tests.status_suspended");
     let evalLabel = "";
@@ -1443,6 +1445,10 @@ function renderTestsList() {
 
     return `
       <div class="tests-item" data-id="${escapeHtml(test.id)}">
+        <div class="tests-item-reorder">
+          <button type="button" class="btn-icon tests-item-move-up" data-id="${escapeHtml(test.id)}" title="${t("tests.move_up")}" ${isFirst ? "disabled" : ""}>▲</button>
+          <button type="button" class="btn-icon tests-item-move-down" data-id="${escapeHtml(test.id)}" title="${t("tests.move_down")}" ${isLast ? "disabled" : ""}>▼</button>
+        </div>
         <div class="tests-item-main">
           <div class="tests-item-name">${escapeHtml(test.name)}</div>
           <div class="tests-item-meta">
@@ -1463,6 +1469,19 @@ function renderTestsList() {
       </div>
     `;
   }).join("");
+
+  list.querySelectorAll(".tests-item-move-up").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void moveTestOrder(btn.dataset.id, "up");
+    });
+  });
+  list.querySelectorAll(".tests-item-move-down").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void moveTestOrder(btn.dataset.id, "down");
+    });
+  });
 
   list.querySelectorAll(".tests-item").forEach((el) => {
     el.addEventListener("click", (e) => {
@@ -1533,6 +1552,43 @@ function renderTestsList() {
       }
     });
   });
+}
+
+async function moveTestOrder(testId, direction) {
+  let list = selectedGroupId !== "" ? tests.filter((t) => t.group_id === selectedGroupId) : [...tests];
+  list.sort((a, b) => (a.order || 0) - (b.order || 0));
+  const idx = list.findIndex((t) => t.id === testId);
+  if (idx === -1) return;
+  const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= list.length) return;
+
+  list.forEach((t, i) => { t.order = i; });
+  const currentTest = list[idx];
+  const targetTest = list[targetIdx];
+
+  const tmpOrder = currentTest.order;
+  currentTest.order = targetTest.order;
+  targetTest.order = tmpOrder;
+
+  renderTestsList();
+
+  try {
+    await Promise.all([
+      api("/api/tests/" + encodeURIComponent(currentTest.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(currentTest),
+      }),
+      api("/api/tests/" + encodeURIComponent(targetTest.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(targetTest),
+      }),
+    ]);
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+    await refreshTests();
+  }
 }
 
 function getAutoCapsFromAttachments() {

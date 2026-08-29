@@ -63,17 +63,22 @@ type TestResult struct {
 
 // Progress tracks the current state of a battery run.
 type Progress struct {
-	RunID           string `json:"run_id"`
-	Model           string `json:"model"`
-	TestID          string `json:"test_id"`
-	TestName        string `json:"test_name"`
-	TestIndex       int    `json:"test_index"`
-	TotalTests      int    `json:"total_tests"`
-	IsThinking      bool   `json:"is_thinking"`
-	PartialResponse string `json:"partial_response,omitempty"`
-	PartialThinking string `json:"partial_thinking,omitempty"`
-	Done            bool   `json:"done"`
-	Error           string `json:"error,omitempty"`
+	RunID           string      `json:"run_id"`
+	Model           string      `json:"model"`
+	TestID          string      `json:"test_id"`
+	TestName        string      `json:"test_name"`
+	TestIndex       int         `json:"test_index"`
+	TotalTests      int         `json:"total_tests"`
+	CaseName        string      `json:"case_name,omitempty"`
+	CaseIndex       int         `json:"case_index,omitempty"`
+	TotalCases      int         `json:"total_cases,omitempty"`
+	ActivePrompt    string      `json:"active_prompt,omitempty"`
+	CompletedCases  []SubResult `json:"completed_cases,omitempty"`
+	IsThinking      bool        `json:"is_thinking"`
+	PartialResponse string      `json:"partial_response,omitempty"`
+	PartialThinking string      `json:"partial_thinking,omitempty"`
+	Done            bool        `json:"done"`
+	Error           string      `json:"error,omitempty"`
 }
 
 // Client wraps an Ollama client and executes tests.
@@ -180,15 +185,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 					continue
 				}
 				idx++
-				c.setProgress(Progress{
-					RunID:      run.ID,
-					Model:      model,
-					TestID:     test.ID,
-					TestName:   test.Name,
-					TestIndex:  idx,
-					TotalTests: total,
-				})
-				res := c.runTest(runCtx, run.ID, model, test)
+				res := c.runTest(runCtx, run.ID, model, test, idx, total)
 				run.Results = append(run.Results, res)
 				// Unload model from memory after each test to prevent accumulation.
 				_ = c.ollama.Unload(runCtx, model)
@@ -236,7 +233,7 @@ type turnResult struct {
 	Error              error
 }
 
-func (c *Client) runTest(ctx context.Context, runID string, model string, test tests.Test) TestResult {
+func (c *Client) runTest(ctx context.Context, runID string, model string, test tests.Test, idx, total int) TestResult {
 	res := TestResult{
 		TestID:   test.ID,
 		TestName: test.Name,
@@ -282,6 +279,25 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				break
 			}
 
+			stepLabel := step.Name
+			if stepLabel == "" {
+				stepLabel = fmt.Sprintf("Step %d", step.Step)
+			}
+
+			c.setProgress(Progress{
+				RunID:          runID,
+				Model:          model,
+				TestID:         test.ID,
+				TestName:       test.Name,
+				TestIndex:      idx,
+				TotalTests:     total,
+				CaseName:       stepLabel,
+				CaseIndex:      i + 1,
+				TotalCases:     len(test.Steps),
+				ActivePrompt:   step.Prompt,
+				CompletedCases: append([]SubResult(nil), res.SubResults...),
+			})
+
 			history = append(history, ollama.ChatMessage{Role: "user", Content: step.Prompt})
 			turn := c.execChatTurn(ctx, runID, model, history, opts)
 			if turn.Error != nil {
@@ -300,11 +316,6 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
 
 			stepPassed := scoreEval(step.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
-			stepLabel := step.Name
-			if stepLabel == "" {
-				stepLabel = fmt.Sprintf("Step %d", step.Step)
-			}
-
 			status := "PASS"
 			if stepPassed != nil {
 				hasScored = true
@@ -356,6 +367,25 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				break
 			}
 
+			caseLabel := tc.Name
+			if caseLabel == "" {
+				caseLabel = fmt.Sprintf("Case %d", i+1)
+			}
+
+			c.setProgress(Progress{
+				RunID:          runID,
+				Model:          model,
+				TestID:         test.ID,
+				TestName:       test.Name,
+				TestIndex:      idx,
+				TotalTests:     total,
+				CaseName:       caseLabel,
+				CaseIndex:      i + 1,
+				TotalCases:     len(test.Cases),
+				ActivePrompt:   tc.Prompt,
+				CompletedCases: append([]SubResult(nil), res.SubResults...),
+			})
+
 			var msgs []ollama.ChatMessage
 			if test.SystemPrompt != "" {
 				msgs = append(msgs, ollama.ChatMessage{Role: "system", Content: test.SystemPrompt})
@@ -377,11 +407,6 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			totalEvalDuration += turn.EvalDuration
 
 			casePassed := scoreEval(tc.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
-			caseLabel := tc.Name
-			if caseLabel == "" {
-				caseLabel = fmt.Sprintf("Case %d", i+1)
-			}
-
 			status := "PASS"
 			if casePassed != nil {
 				hasScored = true
@@ -455,6 +480,22 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			}
 		}
 	}
+
+	promptText := test.Prompt
+	if promptText == "" && len(messages) > 0 {
+		promptText = messages[len(messages)-1].Content
+	}
+	c.setProgress(Progress{
+		RunID:        runID,
+		Model:        model,
+		TestID:       test.ID,
+		TestName:     test.Name,
+		TestIndex:    idx,
+		TotalTests:   total,
+		CaseIndex:    1,
+		TotalCases:   1,
+		ActivePrompt: promptText,
+	})
 
 	turn := c.execChatTurn(ctx, runID, model, messages, opts)
 	res.ResponseTimeMs = turn.ResponseTimeMs

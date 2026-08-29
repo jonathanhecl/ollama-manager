@@ -10339,6 +10339,178 @@ button.chat-send:disabled:hover {
   font-size: 11px;
 }
 
+/* ==========================================================================
+   Battery Live Progress & Sub-cases Tracker
+   ========================================================================== */
+.battery-timeline-case-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(122, 162, 255, 0.12);
+  border: 1px solid rgba(122, 162, 255, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  margin: 3px 0;
+  width: fit-content;
+}
+
+.battery-stream-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+
+.battery-stream-top-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.battery-stream-indicator {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.battery-stream-indicator.pulse {
+  animation: streamPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes streamPulse {
+  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(122, 162, 255, 0.6); }
+  50% { transform: scale(1.15); opacity: 0.8; box-shadow: 0 0 0 6px rgba(122, 162, 255, 0); }
+}
+
+.battery-stream-test-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.battery-stream-case-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.battery-stream-status-badge {
+  display: inline-flex;
+  align-items: center;
+}
+
+.battery-stream-cases-container {
+  background: rgba(20, 20, 24, 0.6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.battery-stream-cases-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.battery-stream-cases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.battery-stream-case-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.battery-stream-case-chip.done {
+  border-color: rgba(111, 207, 151, 0.3);
+  background: rgba(111, 207, 151, 0.04);
+}
+
+.battery-stream-case-chip.active {
+  border-color: var(--accent);
+  background: rgba(122, 162, 255, 0.08);
+  box-shadow: 0 0 12px rgba(122, 162, 255, 0.15);
+}
+
+.battery-stream-case-chip.pending {
+  opacity: 0.5;
+}
+
+.case-chip-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-chip-meta {
+  font-size: 11px;
+}
+
+.battery-stream-live-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.15);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  color: var(--accent);
+  animation: cursorBlink 0.8s infinite;
+  margin-left: 2px;
+  font-weight: 700;
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.prompt-block {
+  color: var(--text-dim);
+  border-left: 3px solid var(--accent);
+}
+
+
 
 
 

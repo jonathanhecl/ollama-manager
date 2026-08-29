@@ -323,6 +323,10 @@ function renderBatteryTimeline() {
   }
   // Current item
   if (batteryTimelineCurrent) {
+    const caseBadge = (batteryTimelineCurrent.totalCases > 1 && batteryTimelineCurrent.caseName)
+      ? `<div class="battery-timeline-case-badge">⚡ ${escapeHtml(batteryTimelineCurrent.caseName)} (${batteryTimelineCurrent.caseIndex}/${batteryTimelineCurrent.totalCases})</div>`
+      : "";
+
     html += `
       <div class="battery-timeline-item active">
         <div class="battery-timeline-left">
@@ -331,6 +335,7 @@ function renderBatteryTimeline() {
         </div>
         <div class="battery-timeline-body">
           <div class="battery-timeline-name">${escapeHtml(batteryTimelineCurrent.name || "Test")}</div>
+          ${caseBadge}
           <div class="battery-timeline-meta">
             ${escapeHtml(batteryTimelineCurrent.model || "")}
             ${batteryTimelineCurrent.isThinking ? " &middot; " + escapeHtml(t("battery.status_thinking")) : ""}
@@ -420,6 +425,9 @@ function updateBatteryProgressUI(p) {
       name: p.test_name || "",
       model: p.model || "",
       isThinking: p.is_thinking || false,
+      caseName: p.case_name || "",
+      caseIndex: p.case_index || 0,
+      totalCases: p.total_cases || 0,
     };
   } else if (done) {
     // Archive final current
@@ -486,24 +494,118 @@ async function pollBatteryProgress(runID, modelIDs) {
     const currentTest = tests.find((t) => t.id === p.test_id);
     if (streamPanel && p.test_name && !p.done) {
       streamPanel.hidden = false;
+
+      // Topbar elements
+      const testTitleEl = $("battery-stream-test-title");
+      const casePillEl = $("battery-stream-case-pill");
+      const statusBadgeEl = $("battery-stream-status-badge");
+
+      if (testTitleEl) testTitleEl.textContent = p.test_name;
+      if (casePillEl) {
+        if (p.total_cases > 1) {
+          casePillEl.hidden = false;
+          casePillEl.textContent = `${p.case_index || 1}/${p.total_cases} ${p.case_name ? "· " + p.case_name : ""}`;
+        } else {
+          casePillEl.hidden = true;
+        }
+      }
+
+      if (statusBadgeEl) {
+        if (p.is_thinking) {
+          statusBadgeEl.innerHTML = `<span class="badge badge-warn pulse">🧠 ${t("battery.status_thinking")}</span>`;
+        } else if (p.partial_response) {
+          statusBadgeEl.innerHTML = `<span class="badge badge-pass pulse">⚡ ${t("battery.status_generating")}</span>`;
+        } else {
+          statusBadgeEl.innerHTML = `<span class="badge badge-primary pulse">⏳ ${t("battery.status_evaluating")}</span>`;
+        }
+      }
+
+      // Cases progress tracker
+      const casesContainer = $("battery-stream-cases-container");
+      const casesCountEl = $("battery-stream-cases-count");
+      const casesListEl = $("battery-stream-cases-list");
+
+      if (p.total_cases > 1) {
+        if (casesContainer) casesContainer.hidden = false;
+        if (casesCountEl) casesCountEl.textContent = `${p.case_index || 1} / ${p.total_cases}`;
+        if (casesListEl) {
+          let casesHtml = "";
+          // Completed cases
+          const completed = p.completed_cases || [];
+          completed.forEach((c) => {
+            const isPass = c.passed === true;
+            const isFail = c.passed === false;
+            const icon = isPass ? "✔" : (isFail ? "✖" : "•");
+            const badgeCls = isPass ? "badge-pass" : (isFail ? "badge-fail" : "badge-human");
+            const tps = c.tokens_per_sec > 0 ? `${c.tokens_per_sec.toFixed(1)} tok/s` : "";
+            const time = c.response_time_ms > 0 ? fmtDuration(c.response_time_ms) : "";
+            casesHtml += `
+              <div class="battery-stream-case-chip done">
+                <span class="badge ${badgeCls}">${icon}</span>
+                <span class="case-chip-name">${escapeHtml(c.name || "Case")}</span>
+                <span class="case-chip-meta mono muted">${time}${tps ? " · " + tps : ""}</span>
+              </div>
+            `;
+          });
+          // Active case
+          if (p.case_name || p.case_index) {
+            casesHtml += `
+              <div class="battery-stream-case-chip active pulse">
+                <span class="badge badge-primary">⚡</span>
+                <span class="case-chip-name"><strong>${escapeHtml(p.case_name || ("Case " + p.case_index))}</strong></span>
+                <span class="case-chip-meta mono" style="color:var(--accent);">${t("battery.status_evaluating")}</span>
+              </div>
+            `;
+          }
+          // Remaining cases
+          const currentIdx = p.case_index || (completed.length + 1);
+          for (let rem = currentIdx + 1; rem <= p.total_cases; rem++) {
+            casesHtml += `
+              <div class="battery-stream-case-chip pending">
+                <span class="badge badge-muted">⏳</span>
+                <span class="case-chip-name muted">Case ${rem}</span>
+                <span class="case-chip-meta mono muted">${t("battery.status_pending")}</span>
+              </div>
+            `;
+          }
+          casesListEl.innerHTML = casesHtml;
+        }
+      } else if (casesContainer) {
+        casesContainer.hidden = true;
+      }
+
+      // Prompt block
       const promptName = $("battery-stream-prompt-name");
       const promptBlock = $("battery-stream-prompt");
-      const thinkingBlock = $("battery-stream-thinking");
-      const responseBlock = $("battery-stream-response");
-      if (promptName) promptName.textContent = escapeHtml(p.test_name);
-      if (promptBlock && currentTest) promptBlock.textContent = currentTest.prompt || "";
-      if (thinkingBlock) {
-        thinkingBlock.textContent = p.partial_thinking || "";
-        thinkingBlock.parentElement.hidden = !p.partial_thinking;
-        if (thinkingBlock.previousElementSibling) thinkingBlock.previousElementSibling.hidden = !p.partial_thinking;
-        thinkingBlock.scrollTo({ top: thinkingBlock.scrollHeight, behavior: "smooth" });
+      if (promptName) {
+        promptName.textContent = p.case_name ? `${p.test_name} — ${p.case_name}` : p.test_name;
       }
+      if (promptBlock) {
+        const promptText = p.active_prompt || (currentTest ? currentTest.prompt : "") || "";
+        promptBlock.textContent = promptText;
+      }
+
+      // Thinking block
+      const thinkingWrap = $("battery-stream-thinking-wrap");
+      const thinkingBlock = $("battery-stream-thinking");
+      if (thinkingWrap && thinkingBlock) {
+        thinkingBlock.textContent = p.partial_thinking || "";
+        thinkingWrap.hidden = !p.partial_thinking;
+        if (p.partial_thinking) {
+          thinkingBlock.scrollTo({ top: thinkingBlock.scrollHeight, behavior: "smooth" });
+        }
+      }
+
+      // Response block
+      const responseBlock = $("battery-stream-response");
       if (responseBlock) {
-        responseBlock.textContent = p.partial_response || "";
-        responseBlock.hidden = !p.partial_response;
-        if (responseBlock.previousElementSibling) responseBlock.previousElementSibling.hidden = !p.partial_response;
         if (p.partial_response) {
+          responseBlock.innerHTML = escapeHtml(p.partial_response) + `<span class="streaming-cursor">▌</span>`;
           responseBlock.scrollTo({ top: responseBlock.scrollHeight, behavior: "smooth" });
+        } else if (p.is_thinking) {
+          responseBlock.innerHTML = `<em class="muted pulse">🧠 ${t("battery.status_thinking")}…</em>`;
+        } else {
+          responseBlock.innerHTML = `<em class="muted pulse">⏳ ${t("battery.status_evaluating")}…</em>`;
         }
       }
     } else if (streamPanel) {

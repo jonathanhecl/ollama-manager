@@ -1042,6 +1042,8 @@ function renderEditorCasesList() {
   container.innerHTML = currentEditorCases.map((c, idx) => {
     const isRegex = c.type === "regex";
     const isHuman = c.type === "human_review";
+    const isFirst = idx === 0;
+    const isLast = idx === currentEditorCases.length - 1;
     const deleteBtn = currentEditorCases.length > 1
       ? `<button type="button" class="btn-icon te-case-delete" data-idx="${idx}" title="${t("tests.delete_case")}">🗑️</button>`
       : "";
@@ -1049,34 +1051,64 @@ function renderEditorCasesList() {
     return `
       <div class="te-case-card" data-idx="${idx}">
         <div class="te-case-card-header">
+          <div class="te-case-reorder-btns">
+            <button type="button" class="btn-icon te-case-move-up" data-idx="${idx}" title="${t("tests.move_up")}" ${isFirst ? "disabled" : ""}>▲</button>
+            <button type="button" class="btn-icon te-case-move-down" data-idx="${idx}" title="${t("tests.move_down")}" ${isLast ? "disabled" : ""}>▼</button>
+          </div>
           <span class="te-case-card-badge">${t("tests.case_num", { n: idx + 1 })}</span>
           <input type="text" class="te-case-name" value="${escapeHtml(c.name || "")}" placeholder="${t("tests.case_name_placeholder")}" autocomplete="off">
           ${deleteBtn}
         </div>
         <div class="te-case-card-body">
-          <div class="field" style="margin-bottom:10px;">
-            <label class="te-case-label">${t("tests.case_prompt")}</label>
-            <textarea class="te-case-prompt" rows="3" placeholder="${t("tests.case_prompt_placeholder")}" autocomplete="off">${escapeHtml(c.prompt || "")}</textarea>
-          </div>
-          <div class="te-case-eval-row">
-            <div class="field te-case-eval-type-field">
-              <label class="te-case-label">${t("tests.case_eval_type")}</label>
-              <select class="te-case-eval-type" autocomplete="off">
-                <option value="contains" ${c.type === "contains" ? "selected" : ""}>${t("tests.eval_contains")}</option>
-                <option value="exact_match" ${c.type === "exact_match" ? "selected" : ""}>${t("tests.eval_exact_match")}</option>
-                <option value="regex" ${c.type === "regex" ? "selected" : ""}>${t("tests.eval_regex")}</option>
-                <option value="human_review" ${c.type === "human_review" ? "selected" : ""}>${t("tests.eval_human_review")}</option>
-              </select>
+          <div class="te-case-content-grid">
+            <div class="field te-case-prompt-field">
+              <label class="te-case-label">${t("tests.case_prompt")}</label>
+              <textarea class="te-case-prompt" rows="3" placeholder="${t("tests.case_prompt_placeholder")}" autocomplete="off">${escapeHtml(c.prompt || "")}</textarea>
             </div>
-            <div class="field te-case-expected-field" ${isHuman ? "hidden" : ""}>
-              <label class="te-case-label">${isRegex ? t("tests.eval_pattern") : t("tests.case_expected")}</label>
-              <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || "") : (c.expected || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
+            <div class="te-case-eval-col">
+              <div class="field te-case-eval-type-field">
+                <label class="te-case-label">${t("tests.case_eval_type")}</label>
+                <select class="te-case-eval-type" autocomplete="off">
+                  <option value="contains" ${c.type === "contains" ? "selected" : ""}>${t("tests.eval_contains")}</option>
+                  <option value="exact_match" ${c.type === "exact_match" ? "selected" : ""}>${t("tests.eval_exact_match")}</option>
+                  <option value="regex" ${c.type === "regex" ? "selected" : ""}>${t("tests.eval_regex")}</option>
+                  <option value="human_review" ${c.type === "human_review" ? "selected" : ""}>${t("tests.eval_human_review")}</option>
+                </select>
+              </div>
+              <div class="field te-case-expected-field" ${isHuman ? "hidden" : ""}>
+                <label class="te-case-label">${isRegex ? t("tests.eval_pattern") : t("tests.case_expected")}</label>
+                <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || "") : (c.expected || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
+              </div>
             </div>
           </div>
         </div>
       </div>
     `;
   }).join("");
+
+  container.querySelectorAll(".te-case-move-up").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.idx);
+      if (idx <= 0) return;
+      syncEditorCasesFromDOM();
+      const temp = currentEditorCases[idx];
+      currentEditorCases[idx] = currentEditorCases[idx - 1];
+      currentEditorCases[idx - 1] = temp;
+      renderEditorCasesList();
+    });
+  });
+
+  container.querySelectorAll(".te-case-move-down").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.idx);
+      if (idx >= currentEditorCases.length - 1) return;
+      syncEditorCasesFromDOM();
+      const temp = currentEditorCases[idx];
+      currentEditorCases[idx] = currentEditorCases[idx + 1];
+      currentEditorCases[idx + 1] = temp;
+      renderEditorCasesList();
+    });
+  });
 
   container.querySelectorAll(".te-case-delete").forEach((btn) => {
     btn.addEventListener("click", () => {

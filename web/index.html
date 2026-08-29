@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260828_03">
+  <link rel="stylesheet" href="/static/style.css?v=20260828_04">
 </head>
 <body>
   <header class="topbar">
@@ -604,38 +604,46 @@
     <div class="test-editor-body">
       <div class="test-editor-container">
         <section class="test-editor-card">
-          <div class="field">
-            <label for="te-name" data-i18n="tests.name">Name</label>
-            <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition" autocomplete="off">
+          <div class="te-top-grid">
+            <div class="field te-field-name">
+              <label for="te-name" data-i18n="tests.name">Name</label>
+              <input id="te-name" type="text" data-i18n-attr="placeholder" data-i18n="tests.name_placeholder" placeholder="e.g. Math addition" autocomplete="off">
+            </div>
+            <div class="field te-field-group">
+              <label for="te-group" data-i18n="tests.group">Group</label>
+              <select id="te-group" autocomplete="off"></select>
+            </div>
+            <div class="field te-field-order">
+              <label for="te-order" data-i18n="tests.order">Order</label>
+              <input id="te-order" type="number" value="0" autocomplete="off">
+            </div>
+            <div class="field switch-field te-field-active">
+              <div class="switch-label">
+                <span data-i18n="tests.active">Active</span>
+              </div>
+              <label class="switch">
+                <input id="te-active" type="checkbox" checked autocomplete="off">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
           </div>
-          <div class="field">
+
+          <div class="field te-field-full">
             <label for="te-description" data-i18n="tests.description">Description</label>
             <input id="te-description" type="text" data-i18n-attr="placeholder" data-i18n="tests.description_placeholder" placeholder="Optional description" autocomplete="off">
           </div>
-          <div class="field">
-            <label for="te-group" data-i18n="tests.group">Group</label>
-            <select id="te-group" autocomplete="off"></select>
-          </div>
-          <div class="field switch-field">
-            <div class="switch-label">
-              <span data-i18n="tests.active">Active</span>
-              <small class="muted" data-i18n="tests.active_hint">Inactive tests are skipped in battery runs.</small>
-            </div>
-            <label class="switch">
-              <input id="te-active" type="checkbox" checked autocomplete="off">
-              <span class="switch-slider"></span>
-            </label>
-          </div>
-          <div class="field">
+
+          <div class="field te-field-full">
             <label for="te-system" data-i18n="tests.system_prompt">System prompt</label>
-            <textarea id="te-system" rows="3" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
+            <textarea id="te-system" rows="2" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
           </div>
 
-          <!-- Multi-case test cases section -->
-          <div class="field te-cases-section">
+          <!-- Multi-case test cases section (full width) -->
+          <div class="te-cases-section">
             <div class="te-cases-section-header">
               <div class="te-cases-title-wrap">
-                <label data-i18n="tests.cases_title">Test Cases</label>
+                <span class="te-cases-icon">📋</span>
+                <h3 data-i18n="tests.cases_title">Test Cases</h3>
                 <span id="te-cases-count-badge" class="pill pill-good">1</span>
               </div>
               <button type="button" id="te-add-case-btn" class="primary te-add-case-btn" data-i18n="tests.add_case">+ Add Case</button>
@@ -2050,7 +2058,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260828_02"></script>
+  <script src="/static/i18n.js?v=20260828_03"></script>
   <script src="/static/app-helpers.js?v=20260820"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
@@ -2060,7 +2068,7 @@
   <script src="/static/app-chat.js?v=20260820"></script>
   <script src="/static/app-tests.js?v=20260820"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-svg.js?v=20260828_02"></script>
+  <script src="/static/app-svg.js?v=20260828_03"></script>
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260820"></script>

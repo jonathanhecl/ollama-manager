@@ -5723,7 +5723,7 @@ button.chat-send:disabled:hover {
   background: var(--bg);
 }
 .test-editor-container {
-  max-width: 860px;
+  max-width: 1360px;
   width: 100%;
   margin: 0 auto;
 }
@@ -5736,6 +5736,31 @@ button.chat-send:disabled:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.te-top-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 100px auto;
+  gap: 16px;
+  align-items: end;
+}
+.te-top-grid .field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.te-top-grid .field.switch-field {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  height: 40px;
+  margin-bottom: 2px;
+}
+.test-editor-card .field.te-field-full {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
 }
 .test-editor-card .field {
   display: grid;
@@ -10514,33 +10539,38 @@ button.chat-send:disabled:hover {
 .te-cases-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 16px 0;
-  padding: 16px;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  gap: 14px;
+  margin-top: 8px;
+  padding: 20px;
+  background: var(--panel-2, #141a23);
+  border: 1px solid var(--border-strong, #30363d);
   border-radius: var(--radius);
 }
 .te-cases-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
 }
 .te-cases-title-wrap {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.te-cases-title-wrap label {
+.te-cases-title-wrap h3 {
   margin: 0;
+  font-size: 16px;
   font-weight: 700;
-  font-size: 15px;
   color: var(--text);
 }
+.te-cases-icon {
+  font-size: 18px;
+}
 .te-add-case-btn {
-  font-size: 12px;
-  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 16px;
 }
 .te-cases-list {
   display: flex;
@@ -10548,25 +10578,55 @@ button.chat-send:disabled:hover {
   gap: 14px;
 }
 .te-case-card {
-  background: var(--panel-2);
+  background: var(--panel, #0d1117);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .te-case-card:hover {
   border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
 }
 .te-case-card-header {
   display: flex;
   align-items: center;
   gap: 10px;
 }
+.te-case-reorder-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.te-case-reorder-btns button {
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.te-case-reorder-btns button:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.te-case-reorder-btns button:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
 .te-case-card-badge {
-  padding: 3px 8px;
+  padding: 3px 9px;
   font-size: 11px;
   font-weight: 700;
   border-radius: var(--radius-sm);
@@ -10577,22 +10637,46 @@ button.chat-send:disabled:hover {
 .te-case-name {
   flex: 1;
   font-weight: 600;
+  font-size: 14px;
+}
+.te-case-content-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 850px) {
+  .te-case-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.te-case-prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.te-case-prompt {
+  min-height: 84px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
+}
+.te-case-eval-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.te-case-eval-col .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
 }
 .te-case-label {
   font-size: 12px;
+  font-weight: 600;
   color: var(--text-dim);
-  margin-bottom: 4px;
-  display: block;
-}
-.te-case-eval-row {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 12px;
-}
-@media (max-width: 600px) {
-  .te-case-eval-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 

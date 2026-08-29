@@ -59,6 +59,10 @@ $("opencode-save-btn").addEventListener("click", async () => {
 $("opencode-models").addEventListener("change", renderOpenCodePreview);
 $("opencode-models").addEventListener("input", renderOpenCodePreview);
 
+$("opencode-sort-speed-btn")?.addEventListener("click", () => {
+  openCodeSortBySpeed();
+});
+
 $("opencode-style-segmented")?.addEventListener("click", (e) => {
   const btn = e.target.closest(".opencode-style-btn");
   if (!btn) return;

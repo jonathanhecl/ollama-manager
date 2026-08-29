@@ -257,6 +257,48 @@ function openCodeAutoName(m) {
   return short;
 }
 
+// openCodeSortBySpeed sorts models in OpenCode by speed descending (fastest first),
+// updating the UI and preview so saving preserves the sorted sequence.
+function openCodeSortBySpeed() {
+  const st = openCodeState;
+  if (!st || !st.models || st.models.length === 0) return;
+
+  const box = $("opencode-models");
+  if (box) {
+    for (const m of st.models) {
+      const cb = box.querySelector(`.opencode-model-checkbox[data-tag="${CSS.escape(m.name)}"]`);
+      if (cb) m.enabled = cb.checked;
+      const inp = box.querySelector(`.opencode-model-name[data-tag="${CSS.escape(m.name)}"]`);
+      if (inp) {
+        const val = inp.value.trim();
+        if (val && val !== inp.dataset.auto) {
+          m.display_name = val;
+          m.custom_name = true;
+        } else if (val === inp.dataset.auto) {
+          m.custom_name = false;
+        }
+      }
+    }
+  }
+
+  st.models.sort((a, b) => {
+    const tpsA = Number(a.record_tps) || 0;
+    const tpsB = Number(b.record_tps) || 0;
+    if (tpsA !== tpsB) {
+      return tpsB - tpsA;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  const sortBtn = $("opencode-sort-speed-btn");
+  if (sortBtn) {
+    sortBtn.classList.add("active");
+  }
+
+  renderOpenCodeModels(st);
+  renderOpenCodePreview();
+}
+
 // applyOpenCodeNameStyle refreshes every untouched auto-named input after the
 // style selector changes, preserving user-typed names.
 function applyOpenCodeNameStyle() {

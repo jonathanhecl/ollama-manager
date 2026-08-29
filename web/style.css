@@ -1772,6 +1772,38 @@ select:focus { border-color: var(--accent); }
   font-size: 11px;
   opacity: 0.75;
 }
+.opencode-models-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 14px;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.opencode-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.opencode-sort-btn:hover {
+  background: rgba(255, 180, 0, 0.08);
+  border-color: rgba(255, 180, 0, 0.4);
+  color: #ffb400;
+}
+.opencode-sort-btn.active {
+  background: rgba(255, 180, 0, 0.14);
+  border-color: #ffb400;
+  color: #ffb400;
+}
 .opencode-models {
   max-height: 520px;
   overflow-y: auto;

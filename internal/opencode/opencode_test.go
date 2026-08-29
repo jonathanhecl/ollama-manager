@@ -647,3 +647,32 @@ func TestSetEnabledModelsSavesLimits(t *testing.T) {
 	}
 }
 
+func TestSetEnabledModelsPreservesOrder(t *testing.T) {
+	doc, err := Load(filepath.Join(t.TempDir(), "opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := doc.EnsureLocalProvider("http://localhost:11434/v1")
+	ordered := []string{"zebra-model:latest", "alpha-model:latest", "gamma-model:latest"}
+	doc.SetEnabledModels(key, ordered, nil)
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	posZ := strings.Index(s, "zebra-model:latest")
+	posA := strings.Index(s, "alpha-model:latest")
+	posG := strings.Index(s, "gamma-model:latest")
+	if posZ == -1 || posA == -1 || posG == -1 {
+		t.Fatalf("models missing in saved output:\n%s", s)
+	}
+	if !(posZ < posA && posA < posG) {
+		t.Fatalf("expected order zebra < alpha < gamma, but got positions %d, %d, %d in:\n%s", posZ, posA, posG, s)
+	}
+}
+
+

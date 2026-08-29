@@ -1739,7 +1739,15 @@
                   </select>
                 </div>
 
-                <div id="opencode-models" class="opencode-models" style="margin-top: 10px;"></div>
+                <div class="opencode-models-header">
+                  <span class="opencode-models-count muted" id="opencode-models-count"></span>
+                  <button type="button" id="opencode-sort-speed-btn" class="ghost opencode-sort-btn" title="Sort by speed (fastest first)" data-i18n-title="opencode.sort_by_speed_hint">
+                    <span class="opencode-sort-icon">⚡</span>
+                    <span data-i18n="opencode.sort_by_speed">Sort by speed</span>
+                  </button>
+                </div>
+
+                <div id="opencode-models" class="opencode-models"></div>
 
                 <div id="opencode-remote-warn" class="callout callout-warn" hidden style="margin-top: 10px;">
                   <span class="callout-icon">!</span>

@@ -177,6 +177,7 @@ func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeSt
 		models = nil
 	}
 	meta := s.fetchModelMeta(ctx, models)
+	s.syncAllModelUsageFamilies()
 	view.Models = make([]opencodeModelView, 0, len(models))
 	for _, m := range models {
 		tag := m.Name

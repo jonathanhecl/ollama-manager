@@ -14,7 +14,7 @@ import (
 func applyEdit(data []byte, e editOp) ([]byte, error) {
 	switch e.kind {
 	case "models":
-		return applyModelsEdit(data, e.key, e.models)
+		return applyModelsEdit(data, e.key, e.models, e.modelOrder)
 	case "provider":
 		return applyProviderEdit(data, e.key, e.entry)
 	default:
@@ -206,7 +206,7 @@ func splice(data []byte, start, end int, repl []byte) []byte {
 }
 
 // applyModelsEdit replaces (or inserts) the models value of provider key.
-func applyModelsEdit(data []byte, providerKey string, models map[string]any) ([]byte, error) {
+func applyModelsEdit(data []byte, providerKey string, models map[string]any, order ...[]string) ([]byte, error) {
 	root, _, err := parseNode(data, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("opencode config: %w", err)
@@ -221,10 +221,10 @@ func applyModelsEdit(data []byte, providerKey string, models map[string]any) ([]
 	}
 	unit := detectIndentUnit(data)
 	if mc := findChild(entry.valNode, "models"); mc != nil {
-		repl := []byte(formatModels(models, mc.valNode.depth, unit))
+		repl := []byte(formatModels(models, mc.valNode.depth, unit, order...))
 		return splice(data, mc.valStart, mc.valEnd, repl), nil
 	}
-	val := formatModels(models, entry.valNode.depth+1, unit)
+	val := formatModels(models, entry.valNode.depth+1, unit, order...)
 	return insertMember(data, entry.valNode, "models", []byte(val)), nil
 }
 
@@ -267,13 +267,33 @@ func insertMember(data []byte, obj *jnode, key string, value []byte) []byte {
 
 // formatModels renders a models map as a tab-aligned block with one model per
 // line and inline per-model objects (matching the common opencode style).
-func formatModels(models map[string]any, depth int, unit string) string {
+// When order is provided, models are emitted in that sequence.
+func formatModels(models map[string]any, depth int, unit string, order ...[]string) string {
 	if len(models) == 0 {
 		return "{}"
 	}
 	var b strings.Builder
 	b.WriteString("{\n")
-	keys := sortedMapKeys(models)
+
+	var keys []string
+	if len(order) > 0 && len(order[0]) > 0 {
+		seen := make(map[string]bool, len(order[0]))
+		for _, k := range order[0] {
+			if _, ok := models[k]; ok && !seen[k] {
+				seen[k] = true
+				keys = append(keys, k)
+			}
+		}
+		remaining := sortedMapKeys(models)
+		for _, k := range remaining {
+			if !seen[k] {
+				keys = append(keys, k)
+			}
+		}
+	} else {
+		keys = sortedMapKeys(models)
+	}
+
 	for i, k := range keys {
 		b.WriteString(strings.Repeat(unit, depth+1))
 		b.WriteString(jsonEncodeString(k))

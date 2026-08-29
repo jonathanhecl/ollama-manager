@@ -1922,7 +1922,17 @@ func (s *Server) modelFamily(name string) []string {
 	}
 
 	if isFixedModelName(name) {
-		add(fixedBaseName(name))
+		p := fixedBaseName(name)
+		add(p)
+		if s.usage != nil {
+			s.usage.mu.RLock()
+			for k := range s.usage.models {
+				if strings.HasPrefix(k, p+":") && k != name {
+					add(k)
+				}
+			}
+			s.usage.mu.RUnlock()
+		}
 	} else {
 		add(name + ":fixed")
 		if colon := strings.LastIndex(name, ":"); colon > 0 {
@@ -1975,13 +1985,31 @@ func (s *Server) getModelUsage(name string) (ModelUsageRecord, bool) {
 }
 
 func (s *Server) syncAllModelUsageFamilies() {
-	if s.customModels == nil || s.usage == nil {
+	if s.usage == nil {
 		return
 	}
-	for custom, rec := range s.customModels.All() {
-		if rec.BaseModel != "" {
-			_ = s.usage.InheritUsage(rec.BaseModel, custom)
+	if s.customModels != nil {
+		for custom, rec := range s.customModels.All() {
+			if rec.BaseModel != "" {
+				_ = s.usage.InheritUsage(rec.BaseModel, custom)
+			}
 		}
+	}
+	s.usage.mu.RLock()
+	var pairs [][2]string
+	for k := range s.usage.models {
+		if isFixedModelName(k) {
+			p := fixedBaseName(k)
+			for other := range s.usage.models {
+				if other != k && strings.HasPrefix(other, p+":") {
+					pairs = append(pairs, [2]string{other, k})
+				}
+			}
+		}
+	}
+	s.usage.mu.RUnlock()
+	for _, pair := range pairs {
+		_ = s.usage.InheritUsage(pair[0], pair[1])
 	}
 }
 

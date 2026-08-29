@@ -50,10 +50,11 @@ type Document struct {
 
 // editOp describes a single surgical change to the on-disk config.
 type editOp struct {
-	kind   string // "models" | "provider"
-	key    string
-	models map[string]any // kind == "models"
-	entry  map[string]any // kind == "provider"
+	kind       string // "models" | "provider"
+	key        string
+	models     map[string]any // kind == "models"
+	modelOrder []string       // preserves explicit order of models from enabled slice
+	entry      map[string]any // kind == "provider"
 }
 
 // Load reads the config at path. A missing file yields an empty document
@@ -302,7 +303,7 @@ func (d *Document) SetEnabledModels(providerKey string, enabled []string, names 
 	entry["models"] = models
 	providers[providerKey] = entry
 	d.Raw["provider"] = providers
-	d.edits = append(d.edits, editOp{kind: "models", key: providerKey, models: models})
+	d.edits = append(d.edits, editOp{kind: "models", key: providerKey, models: models, modelOrder: append([]string(nil), enabled...)})
 }
 
 // EnabledModels returns the set of tags present in the provider's models map.
@@ -377,6 +378,13 @@ func (d *Document) Save() error {
 			return err
 		}
 		data = append(b, '\n')
+		for _, e := range d.edits {
+			if e.kind == "models" && len(e.modelOrder) > 0 {
+				if spliced, err := applyEdit(data, e); err == nil {
+					data = spliced
+				}
+			}
+		}
 	} else {
 		data = d.orig
 		for _, e := range d.edits {

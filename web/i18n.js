@@ -967,6 +967,9 @@ const I18N = {
     "action.save": "Save",
     "action.edit": "Edit",
     "action.done": "Done",
+    "action.create": "Create",
+    "action.cancel": "Cancel",
+    "action.delete": "Delete",
 
     "modelfile.title": "Modelfile Studio",
     "modelfile.subtitle": "Design, configure and build custom models or derive from GGUF / existing models.",
@@ -2008,6 +2011,9 @@ const I18N = {
     "action.save": "Guardar",
     "action.edit": "Editar",
     "action.done": "Listo",
+    "action.create": "Crear",
+    "action.cancel": "Cancelar",
+    "action.delete": "Eliminar",
 
     "modelfile.title": "Modelfile Studio",
     "modelfile.subtitle": "Diseña, configura y compila modelos personalizados o derivados de GGUF / modelos existentes.",

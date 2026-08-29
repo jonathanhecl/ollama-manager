@@ -1712,9 +1712,28 @@
                 </div>
                 <p class="form-hint" data-i18n="settings.opencode_models_hint">Select which models appear in OpenCode and set a custom name for each.</p>
 
-                <div class="opencode-name-style">
-                  <label for="opencode-name-style" data-i18n="opencode.name_style_label">Auto-name style</label>
-                  <select id="opencode-name-style">
+                <div class="opencode-name-style-wrap">
+                  <div class="opencode-name-style-header">
+                    <span class="opencode-name-style-label" data-i18n="opencode.name_style_label">Auto-name style</span>
+                    <span class="opencode-name-style-hint muted" data-i18n="opencode.name_style_hint">Default naming pattern for models in OpenCode</span>
+                  </div>
+                  <div class="opencode-style-segmented" id="opencode-style-segmented" role="radiogroup">
+                    <button type="button" class="opencode-style-btn" data-style="plain" id="opencode-style-btn-plain">
+                      <span class="opencode-style-btn-icon">🏷️</span>
+                      <div class="opencode-style-btn-info">
+                        <span class="opencode-style-btn-title" data-i18n="opencode.name_style_plain">name model</span>
+                        <span class="opencode-style-btn-sub mono muted">model:quant</span>
+                      </div>
+                    </button>
+                    <button type="button" class="opencode-style-btn" data-style="tps" id="opencode-style-btn-tps">
+                      <span class="opencode-style-btn-icon">⚡</span>
+                      <div class="opencode-style-btn-info">
+                        <span class="opencode-style-btn-title" data-i18n="opencode.name_style_tps">name model (45tok/s)</span>
+                        <span class="opencode-style-btn-sub mono muted">model (45tok/s)</span>
+                      </div>
+                    </button>
+                  </div>
+                  <select id="opencode-name-style" hidden aria-hidden="true">
                     <option value="plain" data-i18n="opencode.name_style_plain">name model</option>
                     <option value="tps" data-i18n="opencode.name_style_tps">name model (45tok/s)</option>
                   </select>

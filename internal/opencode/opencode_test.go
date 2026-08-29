@@ -603,3 +603,47 @@ func TestSurgicalSaveJSONCPreservesComments(t *testing.T) {
 		t.Fatalf("other provider changed:\n%s", got)
 	}
 }
+
+func TestSetEnabledModelsSavesLimits(t *testing.T) {
+	doc, err := Load(filepath.Join(t.TempDir(), "opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := doc.EnsureLocalProvider("http://localhost:11434/v1")
+	limits := map[string]map[string]any{
+		"minimax-m2.1-reap-30": {
+			"context": 65536,
+			"output":  16384,
+		},
+	}
+	names := map[string]string{
+		"minimax-m2.1-reap-30": "Minimax M2.1 REAP-30",
+	}
+	doc.SetEnabledModels(key, []string{"minimax-m2.1-reap-30"}, names, limits)
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	provider := root["provider"].(map[string]any)[key].(map[string]any)
+	models := provider["models"].(map[string]any)
+	mm := models["minimax-m2.1-reap-30"].(map[string]any)
+	if mm["name"] != "Minimax M2.1 REAP-30" {
+		t.Fatalf("name = %v; want 'Minimax M2.1 REAP-30'", mm["name"])
+	}
+	lim, ok := mm["limit"].(map[string]any)
+	if !ok {
+		t.Fatalf("limit block missing: %v", mm)
+	}
+	if lim["context"] != float64(65536) || lim["output"] != float64(16384) {
+		t.Fatalf("limit = %v; want context 65536, output 16384", lim)
+	}
+}
+

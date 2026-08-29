@@ -22,12 +22,15 @@ type opencodeProviderView struct {
 
 // opencodeModelView is one installed model with its opencode visibility state.
 type opencodeModelView struct {
-	Name        string  `json:"name"`
-	DisplayName string  `json:"display_name"`
-	CustomName  bool    `json:"custom_name"`
-	RecordTPS   float64 `json:"record_tps,omitempty"`
-	Enabled     bool    `json:"enabled"`
-	Size        int64   `json:"size"`
+	Name          string   `json:"name"`
+	DisplayName   string   `json:"display_name"`
+	CustomName    bool     `json:"custom_name"`
+	RecordTPS     float64  `json:"record_tps,omitempty"`
+	Enabled       bool     `json:"enabled"`
+	Size          int64    `json:"size"`
+	ContextLength int64    `json:"context_length,omitempty"`
+	HasVision     bool     `json:"has_vision"`
+	Capabilities  []string `json:"capabilities,omitempty"`
 }
 
 // opencodeStateView is the full state of the OpenCode settings section.
@@ -91,8 +94,9 @@ func (s *Server) handleOpenCodeEnsureProvider(w http.ResponseWriter, r *http.Req
 // Requires a local provider to already exist.
 func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Enabled []string          `json:"enabled"`
-		Names   map[string]string `json:"names"`
+		Enabled []string                  `json:"enabled"`
+		Names   map[string]string         `json:"names"`
+		Limits  map[string]map[string]any `json:"limits,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
@@ -107,7 +111,7 @@ func (s *Server) handleOpenCodeSetModels(w http.ResponseWriter, r *http.Request)
 		if provider == nil {
 			err = errors.New("no local Ollama provider configured in opencode; create one first")
 		} else {
-			doc.SetEnabledModels(provider.Key, sanitizeTags(body.Enabled), body.Names)
+			doc.SetEnabledModels(provider.Key, sanitizeTags(body.Enabled), body.Names, body.Limits)
 			err = doc.Save()
 		}
 	}
@@ -172,6 +176,7 @@ func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeSt
 		// Ollama unreachable: still report provider status with an empty list.
 		models = nil
 	}
+	meta := s.fetchModelMeta(ctx, models)
 	view.Models = make([]opencodeModelView, 0, len(models))
 	for _, m := range models {
 		tag := m.Name
@@ -184,13 +189,30 @@ func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeSt
 				tps = rec.RecordTokensPerSec
 			}
 		}
+		mMeta := meta[m.Digest]
+		hasVision := false
+		for _, c := range mMeta.Capabilities {
+			if strings.EqualFold(c, "vision") {
+				hasVision = true
+				break
+			}
+		}
+		ctxLen := mMeta.ContextLength
+		if ctxLen == 0 && s.usage != nil {
+			if rec, ok := s.usage.Get(tag); ok {
+				ctxLen = rec.ContextLength
+			}
+		}
 		view.Models = append(view.Models, opencodeModelView{
-			Name:        tag,
-			DisplayName: doc.ModelDisplayName(providerKey, tag),
-			CustomName:  doc.HasCustomName(providerKey, tag),
-			RecordTPS:   tps,
-			Enabled:     enabled[tag],
-			Size:        m.Size,
+			Name:          tag,
+			DisplayName:   doc.ModelDisplayName(providerKey, tag),
+			CustomName:    doc.HasCustomName(providerKey, tag),
+			RecordTPS:     tps,
+			Enabled:       enabled[tag],
+			Size:          m.Size,
+			ContextLength: ctxLen,
+			HasVision:     hasVision,
+			Capabilities:  mMeta.Capabilities,
 		})
 	}
 	return view, nil

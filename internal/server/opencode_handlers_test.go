@@ -159,10 +159,16 @@ func TestOpenCodeEndToEnd(t *testing.T) {
 		t.Fatal("tag-a missing on disk")
 	}
 
-	// 5. Custom display names are persisted with the selection.
+	// 5. Custom display names and limits are persisted with the selection.
 	w = s.doOpenCode(t, http.MethodPost, "/api/opencode/models", map[string]any{
 		"enabled": []string{"tag-a"},
 		"names":   map[string]string{"tag-a": "Custom Name A"},
+		"limits": map[string]any{
+			"tag-a": map[string]any{
+				"context": 65536,
+				"output":  16384,
+			},
+		},
 	})
 	state = decodeOpenCodeState(t, w)
 	for _, m := range state.Models {
@@ -176,6 +182,9 @@ func TestOpenCodeEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"name": "Custom Name A"`) {
 		t.Fatalf("custom name missing on disk:\n%s", data)
+	}
+	if !strings.Contains(string(data), `"context": 65536`) || !strings.Contains(string(data), `"output": 16384`) {
+		t.Fatalf("limits missing on disk:\n%s", data)
 	}
 	if strings.Contains(string(data), `"tag-b"`) || strings.Contains(string(data), `"tag-c"`) {
 		t.Fatalf("disabled models left on disk:\n%s", data)

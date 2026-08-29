@@ -268,7 +268,7 @@ func (d *Document) EnsureLocalProvider(baseURL string) (string, bool) {
 // a non-empty value overrides it, an empty value resets it. Tags without a
 // custom name are left without a "name" key so they stay "not indexed" and the
 // UI can auto-name them on the fly.
-func (d *Document) SetEnabledModels(providerKey string, enabled []string, names map[string]string) {
+func (d *Document) SetEnabledModels(providerKey string, enabled []string, names map[string]string, limits ...map[string]map[string]any) {
 	providers, _ := d.Raw["provider"].(map[string]any)
 	entry, ok := providers[providerKey].(map[string]any)
 	if !ok {
@@ -276,6 +276,10 @@ func (d *Document) SetEnabledModels(providerKey string, enabled []string, names 
 	}
 	old, _ := entry["models"].(map[string]any)
 	models := make(map[string]any, len(enabled))
+	var limMap map[string]map[string]any
+	if len(limits) > 0 {
+		limMap = limits[0]
+	}
 	for _, tag := range enabled {
 		model, _ := old[tag].(map[string]any)
 		if model == nil {
@@ -286,6 +290,11 @@ func (d *Document) SetEnabledModels(providerKey string, enabled []string, names 
 				model["name"] = name
 			} else {
 				delete(model, "name")
+			}
+		}
+		if model["limit"] == nil && limMap != nil {
+			if lim, ok := limMap[tag]; ok && lim != nil {
+				model["limit"] = lim
 			}
 		}
 		models[tag] = model

@@ -66,6 +66,7 @@ function renderOpenCodeView() {
   if (saveBtn) saveBtn.disabled = !st.provider;
   const remoteWarn = $("opencode-remote-warn");
   if (remoteWarn) remoteWarn.hidden = !st.remote;
+  syncOpenCodeStyleUI();
   renderOpenCodeModels(st);
   renderOpenCodePreview();
 }
@@ -80,6 +81,32 @@ function showOpenCodeView() {
   }
 }
 
+function formatCtxTokens(tokens) {
+  if (!tokens || tokens <= 0) return "";
+  if (tokens >= 1048576) return `${(tokens / 1048576).toFixed(1)}M`;
+  if (tokens >= 1024) return `${Math.round(tokens / 1024)}k`;
+  return `${tokens}`;
+}
+
+function openCodeDefaultOutputLimit(ctx) {
+  if (!ctx || ctx <= 0) return 4096;
+  if (ctx >= 65536) return 16384;
+  if (ctx >= 32768) return 8192;
+  if (ctx >= 16384) return 4096;
+  return Math.max(1024, Math.floor(ctx / 2));
+}
+
+function syncOpenCodeStyleUI() {
+  const container = $("opencode-style-segmented");
+  if (container) {
+    container.querySelectorAll(".opencode-style-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.style === openCodeNameStylePref);
+    });
+  }
+  const sel = $("opencode-name-style");
+  if (sel) sel.value = openCodeNameStylePref;
+}
+
 function renderOpenCodeModels(st) {
   const box = $("opencode-models");
   if (!st.models || st.models.length === 0) {
@@ -88,14 +115,79 @@ function renderOpenCodeModels(st) {
   }
   box.innerHTML = "";
   const list = document.createElement("div");
+  list.className = "opencode-models-list";
+
   for (const m of st.models) {
-    const row = document.createElement("label");
-    row.className = "opencode-model-row" + (st.provider ? "" : " disabled");
+    const row = document.createElement("div");
+    row.className = "opencode-model-row" + (m.enabled ? " selected" : "") + (st.provider ? "" : " disabled");
+
+    const checkWrap = document.createElement("label");
+    checkWrap.className = "opencode-model-check-wrap";
     const cb = document.createElement("input");
     cb.type = "checkbox";
+    cb.className = "opencode-model-checkbox";
     cb.checked = m.enabled;
     cb.disabled = !st.provider;
     cb.dataset.tag = m.name;
+    checkWrap.appendChild(cb);
+
+    const body = document.createElement("div");
+    body.className = "opencode-model-body";
+
+    // Top: Tag + Badges (Vision, Context, TPS, Size)
+    const top = document.createElement("div");
+    top.className = "opencode-model-top";
+
+    const tagWrap = document.createElement("div");
+    tagWrap.className = "opencode-model-tag-wrap";
+    const tag = document.createElement("span");
+    tag.className = "opencode-model-tag mono";
+    tag.title = m.name;
+    tag.textContent = m.name;
+    tagWrap.appendChild(tag);
+    top.appendChild(tagWrap);
+
+    const badges = document.createElement("div");
+    badges.className = "opencode-model-badges";
+
+    if (m.has_vision) {
+      const visBadge = document.createElement("span");
+      visBadge.className = "opencode-badge opencode-badge-vision";
+      visBadge.title = t("chat.cap.vision") || "Vision";
+      visBadge.innerHTML = `<span class="opencode-badge-icon">👁️</span> <span class="opencode-badge-text">Vision</span>`;
+      badges.appendChild(visBadge);
+    }
+
+    if (m.context_length > 0) {
+      const ctxBadge = document.createElement("span");
+      ctxBadge.className = "opencode-badge opencode-badge-ctx mono";
+      ctxBadge.title = `Context limit: ${m.context_length.toLocaleString()} tokens`;
+      ctxBadge.textContent = `${formatCtxTokens(m.context_length)} ctx`;
+      badges.appendChild(ctxBadge);
+    }
+
+    if (m.record_tps > 0) {
+      const tpsBadge = document.createElement("span");
+      tpsBadge.className = "opencode-badge opencode-badge-tps mono";
+      tpsBadge.title = `Record speed: ${m.record_tps.toFixed(1)} tok/s`;
+      tpsBadge.textContent = `⚡ ${Math.round(m.record_tps)} tok/s`;
+      badges.appendChild(tpsBadge);
+    }
+
+    if (m.size > 0) {
+      const sizeBadge = document.createElement("span");
+      sizeBadge.className = "opencode-badge opencode-badge-size mono muted";
+      sizeBadge.textContent = typeof formatBytes === "function" ? formatBytes(m.size) : `${Math.round(m.size / 1e9 * 10) / 10} GB`;
+      badges.appendChild(sizeBadge);
+    }
+
+    top.appendChild(badges);
+    body.appendChild(top);
+
+    // Bottom: Custom Name input placed right under the model name (full-width)
+    const bot = document.createElement("div");
+    bot.className = "opencode-model-bottom";
+
     const auto = openCodeAutoName(m);
     const name = document.createElement("input");
     name.type = "text";
@@ -105,40 +197,29 @@ function renderOpenCodeModels(st) {
     name.disabled = !st.provider;
     name.dataset.tag = m.name;
     name.title = m.name;
-    name.placeholder = m.name;
+    name.placeholder = auto || m.name;
     name.autocomplete = "off";
     name.spellcheck = false;
-    const tag = document.createElement("span");
-    tag.className = "opencode-model-tag mono muted";
-    tag.title = m.name;
-    const tagText = document.createElement("span");
-    tagText.className = "opencode-model-tag-text";
-    tagText.textContent = m.name;
-    tag.appendChild(tagText);
-    row.appendChild(cb);
-    row.appendChild(name);
-    row.appendChild(tag);
+
+    bot.appendChild(name);
+    body.appendChild(bot);
+
+    // Clicking on the model tag or header toggles the checkbox
+    tagWrap.addEventListener("click", () => {
+      if (!st.provider) return;
+      cb.checked = !cb.checked;
+      row.classList.toggle("selected", cb.checked);
+      cb.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    cb.addEventListener("change", () => {
+      row.classList.toggle("selected", cb.checked);
+    });
+
+    row.appendChild(checkWrap);
+    row.appendChild(body);
     list.appendChild(row);
   }
   box.appendChild(list);
-  markOpenCodeTagOverflow(list);
-}
-
-// markOpenCodeTagOverflow flags tags whose text does not fit so CSS can run
-// the marquee animation, and stores the exact scroll distance per element.
-function markOpenCodeTagOverflow(root) {
-  root.querySelectorAll(".opencode-model-tag").forEach((el) => {
-    const inner = el.querySelector(".opencode-model-tag-text");
-    if (!inner || el.clientWidth === 0) return;
-    const over = Math.ceil(inner.scrollWidth - el.clientWidth);
-    if (over > 1) {
-      el.classList.add("scrollable");
-      el.style.setProperty("--tag-shift", `${-over}px`);
-      el.style.setProperty("--tag-dur", `${Math.min(16, Math.max(5, over / 25)).toFixed(1)}s`);
-    } else {
-      el.classList.remove("scrollable");
-    }
-  });
 }
 
 function openCodeEnabledTags() {
@@ -179,6 +260,7 @@ function openCodeAutoName(m) {
 // applyOpenCodeNameStyle refreshes every untouched auto-named input after the
 // style selector changes, preserving user-typed names.
 function applyOpenCodeNameStyle() {
+  syncOpenCodeStyleUI();
   const st = openCodeState;
   if (!st || !st.models) return;
   const box = $("opencode-models");
@@ -207,7 +289,14 @@ function buildOpenCodeExport() {
   const models = {};
   for (const tag of tags) {
     const m = byTag[tag];
-    models[tag] = { name: names[tag] || (m ? openCodeAutoName(m) : openCodeShortName(tag)) };
+    const item = { name: names[tag] || (m ? openCodeAutoName(m) : openCodeShortName(tag)) };
+    if (m && m.context_length > 0) {
+      item.limit = {
+        context: m.context_length,
+        output: openCodeDefaultOutputLimit(m.context_length),
+      };
+    }
+    models[tag] = item;
   }
   const provider = {
     ollama: {

@@ -887,6 +887,15 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 	close(out)
 
 	s.ctxMu.Lock()
+	if s.ctxCache == nil {
+		s.ctxCache = make(map[string]int64)
+	}
+	if s.capsCache == nil {
+		s.capsCache = make(map[string][]string)
+	}
+	if s.metaCache == nil {
+		s.metaCache = make(map[string]modelMetaCache)
+	}
 	for it := range out {
 		s.ctxCache[it.digest] = it.contextLen
 		s.capsCache[it.digest] = append([]string(nil), it.capabilities...)

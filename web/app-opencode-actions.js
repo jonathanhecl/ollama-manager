@@ -25,12 +25,27 @@ $("opencode-create-btn").addEventListener("click", async () => {
 
 $("opencode-save-btn").addEventListener("click", async () => {
   try {
+    const tags = openCodeEnabledTags();
+    const names = openCodeNamesMap();
+    const limits = {};
+    const byTag = {};
+    for (const m of (openCodeState && openCodeState.models) || []) byTag[m.name] = m;
+    for (const tag of tags) {
+      const m = byTag[tag];
+      if (m && m.context_length > 0) {
+        limits[tag] = {
+          context: m.context_length,
+          output: openCodeDefaultOutputLimit(m.context_length),
+        };
+      }
+    }
     const res = await api("/api/opencode/models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        enabled: openCodeEnabledTags(),
-        names: openCodeNamesMap(),
+        enabled: tags,
+        names: names,
+        limits: limits,
       }),
     });
     openCodeState = res.state;
@@ -44,12 +59,27 @@ $("opencode-save-btn").addEventListener("click", async () => {
 $("opencode-models").addEventListener("change", renderOpenCodePreview);
 $("opencode-models").addEventListener("input", renderOpenCodePreview);
 
-$("opencode-name-style").value = openCodeNameStylePref;
-$("opencode-name-style").addEventListener("change", () => {
-  openCodeNameStylePref = $("opencode-name-style").value === "tps" ? "tps" : "plain";
+$("opencode-style-segmented")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".opencode-style-btn");
+  if (!btn) return;
+  const style = btn.dataset.style;
+  if (style !== "plain" && style !== "tps") return;
+  openCodeNameStylePref = style;
   localStorage.setItem("ollama_opencode_name_style", openCodeNameStylePref);
+  syncOpenCodeStyleUI();
   applyOpenCodeNameStyle();
 });
+
+if ($("opencode-name-style")) {
+  $("opencode-name-style").value = openCodeNameStylePref;
+  $("opencode-name-style").addEventListener("change", () => {
+    openCodeNameStylePref = $("opencode-name-style").value === "tps" ? "tps" : "plain";
+    localStorage.setItem("ollama_opencode_name_style", openCodeNameStylePref);
+    syncOpenCodeStyleUI();
+    applyOpenCodeNameStyle();
+  });
+}
+syncOpenCodeStyleUI();
 
 $("opencode-copy-all-btn").addEventListener("click", () => {
   const ex = buildOpenCodeExport();

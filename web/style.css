@@ -1299,7 +1299,8 @@ select:focus { border-color: var(--accent); }
   display: none;
 }
 .settings-sections-list {
-  max-width: 780px;
+  max-width: 1100px;
+  width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1704,61 +1705,206 @@ select:focus { border-color: var(--accent); }
   margin-bottom: 16px;
 }
 .opencode-card h3 { margin: 0 0 8px; font-size: 14px; }
+.opencode-name-style-wrap {
+  margin-bottom: 14px;
+}
+.opencode-name-style-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.opencode-name-style-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.opencode-name-style-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.opencode-style-segmented {
+  display: inline-flex;
+  gap: 8px;
+  padding: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+.opencode-style-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12.5px;
+  transition: all 0.15s ease;
+}
+.opencode-style-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+.opencode-style-btn.active {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.opencode-style-btn-icon {
+  font-size: 14px;
+}
+.opencode-style-btn-info {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.opencode-style-btn-title {
+  color: inherit;
+}
+.opencode-style-btn-sub {
+  font-size: 11px;
+  opacity: 0.75;
+}
 .opencode-models {
-  max-height: 320px;
+  max-height: 520px;
   overflow-y: auto;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--panel-2);
 }
+.opencode-models-list {
+  display: flex;
+  flex-direction: column;
+}
 .opencode-model-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 12px;
-  cursor: pointer;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s ease;
 }
-.opencode-model-row + .opencode-model-row { border-top: 1px solid var(--border); }
-.opencode-model-row.disabled { opacity: .55; cursor: not-allowed; }
-.opencode-model-row.disabled input { cursor: not-allowed; }
-.opencode-model-name {
+.opencode-model-row:last-child {
+  border-bottom: none;
+}
+.opencode-model-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.opencode-model-row.selected {
+  background: rgba(99, 102, 241, 0.04);
+}
+.opencode-model-row.disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.opencode-model-row.disabled input {
+  cursor: not-allowed;
+}
+.opencode-model-check-wrap {
+  display: flex;
+  align-items: center;
+  padding-top: 3px;
+  flex-shrink: 0;
+}
+.opencode-model-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.opencode-model-body {
   flex: 1 1 auto;
   min-width: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 3px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.opencode-model-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.opencode-model-tag-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+}
+.opencode-model-tag {
   font-size: 13px;
+  font-weight: 600;
   color: var(--text);
+  word-break: break-all;
+  user-select: none;
+}
+.opencode-model-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.opencode-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  white-space: nowrap;
+}
+.opencode-badge-vision {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+  font-weight: 600;
+}
+.opencode-badge-ctx {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #a5b4fc;
+}
+.opencode-badge-tps {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+.opencode-badge-size {
+  color: var(--text-dim);
+}
+.opencode-model-bottom {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.opencode-model-name {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .opencode-model-name:focus {
   outline: none;
   border-color: var(--accent);
-  background: var(--panel);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
-.opencode-model-tag { flex: 0 0 auto; font-size: 11px; }
-.opencode-model-tag-text { display: inline-block; white-space: nowrap; }
-.opencode-model-tag.scrollable { overflow: hidden; }
-.opencode-model-tag.scrollable .opencode-model-tag-text {
-  animation: opencode-tag-scroll var(--tag-dur, 9s) linear infinite;
-}
-@keyframes opencode-tag-scroll {
-  0%, 15% { transform: translateX(0); }
-  60%, 85% { transform: translateX(var(--tag-shift, 0px)); }
-  100% { transform: translateX(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .opencode-model-tag.scrollable .opencode-model-tag-text { animation: none; }
-}
-.opencode-name-style {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-.opencode-name-style label { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
-.opencode-name-style select { flex: 0 1 auto; min-width: 0; }
 .opencode-actions { margin-top: 12px; }
 .opencode-actions button { width: 100%; }
 .opencode-preview {

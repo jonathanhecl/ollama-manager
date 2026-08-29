@@ -660,6 +660,8 @@ function showBatteryHistoryView(filterTestId = null, filterModel = null) {
   void renderBatteryHistory();
 }
 
+let batteryResultsViewMode = "matrix";
+
 function renderBatteryResults(run) {
   if (!run) return;
   const title = $("battery-results-title");
@@ -714,8 +716,77 @@ function renderBatteryResults(run) {
   }
   summaryHtml += `</div>`;
 
-  // Table.
-  let rowsHtml = "";
+  // Detect podium leaders if multiple models
+  let podiumHtml = "";
+  if (run.models && run.models.length > 1) {
+    let bestWinner = null;
+    let fastest = null;
+    let mostAccurate = null;
+
+    for (const m of run.models) {
+      const s = modelStats[m];
+      if (!s || s.total === 0) continue;
+      const pct = (s.pass / s.total) * 100;
+      const avgTps = s.tpsCount > 0 ? (s.tpsSum / s.tpsCount) : 0;
+      const avgMs = s.timeSum / s.total;
+
+      if (!fastest || avgTps > fastest.avgTps) {
+        fastest = { model: m, avgTps, pct };
+      }
+      if (!mostAccurate || pct > mostAccurate.pct) {
+        mostAccurate = { model: m, pct, avgTps };
+      }
+      if (!bestWinner) {
+        bestWinner = { model: m, pct, avgTps, avgMs };
+      } else if (pct > bestWinner.pct) {
+        bestWinner = { model: m, pct, avgTps, avgMs };
+      } else if (pct === bestWinner.pct && avgTps > bestWinner.avgTps) {
+        bestWinner = { model: m, pct, avgTps, avgMs };
+      } else if (pct === bestWinner.pct && avgTps === bestWinner.avgTps && avgMs < bestWinner.avgMs) {
+        bestWinner = { model: m, pct, avgTps, avgMs };
+      }
+    }
+
+    if (bestWinner) {
+      const wShort = escapeHtml(bestWinner.model).replace(/^[^/]+\//, "");
+      const fShort = fastest ? escapeHtml(fastest.model).replace(/^[^/]+\//, "") : "";
+      const aShort = mostAccurate ? escapeHtml(mostAccurate.model).replace(/^[^/]+\//, "") : "";
+
+      podiumHtml = `
+        <div class="battery-podium-strip">
+          <div class="battery-podium-card podium-winner">
+            <div class="podium-icon">🏆</div>
+            <div class="podium-info">
+              <span class="podium-label">${t("battery.podium_winner")}</span>
+              <strong class="podium-model" title="${escapeHtml(bestWinner.model)}">${wShort}</strong>
+              <span class="podium-sub">${Math.round(bestWinner.pct)}% · ${bestWinner.avgTps.toFixed(1)} tok/s</span>
+            </div>
+          </div>
+          ${fastest && fastest.model !== bestWinner.model ? `
+            <div class="battery-podium-card podium-fastest">
+              <div class="podium-icon">⚡</div>
+              <div class="podium-info">
+                <span class="podium-label">${t("battery.podium_fastest")}</span>
+                <strong class="podium-model" title="${escapeHtml(fastest.model)}">${fShort}</strong>
+                <span class="podium-sub" style="color:var(--accent);">${fastest.avgTps.toFixed(1)} tok/s</span>
+              </div>
+            </div>
+          ` : ""}
+          ${mostAccurate && mostAccurate.model !== bestWinner.model ? `
+            <div class="battery-podium-card podium-accurate">
+              <div class="podium-icon">🎯</div>
+              <div class="podium-info">
+                <span class="podium-label">${t("battery.podium_accurate")}</span>
+                <strong class="podium-model" title="${escapeHtml(mostAccurate.model)}">${aShort}</strong>
+                <span class="podium-sub">${Math.round(mostAccurate.pct)}%</span>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+      `;
+    }
+  }
+
   // Group results by test_id.
   const byTest = {};
   for (const r of run.results) {
@@ -724,133 +795,295 @@ function renderBatteryResults(run) {
   }
   const testIds = Object.keys(byTest);
 
-  for (const tid of testIds) {
-    const results = byTest[tid];
-    const test = tests.find((t) => t.id === tid);
-    const isHumanReview = test?.evaluation_type === "human_review";
-    const testName = results[0]?.test_name || tid;
-    const evalLabel = test?.evaluation_type ? `<div class="battery-eval-label">${escapeHtml(t("tests.eval_" + test.evaluation_type) || test.evaluation_type)}</div>` : "";
-    const promptBtn = `<div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button></div>`;
-    const humanReviewLabel = isHumanReview
-      ? `<div class="battery-human-review-label">${t("battery.human_review")}</div>`
-      : "";
+  const isMultiModel = run.models && run.models.length > 1;
+  const isMatrix = isMultiModel && batteryResultsViewMode === "matrix";
 
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      let resultCell = "";
-      if (isHumanReview) {
-        resultCell = `
-          <div class="battery-pass-fail" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
-            <button type="button" data-passed="true" class="${r.passed === true ? "active" : ""}">${t("battery.pass")}</button>
-            <button type="button" data-passed="false" class="${r.passed === false ? "active" : ""}">${t("battery.fail")}</button>
-          </div>
-        `;
-      } else {
-        const hasRealResponse = (r.tokens_per_sec || 0) > 0 && (r.model_response || "").trim().length > 0;
-        if (r.error) {
-          resultCell = `<span class="badge badge-na" title="${escapeHtml(r.error)}">${t("battery.error")}</span>`;
-        } else if (!hasRealResponse && r.passed === false) {
-          resultCell = `<span class="badge badge-na" title="${escapeHtml(r.model_response || t("battery.no_response"))}">${t("battery.error")}</span>`;
-        } else if (r.passed === true) {
-          resultCell = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
-        } else if (r.passed === false) {
-          resultCell = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
-        } else {
-          resultCell = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+  const viewToggleHtml = isMultiModel ? `
+    <div class="battery-view-toolbar">
+      <div class="battery-view-toggle">
+        <button type="button" class="battery-toggle-btn ${isMatrix ? "active" : ""}" id="btn-view-matrix">
+          📊 ${t("battery.view_matrix")}
+        </button>
+        <button type="button" class="battery-toggle-btn ${!isMatrix ? "active" : ""}" id="btn-view-detailed">
+          📋 ${t("battery.view_detailed")}
+        </button>
+      </div>
+    </div>
+  ` : "";
+
+  // 1. Matrix Side-by-Side View
+  let matrixTableHtml = "";
+  if (isMatrix) {
+    let headerCols = `<th class="cell-matrix-test-head">${t("battery.matrix_test")}</th>`;
+    for (const m of run.models) {
+      const shortM = escapeHtml(m).replace(/^[^/]+\//, "");
+      headerCols += `<th class="cell-matrix-model-col" title="${escapeHtml(m)}">${shortM}</th>`;
+    }
+
+    let matrixRows = "";
+    for (const tid of testIds) {
+      const results = byTest[tid];
+      const test = tests.find((t) => t.id === tid);
+      const testName = results[0]?.test_name || tid;
+      const evalLabel = test?.evaluation_type ? `<span class="battery-matrix-eval-tag">${escapeHtml(t("tests.eval_" + test.evaluation_type) || test.evaluation_type)}</span>` : "";
+      const promptBtn = `<button type="button" class="battery-prompt-link battery-matrix-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button>`;
+
+      let modelCells = "";
+      for (const m of run.models) {
+        const r = results.find((x) => x.model === m);
+        if (!r) {
+          modelCells += `<td class="cell-matrix-result cell-matrix-empty"><span class="muted">—</span></td>`;
+          continue;
         }
-      }
 
-      const reasoningIcon = r.reasoning_used ? "🧠" : "";
-      const tokColor = (typeof getToksRecordColor === "function" && r.tokens_per_sec > 0) ? getToksRecordColor(r.tokens_per_sec) : "";
-      const resp = r.model_response || "";
-      const respId = `br-${run.id}-${r.test_id}-${escapeHtml(r.model)}`;
-      const respShort = escapeHtml(resp.slice(0, 200));
-      const respRest = escapeHtml(resp.slice(200));
+        let badge = "";
+        let scorePill = "";
+        if (r.error) {
+          badge = `<span class="badge badge-na" title="${escapeHtml(r.error)}">${t("battery.error")}</span>`;
+        } else if (r.sub_results && r.sub_results.length > 0) {
+          const pCount = r.sub_results.filter((s) => s.passed === true).length;
+          const tCount = r.sub_results.length;
+          const pillCls = pCount === tCount ? "pill-good" : (pCount > 0 ? "pill-warn" : "pill-bad");
+          scorePill = `<span class="pill ${pillCls}">✔ ${pCount}/${tCount}</span>`;
+        } else if (r.passed === true) {
+          badge = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
+        } else if (r.passed === false) {
+          badge = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+        } else {
+          badge = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+        }
 
-      let responseCellHtml = "";
-      if (r.sub_results && r.sub_results.length > 0) {
-        responseCellHtml = `
-          <div class="battery-subresults-list">
-            ${r.sub_results.map((sub, sidx) => {
-              const isPass = sub.passed === true;
-              const isFail = sub.passed === false;
-              const badgeClass = isPass ? "badge-pass" : (isFail ? "badge-fail" : "badge-human");
-              const statusIcon = isPass ? "✔" : (isFail ? "✖" : "•");
-              const name = sub.name || `Case #${sub.index + 1 || sidx + 1}`;
-              const tpsColor = (typeof getToksRecordColor === "function" && sub.tokens_per_sec > 0) ? getToksRecordColor(sub.tokens_per_sec) : "";
-              const timeStr = sub.response_time_ms > 0 ? fmtDuration(sub.response_time_ms) : "";
-              const tpsStr = sub.tokens_per_sec > 0 ? `${sub.tokens_per_sec.toFixed(1)} tok/s` : "";
+        const tpsStr = r.tokens_per_sec > 0 ? `${r.tokens_per_sec.toFixed(1)} tok/s` : "—";
+        const tpsColor = (typeof getToksRecordColor === "function" && r.tokens_per_sec > 0) ? getToksRecordColor(r.tokens_per_sec) : "";
+        const timeStr = r.response_time_ms > 0 ? fmtDuration(r.response_time_ms) : "";
+        const reasoning = r.reasoning_used ? "🧠" : "";
 
-              return `
-                <div class="battery-subresult-row">
-                  <div class="battery-subresult-left">
-                    <span class="badge ${badgeClass} battery-subresult-pill">${statusIcon}</span>
-                    <span class="battery-subresult-title">${escapeHtml(name)}</span>
-                  </div>
-                  <div class="battery-subresult-right">
-                    ${timeStr ? `<span class="battery-subresult-time mono muted">⏱️ ${timeStr}</span>` : ""}
-                    ${tpsStr ? `<span class="battery-subresult-tps mono" style="color:${tpsColor}">⚡ ${tpsStr}</span>` : ""}
-                    <button type="button" class="ghost battery-subresult-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}" data-sub-idx="${sidx}" title="${t("chat.response")}">
-                      ${t("action.view") || "View"} ↗
-                    </button>
-                  </div>
-                </div>
-              `;
-            }).join("")}
-          </div>
-        `;
-      } else {
-        responseCellHtml = `
-          <div class="battery-single-response">
-            <div class="resp-text-wrap">
-              <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
-              ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
+        modelCells += `
+          <td class="cell-matrix-result">
+            <div class="matrix-cell-content">
+              <div class="matrix-cell-top">
+                ${scorePill || badge}
+                <button type="button" class="ghost battery-matrix-resp-btn" data-test-id="${escapeHtml(tid)}" data-model="${escapeHtml(m)}" title="${t("chat.response")}">↗</button>
+              </div>
+              <div class="matrix-cell-metrics mono">
+                <span class="matrix-cell-time muted">⏱️ ${timeStr} ${reasoning}</span>
+                <span class="matrix-cell-tps" style="color:${tpsColor};">⚡ ${escapeHtml(tpsStr)}</span>
+              </div>
             </div>
-            ${resp.length > 0 ? `
-              <button type="button" class="ghost battery-single-raw-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
-                ${t("action.view") || "View"} ↗
-              </button>
-            ` : ""}
-          </div>
+          </td>
         `;
       }
 
-      rowsHtml += `
+      matrixRows += `
         <tr>
-          ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${evalLabel}${humanReviewLabel}${promptBtn}</td>` : ""}
-          <td class="cell-model">${escapeHtml(r.model)}</td>
-          <td>${resultCell}</td>
-          <td class="cell-time">
-            <div class="battery-res-time mono">⏱️ ${fmtDuration(r.response_time_ms)} ${reasoningIcon}</div>
-            ${r.tokens_per_sec > 0
-              ? `<div class="battery-res-tps mono" style="color: ${tokColor}">⚡ <strong>${r.tokens_per_sec.toFixed(1)}</strong> <span class="unit">tok/s</span></div>`
-              : `<div class="battery-res-tps mono muted">— <span class="unit">tok/s</span></div>`
-            }
+          <td class="cell-matrix-test-info">
+            <div class="matrix-test-title"><strong>${escapeHtml(testName)}</strong></div>
+            <div class="matrix-test-meta">${evalLabel} ${promptBtn}</div>
           </td>
-          <td class="cell-response">
-            ${responseCellHtml}
-          </td>
+          ${modelCells}
         </tr>
       `;
     }
+
+    // Summary footer row
+    let footerCells = `<td class="cell-matrix-test-info"><strong>${t("battery.matrix_summary")}</strong></td>`;
+    for (const m of run.models) {
+      const s = modelStats[m];
+      const avgMs = s && s.total > 0 ? Math.round(s.timeSum / s.total) : 0;
+      const avgTps = s && s.tpsCount > 0 ? (s.tpsSum / s.tpsCount).toFixed(1) : "—";
+      const avgTpsColor = avgTps !== "—" ? (typeof getToksRecordColor === "function" ? getToksRecordColor(Number(avgTps)) : "") : "";
+      const pct = s && s.total > 0 ? Math.round((s.pass / s.total) * 100) : 0;
+      const pillCls = s && s.pass === s.total && s.total > 0 ? "pill-good" : (s && s.pass > 0 ? "pill-warn" : "pill-bad");
+
+      footerCells += `
+        <td class="cell-matrix-footer">
+          <div class="matrix-footer-score">
+            <span class="pill ${pillCls}">${s ? s.pass : 0}/${s ? s.total : 0} (${pct}%)</span>
+          </div>
+          <div class="matrix-footer-metrics mono">
+            <span class="muted">⏱️ ${fmtDuration(avgMs)}</span>
+            <span style="color:${avgTpsColor}; font-weight:600;">⚡ ${avgTps} tok/s</span>
+          </div>
+        </td>
+      `;
+    }
+
+    matrixTableHtml = `
+      <div class="battery-table-wrap battery-matrix-wrap">
+        <table class="battery-table battery-matrix-table">
+          <thead>
+            <tr>${headerCols}</tr>
+          </thead>
+          <tbody>${matrixRows}</tbody>
+          <tfoot>
+            <tr class="matrix-footer-row">${footerCells}</tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
   }
 
-  body.innerHTML = summaryHtml + `
-    <div class="battery-table-wrap">
-      <table class="battery-table">
-        <thead>
+  // 2. Detailed Table View
+  let detailedTableHtml = "";
+  if (!isMatrix) {
+    let rowsHtml = "";
+    for (const tid of testIds) {
+      const results = byTest[tid];
+      const test = tests.find((t) => t.id === tid);
+      const isHumanReview = test?.evaluation_type === "human_review";
+      const testName = results[0]?.test_name || tid;
+      const evalLabel = test?.evaluation_type ? `<div class="battery-eval-label">${escapeHtml(t("tests.eval_" + test.evaluation_type) || test.evaluation_type)}</div>` : "";
+      const promptBtn = `<div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button></div>`;
+      const humanReviewLabel = isHumanReview
+        ? `<div class="battery-human-review-label">${t("battery.human_review")}</div>`
+        : "";
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        let resultCell = "";
+        if (isHumanReview) {
+          resultCell = `
+            <div class="battery-pass-fail" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
+              <button type="button" data-passed="true" class="${r.passed === true ? "active" : ""}">${t("battery.pass")}</button>
+              <button type="button" data-passed="false" class="${r.passed === false ? "active" : ""}">${t("battery.fail")}</button>
+            </div>
+          `;
+        } else {
+          const hasRealResponse = (r.tokens_per_sec || 0) > 0 && (r.model_response || "").trim().length > 0;
+          if (r.error) {
+            resultCell = `<span class="badge badge-na" title="${escapeHtml(r.error)}">${t("battery.error")}</span>`;
+          } else if (!hasRealResponse && r.passed === false) {
+            resultCell = `<span class="badge badge-na" title="${escapeHtml(r.model_response || t("battery.no_response"))}">${t("battery.error")}</span>`;
+          } else if (r.passed === true) {
+            resultCell = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
+          } else if (r.passed === false) {
+            resultCell = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
+          } else {
+            resultCell = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
+          }
+        }
+
+        const reasoningIcon = r.reasoning_used ? "🧠" : "";
+        const tokColor = (typeof getToksRecordColor === "function" && r.tokens_per_sec > 0) ? getToksRecordColor(r.tokens_per_sec) : "";
+        const resp = r.model_response || "";
+        const respId = `br-${run.id}-${r.test_id}-${escapeHtml(r.model)}`;
+        const respShort = escapeHtml(resp.slice(0, 200));
+        const respRest = escapeHtml(resp.slice(200));
+
+        let responseCellHtml = "";
+        if (r.sub_results && r.sub_results.length > 0) {
+          responseCellHtml = `
+            <div class="battery-subresults-list">
+              ${r.sub_results.map((sub, sidx) => {
+                const isPass = sub.passed === true;
+                const isFail = sub.passed === false;
+                const badgeClass = isPass ? "badge-pass" : (isFail ? "badge-fail" : "badge-human");
+                const statusIcon = isPass ? "✔" : (isFail ? "✖" : "•");
+                const name = sub.name || `Case #${sub.index + 1 || sidx + 1}`;
+                const tpsColor = (typeof getToksRecordColor === "function" && sub.tokens_per_sec > 0) ? getToksRecordColor(sub.tokens_per_sec) : "";
+                const timeStr = sub.response_time_ms > 0 ? fmtDuration(sub.response_time_ms) : "";
+                const tpsStr = sub.tokens_per_sec > 0 ? `${sub.tokens_per_sec.toFixed(1)} tok/s` : "";
+
+                return `
+                  <div class="battery-subresult-row">
+                    <div class="battery-subresult-left">
+                      <span class="badge ${badgeClass} battery-subresult-pill">${statusIcon}</span>
+                      <span class="battery-subresult-title">${escapeHtml(name)}</span>
+                    </div>
+                    <div class="battery-subresult-right">
+                      ${timeStr ? `<span class="battery-subresult-time mono muted">⏱️ ${timeStr}</span>` : ""}
+                      ${tpsStr ? `<span class="battery-subresult-tps mono" style="color:${tpsColor}">⚡ ${tpsStr}</span>` : ""}
+                      <button type="button" class="ghost battery-subresult-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}" data-sub-idx="${sidx}" title="${t("chat.response")}">
+                        ${t("action.view") || "View"} ↗
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          `;
+        } else {
+          responseCellHtml = `
+            <div class="battery-single-response">
+              <div class="resp-text-wrap">
+                <span class="resp-short">${respShort}${resp.length > 200 ? `<button type="button" class="resp-toggle" data-target="${respId}">…</button>` : ""}</span>
+                ${resp.length > 200 ? `<span class="resp-rest" id="${respId}" hidden>${respRest}</span>` : ""}
+              </div>
+              ${resp.length > 0 ? `
+                <button type="button" class="ghost battery-single-raw-btn" data-test-id="${escapeHtml(r.test_id)}" data-model="${escapeHtml(r.model)}">
+                  ${t("action.view") || "View"} ↗
+                </button>
+              ` : ""}
+            </div>
+          `;
+        }
+
+        rowsHtml += `
           <tr>
-            <th>${t("tests.name")}</th>
-            <th>${t("chat.model")}</th>
-            <th>${t("battery.results")}</th>
-            <th>${t("battery.response_time")}</th>
-            <th>${t("chat.response")}</th>
+            ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${evalLabel}${humanReviewLabel}${promptBtn}</td>` : ""}
+            <td class="cell-model">${escapeHtml(r.model)}</td>
+            <td>${resultCell}</td>
+            <td class="cell-time">
+              <div class="battery-res-time mono">⏱️ ${fmtDuration(r.response_time_ms)} ${reasoningIcon}</div>
+              ${r.tokens_per_sec > 0
+                ? `<div class="battery-res-tps mono" style="color: ${tokColor}">⚡ <strong>${r.tokens_per_sec.toFixed(1)}</strong> <span class="unit">tok/s</span></div>`
+                : `<div class="battery-res-tps mono muted">— <span class="unit">tok/s</span></div>`
+              }
+            </td>
+            <td class="cell-response">
+              ${responseCellHtml}
+            </td>
           </tr>
-        </thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>
-  `;
+        `;
+      }
+    }
+
+    detailedTableHtml = `
+      <div class="battery-table-wrap">
+        <table class="battery-table">
+          <thead>
+            <tr>
+              <th>${t("tests.name")}</th>
+              <th>${t("chat.model")}</th>
+              <th>${t("battery.results")}</th>
+              <th>${t("battery.response_time")}</th>
+              <th>${t("chat.response")}</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  body.innerHTML = podiumHtml + summaryHtml + viewToggleHtml + matrixTableHtml + detailedTableHtml;
+
+  const btnMatrix = body.querySelector("#btn-view-matrix");
+  if (btnMatrix) {
+    btnMatrix.addEventListener("click", () => {
+      batteryResultsViewMode = "matrix";
+      renderBatteryResults(run);
+    });
+  }
+  const btnDetailed = body.querySelector("#btn-view-detailed");
+  if (btnDetailed) {
+    btnDetailed.addEventListener("click", () => {
+      batteryResultsViewMode = "detailed";
+      renderBatteryResults(run);
+    });
+  }
+
+  body.querySelectorAll(".battery-matrix-resp-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const testId = btn.dataset.testId;
+      const model = btn.dataset.model;
+      const res = run.results.find((x) => x.test_id === testId && x.model === model);
+      const titleEl = $("response-view-modal-title");
+      if (titleEl) titleEl.textContent = `${res?.test_name || testId} (${model})`;
+      openResponseViewModal(model, res?.model_response || res?.error || t("battery.no_response"));
+    });
+  });
 
   body.querySelectorAll(".resp-toggle").forEach((btn) => {
     btn.addEventListener("click", () => {

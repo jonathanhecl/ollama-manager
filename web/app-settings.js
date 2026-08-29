@@ -843,12 +843,24 @@ async function loadArchivedModelsInSettings(lang = null) {
             <div class="archived-model-meta">${escapeHtml(meta)}</div>
           </div>
           <div class="archived-model-actions">
+            <button type="button" class="btn-icon settings-archive-chat-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.chat_title", null, targetLang) || "Chat")}">💬</button>
             <button type="button" class="ghost settings-unarchive-btn" data-name="${escapeHtml(m.name)}" data-i18n="settings.unarchive_btn">${escapeHtml(t("settings.unarchive_btn", null, targetLang))}</button>
             <button type="button" class="btn-icon danger-text settings-archive-del-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.delete_title", null, targetLang))}">×</button>
           </div>
         </div>
       `;
     }).join("");
+
+    listEl.querySelectorAll(".settings-archive-chat-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.name;
+        if (!name) return;
+        if (typeof showChatViewWithModel === "function") {
+          showChatViewWithModel(name);
+        }
+      });
+    });
 
     listEl.querySelectorAll(".settings-unarchive-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {

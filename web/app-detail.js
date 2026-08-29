@@ -403,6 +403,7 @@ async function toggleArchived(name, toArchive) {
     toast(t("toast.error", { msg: err.message }), "error");
   }
 }
+window.toggleArchived = toggleArchived;
 
 const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embedding"];
 

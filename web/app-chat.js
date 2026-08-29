@@ -95,18 +95,29 @@ function syncChatModelOptions() {
   const sel = $("chat-model");
   if (!sel) return;
   const previous = sel.value;
-  // Filter out archived models so they do not clutter chat view select dropdown
   const activeModels = models.filter(m => !m.archived);
+  const archivedModels = models.filter(m => !!m.archived);
   const sorted = applySort(activeModels);
-  sel.innerHTML = sorted.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
-  if (!sorted.length) return;
-  if (previous && sorted.some((m) => m.name === previous)) {
+  const sortedArchived = applySort(archivedModels);
+
+  let html = sorted.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
+  if (sortedArchived.length) {
+    const archLabel = t("settings.archived_section") || "Archived Models";
+    html += `<optgroup label="${escapeHtml(archLabel)}">` +
+      sortedArchived.map((m) => `<option value="${escapeHtml(m.name)}">📦 ${escapeHtml(m.name)}</option>`).join("") +
+      `</optgroup>`;
+  }
+  sel.innerHTML = html;
+
+  const allAvailable = [...sorted, ...sortedArchived];
+  if (!allAvailable.length) return;
+  if (previous && allAvailable.some((m) => m.name === previous)) {
     sel.value = previous;
-  } else if (activeName && sorted.some((m) => m.name === activeName)) {
+  } else if (activeName && allAvailable.some((m) => m.name === activeName)) {
     sel.value = activeName;
   } else {
-    const loaded = sorted.find((m) => m.loaded);
-    sel.value = (loaded || sorted[0]).name;
+    const loaded = sorted.find((m) => m.loaded) || sortedArchived.find((m) => m.loaded);
+    sel.value = (loaded || sorted[0] || sortedArchived[0]).name;
   }
   updateChatModelLoadDot();
   updateChatModelDisplay();

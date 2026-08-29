@@ -456,7 +456,7 @@ function renderTable() {
 
     const actionsHtml = m.isGhost
       ? `<button type="button" class="btn-icon reinstall-ghost-btn" title="${escapeHtml(t("models.reinstall_title"))}" data-name="${escapeHtml(m.name)}">📥</button>`
-      : (!m.isPending ? `<button type="button" class="btn-icon delete-btn" title="${escapeHtml(m.is_external ? t("detail.delete_external_title") : deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
+      : (!m.isPending ? `${m.archived ? `<button type="button" class="btn-icon unarchive-btn" title="${escapeHtml(unarchiveTitle)}" data-name="${escapeHtml(m.name)}">📥</button>` : ""}<button type="button" class="btn-icon delete-btn" title="${escapeHtml(m.is_external ? t("detail.delete_external_title") : deleteTitle)}" data-name="${escapeHtml(m.name)}">×</button>` : "");
 
     let baseModel = m.base_model || (typeof isFixedModelName === "function" && isFixedModelName(m.name) ? fixedBaseName(m.name) : "");
     if (baseModel && (typeof isBlobOrLocalPath === "function" ? isBlobOrLocalPath(baseModel) : false)) {
@@ -552,7 +552,8 @@ function renderTable() {
         tr._m_family !== m.family ||
         tr._m_param !== m.parameter_size ||
         tr._m_param_count !== m.parameter_count ||
-        tr._m_quant !== modelQuantLabel(m)
+        tr._m_quant !== modelQuantLabel(m) ||
+        tr._m_archived !== !!m.archived
       ) {
         needUpdate = true;
       }
@@ -580,6 +581,7 @@ function renderTable() {
         if (e.target.closest(".delete-btn")) return;
         if (e.target.closest(".reinstall-ghost-btn")) return;
         if (e.target.closest(".ghost-site-btn")) return;
+        if (e.target.closest(".unarchive-btn")) return;
         if (m.isGhost) return;
         showChatViewWithModel(newTr.dataset.name);
       });
@@ -608,12 +610,23 @@ function renderTable() {
         });
       }
 
+      const unarchiveBtn = newTr.querySelector(".unarchive-btn");
+      if (unarchiveBtn) {
+        unarchiveBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (typeof toggleArchived === "function") {
+            toggleArchived(unarchiveBtn.dataset.name, false);
+          }
+        });
+      }
+
       // Save properties to track state
       newTr._m_isPending = !!m.isPending;
       newTr._m_isGhost = !!m.isGhost;
       newTr._m_isCustom = !!m.is_custom;
       newTr._m_isExternal = !!m.is_external;
       newTr._m_loaded = !!m.loaded;
+      newTr._m_archived = !!m.archived;
       newTr._m_active = isActive;
       newTr._m_pct = pct;
       newTr._m_caps = capsStr;

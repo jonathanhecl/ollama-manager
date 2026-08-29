@@ -120,40 +120,42 @@ func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
 		out.MinColdLoadAt = target.MinColdLoadAt
 	}
 	if target.LastUsedAt != nil {
-		out.LastUsedAt = target.LastUsedAt
+		if out.LastUsedAt == nil || target.LastUsedAt.After(*out.LastUsedAt) {
+			out.LastUsedAt = target.LastUsedAt
+		}
 	}
 	if target.TotalCalls > out.TotalCalls {
 		out.TotalCalls = target.TotalCalls
 		out.TotalTokens = target.TotalTokens
 	}
-	if out.ParameterSize == "" && target.ParameterSize != "" {
+	if target.ParameterSize != "" {
 		out.ParameterSize = target.ParameterSize
 	}
-	if out.Size == 0 && target.Size != 0 {
+	if target.Size != 0 {
 		out.Size = target.Size
 	}
-	if out.Quantization == "" && target.Quantization != "" {
+	if target.Quantization != "" {
 		out.Quantization = target.Quantization
 	}
-	if out.Family == "" && target.Family != "" {
+	if target.Family != "" {
 		out.Family = target.Family
 	}
-	if out.ParameterCount == 0 && target.ParameterCount != 0 {
+	if target.ParameterCount != 0 {
 		out.ParameterCount = target.ParameterCount
 	}
-	if out.Architecture == "" && target.Architecture != "" {
+	if target.Architecture != "" {
 		out.Architecture = target.Architecture
 	}
-	if out.FileType == 0 && target.FileType != 0 {
+	if target.FileType != 0 {
 		out.FileType = target.FileType
 	}
-	if out.SizeLabel == "" && target.SizeLabel != "" {
+	if target.SizeLabel != "" {
 		out.SizeLabel = target.SizeLabel
 	}
-	if out.ContextLength == 0 && target.ContextLength != 0 {
+	if target.ContextLength != 0 {
 		out.ContextLength = target.ContextLength
 	}
-	if target.IsMOE {
+	if target.IsMOE || base.IsMOE {
 		out.IsMOE = true
 	}
 	return out
@@ -178,6 +180,11 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 		if baseRec, baseOk := s.models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
+		for k, baseRec := range s.models {
+			if strings.HasPrefix(k, base+":") && k != name && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+				return mergeBaseUsage(rec, baseRec), true
+			}
+		}
 	}
 	return rec, ok
 }
@@ -187,20 +194,28 @@ func (s *modelUsageStore) InheritUsage(srcName, targetName string) error {
 		return nil
 	}
 	s.mu.Lock()
-	src, ok := s.models[srcName]
-	if !ok {
+	src, okSrc := s.models[srcName]
+	if !okSrc {
 		if strings.HasSuffix(srcName, ":latest") {
-			src, ok = s.models[strings.TrimSuffix(srcName, ":latest")]
+			src, okSrc = s.models[strings.TrimSuffix(srcName, ":latest")]
 		} else {
-			src, ok = s.models[srcName+":latest"]
+			src, okSrc = s.models[srcName+":latest"]
 		}
 	}
-	if !ok {
+	target, okTarget := s.models[targetName]
+	if !okTarget {
+		if strings.HasSuffix(targetName, ":latest") {
+			target, okTarget = s.models[strings.TrimSuffix(targetName, ":latest")]
+		} else {
+			target, okTarget = s.models[targetName+":latest"]
+		}
+	}
+	if !okSrc && !okTarget {
 		s.mu.Unlock()
 		return nil
 	}
-	target := s.models[targetName]
 	s.models[targetName] = mergeBaseUsage(target, src)
+	s.models[srcName] = mergeBaseUsage(src, target)
 	s.mu.Unlock()
 
 	return s.save()

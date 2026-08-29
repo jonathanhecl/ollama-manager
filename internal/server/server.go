@@ -68,6 +68,9 @@ type Server struct {
 	artifactEvalMu sync.Mutex
 	artifactEvalCh map[string]chan artifactEvalResponse
 
+	projectorCacheMu sync.RWMutex
+	projectorCache   map[string]string // url -> hexSum
+
 	versionInfo string
 }
 
@@ -167,6 +170,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 		artifactConsoleLogs:  make(map[string][]string),
 		artifactScreenshotCh: make(map[string]chan artifactScreenshotResponse),
 		artifactEvalCh:       make(map[string]chan artifactEvalResponse),
+		projectorCache:       make(map[string]string),
 	}, nil
 }
 

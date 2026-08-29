@@ -479,6 +479,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 
 	modelMeta := s.fetchModelMeta(ctx, models)
 
+	s.syncAllModelUsageFamilies()
 	out := make([]modelView, 0, len(models))
 	for _, m := range models {
 		isCustom := false
@@ -533,7 +534,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			BaseModel:      baseModel,
 		}
 		if s.usage != nil {
-			if rec, ok := s.usage.Get(m.Name); ok {
+			if rec, ok := s.getModelUsage(m.Name); ok {
 				v.LastUsedAt = rec.LastUsedAt
 				v.RecordTokensPerSec = rec.RecordTokensPerSec
 				v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
@@ -1071,7 +1072,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 			ModifiedAt: rec.CreatedAt,
 		}
 		if s.usage != nil {
-			if urec, ok := s.usage.Get(name); ok {
+			if urec, ok := s.getModelUsage(name); ok {
 				detail.LastUsedAt = urec.LastUsedAt
 				detail.RecordTokensPerSec = urec.RecordTokensPerSec
 				detail.RecordTokensPerSecAt = urec.RecordTokensPerSecAt
@@ -1127,7 +1128,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		detail.System = extractModelfileSystem(show.Modelfile)
 	}
 	if s.usage != nil {
-		if rec, ok := s.usage.Get(name); ok {
+		if rec, ok := s.getModelUsage(name); ok {
 			detail.LastUsedAt = rec.LastUsedAt
 			detail.RecordTokensPerSec = rec.RecordTokensPerSec
 			detail.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
@@ -1472,12 +1473,29 @@ func (s *Server) handleRepairApply(w http.ResponseWriter, r *http.Request) {
 			"mmproj.gguf": "sha256:" + projHex,
 		}
 	}
-	sendSSE("progress", map[string]any{
-		"stage":   "creating_model",
-		"percent": 100,
-	})
 	replacing := s.modelExists(r.Context(), preview.TargetName)
-	err = s.ollama.Create(r.Context(), createReq)
+	if isStream {
+		sendSSE("progress", map[string]any{
+			"stage":   "creating_model",
+			"percent": 0,
+		})
+		err = s.ollama.CreateStream(r.Context(), createReq, func(ev ollama.CreateProgress) error {
+			pct := float64(0)
+			if ev.Total > 0 {
+				pct = float64(ev.Completed) / float64(ev.Total) * 100
+			}
+			sendSSE("progress", map[string]any{
+				"stage":     "creating_model",
+				"status":    ev.Status,
+				"completed": ev.Completed,
+				"total":     ev.Total,
+				"percent":   pct,
+			})
+			return nil
+		})
+	} else {
+		err = s.ollama.Create(r.Context(), createReq)
+	}
 	if err != nil {
 		if isStream {
 			sendSSE("error", map[string]any{"error": err.Error()})
@@ -1629,6 +1647,20 @@ func (s *Server) downloadProjector(ctx context.Context, ref string, onProgress f
 // downloadBlob fetches a blob from u, hashes it and ensures it is stored in
 // Ollama under its content digest.
 func (s *Server) downloadBlob(ctx context.Context, u string, onProgress func(completed, total int64)) (string, error) {
+	s.projectorCacheMu.RLock()
+	cachedHex := s.projectorCache[u]
+	s.projectorCacheMu.RUnlock()
+
+	if cachedHex != "" {
+		digest := "sha256:" + cachedHex
+		if exists, err := s.ollama.HeadBlob(ctx, digest); err == nil && exists {
+			if onProgress != nil {
+				onProgress(1, 1)
+			}
+			return cachedHex, nil
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", err
@@ -1692,6 +1724,14 @@ func (s *Server) downloadBlob(ctx context.Context, u string, onProgress func(com
 			return "", err
 		}
 	}
+
+	s.projectorCacheMu.Lock()
+	if s.projectorCache == nil {
+		s.projectorCache = make(map[string]string)
+	}
+	s.projectorCache[u] = hexSum
+	s.projectorCacheMu.Unlock()
+
 	return hexSum, nil
 }
 
@@ -1840,51 +1880,137 @@ func estimateTextTokens(s string) int {
 	return n / 4
 }
 
-// recordModelUsage records token telemetry, delegating / attributing metrics to the
-// referent base model if the model is custom and based on an installed model.
+// modelFamily returns all model names in the same custom/base lineage as name:
+// name itself, its base model (if name is custom), and any custom models derived
+// from name or from its base model.
+func (s *Server) modelFamily(name string) []string {
+	if name == "" {
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	seen := map[string]bool{name: true}
+	family := []string{name}
+
+	add := func(n string) {
+		n = strings.TrimSpace(n)
+		if n != "" && !seen[n] {
+			seen[n] = true
+			family = append(family, n)
+		}
+	}
+
+	base := ""
+	if s.customModels != nil {
+		base = s.customModels.GetBase(name)
+	}
+	if base == "" && isFixedModelName(name) {
+		base = fixedBaseName(name)
+	}
+	if base != "" {
+		add(base)
+	}
+
+	if s.customModels != nil {
+		for custom, rec := range s.customModels.All() {
+			if rec.BaseModel == name || (base != "" && rec.BaseModel == base) {
+				add(custom)
+			}
+			if custom == name && rec.BaseModel != "" {
+				add(rec.BaseModel)
+			}
+		}
+	}
+
+	if isFixedModelName(name) {
+		add(fixedBaseName(name))
+	} else {
+		add(name + ":fixed")
+		if colon := strings.LastIndex(name, ":"); colon > 0 {
+			add(name[:colon] + ":fixed")
+		}
+	}
+
+	return family
+}
+
+// getModelUsage retrieves the usage record for name, unifying velocity (record tokens/sec),
+// load times, and last used across custom models and their base parent model.
+func (s *Server) getModelUsage(name string) (ModelUsageRecord, bool) {
+	if s.usage == nil || name == "" {
+		return ModelUsageRecord{}, false
+	}
+	family := s.modelFamily(name)
+
+	var targetRec ModelUsageRecord
+	var targetFound bool
+	if rec, ok := s.usage.Get(name); ok {
+		targetRec = rec
+		targetFound = true
+	}
+
+	var bestTelemetry ModelUsageRecord
+	var hasTelemetry bool
+
+	for _, member := range family {
+		if rec, ok := s.usage.Get(member); ok {
+			if rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0 || rec.TotalCalls > 0 {
+				if !hasTelemetry {
+					bestTelemetry = rec
+					hasTelemetry = true
+				} else {
+					bestTelemetry = mergeBaseUsage(bestTelemetry, rec)
+				}
+			}
+		}
+	}
+
+	if !targetFound && !hasTelemetry {
+		return ModelUsageRecord{}, false
+	}
+	if !hasTelemetry {
+		return targetRec, true
+	}
+	merged := mergeBaseUsage(targetRec, bestTelemetry)
+	return merged, true
+}
+
+func (s *Server) syncAllModelUsageFamilies() {
+	if s.customModels == nil || s.usage == nil {
+		return
+	}
+	for custom, rec := range s.customModels.All() {
+		if rec.BaseModel != "" {
+			_ = s.usage.InheritUsage(rec.BaseModel, custom)
+		}
+	}
+}
+
+// recordModelUsage records token telemetry across the entire family (custom and base model).
 func (s *Server) recordModelUsage(name string, evalCount int, evalDurationNs int64, promptEvalCount int, usedAt time.Time) {
 	if s.usage == nil || name == "" {
 		return
 	}
-	target := name
-	if s.customModels != nil {
-		if base := s.customModels.GetBase(name); base != "" {
-			target = base
-		}
-	} else if isFixedModelName(name) {
-		target = fixedBaseName(name)
+	for _, member := range s.modelFamily(name) {
+		_ = s.usage.Record(member, evalCount, evalDurationNs, promptEvalCount, usedAt)
 	}
-	_ = s.usage.Record(target, evalCount, evalDurationNs, promptEvalCount, usedAt)
 }
 
 func (s *Server) recordModelTPS(name string, tps float64, usedAt time.Time) {
 	if s.usage == nil || name == "" {
 		return
 	}
-	target := name
-	if s.customModels != nil {
-		if base := s.customModels.GetBase(name); base != "" {
-			target = base
-		}
-	} else if isFixedModelName(name) {
-		target = fixedBaseName(name)
+	for _, member := range s.modelFamily(name) {
+		_ = s.usage.RecordTPS(member, tps, usedAt)
 	}
-	_ = s.usage.RecordTPS(target, tps, usedAt)
 }
 
 func (s *Server) recordModelColdLoad(name string, durationMs int64, at time.Time) {
 	if s.usage == nil || name == "" {
 		return
 	}
-	target := name
-	if s.customModels != nil {
-		if base := s.customModels.GetBase(name); base != "" {
-			target = base
-		}
-	} else if isFixedModelName(name) {
-		target = fixedBaseName(name)
+	for _, member := range s.modelFamily(name) {
+		_ = s.usage.RecordColdLoad(member, durationMs, at)
 	}
-	_ = s.usage.RecordColdLoad(target, durationMs, at)
 }
 
 // recordCancelUsage records a cancelled streaming response as used when it was

@@ -185,7 +185,7 @@ func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeSt
 		}
 		tps := 0.0
 		if s.usage != nil {
-			if rec, ok := s.usage.Get(tag); ok {
+			if rec, ok := s.getModelUsage(tag); ok {
 				tps = rec.RecordTokensPerSec
 			}
 		}
@@ -199,7 +199,7 @@ func (s *Server) buildOpenCodeView(ctx context.Context, remote bool) (opencodeSt
 		}
 		ctxLen := mMeta.ContextLength
 		if ctxLen == 0 && s.usage != nil {
-			if rec, ok := s.usage.Get(tag); ok {
+			if rec, ok := s.getModelUsage(tag); ok {
 				ctxLen = rec.ContextLength
 			}
 		}

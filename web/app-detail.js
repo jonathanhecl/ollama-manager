@@ -832,7 +832,17 @@ function bindRepairControls(d) {
                   }
                   setRepairProgress(pct, text);
                 } else if (data.stage === "creating_model") {
-                  setRepairProgress(100, t("repair.creating_model"));
+                  let text = t("repair.creating_model");
+                  const completed = data.completed || 0;
+                  const total = data.total || 0;
+                  const pct = data.percent || 0;
+                  if (data.status) {
+                    text = data.status;
+                    if (total > 0) {
+                      text += `: ${formatBytes(completed)} / ${formatBytes(total)} (${pct.toFixed(1)}%)`;
+                    }
+                  }
+                  setRepairProgress(total > 0 ? pct : 100, text);
                 }
               } else if (currentEvent === "done") {
                 finalResult = data;

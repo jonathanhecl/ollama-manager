@@ -389,3 +389,64 @@ func TestHandleGetModelUsage(t *testing.T) {
 		t.Fatalf("unexpected usage payload: %#v", res)
 	}
 }
+
+func TestCustomAndParentModelUsageSync(t *testing.T) {
+	tmpDir := t.TempDir()
+	usageStore := newModelUsageStore(filepath.Join(tmpDir, "model_usage.json"))
+	_ = usageStore.Load()
+	customStore := newCustomModelsStore(filepath.Join(tmpDir, "custom_models.json"))
+	_ = customStore.Load()
+
+	parent := "hf.co/user/Model:Q3_K_M"
+	custom := "hf.co/user/Model:fixed"
+
+	_ = customStore.Register(custom, parent)
+
+	t1 := time.Date(2026, 8, 29, 3, 0, 0, 0, time.UTC)
+	_ = usageStore.RecordTPS(parent, 30.0, t1)
+	_ = usageStore.RecordColdLoad(parent, 2500, t1)
+
+	srv := &Server{
+		usage:        usageStore,
+		customModels: customStore,
+	}
+
+	// 1. Custom model retrieves usage from parent
+	customUsage, ok := srv.getModelUsage(custom)
+	if !ok {
+		t.Fatalf("expected custom to have usage from parent")
+	}
+	if customUsage.RecordTokensPerSec != 30.0 {
+		t.Fatalf("expected 30.0 tok/s for custom, got %f", customUsage.RecordTokensPerSec)
+	}
+	if customUsage.MinColdLoadMs != 2500 {
+		t.Fatalf("expected 2500ms cold load for custom, got %d", customUsage.MinColdLoadMs)
+	}
+
+	// 2. Record faster TPS on custom model
+	t2 := time.Date(2026, 8, 29, 4, 0, 0, 0, time.UTC)
+	srv.recordModelTPS(custom, 42.5, t2)
+
+	// 3. Parent model should also reflect the new speed (vice versa)
+	parentUsage, ok := srv.getModelUsage(parent)
+	if !ok || parentUsage.RecordTokensPerSec != 42.5 {
+		t.Fatalf("expected parent to reflect 42.5 tok/s, got %f", parentUsage.RecordTokensPerSec)
+	}
+	if parentUsage.LastUsedAt == nil || !parentUsage.LastUsedAt.Equal(t2) {
+		t.Fatalf("expected parent last used to be %v, got %v", t2, parentUsage.LastUsedAt)
+	}
+
+	// 4. Custom model should also reflect 42.5
+	customUsage2, ok := srv.getModelUsage(custom)
+	if !ok || customUsage2.RecordTokensPerSec != 42.5 {
+		t.Fatalf("expected custom to reflect 42.5 tok/s, got %f", customUsage2.RecordTokensPerSec)
+	}
+
+	// 5. SyncAllModelUsageFamilies persists to usage store
+	srv.syncAllModelUsageFamilies()
+	recInStore, ok := usageStore.Get(custom)
+	if !ok || recInStore.RecordTokensPerSec != 42.5 {
+		t.Fatalf("expected custom in usageStore to have 42.5, got %f", recInStore.RecordTokensPerSec)
+	}
+}
+

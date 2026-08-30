@@ -1357,6 +1357,44 @@ select:focus { border-color: var(--accent); }
   gap: 14px;
 }
 
+.settings-reset-overrides-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 6px;
+  padding: 14px 16px;
+  background: var(--panel-2, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.settings-reset-overrides-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-reset-overrides-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+.settings-reset-overrides-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+@media (max-width: 650px) {
+  .settings-reset-overrides-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .settings-reset-overrides-card button {
+    width: 100%;
+    text-align: center;
+  }
+}
+
 .settings-view-head-actions {
   display: flex;
   align-items: center;

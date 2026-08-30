@@ -56,6 +56,7 @@ async function showSettingsView() {
   bindSettingsNavEvents();
   bindDefaultSystemPromptFileEvents();
   bindSystemPromptsModalEvents();
+  bindChatDefaultsEvents();
 
   const mobileBackBtn = $("settings-mobile-back-btn");
   if (mobileBackBtn && !mobileBackBtn._bound) {
@@ -219,6 +220,47 @@ function bindDefaultSystemPromptFileEvents() {
       if (files.length > 0) {
         loadFileIntoDefaultSystemPrompt(files[0]);
       }
+    });
+  }
+}
+
+function bindChatDefaultsEvents() {
+  const resetAllBtn = $("set-reset-all-models-btn");
+  if (resetAllBtn && !resetAllBtn._bound) {
+    resetAllBtn._bound = true;
+    resetAllBtn.addEventListener("click", async () => {
+      const allOverrides = typeof getAllModelChatOptions === "function" ? getAllModelChatOptions() : {};
+      const count = Object.keys(allOverrides).length;
+      if (count === 0) {
+        toast(t("settings.reset_all_models_none"), "info");
+        return;
+      }
+
+      const conf = await askConfirm({
+        title: t("settings.reset_all_models_confirm_title"),
+        text: t("settings.reset_all_models_confirm_desc", { count }),
+        okText: t("settings.reset_all_models_btn"),
+        okClass: "danger",
+      });
+      if (!conf?.ok) return;
+
+      if (typeof saveGlobalChatDefaults === "function") {
+        saveGlobalChatDefaults({
+          system: $("set-default-system")?.value ?? "",
+          temperature: parseFloat($("set-default-temp")?.value) || 0.7,
+          top_k: parseInt($("set-default-top-k")?.value, 10) || 40,
+          top_p: parseFloat($("set-default-top-p")?.value) || 0.9,
+          num_ctx: typeof normalizeNumCtxPct === "function" ? normalizeNumCtxPct($("set-default-num-ctx")?.value ?? 100) : 100,
+          think_level: $("set-default-think-level")?.value ?? "auto",
+          web_tools: $("set-default-web-tools")?.checked ?? false,
+          artifacts: $("set-default-artifacts")?.checked ?? false,
+        });
+      }
+
+      if (typeof resetAllModelChatOptionsToDefaults === "function") {
+        resetAllModelChatOptionsToDefaults();
+      }
+      toast(t("settings.reset_all_models_done"), "success");
     });
   }
 }

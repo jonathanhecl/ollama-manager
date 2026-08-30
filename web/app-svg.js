@@ -3758,6 +3758,20 @@ function resetModelChatOptionsToDefaults() {
   toast(t("chat.reset_to_defaults_done"), "success");
 }
 
+function resetAllModelChatOptionsToDefaults() {
+  try {
+    localStorage.removeItem(MODEL_CHAT_OPTIONS_KEY);
+  } catch (e) {
+    console.error("Error clearing all model chat options", e);
+  }
+
+  const activeChatModel = $("chat-model")?.value;
+  if (activeChatModel) {
+    void applyChatDefaultsForModel(activeChatModel, true);
+  }
+  updateChatCustomOptionsBadge();
+}
+
 function setChatOptionsValues(opts) {
   if (!opts) return;
   if (opts.system !== undefined && $("chat-system")) {

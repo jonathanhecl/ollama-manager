@@ -462,19 +462,26 @@ function extractStopTokens(modelfile) {
 }
 
 function renderRepairEntry(d) {
+  const resetBtnHtml = `<button type="button" class="ghost reset-analytics-btn" data-name="${escapeHtml(d.name)}" title="${escapeHtml(t("detail.reset_analytics_title"))}">⚠️ ${escapeHtml(t("detail.reset_analytics_btn"))}</button>`;
   if (isFixedModelName(d.name)) {
     const base = d.base_model || fixedBaseName(d.name);
     return `<div class="detail-section repair-entry">
       <h3>${escapeHtml(t("repair.title"))}</h3>
       <div class="repair-note">${escapeHtml(t("repair.fixed_note", { base }))}</div>
-      <button type="button" class="ghost repair-open-base" data-base="${escapeHtml(base)}">${escapeHtml(t("repair.open_base"))}</button>
+      <div class="repair-entry-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button type="button" class="ghost repair-open-base" data-base="${escapeHtml(base)}">${escapeHtml(t("repair.open_base"))}</button>
+        ${resetBtnHtml}
+      </div>
     </div>`;
   }
   const target = fixedModelName(d.name);
   return `<div class="detail-section repair-entry">
     <h3>${escapeHtml(t("repair.title"))}</h3>
     <div class="repair-note">${escapeHtml(t("repair.entry_note", { name: target }))}</div>
-    <button type="button" class="ghost repair-open-modal">${escapeHtml(t("repair.options_btn"))}</button>
+    <div class="repair-entry-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <button type="button" class="ghost repair-open-modal">${escapeHtml(t("repair.options_btn"))}</button>
+      ${resetBtnHtml}
+    </div>
   </div>`;
 }
 
@@ -583,6 +590,34 @@ function bindRepairEntry(d) {
   const openModal = document.querySelector(".repair-open-modal");
   if (openModal) {
     openModal.addEventListener("click", () => openRepairModal(d));
+  }
+  const resetBtn = document.querySelector(".reset-analytics-btn");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", async () => {
+      const name = resetBtn.dataset.name || d.name;
+      if (!name) return;
+      if (!confirm(t("detail.reset_analytics_confirm", { name }))) return;
+      resetBtn.disabled = true;
+      try {
+        const res = await api("/api/models/analytics/reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (res?.error) throw new Error(res.error);
+        toast(t("detail.reset_analytics_success", { name }), "success");
+        if (typeof loadModels === "function") {
+          await loadModels();
+        }
+        if (typeof openDetail === "function") {
+          openDetail(name);
+        }
+      } catch (err) {
+        toast(err.message || String(err), "error");
+      } finally {
+        resetBtn.disabled = false;
+      }
+    });
   }
 }
 

@@ -1307,6 +1307,32 @@ func (s *Server) handleDeleteGhost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "name": name})
 }
 
+// handleResetModelAnalytics clears the persistent usage analytics (tokens/sec, load time, calls, tokens)
+// for a given model.
+func (s *Server) handleResetModelAnalytics(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if s.usage == nil {
+		writeError(w, http.StatusInternalServerError, errors.New("usage store unavailable"))
+		return
+	}
+	if err := s.usage.ResetAnalytics(name); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reset": true, "name": name})
+}
+
 func (s *Server) handleGetModelUsage(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {

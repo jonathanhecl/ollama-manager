@@ -379,6 +379,48 @@ func (s *modelUsageStore) Delete(name string) (bool, error) {
 	return true, s.save()
 }
 
+// ResetAnalytics clears runtime performance metrics and token counts (tokens/sec,
+// cold load times, call counts, token counters, last used timestamps) for a model,
+// preserving static metadata (parameter count, architecture, quantization, etc.).
+func (s *modelUsageStore) ResetAnalytics(name string) error {
+	if name == "" {
+		return nil
+	}
+	s.mu.Lock()
+	resetRecord := func(k string) bool {
+		rec, ok := s.models[k]
+		if !ok {
+			return false
+		}
+		rec.RecordTokensPerSec = 0
+		rec.RecordTokensPerSecAt = nil
+		rec.MinColdLoadMs = 0
+		rec.MinColdLoadAt = nil
+		rec.TotalTokens = 0
+		rec.TotalCalls = 0
+		rec.LastUsedAt = nil
+		s.models[k] = rec
+		return true
+	}
+
+	found := resetRecord(name)
+	if strings.HasSuffix(name, ":latest") {
+		if resetRecord(strings.TrimSuffix(name, ":latest")) {
+			found = true
+		}
+	} else if !strings.Contains(name, ":") {
+		if resetRecord(name + ":latest") {
+			found = true
+		}
+	}
+	s.mu.Unlock()
+
+	if !found {
+		return nil
+	}
+	return s.save()
+}
+
 func (s *modelUsageStore) save() error {
 	if s.path == "" {
 		return nil

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -521,5 +522,61 @@ func TestQuantizationUsageIsolation(t *testing.T) {
 		t.Fatalf("quant1 stats changed after sync: got tok/s %f, cold load %d", rec1.RecordTokensPerSec, rec1.MinColdLoadMs)
 	}
 }
+
+func TestResetModelAnalytics(t *testing.T) {
+	tmpDir := t.TempDir()
+	usageStore := newModelUsageStore(filepath.Join(tmpDir, "model_usage.json"))
+	_ = usageStore.Load()
+
+	srv := &Server{
+		usage: usageStore,
+	}
+
+	modelName := "hf.co/user/Model:IQ2_M"
+	t1 := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+	_ = usageStore.Record(modelName, 100, 2000000000, 20, t1)
+	_ = usageStore.RecordColdLoad(modelName, 15000, t1)
+	_ = usageStore.SetMeta(modelName, modelUsageMeta{
+		ParameterSize: "30B",
+		Quantization:  "IQ2_M",
+		Architecture:  "hy_v3",
+	})
+
+	rec, ok := usageStore.Get(modelName)
+	if !ok || rec.RecordTokensPerSec == 0 || rec.MinColdLoadMs == 0 {
+		t.Fatalf("expected usage to be recorded")
+	}
+
+	// Call handleResetModelAnalytics via HTTP
+	req := httptest.NewRequest(http.MethodPost, "/api/models/analytics/reset", strings.NewReader(`{"name":"`+modelName+`"}`))
+	w := httptest.NewRecorder()
+	srv.handleResetModelAnalytics(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify analytics are reset while metadata is preserved
+	resetRec, ok := usageStore.Get(modelName)
+	if !ok {
+		t.Fatalf("expected record to still exist with metadata")
+	}
+	if resetRec.RecordTokensPerSec != 0 {
+		t.Errorf("expected 0 tok/s, got %f", resetRec.RecordTokensPerSec)
+	}
+	if resetRec.MinColdLoadMs != 0 {
+		t.Errorf("expected 0 min cold load, got %d", resetRec.MinColdLoadMs)
+	}
+	if resetRec.TotalCalls != 0 || resetRec.TotalTokens != 0 {
+		t.Errorf("expected 0 calls and tokens, got %d calls, %d tokens", resetRec.TotalCalls, resetRec.TotalTokens)
+	}
+	if resetRec.LastUsedAt != nil {
+		t.Errorf("expected nil LastUsedAt, got %v", resetRec.LastUsedAt)
+	}
+	if resetRec.ParameterSize != "30B" || resetRec.Quantization != "IQ2_M" || resetRec.Architecture != "hy_v3" {
+		t.Errorf("metadata was lost: %+v", resetRec)
+	}
+}
+
 
 

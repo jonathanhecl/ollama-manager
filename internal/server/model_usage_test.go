@@ -450,3 +450,76 @@ func TestCustomAndParentModelUsageSync(t *testing.T) {
 	}
 }
 
+func TestQuantizationUsageIsolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	usageStore := newModelUsageStore(filepath.Join(tmpDir, "model_usage.json"))
+	_ = usageStore.Load()
+	customStore := newCustomModelsStore(filepath.Join(tmpDir, "custom_models.json"))
+	_ = customStore.Load()
+
+	srv := &Server{
+		usage:        usageStore,
+		customModels: customStore,
+	}
+
+	quant1 := "hf.co/user/Model:IQ3_M"
+	quant2 := "hf.co/user/Model:IQ2_M"
+	fixed1 := "hf.co/user/Model:fixed"
+
+	// Register fixed1 as being derived specifically from quant1
+	_ = customStore.Register(fixed1, quant1)
+
+	// Record usage on quant1
+	t1 := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+	srv.recordModelTPS(quant1, 43.4, t1)
+	srv.recordModelColdLoad(quant1, 15700, t1)
+
+	// Record completely different usage on quant2
+	t2 := time.Date(2026, 8, 30, 11, 0, 0, 0, time.UTC)
+	srv.recordModelTPS(quant2, 28.1, t2)
+	srv.recordModelColdLoad(quant2, 22400, t2)
+
+	// Verify quant1 retains its own stats
+	u1, ok1 := srv.getModelUsage(quant1)
+	if !ok1 {
+		t.Fatalf("expected usage for quant1")
+	}
+	if u1.RecordTokensPerSec != 43.4 || u1.MinColdLoadMs != 15700 {
+		t.Fatalf("quant1 stats mismatch: got tok/s %f, cold load %d", u1.RecordTokensPerSec, u1.MinColdLoadMs)
+	}
+
+	// Verify quant2 retains its own separate stats
+	u2, ok2 := srv.getModelUsage(quant2)
+	if !ok2 {
+		t.Fatalf("expected usage for quant2")
+	}
+	if u2.RecordTokensPerSec != 28.1 || u2.MinColdLoadMs != 22400 {
+		t.Fatalf("quant2 stats mismatch: got tok/s %f, cold load %d", u2.RecordTokensPerSec, u2.MinColdLoadMs)
+	}
+
+	// Verify fixed1 inherited from its parent quant1, NOT quant2
+	uf, okf := srv.getModelUsage(fixed1)
+	if !okf {
+		t.Fatalf("expected usage for fixed1")
+	}
+	if uf.RecordTokensPerSec != 43.4 || uf.MinColdLoadMs != 15700 {
+		t.Fatalf("fixed1 stats mismatch: got tok/s %f, cold load %d", uf.RecordTokensPerSec, uf.MinColdLoadMs)
+	}
+
+	// Run syncAllModelUsageFamilies
+	srv.syncAllModelUsageFamilies()
+
+	// Verify quant2 was NOT contaminated by quant1 or fixed1
+	rec2, _ := usageStore.Get(quant2)
+	if rec2.RecordTokensPerSec != 28.1 || rec2.MinColdLoadMs != 22400 {
+		t.Fatalf("quant2 was contaminated after sync: got tok/s %f, cold load %d", rec2.RecordTokensPerSec, rec2.MinColdLoadMs)
+	}
+
+	// Verify quant1 remains 43.4
+	rec1, _ := usageStore.Get(quant1)
+	if rec1.RecordTokensPerSec != 43.4 || rec1.MinColdLoadMs != 15700 {
+		t.Fatalf("quant1 stats changed after sync: got tok/s %f, cold load %d", rec1.RecordTokensPerSec, rec1.MinColdLoadMs)
+	}
+}
+
+

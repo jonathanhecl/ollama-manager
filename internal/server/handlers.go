@@ -495,17 +495,20 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		if isCustom {
 			if baseModel == "" || !strings.Contains(baseModel, ":") || strings.HasSuffix(baseModel, ":latest") {
 				prefix := baseModel
-				if prefix == "" || prefix == fixedBaseName(m.Name) {
+				if prefix == "" && isFixedModelName(m.Name) {
 					prefix = fixedBaseName(m.Name)
 				}
-				for _, other := range models {
-					if other.Name != m.Name {
-						if other.Name == prefix || strings.HasPrefix(other.Name, prefix+":") {
-							baseModel = other.Name
-							if s.customModels != nil {
-								_ = s.customModels.Register(m.Name, baseModel)
+				if prefix != "" {
+					cleanPrefix := strings.TrimSuffix(prefix, ":latest")
+					for _, other := range models {
+						if other.Name != m.Name {
+							if other.Name == cleanPrefix || other.Name == cleanPrefix+":latest" {
+								baseModel = other.Name
+								if s.customModels != nil {
+									_ = s.customModels.Register(m.Name, baseModel)
+								}
+								break
 							}
-							break
 						}
 					}
 				}
@@ -872,6 +875,12 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 				out <- item{digest: m.Digest}
 				return
 			}
+			if show != nil && show.Modelfile != "" && s.customModels != nil {
+				from := extractLineDirective(show.Modelfile, "FROM")
+				if from != "" && !isLocalFilePathOrDigest(from) && from != m.Name {
+					_ = s.customModels.Register(m.Name, from)
+				}
+			}
 			out <- item{
 				digest:         m.Digest,
 				contextLen:     extractContextLength(show),
@@ -1234,17 +1243,26 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	deletedArtifacts := s.deleteArtifactsForModel(r.Context(), name)
 	if !isFixedModelName(name) {
 		fixed := fixedModelName(name)
-		if s.modelExists(r.Context(), fixed) {
+		isLinkedFixed := false
+		if s.customModels != nil {
+			base := s.customModels.GetBase(fixed)
+			if base == name || (strings.HasSuffix(name, ":latest") && base == strings.TrimSuffix(name, ":latest")) || (!strings.Contains(name, ":") && base == name+":latest") {
+				isLinkedFixed = true
+			}
+		}
+		if isLinkedFixed && s.modelExists(r.Context(), fixed) {
 			if err := s.ollama.Delete(r.Context(), fixed); err != nil {
 				resp["warning"] = "base model deleted, but fixed model could not be deleted: " + err.Error()
 			} else {
 				resp["deleted_fixed"] = fixed
 			}
 		}
-		if s.customModels != nil {
+		if isLinkedFixed && s.customModels != nil {
 			_ = s.customModels.Unregister(fixed)
 		}
-		deletedArtifacts += s.deleteArtifactsForModel(r.Context(), fixed)
+		if isLinkedFixed {
+			deletedArtifacts += s.deleteArtifactsForModel(r.Context(), fixed)
+		}
 	}
 	if deletedArtifacts > 0 {
 		resp["deleted_artifacts"] = deletedArtifacts
@@ -1899,15 +1917,24 @@ func (s *Server) modelFamily(name string) []string {
 		}
 	}
 
+	// Support :latest tag equivalence (e.g. "model" <-> "model:latest")
+	if strings.HasSuffix(name, ":latest") {
+		add(strings.TrimSuffix(name, ":latest"))
+	} else if !strings.Contains(name, ":") {
+		add(name + ":latest")
+	}
+
 	base := ""
 	if s.customModels != nil {
 		base = s.customModels.GetBase(name)
 	}
-	if base == "" && isFixedModelName(name) {
-		base = fixedBaseName(name)
-	}
 	if base != "" {
 		add(base)
+		if strings.HasSuffix(base, ":latest") {
+			add(strings.TrimSuffix(base, ":latest"))
+		} else if !strings.Contains(base, ":") {
+			add(base + ":latest")
+		}
 	}
 
 	if s.customModels != nil {
@@ -1918,25 +1945,6 @@ func (s *Server) modelFamily(name string) []string {
 			if custom == name && rec.BaseModel != "" {
 				add(rec.BaseModel)
 			}
-		}
-	}
-
-	if isFixedModelName(name) {
-		p := fixedBaseName(name)
-		add(p)
-		if s.usage != nil {
-			s.usage.mu.RLock()
-			for k := range s.usage.models {
-				if strings.HasPrefix(k, p+":") && k != name {
-					add(k)
-				}
-			}
-			s.usage.mu.RUnlock()
-		}
-	} else {
-		add(name + ":fixed")
-		if colon := strings.LastIndex(name, ":"); colon > 0 {
-			add(name[:colon] + ":fixed")
 		}
 	}
 
@@ -1994,22 +2002,6 @@ func (s *Server) syncAllModelUsageFamilies() {
 				_ = s.usage.InheritUsage(rec.BaseModel, custom)
 			}
 		}
-	}
-	s.usage.mu.RLock()
-	var pairs [][2]string
-	for k := range s.usage.models {
-		if isFixedModelName(k) {
-			p := fixedBaseName(k)
-			for other := range s.usage.models {
-				if other != k && strings.HasPrefix(other, p+":") {
-					pairs = append(pairs, [2]string{other, k})
-				}
-			}
-		}
-	}
-	s.usage.mu.RUnlock()
-	for _, pair := range pairs {
-		_ = s.usage.InheritUsage(pair[0], pair[1])
 	}
 }
 

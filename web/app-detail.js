@@ -100,7 +100,7 @@ function renderDetail(d) {
   }
   if (baseModel && (!baseModel.includes(":") || baseModel.endsWith(":latest")) && typeof models !== "undefined" && Array.isArray(models)) {
     const prefix = baseModel.replace(/:latest$/, "");
-    const match = models.find(x => x && x.name !== d.name && (x.name === prefix || x.name.startsWith(prefix + ":")));
+    const match = models.find(x => x && x.name !== d.name && (x.name === prefix || x.name === prefix + ":latest"));
     if (match) baseModel = match.name;
   }
 
@@ -416,7 +416,7 @@ function fixedBaseName(name) {
   if (!isFixedModelName(name)) return String(name || "").trim();
   const basePrefix = String(name).trim().slice(0, -":fixed".length);
   if (typeof models !== "undefined" && Array.isArray(models)) {
-    const match = models.find(x => x && x.name !== name && (x.name === basePrefix || x.name.startsWith(basePrefix + ":")));
+    const match = models.find(x => x && x.name !== name && (x.name === basePrefix || x.name === basePrefix + ":latest"));
     if (match) return match.name;
   }
   return basePrefix;
@@ -463,7 +463,7 @@ function extractStopTokens(modelfile) {
 
 function renderRepairEntry(d) {
   if (isFixedModelName(d.name)) {
-    const base = fixedBaseName(d.name);
+    const base = d.base_model || fixedBaseName(d.name);
     return `<div class="detail-section repair-entry">
       <h3>${escapeHtml(t("repair.title"))}</h3>
       <div class="repair-note">${escapeHtml(t("repair.fixed_note", { base }))}</div>
@@ -480,7 +480,7 @@ function renderRepairEntry(d) {
 
 function renderRepairModalContent(d) {
   if (isFixedModelName(d.name)) {
-    const base = fixedBaseName(d.name);
+    const base = d.base_model || fixedBaseName(d.name);
     return `<div class="repair-card">
       <div class="repair-note">${escapeHtml(t("repair.fixed_note", { base }))}</div>
       <button type="button" class="ghost repair-open-base" data-base="${escapeHtml(base)}">${escapeHtml(t("repair.open_base"))}</button>

@@ -464,7 +464,7 @@ function renderTable() {
     }
     if (baseModel && (!baseModel.includes(":") || baseModel.endsWith(":latest")) && typeof models !== "undefined" && Array.isArray(models)) {
       const prefix = baseModel.replace(/:latest$/, "");
-      const match = models.find(x => x && x.name !== m.name && (x.name === prefix || x.name.startsWith(prefix + ":")));
+      const match = models.find(x => x && x.name !== m.name && (x.name === prefix || x.name === prefix + ":latest"));
       if (match) baseModel = match.name;
     }
     const parentHtml = (!m.isGhost && !m.is_external && m.is_custom && baseModel)

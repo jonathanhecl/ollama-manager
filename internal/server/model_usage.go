@@ -171,7 +171,18 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0) {
 		return rec, true
 	}
-	// Fallback for :fixed models inheriting from their base model
+	// Fallback for :latest aliases
+	if strings.HasSuffix(name, ":latest") {
+		trimmed := strings.TrimSuffix(name, ":latest")
+		if baseRec, baseOk := s.models[trimmed]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+			return mergeBaseUsage(rec, baseRec), true
+		}
+	} else if !strings.Contains(name, ":") {
+		if baseRec, baseOk := s.models[name+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+			return mergeBaseUsage(rec, baseRec), true
+		}
+	}
+	// Fallback for :fixed models inheriting from their base model (exact name or :latest alias)
 	if isFixedModelName(name) {
 		base := fixedBaseName(name)
 		if baseRec, baseOk := s.models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
@@ -179,11 +190,6 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 		}
 		if baseRec, baseOk := s.models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
 			return mergeBaseUsage(rec, baseRec), true
-		}
-		for k, baseRec := range s.models {
-			if strings.HasPrefix(k, base+":") && k != name && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
-				return mergeBaseUsage(rec, baseRec), true
-			}
 		}
 	}
 	return rec, ok

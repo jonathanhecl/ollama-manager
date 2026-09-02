@@ -1388,6 +1388,16 @@ function renderTestsList() {
       });
     }
   }
+  const lbBtn = $("tests-leaderboard-btn");
+  if (lbBtn) {
+    lbBtn.hidden = false;
+    if (!lbBtn.dataset.wired) {
+      lbBtn.dataset.wired = "1";
+      lbBtn.addEventListener("click", () => {
+        openLeaderboardModal();
+      });
+    }
+  }
 
   if (!filtered.length) {
     list.innerHTML = "";

@@ -384,6 +384,7 @@
         </h2>
       </div>
       <div class="tests-head-actions">
+        <button id="tests-leaderboard-btn" class="ghost" data-i18n="battery.view_leaderboard" hidden>Leaderboard</button>
         <button id="tests-group-history-btn" class="ghost" data-i18n="battery.group_history" hidden>Group History</button>
         <button id="tests-run-battery-btn" class="primary" data-i18n="battery.run" hidden>Run Tests</button>
         <button id="tests-new-test-btn" class="primary" data-i18n="tests.new_test">New Test</button>
@@ -1906,6 +1907,20 @@
       <div id="group-history-modal-body" class="group-history-modal-body"></div>
       <div class="modal-actions">
         <button type="button" id="group-history-modal-done" class="primary" data-i18n="action.done">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaderboard modal -->
+  <div id="leaderboard-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card leaderboard-modal-card">
+      <div class="group-history-modal-header">
+        <h3 id="leaderboard-modal-title" data-i18n="battery.view_leaderboard">Leaderboard</h3>
+        <button type="button" id="leaderboard-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div id="leaderboard-modal-body" class="group-history-modal-body"></div>
+      <div class="modal-actions">
+        <button type="button" id="leaderboard-modal-done" class="primary" data-i18n="action.done">Done</button>
       </div>
     </div>
   </div>

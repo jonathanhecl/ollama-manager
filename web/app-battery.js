@@ -786,6 +786,15 @@ function batteryResultScore(r) {
   return null;
 }
 
+// Column-relative heatmap background for leaderboard cells.
+function batteryLbHeatStyle(v, range, strong) {
+  if (v == null) return "";
+  const rel = range.max > range.min ? (v - range.min) / (range.max - range.min) : 0.5;
+  const base = strong ? 16 : 4;
+  const span = strong ? 44 : 34;
+  return `background: color-mix(in srgb, var(--accent) ${(base + rel * span).toFixed(0)}%, transparent);`;
+}
+
 function renderBatteryResults(run) {
   if (!run) return;
   const title = $("battery-results-title");
@@ -1125,14 +1134,7 @@ function renderBatteryResults(run) {
       min: overallVals.length ? Math.min(...overallVals) : 0,
       max: overallVals.length ? Math.max(...overallVals) : 0,
     };
-    const heatStyle = (v, range, strong) => {
-      if (v == null) return "";
-      const rel = range.max > range.min ? (v - range.min) / (range.max - range.min) : 0.5;
-      const base = strong ? 16 : 4;
-      const span = strong ? 44 : 34;
-      return `background: color-mix(in srgb, var(--accent) ${(base + rel * span).toFixed(0)}%, transparent);`;
-    };
-
+    const heatStyle = batteryLbHeatStyle;
     let lbHeaderCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
     for (const gid of groupIdsPresent) {
       lbHeaderCols += `<th class="cell-lb-group-head" title="${escapeHtml(groupName(gid))}">${escapeHtml(groupName(gid))}</th>`;

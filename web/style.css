@@ -5182,6 +5182,7 @@ button.chat-send:disabled:hover {
   .running-card,
   .test-history-modal-card,
   .group-history-modal-card,
+  .leaderboard-modal-card,
   .human-review-modal-card,
   .response-view-modal-card,
   .battery-modal-card,
@@ -6693,6 +6694,7 @@ button.chat-send:disabled:hover {
 
 /* group history modal */
 .group-history-modal-card { width: min(900px, 100%); max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
+.leaderboard-modal-card { width: min(1100px, 100%); max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
 .group-history-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .group-history-modal-header h3 { margin: 0; font-size: 15px; }
 .group-history-modal-body { overflow-y: auto; flex: 1; min-height: 0; }

@@ -3643,7 +3643,11 @@ function parseModelChatOptionsText(text) {
 function extractModelChatDefaults(detail) {
   const fromParams = parseModelChatOptionsText(detail?.parameters);
   const fromModelfile = parseModelChatOptionsText(detail?.modelfile);
-  return { ...fromParams, ...fromModelfile };
+  const out = { ...fromParams, ...fromModelfile };
+  if (detail?.system) {
+    out.system = detail.system;
+  }
+  return out;
 }
 
 const GLOBAL_CHAT_DEFAULTS_KEY = "ollama_manager_global_chat_defaults";
@@ -3696,25 +3700,28 @@ function getAllModelChatOptions() {
   return {};
 }
 
-function getModelChatOptions(modelName) {
-  if (!modelName) return null;
-  const all = getAllModelChatOptions();
-  return all[modelName] || null;
+function getEffectiveChatDefaults(modelName) {
+  const modelfileDefaults = (modelName && chatModelDefaultsCache.get(modelName)) || {};
+  const globalDefaults = getGlobalChatDefaults();
+  const effectiveDefaults = {
+    ...CHAT_OPTION_FALLBACKS,
+    ...modelfileDefaults,
+    ...globalDefaults,
+  };
+
+  if (globalDefaults.system) {
+    effectiveDefaults.system = globalDefaults.system;
+  } else if (modelfileDefaults.system) {
+    effectiveDefaults.system = modelfileDefaults.system;
+  } else {
+    effectiveDefaults.system = "";
+  }
+
+  return effectiveDefaults;
 }
 
-function updateChatCustomOptionsBadge() {
-  const modelName = $("chat-model")?.value;
-  const resetBtn = $("chat-options-reset-btn");
-  if (!resetBtn) return;
-  const hasCustom = !!(modelName && getModelChatOptions(modelName));
-  resetBtn.hidden = !hasCustom;
-}
-
-function saveChatOptionsForCurrentModel() {
-  const modelName = $("chat-model")?.value;
-  if (!modelName) return;
-
-  const currentOpts = {
+function getCurrentChatOptions() {
+  return {
     system: $("chat-system")?.value ?? "",
     temperature: $("chat-temperature")?.value ?? "0.7",
     top_k: $("chat-top-k")?.value ?? "40",
@@ -3728,13 +3735,132 @@ function saveChatOptionsForCurrentModel() {
     image_steps: $("chat-image-steps")?.value ?? "4",
     image_seed: $("chat-image-seed")?.value ?? "0",
   };
+}
 
+function areChatOptionsDefault(modelName, opts) {
+  if (!modelName) return true;
+  const defaults = getEffectiveChatDefaults(modelName);
+  const current = opts || getCurrentChatOptions();
+
+  const caps = typeof modelCaps === "function" ? modelCaps(modelName) : new Set();
+  const isImageModel = typeof isImageGenerationOnlyCaps === "function" && isImageGenerationOnlyCaps(caps);
+
+  if (isImageModel) {
+    const curW = Number(current.image_width);
+    const curH = Number(current.image_height);
+    const curSteps = Number(current.image_steps);
+    const curSeed = Number(current.image_seed);
+
+    const defW = Number(defaults.image_width ?? 512);
+    const defH = Number(defaults.image_height ?? 512);
+    const defSteps = Number(defaults.image_steps ?? 4);
+    const defSeed = Number(defaults.image_seed ?? 0);
+
+    return curW === defW && curH === defH && curSteps === defSteps && curSeed === defSeed;
+  }
+
+  const curSys = String(current.system ?? "");
+  const defSys = String(defaults.system ?? "");
+  if (curSys !== defSys && (curSys.trim() !== "" || defSys.trim() !== "")) {
+    return false;
+  }
+
+  const curTemp = Number(current.temperature);
+  const defTemp = Number(defaults.temperature);
+  if (Number.isFinite(curTemp) && Number.isFinite(defTemp)) {
+    if (Math.abs(curTemp - defTemp) > 0.0001) return false;
+  } else if (curTemp !== defTemp) {
+    return false;
+  }
+
+  const curTopK = Math.round(Number(current.top_k));
+  const defTopK = Math.round(Number(defaults.top_k));
+  if (Number.isFinite(curTopK) && Number.isFinite(defTopK)) {
+    if (curTopK !== defTopK) return false;
+  } else if (curTopK !== defTopK) {
+    return false;
+  }
+
+  const curTopP = Number(current.top_p);
+  const defTopP = Number(defaults.top_p);
+  if (Number.isFinite(curTopP) && Number.isFinite(defTopP)) {
+    if (Math.abs(curTopP - defTopP) > 0.0001) return false;
+  } else if (curTopP !== defTopP) {
+    return false;
+  }
+
+  const curCtx = typeof normalizeNumCtxPct === "function"
+    ? normalizeNumCtxPct(Number(current.num_ctx))
+    : Number(current.num_ctx);
+  const defCtx = typeof normalizeNumCtxPct === "function"
+    ? normalizeNumCtxPct(Number(defaults.num_ctx))
+    : Number(defaults.num_ctx);
+  if (curCtx !== defCtx) return false;
+
+  if (caps.has("thinking")) {
+    const curThink = String(current.think_level || "auto");
+    const defThink = String(defaults.think_level || "auto");
+    if (curThink !== defThink) return false;
+  }
+
+  if (caps.has("tools")) {
+    if (Boolean(current.web_tools) !== Boolean(defaults.web_tools)) return false;
+    if (Boolean(current.artifacts) !== Boolean(defaults.artifacts)) return false;
+  }
+
+  return true;
+}
+
+function getModelChatOptions(modelName) {
+  if (!modelName) return null;
   const all = getAllModelChatOptions();
-  all[modelName] = currentOpts;
-  try {
-    localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
-  } catch (e) {
-    console.error("Error saving model chat options", e);
+  const saved = all[modelName];
+  if (!saved) return null;
+  if (areChatOptionsDefault(modelName, saved)) {
+    delete all[modelName];
+    try {
+      localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
+    } catch (e) {}
+    return null;
+  }
+  return saved;
+}
+
+function updateChatCustomOptionsBadge() {
+  const modelName = $("chat-model")?.value;
+  const resetBtn = $("chat-options-reset-btn");
+  if (!resetBtn) return;
+  if (!modelName) {
+    resetBtn.hidden = true;
+    return;
+  }
+  const hasCustom = !areChatOptionsDefault(modelName);
+  resetBtn.hidden = !hasCustom;
+}
+
+function saveChatOptionsForCurrentModel() {
+  const modelName = $("chat-model")?.value;
+  if (!modelName) return;
+
+  const currentOpts = getCurrentChatOptions();
+  const all = getAllModelChatOptions();
+
+  if (areChatOptionsDefault(modelName, currentOpts)) {
+    if (all[modelName]) {
+      delete all[modelName];
+      try {
+        localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
+      } catch (e) {
+        console.error("Error saving model chat options", e);
+      }
+    }
+  } else {
+    all[modelName] = currentOpts;
+    try {
+      localStorage.setItem(MODEL_CHAT_OPTIONS_KEY, JSON.stringify(all));
+    } catch (e) {
+      console.error("Error saving model chat options", e);
+    }
   }
   updateChatCustomOptionsBadge();
 }
@@ -3851,22 +3977,8 @@ async function applyChatDefaultsForModel(name, force = false) {
     return;
   }
 
-  // Model does not have custom options -> use Global Chat Defaults + Modelfile parameters
-  const globalDefaults = getGlobalChatDefaults();
-  const effectiveDefaults = {
-    ...CHAT_OPTION_FALLBACKS,
-    ...modelfileDefaults,
-    ...globalDefaults,
-  };
-
-  if (globalDefaults.system) {
-    effectiveDefaults.system = globalDefaults.system;
-  } else if (modelfileDefaults.system) {
-    effectiveDefaults.system = modelfileDefaults.system;
-  } else {
-    effectiveDefaults.system = "";
-  }
-
+  // Model does not have custom options -> use effective defaults
+  const effectiveDefaults = getEffectiveChatDefaults(model);
   setChatOptionsValues(effectiveDefaults);
   updateChatCustomOptionsBadge();
 }

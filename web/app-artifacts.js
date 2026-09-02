@@ -1353,8 +1353,8 @@ function bindChatEvents() {
   for (const id of optionIds) {
     const el = $(id);
     if (el) {
-      const eventName = el.type === "checkbox" ? "change" : "input";
-      el.addEventListener(eventName, saveChatOptionsForCurrentModel);
+      el.addEventListener("input", saveChatOptionsForCurrentModel);
+      el.addEventListener("change", saveChatOptionsForCurrentModel);
     }
   }
   $("chat-options-reset-btn")?.addEventListener("click", resetModelChatOptionsToDefaults);

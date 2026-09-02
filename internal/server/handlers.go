@@ -477,6 +477,17 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		loaded[rm.Name] = rm
 	}
 
+	requestedDevice := strings.TrimSpace(r.URL.Query().Get("device"))
+	if requestedDevice == "" {
+		requestedDevice = strings.TrimSpace(r.URL.Query().Get("spec"))
+	}
+	isCurrentDevice := requestedDevice == "" || requestedDevice == "current" || (s.usage != nil && requestedDevice == s.usage.CurrentDeviceID())
+
+	var deviceUsage map[string]ModelUsageRecord
+	if s.usage != nil && !isCurrentDevice {
+		deviceUsage, _ = s.usage.GetDeviceModels(requestedDevice)
+	}
+
 	modelMeta := s.fetchModelMeta(ctx, models)
 
 	s.syncAllModelUsageFamilies()
@@ -537,14 +548,34 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			BaseModel:      baseModel,
 		}
 		if s.usage != nil {
-			if rec, ok := s.getModelUsage(m.Name); ok {
-				v.LastUsedAt = rec.LastUsedAt
-				v.RecordTokensPerSec = rec.RecordTokensPerSec
-				v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
-				v.MinColdLoadMs = rec.MinColdLoadMs
-				v.MinColdLoadAt = rec.MinColdLoadAt
-				v.TotalTokens = rec.TotalTokens
-				v.TotalCalls = rec.TotalCalls
+			if isCurrentDevice {
+				if rec, ok := s.getModelUsage(m.Name); ok {
+					v.LastUsedAt = rec.LastUsedAt
+					v.RecordTokensPerSec = rec.RecordTokensPerSec
+					v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+					v.MinColdLoadMs = rec.MinColdLoadMs
+					v.MinColdLoadAt = rec.MinColdLoadAt
+					v.TotalTokens = rec.TotalTokens
+					v.TotalCalls = rec.TotalCalls
+				}
+			} else if deviceUsage != nil {
+				if rec, ok := deviceUsage[m.Name]; ok {
+					v.LastUsedAt = rec.LastUsedAt
+					v.RecordTokensPerSec = rec.RecordTokensPerSec
+					v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+					v.MinColdLoadMs = rec.MinColdLoadMs
+					v.MinColdLoadAt = rec.MinColdLoadAt
+					v.TotalTokens = rec.TotalTokens
+					v.TotalCalls = rec.TotalCalls
+				} else if rec, ok := deviceUsage[strings.TrimSuffix(m.Name, ":latest")]; ok {
+					v.LastUsedAt = rec.LastUsedAt
+					v.RecordTokensPerSec = rec.RecordTokensPerSec
+					v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+					v.MinColdLoadMs = rec.MinColdLoadMs
+					v.MinColdLoadAt = rec.MinColdLoadAt
+					v.TotalTokens = rec.TotalTokens
+					v.TotalCalls = rec.TotalCalls
+				}
 			}
 		}
 		if rm, ok := loaded[m.Name]; ok {
@@ -554,7 +585,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			exp := rm.ExpiresAt
 			v.ExpiresAt = &exp
 		}
-		if s.usage != nil {
+		if s.usage != nil && isCurrentDevice {
 			meta := modelMeta[m.Digest]
 			if err := s.usage.SetMeta(m.Name, modelUsageMeta{
 				ParameterSize:  m.Details.ParameterSize,
@@ -613,7 +644,11 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			installedSet[m.Name] = struct{}{}
 			installedSet[strings.TrimSuffix(m.Name, ":latest")] = struct{}{}
 		}
-		for name, rec := range s.usage.All() {
+		sourceUsage := s.usage.All()
+		if !isCurrentDevice && deviceUsage != nil {
+			sourceUsage = deviceUsage
+		}
+		for name, rec := range sourceUsage {
 			if s.externalModels != nil && s.externalModels.IsExternal(name) {
 				continue
 			}
@@ -668,10 +703,15 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"models":       out,
 		"ghost_models": ghostOut,
-	})
+	}
+	if s.usage != nil {
+		resp["current_device_id"] = s.usage.CurrentDeviceID()
+		resp["devices"] = s.usage.Devices()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // runningView is a slim row for GET /api/running (Ollama /api/ps only, no list/show).
@@ -1339,15 +1379,32 @@ func (s *Server) handleGetModelUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
 		return
 	}
+	requestedDevice := strings.TrimSpace(r.URL.Query().Get("device"))
+	if requestedDevice == "" {
+		requestedDevice = strings.TrimSpace(r.URL.Query().Get("spec"))
+	}
 	var rec ModelUsageRecord
 	var found bool
 	if s.usage != nil {
-		rec, found = s.usage.Get(name)
-		if !found {
-			if strings.HasSuffix(name, ":latest") {
-				rec, found = s.usage.Get(strings.TrimSuffix(name, ":latest"))
-			} else {
-				rec, found = s.usage.Get(name + ":latest")
+		if requestedDevice != "" && requestedDevice != "current" && requestedDevice != s.usage.CurrentDeviceID() {
+			if devModels, ok := s.usage.GetDeviceModels(requestedDevice); ok {
+				rec, found = devModels[name]
+				if !found {
+					if strings.HasSuffix(name, ":latest") {
+						rec, found = devModels[strings.TrimSuffix(name, ":latest")]
+					} else {
+						rec, found = devModels[name+":latest"]
+					}
+				}
+			}
+		} else {
+			rec, found = s.usage.Get(name)
+			if !found {
+				if strings.HasSuffix(name, ":latest") {
+					rec, found = s.usage.Get(strings.TrimSuffix(name, ":latest"))
+				} else {
+					rec, found = s.usage.Get(name + ":latest")
+				}
 			}
 		}
 	}
@@ -1357,11 +1414,30 @@ func (s *Server) handleGetModelUsage(w http.ResponseWriter, r *http.Request) {
 			uninstRec = u
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"name":      name,
 		"found":     found,
 		"usage":     rec,
 		"uninstall": uninstRec,
+	}
+	if s.usage != nil {
+		resp["current_device_id"] = s.usage.CurrentDeviceID()
+		resp["specs"] = s.usage.CurrentSpecs()
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetUsageDevices(w http.ResponseWriter, r *http.Request) {
+	if s.usage == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"current_device_id": "",
+			"devices":           []DeviceUsageSummary{},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"current_device_id": s.usage.CurrentDeviceID(),
+		"devices":           s.usage.Devices(),
 	})
 }
 

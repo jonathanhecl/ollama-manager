@@ -4,7 +4,7 @@
 
 const ANALYTICS_FILTER_KEY = "ollamaMgr.analyticsFilters";
 let analyticsAllData = [];
-let analyticsFilters = { name: "", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
+let analyticsFilters = { name: "", device: "current", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
 try {
   const saved = JSON.parse(localStorage.getItem(ANALYTICS_FILTER_KEY) || "null");
   if (saved) analyticsFilters = Object.assign(analyticsFilters, saved);
@@ -15,7 +15,13 @@ async function renderAnalytics() {
   const charts = ["tps", "size", "efficiency", "coldload"].map((k) => $(`analytics-chart-${k}`));
   if (charts.every((c) => !c)) return;
   try {
-    const data = await api("/api/models");
+    const selectedDevice = analyticsFilters.device || "current";
+    const query = selectedDevice && selectedDevice !== "current" ? "?device=" + encodeURIComponent(selectedDevice) : "";
+    const data = await api("/api/models" + query);
+
+    // Manage device filter: only show when more than 1 distinct device exists
+    populateAnalyticsDeviceFilter(data.devices || [], data.current_device_id || "");
+
     // Archived, custom, and external models must not influence analytics or comparison filters.
     // Custom models have their stats attributed directly to their base models.
     const installed = (data.models || []).filter((m) => !m.archived && !m.is_custom && !m.is_external);
@@ -33,6 +39,45 @@ async function renderAnalytics() {
     charts.forEach((c) => {
       if (c) c.innerHTML = `<div class="analytics-empty muted">${escapeHtml(t("toast.error", { msg: e.message }))}</div>`;
     });
+  }
+}
+
+function populateAnalyticsDeviceFilter(devices, currentDeviceId) {
+  const group = $("analytics-filter-device-group");
+  const sel = $("analytics-filter-device");
+  if (!group || !sel) return;
+
+  // As requested: if there is no info from other different PCs/specs, hide the filter.
+  if (!Array.isArray(devices) || devices.length <= 1) {
+    group.hidden = true;
+    return;
+  }
+
+  group.hidden = false;
+  const currentVal = analyticsFilters.device || "current";
+  sel.innerHTML = "";
+
+  devices.forEach((dev) => {
+    const opt = document.createElement("option");
+    const isCurrent = dev.is_current || dev.id === currentDeviceId;
+    opt.value = dev.id;
+    opt.textContent = isCurrent ? `${dev.name} (${t("analytics.device_current")})` : dev.name;
+    if (currentVal === dev.id || (isCurrent && currentVal === "current")) {
+      opt.selected = true;
+    }
+    sel.appendChild(opt);
+  });
+
+  const allOpt = document.createElement("option");
+  allOpt.value = "all";
+  allOpt.textContent = t("analytics.device_all");
+  if (currentVal === "all") allOpt.selected = true;
+  sel.appendChild(allOpt);
+
+  const matched = [...sel.options].some((o) => o.value === sel.value);
+  if (!matched && sel.options.length > 0) {
+    sel.selectedIndex = 0;
+    analyticsFilters.device = sel.value;
   }
 }
 
@@ -56,7 +101,7 @@ function populateAnalyticsFamilyFilter(all) {
 }
 
 function syncAnalyticsFilterControls() {
-  const map = { source: "analytics-filter-source", family: "analytics-filter-family", type: "analytics-filter-type" };
+  const map = { device: "analytics-filter-device", source: "analytics-filter-source", family: "analytics-filter-family", type: "analytics-filter-type" };
   for (const k in map) {
     const el = $(map[k]);
     if (el) el.value = analyticsFilters[k];
@@ -111,13 +156,23 @@ function bindAnalyticsFilters() {
   bind("analytics-filter-params-min", "paramsMin");
   bind("analytics-filter-params-max", "paramsMax");
   bind("analytics-filter-tps-min", "tpsMin");
+
+  const devEl = $("analytics-filter-device");
+  if (devEl) {
+    devEl.addEventListener("change", () => {
+      analyticsFilters.device = devEl.value;
+      persistAnalyticsFilters();
+      renderAnalytics();
+    });
+  }
+
   const reset = $("analytics-filter-reset");
   if (reset) {
     reset.addEventListener("click", () => {
-      analyticsFilters = { name: "", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
+      analyticsFilters = { name: "", device: "current", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
       persistAnalyticsFilters();
       syncAnalyticsFilterControls();
-      renderAnalyticsFiltered();
+      renderAnalytics();
     });
   }
 }

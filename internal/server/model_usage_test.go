@@ -2,12 +2,17 @@ package server
 
 import (
 	"encoding/json"
+	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gense/ollama-manager/internal/ollama"
 )
 
 func TestModelUsageStore(t *testing.T) {
@@ -276,7 +281,7 @@ func TestRecordCancelUsage(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected a record after cancelled medium response")
 		}
-		if rec.RecordTokensPerSec != 0.4 {
+		if math.Abs(rec.RecordTokensPerSec-0.4) > 1e-6 {
 			t.Errorf("expected RecordTokensPerSec 0.4, got %f", rec.RecordTokensPerSec)
 		}
 	})
@@ -577,6 +582,353 @@ func TestResetModelAnalytics(t *testing.T) {
 		t.Errorf("metadata was lost: %+v", resetRec)
 	}
 }
+
+func TestLegacyModelUsageMigration(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+
+	// Write legacy JSON format with multiple models
+	legacyJSON := `{
+  "models": {
+    "llama3:8b": {
+      "record_tokens_per_sec": 38.5,
+      "total_calls": 5,
+      "total_tokens": 1200,
+      "parameter_size": "8.0B",
+      "quantization": "Q4_K_M",
+      "family": "llama"
+    },
+    "mistral:7b": {
+      "record_tokens_per_sec": 42.1,
+      "total_calls": 2,
+      "total_tokens": 500,
+      "parameter_size": "7.0B",
+      "quantization": "Q4_0",
+      "family": "mistral"
+    }
+  }
+}`
+	if err := os.WriteFile(path, []byte(legacyJSON), 0o600); err != nil {
+		t.Fatalf("failed to write legacy json: %v", err)
+	}
+
+	store := newModelUsageStore(path)
+	store.SetCurrentSpecs(DeviceSpecs{
+		OS:  "macOS 26.6.2",
+		CPU: "Apple M5",
+		RAM: "32 GB",
+	}, "test-mac-m5-32gb")
+
+	if err := store.Load(); err != nil {
+		t.Fatalf("failed to load and migrate legacy json: %v", err)
+	}
+
+	// Verify all models are preserved on current device
+	rec1, ok1 := store.Get("llama3:8b")
+	if !ok1 || rec1.RecordTokensPerSec != 38.5 || rec1.TotalCalls != 5 {
+		t.Fatalf("llama3:8b data was lost or corrupted: %+v", rec1)
+	}
+	rec2, ok2 := store.Get("mistral:7b")
+	if !ok2 || rec2.RecordTokensPerSec != 42.1 || rec2.TotalCalls != 2 {
+		t.Fatalf("mistral:7b data was lost or corrupted: %+v", rec2)
+	}
+
+	// Verify file was migrated and saved as a JSON array
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read migrated file: %v", err)
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(trimmed, "[") {
+		t.Fatalf("expected migrated file to be JSON array, got: %s", trimmed[:50])
+	}
+
+	// Verify a second store instance loads the migrated array cleanly
+	store2 := newModelUsageStore(path)
+	store2.SetCurrentSpecs(DeviceSpecs{
+		OS:  "macOS 26.6.2",
+		CPU: "Apple M5",
+		RAM: "32 GB",
+	}, "test-mac-m5-32gb")
+	if err := store2.Load(); err != nil {
+		t.Fatalf("failed to load migrated array: %v", err)
+	}
+	rec1Loaded, ok := store2.Get("llama3:8b")
+	if !ok || rec1Loaded.RecordTokensPerSec != 38.5 {
+		t.Fatalf("failed to read migrated model from store2")
+	}
+}
+
+func TestMultiDeviceModelUsage(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+
+	// 1. First device: Mac Silicon
+	store1 := newModelUsageStore(path)
+	store1.SetCurrentSpecs(DeviceSpecs{
+		OS:  "macOS 26.6.2",
+		CPU: "Apple M5",
+		RAM: "32 GB",
+	}, "dev-mac-m5")
+	if err := store1.Load(); err != nil {
+		t.Fatalf("store1 load failed: %v", err)
+	}
+	if err := store1.RecordTPS("llama3:8b", 40.0, time.Now()); err != nil {
+		t.Fatalf("store1 record failed: %v", err)
+	}
+
+	// 2. Second device: Windows PC with RTX 4090
+	store2 := newModelUsageStore(path)
+	store2.SetCurrentSpecs(DeviceSpecs{
+		OS:       "Windows 11 Pro",
+		CPU:      "AMD Ryzen 9 7950X",
+		RAM:      "64 GB",
+		RAMSpeed: "6000 MHz",
+		GPU:      "NVIDIA GeForce RTX 4090",
+		GPUs:     []string{"NVIDIA GeForce RTX 4090"},
+		VRAM:     "24 GB",
+	}, "dev-win-4090")
+	if err := store2.Load(); err != nil {
+		t.Fatalf("store2 load failed: %v", err)
+	}
+	// Record higher speed on RTX 4090
+	if err := store2.RecordTPS("llama3:8b", 125.0, time.Now()); err != nil {
+		t.Fatalf("store2 record failed: %v", err)
+	}
+	// Record a model only tested on Windows PC
+	if err := store2.RecordTPS("deepseek-r1:70b", 18.2, time.Now()); err != nil {
+		t.Fatalf("store2 record deepseek failed: %v", err)
+	}
+
+	// Verify store2 sees its own device metrics
+	recWin, ok := store2.Get("llama3:8b")
+	if !ok || recWin.RecordTokensPerSec != 125.0 {
+		t.Fatalf("expected 125 tok/s on win device, got %f", recWin.RecordTokensPerSec)
+	}
+
+	// 3. Re-open on Mac: should see both devices in Devices() summary
+	store3 := newModelUsageStore(path)
+	store3.SetCurrentSpecs(DeviceSpecs{
+		OS:  "macOS 26.6.2",
+		CPU: "Apple M5",
+		RAM: "32 GB",
+	}, "dev-mac-m5")
+	if err := store3.Load(); err != nil {
+		t.Fatalf("store3 load failed: %v", err)
+	}
+
+	devices := store3.Devices()
+	if len(devices) != 2 {
+		t.Fatalf("expected 2 devices, got %d", len(devices))
+	}
+
+	// Mac should still have its 40 tok/s record
+	recMac, ok := store3.Get("llama3:8b")
+	if !ok || recMac.RecordTokensPerSec != 40.0 {
+		t.Fatalf("expected 40.0 tok/s on Mac, got %f", recMac.RecordTokensPerSec)
+	}
+
+	// Query Windows models from store3 via GetDeviceModels
+	winModels, ok := store3.GetDeviceModels("dev-win-4090")
+	if !ok {
+		t.Fatalf("expected to get dev-win-4090 models")
+	}
+	if winModels["llama3:8b"].RecordTokensPerSec != 125.0 {
+		t.Fatalf("expected 125 tok/s for windows device query, got %f", winModels["llama3:8b"].RecordTokensPerSec)
+	}
+	if winModels["deepseek-r1:70b"].RecordTokensPerSec != 18.2 {
+		t.Fatalf("expected 18.2 tok/s for deepseek on windows query")
+	}
+
+	// Query "all" merged models
+	allModels, ok := store3.GetDeviceModels("all")
+	if !ok || len(allModels) != 2 {
+		t.Fatalf("expected 2 merged models, got %d", len(allModels))
+	}
+	if allModels["llama3:8b"].RecordTokensPerSec != 125.0 {
+		t.Fatalf("expected highest tok/s (125.0) in merged, got %f", allModels["llama3:8b"].RecordTokensPerSec)
+	}
+}
+
+func TestDetectCurrentDeviceSpecs(t *testing.T) {
+	specs, id := DetectCurrentDeviceSpecs()
+	if specs.OS == "" {
+		t.Errorf("expected detected OS, got empty")
+	}
+	if specs.CPU == "" {
+		t.Errorf("expected detected CPU, got empty")
+	}
+	if specs.RAM == "" {
+		t.Errorf("expected detected RAM, got empty")
+	}
+	if id == "" {
+		t.Errorf("expected non-empty device ID")
+	}
+	t.Logf("Detected specs: OS=%s, CPU=%s, RAM=%s, RAMSpeed=%s, GPU=%s, VRAM=%s, ID=%s",
+		specs.OS, specs.CPU, specs.RAM, specs.RAMSpeed, specs.GPU, specs.VRAM, id)
+}
+
+func TestDeviceDisplayName(t *testing.T) {
+	macSpecs := DeviceSpecs{
+		OS:  "macOS 26.6.2",
+		CPU: "Apple M5",
+		RAM: "32 GB",
+	}
+	nameMac := DeviceDisplayName(macSpecs, true)
+	if !strings.Contains(nameMac, "Apple M5") || !strings.Contains(nameMac, "32 GB") {
+		t.Errorf("unexpected Mac display name: %s", nameMac)
+	}
+
+	winSpecs := DeviceSpecs{
+		OS:       "Windows 11 Pro",
+		CPU:      "AMD Ryzen 9 7950X",
+		RAM:      "64 GB",
+		RAMSpeed: "6000 MHz",
+		GPU:      "NVIDIA GeForce RTX 4090",
+		VRAM:     "24 GB",
+	}
+	nameWin := DeviceDisplayName(winSpecs, false)
+	if !strings.Contains(nameWin, "6000 MHz") || !strings.Contains(nameWin, "RTX 4090") || !strings.Contains(nameWin, "24 GB") {
+		t.Errorf("unexpected Windows display name: %s", nameWin)
+	}
+}
+
+func TestHandleListModelsDeviceFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+
+	store := newModelUsageStore(path)
+	store.SetCurrentSpecs(DeviceSpecs{
+		OS:  "macOS 26.6.2",
+		CPU: "Apple M5",
+		RAM: "32 GB",
+	}, "mac-m5")
+	_ = store.RecordTPS("llama3:8b", 40.0, time.Now())
+
+	// Add second device
+	winEntry := &DeviceUsageEntry{
+		ID: "win-4090",
+		Specs: DeviceSpecs{
+			OS:   "Windows 11 Pro",
+			CPU:  "Ryzen 9 7950X",
+			RAM:  "64 GB",
+			GPU:  "NVIDIA RTX 4090",
+			VRAM: "24 GB",
+		},
+		Models: map[string]ModelUsageRecord{
+			"llama3:8b": {
+				RecordTokensPerSec: 120.0,
+				TotalCalls:         10,
+			},
+			"deepseek-r1:70b": {
+				RecordTokensPerSec: 15.0,
+				TotalCalls:         3,
+			},
+		},
+	}
+	store.entries = append(store.entries, winEntry)
+	_ = store.save()
+
+	fakeOllama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			_, _ = io.WriteString(w, `{"models":[]}`)
+		case "/api/ps":
+			_, _ = io.WriteString(w, `{"models":[]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(fakeOllama.Close)
+
+	srv := &Server{
+		usage:  store,
+		ollama: ollama.New(fakeOllama.URL),
+	}
+
+	// 1. Request with default/current device
+	req1 := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	w1 := httptest.NewRecorder()
+	srv.handleListModels(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w1.Code)
+	}
+	var res1 struct {
+		CurrentDeviceID string               `json:"current_device_id"`
+		Devices         []DeviceUsageSummary `json:"devices"`
+		GhostModels     []modelView          `json:"ghost_models"`
+	}
+	if err := json.NewDecoder(w1.Body).Decode(&res1); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if res1.CurrentDeviceID != "mac-m5" {
+		t.Errorf("expected current device mac-m5, got %s", res1.CurrentDeviceID)
+	}
+	if len(res1.Devices) != 2 {
+		t.Errorf("expected 2 devices, got %d", len(res1.Devices))
+	}
+
+	// 2. Request filtering by second device
+	req2 := httptest.NewRequest(http.MethodGet, "/api/models?device=win-4090", nil)
+	w2 := httptest.NewRecorder()
+	srv.handleListModels(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w2.Code)
+	}
+	var res2 struct {
+		GhostModels []modelView `json:"ghost_models"`
+	}
+	if err := json.NewDecoder(w2.Body).Decode(&res2); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	var foundDeepseek, foundLlama bool
+	for _, gm := range res2.GhostModels {
+		if gm.Name == "deepseek-r1:70b" {
+			foundDeepseek = true
+			if gm.RecordTokensPerSec != 15.0 {
+				t.Errorf("expected 15 tok/s for deepseek on win device, got %f", gm.RecordTokensPerSec)
+			}
+		}
+		if gm.Name == "llama3:8b" {
+			foundLlama = true
+			if gm.RecordTokensPerSec != 120.0 {
+				t.Errorf("expected 120 tok/s for llama on win device, got %f", gm.RecordTokensPerSec)
+			}
+		}
+	}
+	if !foundDeepseek {
+		t.Errorf("expected deepseek-r1:70b in ghost models for win device")
+	}
+	if !foundLlama {
+		t.Errorf("expected llama3:8b in ghost models for win device")
+	}
+}
+
+func TestHandleGetUsageDevices(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "model_usage.json")
+	store := newModelUsageStore(path)
+	srv := &Server{usage: store}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/usage/devices", nil)
+	w := httptest.NewRecorder()
+	srv.handleGetUsageDevices(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var res struct {
+		CurrentDeviceID string               `json:"current_device_id"`
+		Devices         []DeviceUsageSummary `json:"devices"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(res.Devices) == 0 {
+		t.Errorf("expected at least 1 device")
+	}
+}
+
+
 
 
 

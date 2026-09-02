@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -57,21 +58,81 @@ type modelUsageMeta struct {
 	ContextLength  int64
 }
 
-type modelUsageFile struct {
-	Models map[string]ModelUsageRecord `json:"models"`
-}
-
 type modelUsageStore struct {
-	path   string
-	mu     sync.RWMutex
-	models map[string]ModelUsageRecord
+	path         string
+	mu           sync.RWMutex
+	currentID    string
+	currentSpecs DeviceSpecs
+	entries      []*DeviceUsageEntry
 }
 
 func newModelUsageStore(path string) *modelUsageStore {
-	return &modelUsageStore{
-		path:   path,
-		models: make(map[string]ModelUsageRecord),
+	specs, id := DetectCurrentDeviceSpecs()
+	entry := &DeviceUsageEntry{
+		ID:     id,
+		Specs:  specs,
+		Models: make(map[string]ModelUsageRecord),
 	}
+	return &modelUsageStore{
+		path:         path,
+		currentID:    id,
+		currentSpecs: specs,
+		entries:      []*DeviceUsageEntry{entry},
+	}
+}
+
+// SetCurrentSpecs allows overriding the active device specifications and ID (useful in tests).
+func (s *modelUsageStore) SetCurrentSpecs(specs DeviceSpecs, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.currentSpecs = specs
+	s.currentID = id
+	cur := s.findOrCreateCurrentLocked()
+	cur.ID = id
+	cur.Specs = specs
+}
+
+func (s *modelUsageStore) CurrentDeviceID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentID
+}
+
+func (s *modelUsageStore) CurrentSpecs() DeviceSpecs {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentSpecs
+}
+
+func (s *modelUsageStore) findOrCreateCurrentLocked() *DeviceUsageEntry {
+	for _, e := range s.entries {
+		if e.ID == s.currentID {
+			return e
+		}
+	}
+	// Fallback match by hardware
+	for _, e := range s.entries {
+		if e.Specs.CPU == s.currentSpecs.CPU && e.Specs.RAM == s.currentSpecs.RAM && e.Specs.GPU == s.currentSpecs.GPU {
+			e.ID = s.currentID
+			e.Specs.OS = s.currentSpecs.OS
+			return e
+		}
+	}
+	newEntry := &DeviceUsageEntry{
+		ID:     s.currentID,
+		Specs:  s.currentSpecs,
+		Models: make(map[string]ModelUsageRecord),
+	}
+	s.entries = append(s.entries, newEntry)
+	return newEntry
+}
+
+func (s *modelUsageStore) currentModelsLocked() map[string]ModelUsageRecord {
+	cur := s.findOrCreateCurrentLocked()
+	if cur.Models == nil {
+		cur.Models = make(map[string]ModelUsageRecord)
+	}
+	return cur.Models
 }
 
 func (s *modelUsageStore) Load() error {
@@ -85,16 +146,66 @@ func (s *modelUsageStore) Load() error {
 	if err != nil {
 		return err
 	}
-	var file modelUsageFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return err
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return nil
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if file.Models != nil {
-		s.models = file.Models
-	} else {
-		s.models = make(map[string]ModelUsageRecord)
+
+	var loadedEntries []*DeviceUsageEntry
+	migratedFromLegacy := false
+
+	if trimmed[0] == '[' {
+		// New array format: [ {"specs": ..., "models": ...}, ... ]
+		if err := json.Unmarshal(trimmed, &loadedEntries); err != nil {
+			return err
+		}
+	} else if trimmed[0] == '{' {
+		// Legacy format: {"models": {...}} or wrapper {"devices": [...]}
+		var wrapper struct {
+			Devices []*DeviceUsageEntry         `json:"devices"`
+			Models  map[string]ModelUsageRecord `json:"models"`
+		}
+		if err := json.Unmarshal(trimmed, &wrapper); err != nil {
+			return err
+		}
+		if len(wrapper.Devices) > 0 {
+			loadedEntries = wrapper.Devices
+		} else if wrapper.Models != nil {
+			// Legacy migration: preserve all existing model telemetry under the current machine's specs.
+			migratedFromLegacy = true
+			legacyEntry := &DeviceUsageEntry{
+				ID:     s.currentID,
+				Specs:  s.currentSpecs,
+				Models: wrapper.Models,
+			}
+			loadedEntries = []*DeviceUsageEntry{legacyEntry}
+		}
+	}
+
+	if len(loadedEntries) > 0 {
+		s.entries = loadedEntries
+	}
+
+	// Ensure current device exists and reflects any minor OS updates
+	cur := s.findOrCreateCurrentLocked()
+	if cur.Specs.OS == "" || cur.Specs.OS != s.currentSpecs.OS {
+		cur.Specs.OS = s.currentSpecs.OS
+	}
+	if cur.Specs.CPU == "" {
+		cur.Specs.CPU = s.currentSpecs.CPU
+	}
+	if cur.Specs.RAM == "" {
+		cur.Specs.RAM = s.currentSpecs.RAM
+	}
+	if cur.Models == nil {
+		cur.Models = make(map[string]ModelUsageRecord)
+	}
+
+	if migratedFromLegacy {
+		return s.saveLocked()
 	}
 	return nil
 }
@@ -102,11 +213,65 @@ func (s *modelUsageStore) Load() error {
 func (s *modelUsageStore) All() map[string]ModelUsageRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	res := make(map[string]ModelUsageRecord, len(s.models))
-	for k, v := range s.models {
+	models := s.currentModelsLocked()
+	res := make(map[string]ModelUsageRecord, len(models))
+	for k, v := range models {
 		res[k] = v
 	}
 	return res
+}
+
+func (s *modelUsageStore) Devices() []DeviceUsageSummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]DeviceUsageSummary, 0, len(s.entries))
+	for _, e := range s.entries {
+		isCur := e.ID == s.currentID
+		out = append(out, DeviceUsageSummary{
+			ID:          e.ID,
+			Name:        DeviceDisplayName(e.Specs, isCur),
+			Specs:       e.Specs,
+			IsCurrent:   isCur,
+			ModelsCount: len(e.Models),
+		})
+	}
+	return out
+}
+
+func (s *modelUsageStore) GetDeviceModels(deviceID string) (map[string]ModelUsageRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if deviceID == "" || deviceID == "current" || deviceID == s.currentID {
+		models := s.currentModelsLocked()
+		res := make(map[string]ModelUsageRecord, len(models))
+		for k, v := range models {
+			res[k] = v
+		}
+		return res, true
+	}
+	if deviceID == "all" {
+		merged := make(map[string]ModelUsageRecord)
+		for _, e := range s.entries {
+			for k, v := range e.Models {
+				if existing, ok := merged[k]; ok {
+					merged[k] = mergeBaseUsage(existing, v)
+				} else {
+					merged[k] = v
+				}
+			}
+		}
+		return merged, true
+	}
+	for _, e := range s.entries {
+		if e.ID == deviceID {
+			res := make(map[string]ModelUsageRecord, len(e.Models))
+			for k, v := range e.Models {
+				res[k] = v
+			}
+			return res, true
+		}
+	}
+	return nil, false
 }
 
 func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
@@ -167,28 +332,29 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	rec, ok := s.models[name]
+	models := s.currentModelsLocked()
+	rec, ok := models[name]
 	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0) {
 		return rec, true
 	}
 	// Fallback for :latest aliases
 	if strings.HasSuffix(name, ":latest") {
 		trimmed := strings.TrimSuffix(name, ":latest")
-		if baseRec, baseOk := s.models[trimmed]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[trimmed]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	} else if !strings.Contains(name, ":") {
-		if baseRec, baseOk := s.models[name+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[name+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	}
 	// Fallback for :fixed models inheriting from their base model (exact name or :latest alias)
 	if isFixedModelName(name) {
 		base := fixedBaseName(name)
-		if baseRec, baseOk := s.models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
-		if baseRec, baseOk := s.models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	}
@@ -200,28 +366,29 @@ func (s *modelUsageStore) InheritUsage(srcName, targetName string) error {
 		return nil
 	}
 	s.mu.Lock()
-	src, okSrc := s.models[srcName]
+	models := s.currentModelsLocked()
+	src, okSrc := models[srcName]
 	if !okSrc {
 		if strings.HasSuffix(srcName, ":latest") {
-			src, okSrc = s.models[strings.TrimSuffix(srcName, ":latest")]
+			src, okSrc = models[strings.TrimSuffix(srcName, ":latest")]
 		} else {
-			src, okSrc = s.models[srcName+":latest"]
+			src, okSrc = models[srcName+":latest"]
 		}
 	}
-	target, okTarget := s.models[targetName]
+	target, okTarget := models[targetName]
 	if !okTarget {
 		if strings.HasSuffix(targetName, ":latest") {
-			target, okTarget = s.models[strings.TrimSuffix(targetName, ":latest")]
+			target, okTarget = models[strings.TrimSuffix(targetName, ":latest")]
 		} else {
-			target, okTarget = s.models[targetName+":latest"]
+			target, okTarget = models[targetName+":latest"]
 		}
 	}
 	if !okSrc && !okTarget {
 		s.mu.Unlock()
 		return nil
 	}
-	s.models[targetName] = mergeBaseUsage(target, src)
-	s.models[srcName] = mergeBaseUsage(src, target)
+	models[targetName] = mergeBaseUsage(target, src)
+	models[srcName] = mergeBaseUsage(src, target)
 	s.mu.Unlock()
 
 	return s.save()
@@ -236,7 +403,8 @@ func (s *modelUsageStore) Record(name string, evalCount int, evalDurationNs int6
 	}
 
 	s.mu.Lock()
-	rec := s.models[name]
+	models := s.currentModelsLocked()
+	rec := models[name]
 	rec.LastUsedAt = &usedAt
 	rec.TotalCalls++
 	rec.TotalTokens += int64(evalCount + promptEvalCount)
@@ -251,7 +419,7 @@ func (s *modelUsageStore) Record(name string, evalCount int, evalDurationNs int6
 			rec.RecordTokensPerSecAt = &usedAt
 		}
 	}
-	s.models[name] = rec
+	models[name] = rec
 	s.mu.Unlock()
 
 	return s.save()
@@ -266,14 +434,15 @@ func (s *modelUsageStore) RecordTPS(name string, tps float64, usedAt time.Time) 
 	}
 
 	s.mu.Lock()
-	rec := s.models[name]
+	models := s.currentModelsLocked()
+	rec := models[name]
 	rec.LastUsedAt = &usedAt
 	rec.TotalCalls++
 	if tps > rec.RecordTokensPerSec {
 		rec.RecordTokensPerSec = tps
 		rec.RecordTokensPerSecAt = &usedAt
 	}
-	s.models[name] = rec
+	models[name] = rec
 	s.mu.Unlock()
 
 	return s.save()
@@ -288,12 +457,13 @@ func (s *modelUsageStore) RecordColdLoad(name string, durationMs int64, at time.
 	}
 
 	s.mu.Lock()
-	rec := s.models[name]
+	models := s.currentModelsLocked()
+	rec := models[name]
 	if rec.MinColdLoadMs == 0 || durationMs < rec.MinColdLoadMs {
 		rec.MinColdLoadMs = durationMs
 		rec.MinColdLoadAt = &at
 	}
-	s.models[name] = rec
+	models[name] = rec
 	s.mu.Unlock()
 
 	return s.save()
@@ -309,7 +479,8 @@ func (s *modelUsageStore) SetMeta(name string, meta modelUsageMeta) error {
 		return nil
 	}
 	s.mu.Lock()
-	rec := s.models[name]
+	models := s.currentModelsLocked()
+	rec := models[name]
 	changed := false
 	if meta.ParameterSize != "" && rec.ParameterSize != meta.ParameterSize {
 		rec.ParameterSize = meta.ParameterSize
@@ -351,7 +522,49 @@ func (s *modelUsageStore) SetMeta(name string, meta modelUsageMeta) error {
 		rec.IsMOE = true
 		changed = true
 	}
-	s.models[name] = rec
+	models[name] = rec
+
+	// Also propagate static model metadata across other device entries if model exists there
+	if changed {
+		for _, entry := range s.entries {
+			if entry.ID == s.currentID || entry.Models == nil {
+				continue
+			}
+			if otherRec, ok := entry.Models[name]; ok {
+				if meta.ParameterSize != "" {
+					otherRec.ParameterSize = meta.ParameterSize
+				}
+				if meta.Size > 0 {
+					otherRec.Size = meta.Size
+				}
+				if meta.Quantization != "" {
+					otherRec.Quantization = meta.Quantization
+				}
+				if meta.Family != "" {
+					otherRec.Family = meta.Family
+				}
+				if meta.ParameterCount > 0 {
+					otherRec.ParameterCount = meta.ParameterCount
+				}
+				if meta.Architecture != "" {
+					otherRec.Architecture = meta.Architecture
+				}
+				if meta.FileType > 0 {
+					otherRec.FileType = meta.FileType
+				}
+				if meta.SizeLabel != "" {
+					otherRec.SizeLabel = meta.SizeLabel
+				}
+				if meta.ContextLength > 0 {
+					otherRec.ContextLength = meta.ContextLength
+				}
+				if meta.IsMOE {
+					otherRec.IsMOE = true
+				}
+				entry.Models[name] = otherRec
+			}
+		}
+	}
 	s.mu.Unlock()
 
 	if !changed {
@@ -368,9 +581,10 @@ func (s *modelUsageStore) Delete(name string) (bool, error) {
 		return false, nil
 	}
 	s.mu.Lock()
-	_, existed := s.models[name]
+	models := s.currentModelsLocked()
+	_, existed := models[name]
 	if existed {
-		delete(s.models, name)
+		delete(models, name)
 	}
 	s.mu.Unlock()
 	if !existed {
@@ -387,8 +601,9 @@ func (s *modelUsageStore) ResetAnalytics(name string) error {
 		return nil
 	}
 	s.mu.Lock()
+	models := s.currentModelsLocked()
 	resetRecord := func(k string) bool {
-		rec, ok := s.models[k]
+		rec, ok := models[k]
 		if !ok {
 			return false
 		}
@@ -399,7 +614,7 @@ func (s *modelUsageStore) ResetAnalytics(name string) error {
 		rec.TotalTokens = 0
 		rec.TotalCalls = 0
 		rec.LastUsedAt = nil
-		s.models[k] = rec
+		models[k] = rec
 		return true
 	}
 
@@ -422,19 +637,16 @@ func (s *modelUsageStore) ResetAnalytics(name string) error {
 }
 
 func (s *modelUsageStore) save() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.saveLocked()
+}
+
+func (s *modelUsageStore) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	s.mu.RLock()
-	file := modelUsageFile{
-		Models: make(map[string]ModelUsageRecord, len(s.models)),
-	}
-	for k, v := range s.models {
-		file.Models[k] = v
-	}
-	s.mu.RUnlock()
-
-	data, err := json.MarshalIndent(file, "", "  ")
+	data, err := json.MarshalIndent(s.entries, "", "  ")
 	if err != nil {
 		return err
 	}

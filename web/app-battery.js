@@ -764,6 +764,28 @@ function showBatteryHistoryView(filterTestId = null, filterModel = null) {
 
 let batteryResultsViewMode = "matrix";
 
+// Fractional score for leaderboard: sub-cases count partially, errors and
+// pending human reviews are not countable.
+function batteryResultScore(r) {
+  if (r.error) return null;
+  if (r.sub_results && r.sub_results.length > 0) {
+    let earned = 0;
+    let total = 0;
+    for (const s of r.sub_results) {
+      if (s.passed === true) {
+        earned++;
+        total++;
+      } else if (s.passed === false) {
+        total++;
+      }
+    }
+    return total > 0 ? { earned, total } : null;
+  }
+  if (r.passed === true) return { earned: 1, total: 1 };
+  if (r.passed === false) return { earned: 0, total: 1 };
+  return null;
+}
+
 function renderBatteryResults(run) {
   if (!run) return;
   const title = $("battery-results-title");
@@ -899,6 +921,8 @@ function renderBatteryResults(run) {
 
   const isMultiModel = run.models && run.models.length > 1;
   const isMatrix = isMultiModel && batteryResultsViewMode === "matrix";
+  const isLeaderboard = isMultiModel && batteryResultsViewMode === "leaderboard";
+  const isDetailed = !isMatrix && !isLeaderboard;
 
   const viewToggleHtml = isMultiModel ? `
     <div class="battery-view-toolbar">
@@ -906,7 +930,10 @@ function renderBatteryResults(run) {
         <button type="button" class="battery-toggle-btn ${isMatrix ? "active" : ""}" id="btn-view-matrix">
           📊 ${t("battery.view_matrix")}
         </button>
-        <button type="button" class="battery-toggle-btn ${!isMatrix ? "active" : ""}" id="btn-view-detailed">
+        <button type="button" class="battery-toggle-btn ${isLeaderboard ? "active" : ""}" id="btn-view-leaderboard">
+          🏆 ${t("battery.view_leaderboard")}
+        </button>
+        <button type="button" class="battery-toggle-btn ${isDetailed ? "active" : ""}" id="btn-view-detailed">
           📋 ${t("battery.view_detailed")}
         </button>
       </div>
@@ -1025,9 +1052,138 @@ function renderBatteryResults(run) {
     `;
   }
 
-  // 2. Detailed Table View
+  // 2. Leaderboard View (models as rows, categories as columns, heatmap scores)
+  let leaderboardTableHtml = "";
+  if (isLeaderboard) {
+    // Groups present in this run, ordered by group order then name.
+    const groupIdsPresent = [];
+    for (const tid of testIds) {
+      const test = tests.find((x) => x.id === tid);
+      const gid = test?.group_id || "";
+      if (!groupIdsPresent.includes(gid)) groupIdsPresent.push(gid);
+    }
+    groupIdsPresent.sort((a, b) => {
+      const ga = testsGroups.find((g) => g.id === a);
+      const gb = testsGroups.find((g) => g.id === b);
+      const oa = ga && typeof ga.order === "number" ? ga.order : Number.MAX_SAFE_INTEGER;
+      const ob = gb && typeof gb.order === "number" ? gb.order : Number.MAX_SAFE_INTEGER;
+      if (oa !== ob) return oa - ob;
+      return String(ga?.name || a).localeCompare(String(gb?.name || b));
+    });
+    const groupName = (gid) => {
+      if (!gid) return t("battery.leaderboard_uncategorized");
+      const g = testsGroups.find((x) => x.id === gid);
+      return g?.name || gid;
+    };
+
+    // Scores per model per group.
+    const scores = {};
+    for (const m of run.models) scores[m] = {};
+    for (const r of run.results) {
+      const sc = batteryResultScore(r);
+      if (!sc || !scores[r.model]) continue;
+      const test = tests.find((x) => x.id === r.test_id);
+      const gid = test?.group_id || "";
+      const cell = (scores[r.model][gid] ||= { earned: 0, total: 0 });
+      cell.earned += sc.earned;
+      cell.total += sc.total;
+    }
+
+    // Overall per model and ranking.
+    const lbRows = run.models.map((m) => {
+      let earned = 0;
+      let total = 0;
+      for (const gid of groupIdsPresent) {
+        const c = scores[m][gid];
+        if (c) {
+          earned += c.earned;
+          total += c.total;
+        }
+      }
+      const s = modelStats[m];
+      const avgTps = s && s.tpsCount > 0 ? s.tpsSum / s.tpsCount : 0;
+      return { model: m, earned, total, overall: total > 0 ? (earned / total) * 100 : null, avgTps };
+    });
+    lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || b.avgTps - a.avgTps);
+
+    // Column ranges for the heatmap (column-relative, like public leaderboards).
+    const colRange = {};
+    for (const gid of groupIdsPresent) {
+      const vals = lbRows
+        .map((row) => {
+          const c = scores[row.model][gid];
+          return c && c.total > 0 ? (c.earned / c.total) * 100 : null;
+        })
+        .filter((v) => v != null);
+      colRange[gid] = {
+        min: vals.length ? Math.min(...vals) : 0,
+        max: vals.length ? Math.max(...vals) : 0,
+      };
+    }
+    const overallVals = lbRows.map((r) => r.overall).filter((v) => v != null);
+    const overallRange = {
+      min: overallVals.length ? Math.min(...overallVals) : 0,
+      max: overallVals.length ? Math.max(...overallVals) : 0,
+    };
+    const heatStyle = (v, range, strong) => {
+      if (v == null) return "";
+      const rel = range.max > range.min ? (v - range.min) / (range.max - range.min) : 0.5;
+      const base = strong ? 16 : 4;
+      const span = strong ? 44 : 34;
+      return `background: color-mix(in srgb, var(--accent) ${(base + rel * span).toFixed(0)}%, transparent);`;
+    };
+
+    let lbHeaderCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
+    for (const gid of groupIdsPresent) {
+      lbHeaderCols += `<th class="cell-lb-group-head" title="${escapeHtml(groupName(gid))}">${escapeHtml(groupName(gid))}</th>`;
+    }
+
+    let lbBodyRows = "";
+    lbRows.forEach((row, idx) => {
+      let cells = "";
+      if (row.overall == null) {
+        cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty"><span class="muted">—</span></td>`;
+      } else {
+        cells += `<td class="cell-lb-score cell-lb-overall mono" style="${heatStyle(row.overall, overallRange, true)}" title="${row.earned}/${row.total}">${row.overall.toFixed(1)}</td>`;
+      }
+      for (const gid of groupIdsPresent) {
+        const c = scores[row.model][gid];
+        if (!c || c.total === 0) {
+          cells += `<td class="cell-lb-score cell-lb-empty"><span class="muted">—</span></td>`;
+          continue;
+        }
+        const pct = (c.earned / c.total) * 100;
+        cells += `<td class="cell-lb-score mono" style="${heatStyle(pct, colRange[gid], false)}" title="${c.earned}/${c.total}">${pct.toFixed(1)}</td>`;
+      }
+      lbBodyRows += `
+        <tr class="${idx === 0 ? "lb-row-first" : ""}">
+          <td class="cell-lb-model">
+            <span class="lb-rank">${idx + 1}</span>
+            <strong class="lb-model-name" title="${escapeHtml(row.model)}">${escapeHtml(row.model).replace(/^[^/]+\//, "")}</strong>
+          </td>
+          ${cells}
+        </tr>
+      `;
+    });
+
+    leaderboardTableHtml = `
+      <div class="battery-table-wrap battery-lb-wrap">
+        <table class="battery-table battery-lb-table">
+          <thead>
+            <tr>
+              <th class="cell-lb-model-head">${t("chat.model")}</th>
+              ${lbHeaderCols}
+            </tr>
+          </thead>
+          <tbody>${lbBodyRows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // 3. Detailed Table View
   let detailedTableHtml = "";
-  if (!isMatrix) {
+  if (isDetailed) {
     let rowsHtml = "";
     for (const tid of testIds) {
       const results = byTest[tid];
@@ -1158,12 +1314,19 @@ function renderBatteryResults(run) {
     `;
   }
 
-  body.innerHTML = podiumHtml + summaryHtml + viewToggleHtml + matrixTableHtml + detailedTableHtml;
+  body.innerHTML = podiumHtml + summaryHtml + viewToggleHtml + matrixTableHtml + leaderboardTableHtml + detailedTableHtml;
 
   const btnMatrix = body.querySelector("#btn-view-matrix");
   if (btnMatrix) {
     btnMatrix.addEventListener("click", () => {
       batteryResultsViewMode = "matrix";
+      renderBatteryResults(run);
+    });
+  }
+  const btnLeaderboard = body.querySelector("#btn-view-leaderboard");
+  if (btnLeaderboard) {
+    btnLeaderboard.addEventListener("click", () => {
+      batteryResultsViewMode = "leaderboard";
       renderBatteryResults(run);
     });
   }

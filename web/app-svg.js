@@ -1033,6 +1033,36 @@ function showTestsView(preserveGroup = false) {
 }
 
 let currentEditorCases = [];
+// Pending target case index (0-based) for the shared sidecar file picker.
+let teSidecarTargetIdx = -1;
+// Highest case index (1-based) that had a server sidecar when the editor was
+// opened — used at save time to delete stale files left behind by reorder.
+let tePrevSidecarMax = 0;
+
+// Supported sidecar extensions for per-case files.
+function teSidecarKindForFile(name, mime) {
+  const ext = String(name || "").split(".").pop().toLowerCase();
+  const images = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+  const audios = { wav: "audio/wav", mp3: "audio/mpeg", ogg: "audio/ogg" };
+  const texts = { txt: "text/plain", md: "text/markdown" };
+  if (images[ext]) return { kind: "image", mime: mime && mime.startsWith("image/") ? mime : images[ext], ext: "." + ext };
+  if (audios[ext]) return { kind: "audio", mime: mime && mime.startsWith("audio/") ? mime : audios[ext], ext: "." + ext };
+  if (texts[ext]) return { kind: "text", mime: mime && mime.startsWith("text/") ? mime : texts[ext], ext: "." + ext };
+  return null;
+}
+
+function teSidecarThumb(att) {
+  if (!att) return "";
+  if (att.kind === "image") {
+    const src = `data:${att.mime || "image/jpeg"};base64,${att.data}`;
+    return `<img src="${src}" alt="" class="te-attach-thumb">`;
+  }
+  if (att.kind === "audio") {
+    const src = `data:${att.mime || "audio/wav"};base64,${att.data}`;
+    return `<audio controls preload="metadata" src="${src}" class="te-attach-audio"></audio>`;
+  }
+  return `<span class="pill">txt</span>`;
+}
 
 function renderEditorCasesList() {
   const container = $("te-cases-list");
@@ -1081,6 +1111,19 @@ function renderEditorCasesList() {
                 <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || "") : (c.expected || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
               </div>
             </div>
+          </div>
+          <div class="te-case-sidecar">
+            ${(c.sidecars && c.sidecars[0]) ? `
+              <div class="te-attach-item" data-idx="${idx}">
+                ${teSidecarThumb(c.sidecars[0])}
+                <span class="te-attach-name mono">${escapeHtml(c.sidecars[0].name || "")}</span>
+                <button type="button" class="btn-icon te-case-sidecar-remove" data-idx="${idx}" title="${t("tests.case_remove_file")}">×</button>
+              </div>` : `
+              <button type="button" class="ghost te-case-add-file" data-idx="${idx}">
+                <span>📎 ${t("tests.case_add_file")}</span>
+              </button>
+              <small class="muted">${escapeHtml(t("tests.case_file_hint", { n: idx + 1 }))}</small>`
+            }
           </div>
         </div>
       </div>
@@ -1135,6 +1178,27 @@ function renderEditorCasesList() {
     });
   });
 
+  container.querySelectorAll(".te-case-add-file").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      syncEditorCasesFromDOM();
+      teSidecarTargetIdx = Number(btn.dataset.idx);
+      $("te-case-file-input")?.click();
+    });
+  });
+
+  container.querySelectorAll(".te-case-sidecar-remove").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      syncEditorCasesFromDOM();
+      const idx = Number(btn.dataset.idx);
+      if (currentEditorCases[idx]) {
+        currentEditorCases[idx].sidecars = [];
+        renderEditorCasesList();
+      }
+    });
+  });
+
   const addCaseBtn = $("te-add-case-btn");
   if (addCaseBtn && !addCaseBtn.dataset.wired) {
     addCaseBtn.dataset.wired = "1";
@@ -1146,6 +1210,8 @@ function renderEditorCasesList() {
         type: "contains",
         expected: "",
         pattern: "",
+        sidecars: [],
+        prevSidecarId: "",
       });
       renderEditorCasesList();
       const lastCard = $("te-cases-list")?.lastElementChild;
@@ -1160,6 +1226,7 @@ function syncEditorCasesFromDOM() {
   if (!container) return;
   const cards = container.querySelectorAll(".te-case-card");
   if (cards.length === 0) return;
+  const prev = currentEditorCases;
   currentEditorCases = Array.from(cards).map((card, idx) => {
     const name = card.querySelector(".te-case-name")?.value.trim() || `Case ${idx + 1}`;
     const prompt = card.querySelector(".te-case-prompt")?.value.trim() || "";
@@ -1171,6 +1238,10 @@ function syncEditorCasesFromDOM() {
       type,
       expected: type !== "regex" ? val : "",
       pattern: type === "regex" ? val : "",
+      // Sidecars travel with the entry (reorder/delete preserve them here;
+      // the server reconciles them by case number at save time).
+      sidecars: prev[idx]?.sidecars || [],
+      prevSidecarId: prev[idx]?.prevSidecarId || "",
     };
   });
 }
@@ -1198,7 +1269,7 @@ async function showTestEditorView(id) {
       $("te-required-caps").value = (test.required_caps || []).join(", ");
       $("te-order").value = String(test.order || 0);
 
-      // Load cases
+      // Load cases (sidecars come from the API, discovered server-side).
       if (Array.isArray(test.cases) && test.cases.length > 0) {
         currentEditorCases = test.cases.map((c, i) => ({
           name: c.name || `Case ${i + 1}`,
@@ -1206,6 +1277,8 @@ async function showTestEditorView(id) {
           type: c.evaluation?.type || test.evaluation_type || "contains",
           expected: c.evaluation?.expected != null ? String(c.evaluation.expected) : (test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : ""),
           pattern: c.evaluation?.pattern || test.evaluation_config?.pattern || "",
+          sidecars: (c.attachments || []).map((a) => ({ ...a })),
+          prevSidecarId: (c.attachments && c.attachments[0] && c.attachments[0].id) || "",
         }));
       } else {
         currentEditorCases = [{
@@ -1214,12 +1287,12 @@ async function showTestEditorView(id) {
           type: test.evaluation_type || "contains",
           expected: test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : "",
           pattern: test.evaluation_config?.pattern || "",
+          sidecars: (test.sidecars || []).map((a) => ({ ...a })),
+          prevSidecarId: (test.sidecars && test.sidecars[0] && test.sidecars[0].id) || "",
         }];
       }
       renderEditorCasesList();
-
-      testEditorAttachments = (test.attachments || []).map((a) => ({ ...a }));
-      renderTestEditorAttachments();
+      tePrevSidecarMax = currentEditorCases.reduce((m, c, i) => ((c.sidecars && c.sidecars.length) ? i + 1 : m), 0);
       $("test-editor-delete").hidden = false;
       if (window.location.pathname !== "/tests/edit/" + id) {
         history.pushState(null, "", "/tests/edit/" + id);
@@ -1242,10 +1315,11 @@ async function showTestEditorView(id) {
     type: "contains",
     expected: "",
     pattern: "",
+    sidecars: [],
+    prevSidecarId: "",
   }];
   renderEditorCasesList();
-  testEditorAttachments = [];
-  renderTestEditorAttachments();
+  tePrevSidecarMax = 0;
   $("test-editor-delete").hidden = true;
   if (window.location.pathname !== "/tests/new") {
     history.pushState(null, "", "/tests/new");
@@ -1597,9 +1671,11 @@ async function moveTestOrder(testId, direction) {
 
 function getAutoCapsFromAttachments() {
   const caps = new Set();
-  for (const a of testEditorAttachments) {
-    if (a.kind === "image") caps.add("vision");
-    if (a.kind === "audio") caps.add("audio");
+  for (const c of currentEditorCases) {
+    for (const a of (c.sidecars || [])) {
+      if (a.kind === "image") caps.add("vision");
+      if (a.kind === "audio") caps.add("audio");
+    }
   }
   return Array.from(caps);
 }
@@ -1622,56 +1698,65 @@ function updateTestEditorAutoCaps() {
   el.innerHTML = `<div class="te-auto-caps-label">Effective capabilities:</div><div class="te-auto-caps-pills">${pills}</div>`;
 }
 
-function renderTestEditorAttachments() {
-  const list = $("te-attach-list");
-  if (!list) return;
-  if (!testEditorAttachments.length) {
-    list.innerHTML = "";
-    updateTestEditorAutoCaps();
+// Staged/deferred per-case sidecars: files are uploaded to the server at
+// save time (reconcileEditorSidecars). Until then they live on the entry.
+async function handleTestEditorCaseFile(files) {
+  const idx = teSidecarTargetIdx;
+  teSidecarTargetIdx = -1;
+  if (!files || !files.length || idx < 0 || !currentEditorCases[idx]) return;
+  const file = files[0];
+  const kind = teSidecarKindForFile(file.name, file.type);
+  if (!kind) {
+    toast(t("tests.case_file_type_error"), "error");
     return;
   }
-  list.innerHTML = testEditorAttachments.map((a) => {
-    if (a.kind === "image") {
-      const src = `data:${a.mime};base64,${a.data}`;
-      return `<div class="te-attach-item" data-id="${escapeHtml(a.id)}">
-        <img src="${src}" alt="" class="te-attach-thumb">
-        <span class="te-attach-name mono">${escapeHtml(a.name)}</span>
-        <button type="button" class="btn-icon te-attach-remove" data-id="${escapeHtml(a.id)}" title="Remove">×</button>
-      </div>`;
-    }
-    if (a.kind === "audio") {
-      const src = `data:${a.mime};base64,${a.data}`;
-      return `<div class="te-attach-item te-attach-item-audio" data-id="${escapeHtml(a.id)}">
-        <span class="te-attach-name mono">${escapeHtml(a.name)}</span>
-        <audio controls preload="metadata" src="${src}" class="te-attach-audio"></audio>
-        <button type="button" class="btn-icon te-attach-remove" data-id="${escapeHtml(a.id)}" title="Remove">×</button>
-      </div>`;
-    }
-    return "";
-  }).join("");
-  list.querySelectorAll(".te-attach-remove").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      testEditorAttachments = testEditorAttachments.filter((x) => x.id !== btn.dataset.id);
-      renderTestEditorAttachments();
-    });
-  });
-  updateTestEditorAutoCaps();
+  try {
+    const data = await toBase64(file);
+    syncEditorCasesFromDOM();
+    if (!currentEditorCases[idx]) return;
+    currentEditorCases[idx].sidecars = [{
+      id: "",
+      kind: kind.kind,
+      name: file.name,
+      mime: kind.mime,
+      data,
+      staged: true,
+    }];
+    renderEditorCasesList();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
 }
 
-async function handleTestEditorFileInput(files, kind) {
-  for (const file of files) {
-    const data = await toBase64(file);
-    testEditorAttachments.push({
-      id: nanoid(),
-      kind,
-      name: file.name,
-      mime: file.type || (kind === "image" ? "image/jpeg" : "audio/webm"),
-      data,
-    });
+// Pushes the editor's desired sidecar state to the server: uploads new or
+// moved files, deletes removed ones. One file per case number.
+async function reconcileEditorSidecars(testId) {
+  const maxN = Math.max(currentEditorCases.length, tePrevSidecarMax);
+  // Filename base for the expected server id (<base>-<N>.<ext>).
+  let base = "";
+  const known = (typeof tests !== "undefined" ? tests : []).find((x) => x.id === testId);
+  if (known && known.filename) {
+    base = String(known.filename).replace(/\.[^.]+$/, "");
   }
-  renderTestEditorAttachments();
+  for (let n = 1; n <= maxN; n++) {
+    const entry = currentEditorCases[n - 1];
+    const want = (entry && entry.sidecars && entry.sidecars[0]) || null;
+    if (want && want.data) {
+      const ext = "." + String(want.name || "").split(".").pop().toLowerCase();
+      const expectedId = base ? `${base}-${n}${ext}` : "";
+      if (want.staged || !want.id || (expectedId && want.id !== expectedId)) {
+        await api("/api/tests/" + encodeURIComponent(testId) + "/sidecars", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index: n, filename: want.name, data: want.data }),
+        });
+      }
+    } else if (n <= tePrevSidecarMax) {
+      try {
+        await api("/api/tests/" + encodeURIComponent(testId) + "/sidecars/" + n, { method: "DELETE" });
+      } catch { /* no file bound — nothing to do */ }
+    }
+  }
 }
 
 function populateTestEditorGroupSelect() {
@@ -1684,7 +1769,7 @@ function populateTestEditorGroupSelect() {
 async function saveTestEditor() {
   syncEditorCasesFromDOM();
   if (currentEditorCases.length === 0) {
-    currentEditorCases = [{ name: "Case 1", prompt: "", type: "contains", expected: "", pattern: "" }];
+    currentEditorCases = [{ name: "Case 1", prompt: "", type: "contains", expected: "", pattern: "", sidecars: [], prevSidecarId: "" }];
   }
 
   const cases = currentEditorCases.map((c, i) => {
@@ -1717,10 +1802,10 @@ async function saveTestEditor() {
     evaluation_type: firstCase.evaluation.type,
     evaluation_config: firstCase.evaluation.expected ? { expected: firstCase.evaluation.expected } : (firstCase.evaluation.pattern ? { pattern: firstCase.evaluation.pattern } : null),
     required_caps: Array.from(new Set([...userCaps, ...autoCaps])),
-    attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
     order: Number($("te-order").value) || 0,
   };
   try {
+    let savedId = currentTestId;
     if (currentTestId) {
       await api("/api/tests/" + encodeURIComponent(currentTestId), {
         method: "PUT",
@@ -1728,11 +1813,20 @@ async function saveTestEditor() {
         body: JSON.stringify(payload),
       });
     } else {
-      await api("/api/tests", {
+      const created = await api("/api/tests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      savedId = created.id || "";
+    }
+    // Push per-case files (sidecars follow the case number).
+    if (savedId) {
+      try {
+        await reconcileEditorSidecars(savedId);
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
     }
     await refreshTests();
     const groupId = payload.group_id;

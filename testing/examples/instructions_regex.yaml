@@ -1,0 +1,19 @@
+id: example-instructions
+name: Follow Instructions (EN/ES)
+description: Bilingual regex check for exact-format compliance.
+group_id: examples
+active: true
+order: 6
+system_prompt: Follow the format instruction exactly.
+cases:
+  - name: Ticket code
+    prompt: "Reply with exactly: OK-1234 (nothing else)"
+    evaluation:
+      type: regex
+      pattern: ^OK-\d{4}$
+
+  - name: Código de parte
+    prompt: "Responde exactamente: PIEZA-77 (nada más)"
+    evaluation:
+      type: regex
+      pattern: ^PIEZA-\d{2}$

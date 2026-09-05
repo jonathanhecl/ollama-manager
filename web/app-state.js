@@ -70,7 +70,6 @@ let testsGroups = [];
 let tests = [];
 let selectedGroupId = "";
 let currentTestId = null; // null for new, id for edit
-let testEditorAttachments = []; // {id, kind, name, mime, data}
 
 // Battery runner state.
 let batterySelectedModels = new Set();

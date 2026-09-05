@@ -5898,6 +5898,7 @@ button.chat-send:disabled:hover {
 }
 .tests-list { display: flex; flex-direction: column; gap: 10px; }
 .tests-empty { text-align: center; padding: 40px 0; color: var(--muted); font-size: 13px; }
+.tests-empty-hint { margin-top: 8px; font-size: 12px; }
 .tests-item {
   display: flex;
   align-items: center;
@@ -6036,6 +6037,16 @@ button.chat-send:disabled:hover {
 }
 
 /* ---------- Test editor attachments ---------- */
+.te-case-sidecar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.te-case-sidecar .te-attach-item { flex-direction: row; align-items: center; max-width: none; }
+.te-case-add-file { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .te-attach-field { align-items: flex-start; }
 .te-attach-col { display: flex; flex-direction: column; gap: 10px; }
 .te-attach-actions { display: flex; gap: 8px; }
@@ -6605,6 +6616,13 @@ button.chat-send:disabled:hover {
 .battery-pass-fail button:hover { border-color: var(--border-strong); }
 .battery-pass-fail button[data-passed="true"].active { background: var(--good); color: #111; border-color: var(--good); }
 .battery-pass-fail button[data-passed="false"].active { background: var(--bad); color: #fff; border-color: var(--bad); }
+.battery-pending-review {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--warn, #d9a441);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn, #d9a441) 12%, transparent);
+}
 
 .battery-human-review-label { font-size: 11px; color: var(--warn); margin-top: 4px; }
 .battery-eval-label { font-size: 11px; color: var(--accent); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.3px; }

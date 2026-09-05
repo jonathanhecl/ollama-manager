@@ -260,6 +260,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("PUT /api/tests/{id}", s.requireAuth(s.handleTestsUpdate))
 	mux.Handle("DELETE /api/tests/{id}", s.requireAuth(s.handleTestsDelete))
 	mux.Handle("POST /api/tests/reorder", s.requireAuth(s.handleTestsReorder))
+	mux.Handle("POST /api/tests/{id}/sidecars", s.requireAuth(s.handleTestSidecarUpload))
+	mux.Handle("DELETE /api/tests/{id}/sidecars/{index}", s.requireAuth(s.handleTestSidecarDelete))
 	mux.Handle("POST /api/test-groups", s.requireAuth(s.handleTestGroupsCreate))
 	mux.Handle("PUT /api/test-groups/{id}", s.requireAuth(s.handleTestGroupsUpdate))
 	mux.Handle("DELETE /api/test-groups/{id}", s.requireAuth(s.handleTestGroupsDelete))

@@ -1,0 +1,28 @@
+id: example-json-output
+name: Structured JSON Output (EN/ES)
+description: Checks the model follows a JSON schema exactly.
+group_id: examples
+active: true
+order: 5
+system_prompt: Reply with valid JSON only, no prose.
+cases:
+  - name: Fruit array
+    prompt: Reply with a JSON array of exactly 3 fruit names.
+    evaluation:
+      type: json_schema
+      schema:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          type: string
+
+  - name: Objeto persona
+    prompt: Responde con un objeto JSON con las claves obligatorias nombre y edad.
+    evaluation:
+      type: json_schema
+      schema:
+        type: object
+        required:
+          - nombre
+          - edad

@@ -4,6 +4,7 @@ package runner
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gense/ollama-manager/internal/ollama"
 	"github.com/gense/ollama-manager/internal/tests"
@@ -233,6 +235,53 @@ type turnResult struct {
 	Error              error
 }
 
+// splitCaseMedia separates a case/step's attachments into image payloads
+// (image + audio kinds, sent via the message Images field) and text document
+// blocks (inlined into the prompt, since Ollama has no document input).
+func splitCaseMedia(atts []tests.Attachment) (media []string, textBlocks []string) {
+	for _, att := range atts {
+		switch att.Kind {
+		case "image", "audio":
+			if att.Data != "" {
+				media = append(media, att.Data)
+			}
+		case "text", "file":
+			if txt, ok := decodeSidecarText(att); ok {
+				textBlocks = append(textBlocks, "--- attached file: "+att.Name+" ---\n"+txt)
+			}
+		}
+	}
+	return media, textBlocks
+}
+
+// decodeSidecarText best-effort decodes a text attachment (base64 content,
+// raw text fallback).
+func decodeSidecarText(att tests.Attachment) (string, bool) {
+	if att.Data == "" {
+		return "", false
+	}
+	if b, err := base64.StdEncoding.DecodeString(att.Data); err == nil {
+		if utf8.Valid(b) {
+			return string(b), true
+		}
+		return "", false
+	}
+	if utf8.ValidString(att.Data) {
+		return att.Data, true
+	}
+	return "", false
+}
+
+// applyCaseMedia merges a case/step's attachments into its prompt: text
+// documents are inlined, images/audio are returned for the Images field.
+func applyCaseMedia(prompt string, atts []tests.Attachment) (string, []string) {
+	media, blocks := splitCaseMedia(atts)
+	if len(blocks) > 0 {
+		prompt += "\n\n" + strings.Join(blocks, "\n\n")
+	}
+	return prompt, media
+}
+
 func (c *Client) runTest(ctx context.Context, runID string, model string, test tests.Test, idx, total int) TestResult {
 	res := TestResult{
 		TestID:   test.ID,
@@ -298,7 +347,12 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				CompletedCases: append([]SubResult(nil), res.SubResults...),
 			})
 
-			history = append(history, ollama.ChatMessage{Role: "user", Content: step.Prompt})
+			stepPrompt, stepMedia := applyCaseMedia(step.Prompt, step.Attachments)
+		stepMsg := ollama.ChatMessage{Role: "user", Content: stepPrompt}
+		if len(stepMedia) > 0 {
+			stepMsg.Images = stepMedia
+		}
+		history = append(history, stepMsg)
 			turn := c.execChatTurn(ctx, runID, model, history, opts)
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
@@ -386,11 +440,16 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				CompletedCases: append([]SubResult(nil), res.SubResults...),
 			})
 
-			var msgs []ollama.ChatMessage
-			if test.SystemPrompt != "" {
-				msgs = append(msgs, ollama.ChatMessage{Role: "system", Content: test.SystemPrompt})
-			}
-			msgs = append(msgs, ollama.ChatMessage{Role: "user", Content: tc.Prompt})
+		var msgs []ollama.ChatMessage
+		if test.SystemPrompt != "" {
+			msgs = append(msgs, ollama.ChatMessage{Role: "system", Content: test.SystemPrompt})
+		}
+		casePrompt, caseMedia := applyCaseMedia(tc.Prompt, tc.Attachments)
+		caseMsg := ollama.ChatMessage{Role: "user", Content: casePrompt}
+		if len(caseMedia) > 0 {
+			caseMsg.Images = caseMedia
+		}
+		msgs = append(msgs, caseMsg)
 
 			turn := c.execChatTurn(ctx, runID, model, msgs, opts)
 			if turn.Error != nil {
@@ -465,17 +524,18 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		}
 	}
 
-	// Attach media
-	var media []string
-	for _, att := range test.Attachments {
-		if att.Kind == "image" || att.Kind == "audio" {
-			media = append(media, att.Data)
-		}
-	}
-	if len(media) > 0 {
+	// Attach sidecars (simple tests only): images/audio go to Images[],
+	// text documents are appended to the user prompt.
+	sidecarMedia, sidecarBlocks := splitCaseMedia(test.Sidecars)
+	if len(sidecarMedia) > 0 || len(sidecarBlocks) > 0 {
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i].Role == "user" {
-				messages[i].Images = append(messages[i].Images, media...)
+				if len(sidecarBlocks) > 0 {
+					messages[i].Content += "\n\n" + strings.Join(sidecarBlocks, "\n\n")
+				}
+				if len(sidecarMedia) > 0 {
+					messages[i].Images = append(messages[i].Images, sidecarMedia...)
+				}
 				break
 			}
 		}
@@ -817,6 +877,47 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 		v := false
 		return &v
 	}
+}
+
+// BatteryEvaluationTypes are the evaluation types a battery run can score.
+// Anything else scores a silent false (see scoreEval), so launches validate
+// upfront instead.
+var BatteryEvaluationTypes = []string{"exact_match", "contains", "contains_list", "regex", "json_schema", "human_review"}
+
+func isKnownEvalType(t string) bool {
+	if t == "" || t == "agent" {
+		return true // empty = legacy default; agent tests are filtered at execution
+	}
+	for _, known := range BatteryEvaluationTypes {
+		if t == known {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateTestsForBattery reports unknown evaluation types before a run
+// starts, so a typo surfaces as a 400 instead of silent failures.
+func ValidateTestsForBattery(testsList []tests.Test) error {
+	for _, t := range testsList {
+		if t.EvaluationType != "" && !isKnownEvalType(t.EvaluationType) {
+			return fmt.Errorf("test %q uses unknown evaluation type %q", t.Name, t.EvaluationType)
+		}
+		if t.Evaluation != nil && !isKnownEvalType(t.Evaluation.Type) {
+			return fmt.Errorf("test %q uses unknown evaluation type %q", t.Name, t.Evaluation.Type)
+		}
+		for i, tc := range t.Cases {
+			if tc.Evaluation != nil && !isKnownEvalType(tc.Evaluation.Type) {
+				return fmt.Errorf("test %q case %d uses unknown evaluation type %q", t.Name, i+1, tc.Evaluation.Type)
+			}
+		}
+		for _, st := range t.Steps {
+			if st.Evaluation != nil && !isKnownEvalType(st.Evaluation.Type) {
+				return fmt.Errorf("test %q step %d uses unknown evaluation type %q", t.Name, st.Step, st.Evaluation.Type)
+			}
+		}
+	}
+	return nil
 }
 
 // normalizeForContains strips LaTeX/markdown/JSON formatting so that

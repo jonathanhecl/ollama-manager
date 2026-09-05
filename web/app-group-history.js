@@ -257,18 +257,16 @@ $("human-review-modal")?.addEventListener("click", (e) => {
   if (e.target === $("human-review-modal")) closeHumanReviewModal();
 });
 $("human-review-modal-close")?.addEventListener("click", closeHumanReviewModal);
+$("human-review-modal-done")?.addEventListener("click", closeHumanReviewModal);
 
 $("response-view-modal")?.addEventListener("click", (e) => {
   if (e.target === $("response-view-modal")) closeResponseViewModal();
 });
 $("response-view-modal-close")?.addEventListener("click", closeResponseViewModal);
 
-$("tests-group-history-btn")?.addEventListener("click", () => {
-  showBatteryHistoryView();
-});
-$("tests-run-battery-btn")?.addEventListener("click", () => {
-  openBatteryModal({ groupId: selectedGroupId });
-});
+// NOTE: tests-group-history-btn / tests-run-battery-btn are wired once in
+// renderTestsList (app-svg.js) with a dataset.wired guard — do not add
+// duplicate listeners here.
 $("battery-modal")?.addEventListener("click", (e) => {
   if (e.target === $("battery-modal")) closeBatteryModal();
 });
@@ -297,10 +295,8 @@ document.addEventListener("visibilitychange", () => {
       try {
         const data = JSON.parse(saved);
         if (data.runID) {
-          if (batteryPollTimer) {
-            clearTimeout(batteryPollTimer);
-            batteryPollTimer = null;
-          }
+          stopBatteryPolling();
+          batteryActiveRunID = data.runID;
           pollBatteryProgress(data.runID, data.modelIDs || []);
         }
       } catch { }

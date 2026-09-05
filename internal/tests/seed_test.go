@@ -42,14 +42,38 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 		t.Fatalf("expected arithmetic.yaml in examples folder: %v", err)
 	}
 
-	// Test reload from disk
+	// Test reload from disk: backfill adds the newer seeds (3 + 7).
 	storeReloaded := New(dir)
 	if err := storeReloaded.Load(); err != nil {
 		t.Fatalf("Load reloaded: %v", err)
 	}
 	g2, t2 := storeReloaded.List()
-	if len(g2) != 1 || len(t2) != 3 {
-		t.Fatalf("expected 1 group and 3 tests on reload, got %d groups and %d tests", len(g2), len(t2))
+	if len(g2) != 1 || len(t2) != 10 {
+		t.Fatalf("expected 1 group and 10 tests on reload (3 seeds + 7 backfilled), got %d groups and %d tests", len(g2), len(t2))
+	}
+	for _, id := range backfillSeedIDs {
+		if _, ok := storeReloaded.GetTest(id); !ok {
+			t.Fatalf("expected backfilled seed %s", id)
+		}
+	}
+	// Vision seed must carry its sidecar fixtures.
+	vision, ok := storeReloaded.GetTest("example-vision-cases")
+	if !ok {
+		t.Fatal("expected backfilled example-vision-cases")
+	}
+	images, texts := 0, 0
+	for _, c := range vision.Cases {
+		for _, a := range c.Attachments {
+			if a.Kind == "image" {
+				images++
+			}
+			if a.Kind == "text" {
+				texts++
+			}
+		}
+	}
+	if images != 2 || texts != 1 {
+		t.Fatalf("expected 2 image + 1 text sidecars on vision seed, got %d images %d texts", images, texts)
 	}
 
 	// Verify multi-case and multi-step parsing

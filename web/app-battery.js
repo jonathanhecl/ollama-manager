@@ -199,6 +199,17 @@ function renderBatteryModalModels() {
 }
 
 let batteryPollTimer = null;
+let batteryActiveRunID = null; // run currently followed by the progress view
+
+// Central stop: clears any pending poll and forgets the followed run, so an
+// orphan poll can never hijack the view or toast after cancel/navigation.
+function stopBatteryPolling() {
+  if (batteryPollTimer) {
+    clearTimeout(batteryPollTimer);
+    batteryPollTimer = null;
+  }
+  batteryActiveRunID = null;
+}
 let batteryCompletedTests = [];
 let batteryLastTestSnapshot = null;
 let batteryTimelineTotal = 0;
@@ -290,6 +301,7 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryProgressModelIDs = modelIDs;
   renderBatteryProgressModels(modelIDs, "", false);
   localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs, groupId }));
+  batteryActiveRunID = runID;
   const progressPath = "/tests/battery/progress/" + runID;
   if (window.location.pathname !== progressPath) {
     history.pushState(null, "", progressPath);
@@ -475,6 +487,8 @@ function renderBatteryCompletedTests() {
 }
 
 async function pollBatteryProgress(runID, modelIDs) {
+  // Stale poll (cancelled or user navigated away): stop silently.
+  if (runID !== batteryActiveRunID) return;
   if (batteryPollTimer) {
     clearTimeout(batteryPollTimer);
     batteryPollTimer = null;
@@ -630,6 +644,10 @@ async function pollBatteryProgress(runID, modelIDs) {
         renderBatteryCompletedTests();
       }
       localStorage.removeItem(BATTERY_KEY);
+      // The user may have navigated away while the run finished: only take
+      // over the view when this run is still the followed one.
+      if (runID !== batteryActiveRunID) return;
+      stopBatteryPolling();
       // Let the user read the last response for a moment.
       await new Promise((r) => setTimeout(r, 1500));
       // Fetch full run and show results.
@@ -647,8 +665,12 @@ async function pollBatteryProgress(runID, modelIDs) {
       }
       return;
     }
+    // The user may have navigated away while the request was in flight:
+    // do not reschedule a poll nobody follows anymore.
+    if (runID !== batteryActiveRunID) return;
     batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, modelIDs), 2000);
   } catch (err) {
+    if (runID !== batteryActiveRunID) return;
     batteryPollRetryCount++;
     if (batteryPollRetryCount < 3) {
       batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, modelIDs), 2000);
@@ -661,6 +683,7 @@ async function pollBatteryProgress(runID, modelIDs) {
 }
 
 async function cancelBatteryRun() {
+  stopBatteryPolling();
   const saved = localStorage.getItem(BATTERY_KEY);
   if (!saved) return;
   let runID = "";
@@ -695,6 +718,28 @@ async function confirmBatteryRun() {
   } else {
     payload.group_id = "all";
   }
+
+  // Warn when image sidecars meet models without vision (they would fail).
+  try {
+    let targetTests = [];
+    if (payload.test_id) {
+      const one = tests.find((x) => x.id === payload.test_id);
+      if (one) targetTests = [one];
+    } else {
+      const gid = payload.group_id || "all";
+      targetTests = tests.filter((x) => (gid === "all" || x.group_id === gid) && x.active && x.evaluation_type !== "agent");
+    }
+    const hasImages = (x) => [
+      ...((x.cases || []).flatMap((c) => c.attachments || [])),
+      ...((x.steps || []).flatMap((s) => s.attachments || [])),
+      ...(x.sidecars || []),
+    ].some((a) => a.kind === "image");
+    const withImages = targetTests.filter(hasImages).map((x) => x.name);
+    const noVision = modelIDs.filter((m) => !modelCaps(m).has("vision"));
+    if (withImages.length > 0 && noVision.length > 0) {
+      toast(t("battery.no_vision_warn", { models: noVision.join(", "), tests: withImages.slice(0, 3).join(", ") }), "warn");
+    }
+  } catch { /* caps lookup is best-effort */ }
 
   try {
     const data = await api("/api/runner/battery", {
@@ -848,6 +893,12 @@ function renderBatteryResults(run) {
     `;
   }
   summaryHtml += `</div>`;
+
+  // Pending human-review banner: unrated results are easy to miss.
+  const pendingReview = run.results.filter((r) => r.passed == null && !r.error);
+  if (pendingReview.length > 0) {
+    summaryHtml += `<div class="battery-pending-review">⏳ <strong>${escapeHtml(t("battery.pending_review", { n: pendingReview.length }))}</strong> <span class="muted">${escapeHtml(t("battery.pending_review_hint"))}</span></div>`;
+  }
 
   // Detect podium leaders if multiple models
   let podiumHtml = "";
@@ -1473,19 +1524,24 @@ function openHumanReviewModal(run, testId, model) {
     evalConfigEl.parentElement.hidden = !cfgText;
   }
 
-  // Attachments
+  // Attachments: union of per-case / per-step sidecars (+ legacy simple).
   const attachEl = $("human-review-attachments");
   if (attachEl) {
-    const attHtml = (test.attachments || []).map((att) => {
+    const allAtts = [
+      ...((test.cases || []).flatMap((c) => c.attachments || [])),
+      ...((test.steps || []).flatMap((s) => s.attachments || [])),
+      ...(test.sidecars || []),
+    ];
+    const attHtml = allAtts.map((att) => {
       if (att.kind === "image") {
         const src = `data:${att.mime || "image/jpeg"};base64,${att.data}`;
-        return `<div class="hr-attach-item"><img src="${src}" alt="${escapeHtml(att.name || "")}" class="hr-attach-img" /></div>`;
+        return `<div class="hr-attach-item"><img src="${src}" alt="${escapeHtml(att.name || "")}" class="hr-attach-img" /><span class="hr-attach-name">${escapeHtml(att.name || "")}</span></div>`;
       }
       if (att.kind === "audio") {
         const src = `data:${att.mime || "audio/webm"};base64,${att.data}`;
         return `<div class="hr-attach-item"><audio controls src="${src}" class="hr-attach-audio"></audio><span class="hr-attach-name">${escapeHtml(att.name || "")}</span></div>`;
       }
-      return "";
+      return `<div class="hr-attach-item"><span class="pill">txt</span><span class="hr-attach-name">${escapeHtml(att.name || "")}</span></div>`;
     }).join("");
     attachEl.innerHTML = attHtml || `<div class="muted">${t("battery.no_attachments")}</div>`;
   }

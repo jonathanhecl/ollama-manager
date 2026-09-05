@@ -1,325 +1,204 @@
-# Test Panel — Technical Documentation
+# Test Panel & Battery — Technical Documentation
 
-A dedicated desktop-only panel for creating, editing, organizing, and grouping test prompts (test batteries) used to evaluate Ollama models. Standard tests are **management-only** (no execution yet), but **multi-turn agent tests** can be run in sandboxed sessions with file tools and human feedback.
+Create, edit, organize and **run** prompt batteries to evaluate Ollama models.
+Tests live as files under `testing/<group>/<name>.yaml` so you can add your
+own with any text editor — or use the built-in test editor in the UI.
 
 ---
 
 ## 1. Feature Overview
 
-The test panel lets users:
-- Create **tests** — prompt templates that will later be sent to models.
-- Organize tests into **groups** — e.g. "Tools", "Vision", "Math", "Multi-Turn Agent".
-- Activate or **suspend** individual tests — suspended tests are excluded from future battery runs.
-- Edit every aspect of a test: prompt, system prompt, evaluation type, evaluation config, required model capabilities, and ordering.
-- Run **multi-turn agent tests** — sandboxed sessions with file tools, turn history, and human-in-the-loop feedback.
-
-The panel is available only on desktop (`window.innerWidth > 900`) via a 🧪 button in the topbar.
+- **Tests** — prompt templates sent to models (single prompt, multi-case suite, or multi-step chain).
+- **Groups** — subdirectories of `testing/` (e.g. `examples`), with optional `_category.yaml` metadata.
+- **Battery runs** — execute a test, a group, or everything against one or more models, with live progress, auto-scoring, history and leaderboards.
+- **Per-case files (sidecars)** — each case/step can carry its own image, audio or text file (see §5).
+- **Agent sessions** — separate framework (`evaluation_type: agent`) with sandboxed file tools, excluded from battery runs.
 
 ---
 
-## 2. Data Model (`tests.json`)
+## 2. Data Model (`testing/` directory)
 
-Stored next to `config.json` (same directory). Atomic write pattern: write to `tests.json.tmp`, then `os.Rename()`.
+Filesystem-backed (`internal/tests/store.go`). Groups = subdirectories (hidden/dot and `_`-prefixed ignored).
+Tests = `.yaml`/`.yml`/`.json` files. Run history = `<base>._history.json` next to each test (never edit by hand).
 
-### Test
+### Test file (`testing/<group>/<name>.yaml`)
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | auto | Random hex ID (20 chars) |
-| `name` | string | yes | Human-readable test name |
-| `description` | string | no | Short explanation |
-| `group_id` | string | no | References a `Group.id`; empty = unassigned |
-| `active` | bool | yes | `false` skips this test in battery runs |
-| `order` | int | yes | Manual sort order within the group |
-| `prompt` | string | yes | The user prompt sent to the model |
-| `system_prompt` | string | no | Optional system instruction |
-| `evaluation_type` | string | yes | One of: `exact_match`, `contains`, `regex`, `json_schema`, `human_review`, `agent` |
-| `evaluation_config` | JSON object | no | Shape depends on `evaluation_type` (see §4) |
-| `required_caps` | []string | no | Model capabilities required to run this test (e.g. `["tools"]`, `["vision"]`). These are the same capability strings used elsewhere in the app (`vision`, `tools`, `image`, etc.) |
-| `created_at` | ISO 8601 | auto | UTC timestamp |
-| `updated_at` | ISO 8601 | auto | UTC timestamp |
-
-### Group
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | auto | Random hex ID |
-| `name` | string | yes | Group name |
-| `description` | string | no | Short explanation |
-| `required_caps` | []string | no | Capabilities a model must have to be eligible for this group |
-| `order` | int | yes | Manual sort order |
-
-### On-disk format
-
-```json
-{
-  "groups": [
-    { "id": "...", "name": "Tools", "description": "", "required_caps": ["tools"], "order": 0 }
-  ],
-  "tests": [
-    {
-      "id": "...",
-      "name": "Web search via tool",
-      "group_id": "...",
-      "active": true,
-      "order": 0,
-      "prompt": "Search for the current weather in Buenos Aires using web_search.",
-      "system_prompt": "",
-      "evaluation_type": "contains",
-      "evaluation_config": { "expected": "Buenos Aires" },
-      "required_caps": ["tools"],
-      "created_at": "2026-01-15T10:00:00Z",
-      "updated_at": "2026-01-15T10:00:00Z"
-    }
-  ]
-}
+```yaml
+id: example-arithmetic          # optional, defaults to filename base
+name: Math Suite                # REQUIRED
+description: "..."              # optional
+group_id: examples              # overwritten by the directory name on load
+active: true                    # false = excluded from runs
+order: 0
+system_prompt: "..."            # optional, prepended to every turn
+prompt: "2 + 2?"                # simple branch (required if no messages/steps/cases)
+messages:                       # alternative simple branch
+  - role: user
+    content: "..."
+steps:                          # multi-turn sequential branch (keeps history)
+  - step: 1
+    name: "First turn"
+    prompt: "..."               # REQUIRED per step
+    evaluation: {type: contains, expected: pandas}
+cases:                          # batch suite branch (independent turns)
+  - name: "Case 1"
+    prompt: "..."
+    evaluation: {type: contains, expected: "14"}
+evaluation: {type: contains, expected: "foo"}  # scorer (simple) or fallback
+evaluation_type: contains       # kept in sync with evaluation.type on load
+required_caps: [tools]          # vision, tools, image, audio, thinking, ...
+options: {temperature: 0.7, top_p: 0.9, max_tokens: 512}
 ```
+
+Minimum valid test: `name` + one of `prompt` / `messages` / `steps` / `cases`.
+Per-case `evaluation` wins over the test-level one. Unknown evaluation types
+are rejected with HTTP 400 at launch (`runner.ValidateTestsForBattery`).
+
+### Group (`testing/<group>/_category.yaml`)
+
+```yaml
+id: examples
+name: Examples
+description: "..."
+required_caps: []
+order: 0
+```
+
+Without it the group auto-registers as `id = dirname`.
+
+### Seeds
+
+Fresh installs get `testing/examples/` from `internal/tests/seed.go`
+(`PopulateSeed` + `backfillSeedsLocked` adds newer seeds to existing installs
+without touching the original three):
+
+| ID | File | Shape | Checks |
+|----|------|-------|--------|
+| `example-arithmetic` | `arithmetic.yaml` | cases | math via `contains` |
+| `example-weather-tool` | `weather_tool.yaml` | simple | tool call via `regex` |
+| `example-multi-turn` | `multi_turn.yaml` | steps | memory via `contains` |
+| `example-exact-math` | `exact_math.yaml` | cases EN/ES | `exact_match` |
+| `example-codegen` | `codegen.yaml` | cases EN/ES | `contains` |
+| `example-json-output` | `json_output.yaml` | cases EN/ES | `json_schema` |
+| `example-instructions` | `instructions_regex.yaml` | cases EN/ES | `regex` |
+| `example-memory` | `memory_bilingual.yaml` | steps EN→ES | cross-language recall |
+| `example-human-review` | `human_review.yaml` | cases EN/ES | manual rating |
+| `example-vision-cases` | `vision_cases.yaml` | cases + sidecars | vision + inlined text |
 
 ---
 
 ## 3. API Reference
 
-All routes require authentication (same cookie-based session as the rest of the app).
+All routes require auth.
+
+**Tests CRUD** (`internal/server/tests_handlers.go`):
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| GET | `/api/tests` | — | `{ groups: [...], tests: [...] }` |
+| GET | `/api/tests` | — | `{ groups, tests }` (tests carry runtime `attachments`/`sidecars`) |
 | POST | `/api/tests` | `Test` (without `id`) | Created `Test` |
-| PUT | `/api/tests/{id}` | Partial `Test` fields | Updated `Test` |
-| DELETE | `/api/tests/{id}` | — | `{ ok: true }` |
-| POST | `/api/tests/reorder` | `{ updates: { id: order, ... } }` | `{ ok: true }` |
-| POST | `/api/test-groups` | `Group` (without `id`) | Created `Group` |
-| PUT | `/api/test-groups/{id}` | Partial `Group` fields | Updated `Group` |
-| DELETE | `/api/test-groups/{id}` | — | `{ ok: true }` (tests in group become unassigned) |
-| GET | `/api/tests/agent/sessions` | — | `{ sessions: [...] }` |
-| POST | `/api/tests/agent/sessions` | `{ test_id, model_id?, config? }` | Created `AgentSession` |
-| GET | `/api/tests/agent/sessions/{id}` | — | `AgentSession` |
-| POST | `/api/tests/agent/sessions/{id}/message` | `{ role, content }` | Updated `AgentSession` |
-| POST | `/api/tests/agent/sessions/{id}/tool` | `{ call }` | `ToolResult` |
-| POST | `/api/tests/agent/sessions/{id}/reset` | — | Reset `AgentSession` |
-| DELETE | `/api/tests/agent/sessions/{id}` | — | Deleted `AgentSession` |
-| GET | `/api/tests/agent/sessions/{id}/files` | — | `[{ name, path, is_dir }]` |
+| PUT | `/api/tests/{id}` | `Test` fields | Updated `Test` (moves file + history + sidecars on rename) |
+| DELETE | `/api/tests/{id}` | — | `{ ok, reseeded }` (also deletes history + sidecars) |
+| POST | `/api/tests/reorder` | `{ updates: { id: order } }` | `{ ok }` |
+| POST | `/api/tests/{id}/sidecars` | `{ index (1-based), filename, data (base64) }` | Saved `Attachment` |
+| DELETE | `/api/tests/{id}/sidecars/{index}` | — | `{ ok }` |
+| POST/PUT/DELETE | `/api/test-groups[/{id}]` | `Group` | Created/updated/deleted |
+
+**Runner / battery** (`internal/server/runner_handlers.go`):
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/api/runner/battery` | `{ group_id \| test_id, model_ids[] }` → `{ run_id }` (async) |
+| GET | `/api/runner/runs` | Light list (pass/fail/human_review/total) |
+| GET | `/api/runner/runs/{id}` | Full `BatteryRun` |
+| GET | `/api/runner/runs/{id}/progress` | Live `Progress` (poll every 2s) or `{ done: true }` |
+| POST | `/api/runner/runs/{id}/cancel` | Cancels + `{ cancelled }` |
+| PUT | `/api/runner/runs/{id}/rate` | `{ test_id, model, passed }` — manual human rating |
+| DELETE | `/api/runner/runs/{id}` | Deletes a run |
+| GET | `/api/runner/test-history/{id}` | Per-test history items |
+| GET | `/api/runner/group-history/{id}` | Per-model group summary |
+| GET | `/api/runner/sys-info` | `{ os, cpu, gpu, vram, ram }` |
 
 ---
 
 ## 4. Evaluation Types
 
-Each test declares how its result should be checked once execution is implemented. The `evaluation_config` shape depends on the type.
+Implemented in `runner.scoreEval` (unknown types → launch-time 400):
 
-| Type | Config shape | Description |
-|------|-------------|-------------|
-| `exact_match` | `{ "expected": "string" }` | Response must match exactly |
-| `contains` | `{ "expected": "string" }` | Response must contain the substring |
-| `regex` | `{ "pattern": "regex" }` | Response must match the pattern |
-| `json_schema` | `{ "required_keys": ["a", "b"] }` | Response must be valid JSON containing the listed keys |
-| `human_review` | `{}` (or omitted) | No automatic check; a human scores the result later |
-| `agent` | `{ max_turns, initial_files, tools, human_review }` | Multi-turn agent test with sandboxed file tools and human-in-the-loop feedback |
+| Type | Relevant fields | Description |
+|------|----------------|-------------|
+| `exact_match` | `expected` | Trimmed response equals expected |
+| `contains` | `expected` | Case-insensitive substring (markdown/LaTeX normalized) |
+| `contains_list` | `expected: [a, b]` | Any of the strings matches |
+| `regex` | `pattern` | Go regexp match (invalid pattern = fail) |
+| `json_schema` | `schema` | Only `{type: array, minItems, maxItems, items.type}` or `{type: object, required[]}` |
+| `human_review` | — | No auto-check; rate with Pass/Fail in results (pending banner shows unrated) |
+| `agent` | — | Excluded from battery; runs via agent sessions (§6) |
 
 ---
 
-## 5. Frontend Architecture
+## 5. Per-Case Files (sidecars)
 
-### Views
+Attachments belong to **cases/steps, never to the test**. They are sidecar
+files next to the YAML named `<base>-<N>.<ext>` (`N` = 1-based case/step
+number; simple prompt-only tests use `-1`):
 
-The SPA has three top-level `<main>` elements for tests (all `hidden` by default):
-
-- `<main id="tests-view">` — group sidebar + test list
-- `<main id="test-editor-view">` — full-page create/edit form
-- `<main id="agent-session-view">` — multi-turn agent session UI (timeline, sandbox explorer, feedback)
-
-### Routing
-
-`handleRouting()` in `web/app-svg.js` handles:
-- `/tests` → `showTestsView()`
-- `/tests/new` → `showTestEditorView(null)`
-- `/tests/edit/{id}` → `showTestEditorView(id)`
-- `/tests/agent/{test_id}` → `showAgentSessionView(test_id)`
-
-`handleIndex()` in Go also serves `index.html` for these paths so refresh/direct-link works.
-
-### State variables
-
-```js
-let testsGroups = [];      // all groups
-let tests = [];            // all tests
-let selectedGroupId = "";  // "" means "All Tests"
-let currentTestId = null;  // null = new, string = editing
-let currentAgentSession = null; // active agent session object
+```text
+testing/examples/
+  vision_cases.yaml
+  vision_cases-1.png   # image → case 1 (Images[])
+  vision_cases-2.png   # image → case 2
+  vision_cases-3.txt   # text  → case 3 (inlined as "--- attached file: … ---")
 ```
 
-### Key render functions
+| Extension | Kind | How the model receives it |
+|-----------|------|---------------------------|
+| `.png .jpg .jpeg .webp .gif` | image | `Images[]` of that turn (needs `vision` cap — the UI warns otherwise) |
+| `.wav .mp3 .ogg` | audio | `Images[]` pass-through (model-dependent) |
+| `.txt .md` | text | Inlined into the prompt (Ollama has no document input) |
 
-- `renderTestsSidebar()` — renders the left group list
-- `renderTestsList()` — renders tests for the selected group
-- `showTestEditorView(id)` — populates the editor form
-- `saveTestEditor()` — validates JSON, builds payload, calls POST or PUT
-- `createNewGroup()` — simple `prompt()` → POST `/api/test-groups`
+Rules: one file per case number (uploading replaces), max 10 MiB, unknown
+extensions ignored. Files follow the **case number** on reorder. Deleting a
+test deletes its sidecars; renaming moves them. The editor uploads/deletes
+via the `/api/tests/{id}/sidecars` endpoints; `GET /api/tests` exposes them
+as runtime `attachments` per case (never written into the YAML).
 
 ---
 
-## 6. Multi-Turn Agent Test Framework
+## 6. Battery Execution Flow
 
-Agent tests evaluate a model's ability to act as an iterative agent using sandboxed file tools. Each agent test spawns a **session** with an isolated filesystem (sandbox) where the model can read, write, list directories, and execute commands across multiple turns. Human feedback is injected between turns.
-
-### Architecture
-
-- **`internal/agent/sandbox.go`** — safe filesystem operations under `sandboxes/{modelID}/{sessionID}/`
-- **`internal/agent/tools.go`** — built-in tools: `read_file`, `write_file`, `list_dir`, `exec`
-- **`internal/agent/session.go`** — `SessionStore` with in-memory sessions backed by `agent_sessions.json`
-- **`internal/server/agent_handlers.go`** — HTTP handlers under `/api/tests/agent/`
-
-### Session lifecycle
-
-1. User clicks **Run** on an agent test in the test list.
-2. Frontend calls `POST /api/tests/agent/sessions` with `test_id`. A new sandbox directory is created and initial files (if defined in `evaluation_config`) are written.
-3. The session starts with a system turn containing the test's `system_prompt`.
-4. On each turn the model may emit tool calls. The frontend (or a future runner) sends them to `POST /api/tests/agent/sessions/{id}/tool` and receives tool results, which are stored as new turns.
-5. When the model stops emitting tool calls, the session waits for human feedback via `POST /api/tests/agent/sessions/{id}/message` with `role: "user"`.
-6. The session can be **reset** (`POST .../reset`) to clear turns and re-seed initial files, or **deleted** (`DELETE .../{id}`) to remove the session and its sandbox.
-
-### Evaluation config shape (`agent`)
-
-```json
-{
-  "max_turns": 15,
-  "initial_files": [
-    { "path": "index.html", "content": "<!DOCTYPE html>..." },
-    { "path": "style.css", "content": "body { ... }" }
-  ],
-  "tools": ["read_file", "write_file", "list_dir", "exec"],
-  "human_review": true
-}
+```text
+POST /api/runner/battery
+ → ExecuteBatteryAsync (run id + goroutine, cancellable)
+ → runTest per model × test: steps (sequential + history) | cases (independent) | simple
+ → execChatTurn (Ollama streaming, retries ×3, tok/s metrics) + Unload(model)
+ → scoreEval per case/step → SaveRun → testing/<group>/<base>._history.json
+ → progress polling → results matrix → manual PUT …/rate for human_review
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `max_turns` | int | Hard limit on total turns before the session is marked completed |
-| `initial_files` | `[{path, content}]` | Files pre-created in the sandbox when the session starts |
-| `tools` | `[]string` | Subset of built-in tools available to the model for this test |
-| `human_review` | bool | If true, the session pauses between turns for human feedback |
+---
 
-### Seed tests
+## 7. Agent Sessions (outside the battery)
 
-The app ships with three seeded agent tests in the "Multi-Turn Agent" group:
-
-1. **Animated Solar System** — build an orbiting solar system with HTML/CSS/JS.
-2. **Shoe Store Website** — build a responsive single-page store with cart.
-3. **To-Do App** — build a localStorage-persisted to-do list in one HTML file.
-
-All three are evaluated by `human_review` and require the `tools` capability.
+`evaluation_type: agent` tests are filtered out of battery runs and use the
+sandbox framework instead: `internal/agent/` (`read_file`, `write_file`,
+`list_dir`, `exec` under `sandboxes/`) with HTTP under `/api/tests/agent/*`.
+See endpoint list in §3.
 
 ---
 
-## 7. Required Capabilities (`required_caps`)
+## 8. Frontend Notes
 
-Tests and groups both carry a `required_caps` array. These use the same capability strings the app already uses:
-
-- `vision` — model accepts images
-- `tools` — model supports function calling / tool use
-- `image` — model generates images
-- `audio` — model accepts audio input
-- `thinking` — model emits reasoning traces
-- `completion` / `embedding` — standard text capabilities
-
-When a battery runs (future feature), the runner will skip tests whose `required_caps` are not satisfied by the selected model.
+Views: `tests-view` (sidebar + list), `test-editor-view` (cases with per-case
+file buttons), `battery-progress-view` (2s polling, auto-stops on
+navigation/cancel), `battery-results-view` (matrix + summary + pending-review
+banner), history + leaderboard modals. Key modules: `app-battery.js`
+(poll/run/results), `app-test-history.js`, `app-group-history.js`,
+`app-tests.js` (view switching).
 
 ---
 
-## 8. How to Extend
+## 9. I18n
 
-### Adding a new evaluation type
-
-1. Add the option to the `<select id="te-eval-type">` in `web/index.html`.
-2. Add i18n keys for the label in `web/i18n.js` (both `en` and `es`).
-3. Update this document's §4 table.
-4. When execution is built, implement the scorer in the runner.
-
-### Adding new fields to a test
-
-1. Add the field to the `Test` struct in `internal/tests/store.go`.
-2. Add a form field to the editor in `web/index.html`.
-3. Wire it in `showTestEditorView()` and `saveTestEditor()` in `web/app-svg.js`.
-4. No migration needed — the JSON store simply ignores unknown fields on load.
-
-### Wiring test execution (future)
-
-1. Add a "Run Battery" button to the tests view.
-2. Create a new runner package (e.g. `internal/runner`) that:
-   - Takes a model name and a list of test IDs.
-   - Sends each `prompt` (+ `system_prompt`) to Ollama.
-   - Applies the `evaluation_type` / `evaluation_config` scorer.
-   - Stores results in a new JSON file (e.g. `tests-history.json`).
-3. Add a results/history view for human-review tests.
-
----
-
-## 9. I18n Keys Reference
-
-All new keys live under the `tests.` prefix:
-
-- `tests.button`
-- `tests.groups_title`
-- `tests.new_group`
-- `tests.all_tests`
-- `tests.new_test`
-- `tests.edit_test`
-- `tests.empty`
-- `tests.back_to_list`
-- `tests.name`
-- `tests.name_placeholder`
-- `tests.description`
-- `tests.description_placeholder`
-- `tests.group`
-- `tests.no_group`
-- `tests.active`
-- `tests.active_hint`
-- `tests.prompt`
-- `tests.prompt_placeholder`
-- `tests.system_prompt`
-- `tests.system_placeholder`
-- `tests.eval_type`
-- `tests.eval_config`
-- `tests.eval_config_placeholder`
-- `tests.required_caps`
-- `tests.required_caps_placeholder`
-- `tests.order`
-- `tests.status_active`
-- `tests.status_suspended`
-- `tests.suspend`
-- `tests.activate`
-- `tests.delete_title`
-- `tests.delete_text`
-- `tests.invalid_json`
-- `tests.group_name_prompt`
-- `tests.eval_exact_match`
-- `tests.eval_contains`
-- `tests.eval_regex`
-- `tests.eval_json_schema`
-- `tests.eval_human_review`
-- `tests.eval_agent`
-- `tests.agent_settings`
-- `tests.agent_max_turns`
-- `tests.agent_initial_files`
-- `tests.agent_tools`
-- `tests.agent_run`
-- `tests.agent_sandbox`
-- `tests.agent_turns`
-- `tests.agent_feedback`
-- `tests.agent_send_feedback`
-- `tests.agent_reset`
-- `tests.agent_delete_session`
-- `tests.agent_status`
-- `tests.agent_waiting_human`
-- `tests.agent_running`
-- `tests.agent_finished`
-- `tests.agent_no_model`
-- `tests.agent_completed`
-- `tests.agent_in_progress`
-- `tests.agent_no_turns`
-- `tests.agent_empty_sandbox`
-- `tests.agent_sandbox_error`
-- `tests.agent_delete_confirm`
-
-Plus the generic action keys:
-- `action.save`
-- `action.edit`
+Tests UI keys live under `tests.*`, battery under `battery.*` (both `en` and
+`es` in `web/i18n.js`).

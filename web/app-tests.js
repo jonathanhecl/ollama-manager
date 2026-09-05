@@ -3,6 +3,10 @@
 // ---------- tests views ----------
 
 function hideAllMainViews() {
+  // Any view change abandons the battery progress poll (the run keeps going
+  // server-side and can be revisited from history). Guarded: app-battery.js
+  // may load after this file.
+  if (typeof stopBatteryPolling === "function") stopBatteryPolling();
   if (typeof currentView !== "undefined" && currentView === "chat") {
     if (typeof resetChatState === "function") {
       resetChatState();

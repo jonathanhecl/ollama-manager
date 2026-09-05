@@ -7,6 +7,7 @@ package tests
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,13 +32,16 @@ type Group struct {
 	Order        int      `json:"order" yaml:"order"`
 }
 
-// Attachment is a file attached to a test (image, audio, or document).
+// Attachment is a file attached to a single case or step (image, audio, or
+// text document). Attachments are NEVER written to the test YAML: they live
+// as sidecar files next to it named <base>-<N>.<ext> (N = 1-based case/step
+// index) and are discovered at Load time into these runtime-only fields.
 type Attachment struct {
-	ID   string `json:"id" yaml:"id"`
-	Kind string `json:"kind" yaml:"kind"` // "image", "audio", "file"
-	Name string `json:"name" yaml:"name"` // original filename
-	Mime string `json:"mime" yaml:"mime"` // MIME type
-	Data string `json:"data" yaml:"data"` // base64 content or relative file path
+	ID   string `json:"id" yaml:"-"`
+	Kind string `json:"kind" yaml:"-"` // "image", "audio", "text"
+	Name string `json:"name" yaml:"-"` // sidecar filename, e.g. vision-cases-1.png
+	Mime string `json:"mime" yaml:"-"` // MIME type derived from the extension
+	Data string `json:"data" yaml:"-"` // base64 file content
 }
 
 // Message represents a single chat turn in a multi-message test script.
@@ -58,17 +63,19 @@ type Evaluation struct {
 
 // Step represents one turn in a sequential multi-step interactive test.
 type Step struct {
-	Step        int         `json:"step" yaml:"step"`
-	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
-	Prompt      string      `json:"prompt" yaml:"prompt"`
-	Evaluation  *Evaluation `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	Step        int          `json:"step" yaml:"step"`
+	Name        string       `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt      string       `json:"prompt" yaml:"prompt"`
+	Evaluation  *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty" yaml:"-"`
 }
 
 // TestCase represents an individual case in a batch/matrix test suite.
 type TestCase struct {
-	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
-	Prompt      string      `json:"prompt" yaml:"prompt"`
-	Evaluation  *Evaluation `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	Name        string       `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt      string       `json:"prompt" yaml:"prompt"`
+	Evaluation  *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty" yaml:"-"`
 }
 
 // TestOptions represents optional inference parameters.
@@ -95,11 +102,265 @@ type Test struct {
 	EvaluationType   string          `json:"evaluation_type,omitempty" yaml:"evaluation_type,omitempty"`
 	EvaluationConfig json.RawMessage `json:"evaluation_config,omitempty" yaml:"evaluation_config,omitempty"`
 	RequiredCaps     []string        `json:"required_caps,omitempty" yaml:"required_caps,omitempty"`
-	Attachments      []Attachment    `json:"attachments,omitempty" yaml:"attachments,omitempty"`
-	Options          *TestOptions    `json:"options,omitempty" yaml:"options,omitempty"`
+	// Sidecars holds runtime-discovered attachments for simple (prompt-only)
+	// tests, from the <base>-1.<ext> sidecar file. Never stored in YAML.
+	Sidecars         []Attachment      `json:"sidecars,omitempty" yaml:"-"`
+	Options          *TestOptions      `json:"options,omitempty" yaml:"options,omitempty"`
 	Filename         string          `json:"filename,omitempty" yaml:"filename,omitempty"`
 	CreatedAt        time.Time       `json:"created_at" yaml:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at" yaml:"updated_at"`
+}
+
+// MaxSidecarBytes caps sidecar files loaded into memory (10 MiB).
+const MaxSidecarBytes = 10 << 20
+
+// sidecarKind maps a sidecar file extension to its attachment kind and MIME.
+type sidecarKind struct {
+	kind string
+	mime string
+}
+
+// SidecarKindForExt reports the attachment kind and MIME for a file extension
+// (with or without leading dot, case-insensitive). ok=false means the
+// extension is not a supported sidecar type.
+func SidecarKindForExt(ext string) (kind, mime string, ok bool) {
+	switch strings.ToLower(strings.TrimPrefix(ext, ".")) {
+	case "png":
+		return "image", "image/png", true
+	case "jpg", "jpeg":
+		return "image", "image/jpeg", true
+	case "webp":
+		return "image", "image/webp", true
+	case "gif":
+		return "image", "image/gif", true
+	case "wav":
+		return "audio", "audio/wav", true
+	case "mp3":
+		return "audio", "audio/mpeg", true
+	case "ogg":
+		return "audio", "audio/ogg", true
+	case "txt":
+		return "text", "text/plain", true
+	case "md":
+		return "text", "text/markdown", true
+	}
+	return "", "", false
+}
+
+// attachSidecarsLocked discovers <base>-<N>.<ext> sidecar files next to the
+// test file and attaches them to case/step N (1-based), or — for simple
+// prompt-only tests — the <base>-1.<ext> file to the test itself. It resets
+// all runtime attachment fields first, so it can be re-run after uploads or
+// deletions. Call with s.mu held.
+func (s *Store) attachSidecarsLocked(catDir string, t *Test) {
+	t.Sidecars = nil
+	for i := range t.Cases {
+		t.Cases[i].Attachments = nil
+	}
+	for i := range t.Steps {
+		t.Steps[i].Attachments = nil
+	}
+	base := strings.TrimSuffix(t.Filename, filepath.Ext(t.Filename))
+	if base == "" {
+		return
+	}
+	entries, err := os.ReadDir(catDir)
+	if err != nil {
+		return
+	}
+	prefix := base + "-"
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(name, prefix) // "<N>.<ext>"
+		dot := strings.LastIndex(rest, ".")
+		if dot <= 0 {
+			continue
+		}
+		n, err := strconv.Atoi(rest[:dot])
+		if err != nil || n < 1 {
+			continue
+		}
+		kind, mime, ok := SidecarKindForExt(rest[dot:])
+		if !ok {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(catDir, name))
+		if err != nil || len(data) == 0 || len(data) > MaxSidecarBytes {
+			continue
+		}
+		att := Attachment{
+			ID:   base + "-" + strconv.Itoa(n) + strings.ToLower(rest[dot:]),
+			Kind: kind,
+			Name: name,
+			Mime: mime,
+			Data: base64.StdEncoding.EncodeToString(data),
+		}
+		idx := n - 1
+		switch {
+		case len(t.Cases) > 0:
+			if idx < len(t.Cases) {
+				t.Cases[idx].Attachments = append(t.Cases[idx].Attachments, att)
+			}
+		case len(t.Steps) > 0:
+			if idx < len(t.Steps) {
+				t.Steps[idx].Attachments = append(t.Steps[idx].Attachments, att)
+			}
+		default:
+			if n == 1 {
+				t.Sidecars = append(t.Sidecars, att)
+			}
+		}
+	}
+}
+
+// SaveSidecar stores an uploaded sidecar file for case/step index (1-based)
+// as <base>-<index><ext>, replacing any other sidecar previously bound to
+// that index. data is the raw file content.
+func (s *Store) SaveSidecar(id string, index int, filename string, data []byte) (Attachment, error) {
+	if index < 1 {
+		return Attachment{}, errors.New("sidecar index must be >= 1")
+	}
+	if len(data) == 0 {
+		return Attachment{}, errors.New("empty file")
+	}
+	if len(data) > MaxSidecarBytes {
+		return Attachment{}, fmt.Errorf("file exceeds %d bytes", MaxSidecarBytes)
+	}
+	ext := strings.ToLower(filepath.Ext(filename))
+	kind, mime, ok := SidecarKindForExt(ext)
+	if !ok {
+		return Attachment{}, fmt.Errorf("unsupported sidecar type %q (png/jpg/webp/gif/wav/mp3/ogg/txt/md)", ext)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tests[id]
+	if !ok || t == nil {
+		return Attachment{}, errors.New("test not found")
+	}
+	catDir := filepath.Join(s.dir, t.GroupID)
+	base := strings.TrimSuffix(t.Filename, filepath.Ext(t.Filename))
+	// Drop any sidecar previously bound to this index (single file per case).
+	if entries, err := os.ReadDir(catDir); err == nil {
+		prefix := fmt.Sprintf("%s-%d.", base, index)
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+				_ = os.Remove(filepath.Join(catDir, e.Name()))
+			}
+		}
+	}
+	name := fmt.Sprintf("%s-%d%s", base, index, ext)
+	if err := os.WriteFile(filepath.Join(catDir, name), data, 0o644); err != nil {
+		return Attachment{}, err
+	}
+	s.attachSidecarsLocked(catDir, t)
+	return Attachment{
+		ID:   base + "-" + strconv.Itoa(index) + ext,
+		Kind: kind,
+		Name: name,
+		Mime: mime,
+		Data: base64.StdEncoding.EncodeToString(data),
+	}, nil
+}
+
+// DeleteSidecar removes every sidecar file bound to case/step index (1-based).
+func (s *Store) DeleteSidecar(id string, index int) error {
+	if index < 1 {
+		return errors.New("sidecar index must be >= 1")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tests[id]
+	if !ok || t == nil {
+		return errors.New("test not found")
+	}
+	catDir := filepath.Join(s.dir, t.GroupID)
+	base := strings.TrimSuffix(t.Filename, filepath.Ext(t.Filename))
+	removed := false
+	if entries, err := os.ReadDir(catDir); err == nil {
+		prefix := fmt.Sprintf("%s-%d.", base, index)
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+				if _, _, ok := SidecarKindForExt(filepath.Ext(e.Name())); ok {
+					_ = os.Remove(filepath.Join(catDir, e.Name()))
+					removed = true
+				}
+			}
+		}
+	}
+	if !removed {
+		return errors.New("no sidecar for that index")
+	}
+	s.attachSidecarsLocked(catDir, t)
+	return nil
+}
+
+// moveSidecarsLocked renames <oldBase>-* sidecar files when a test file moves.
+// Call with s.mu held.
+func (s *Store) moveSidecarsLocked(oldDir, oldBase, newDir, newBase string) {
+	if oldBase == "" || newBase == "" || (oldDir == newDir && oldBase == newBase) {
+		return
+	}
+	entries, err := os.ReadDir(oldDir)
+	if err != nil {
+		return
+	}
+	prefix := oldBase + "-"
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(e.Name(), prefix)
+		dot := strings.LastIndex(rest, ".")
+		if dot <= 0 {
+			continue
+		}
+		if _, _, ok := SidecarKindForExt(rest[dot:]); !ok {
+			continue
+		}
+		if _, err := strconv.Atoi(rest[:dot]); err != nil {
+			continue
+		}
+		_ = os.MkdirAll(newDir, 0o755)
+		_ = os.Rename(filepath.Join(oldDir, e.Name()), filepath.Join(newDir, newBase+"-"+rest))
+	}
+}
+
+// removeSidecarsLocked deletes every sidecar file of a test. Call with s.mu held.
+func (s *Store) removeSidecarsLocked(catDir, base string) {
+	if base == "" {
+		return
+	}
+	entries, err := os.ReadDir(catDir)
+	if err != nil {
+		return
+	}
+	prefix := base + "-"
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(e.Name(), prefix)
+		dot := strings.LastIndex(rest, ".")
+		if dot <= 0 {
+			continue
+		}
+		if _, _, ok := SidecarKindForExt(rest[dot:]); !ok {
+			continue
+		}
+		if _, err := strconv.Atoi(rest[:dot]); err != nil {
+			continue
+		}
+		_ = os.Remove(filepath.Join(catDir, e.Name()))
+	}
 }
 
 // Store holds groups and tests in memory and syncs them to the filesystem directory.
@@ -236,12 +497,71 @@ func (s *Store) Load() error {
 				}
 			}
 
-			tt := t
-			s.tests[t.ID] = &tt
+		tt := t
+		s.attachSidecarsLocked(catPath, &tt)
+		s.tests[t.ID] = &tt
 		}
 	}
 
+	// Backfill newer seeds missing on disk (existing installs get them).
+	s.backfillSeedsLocked()
+
 	return nil
+}
+
+// backfillSeedsLocked creates the newer catalog seeds missing on disk.
+// The original three seeds are never backfilled so a deliberate deletion
+// sticks. Call with s.mu held.
+func (s *Store) backfillSeedsLocked() {
+	now := time.Now().UTC()
+	for _, id := range backfillSeedIDs {
+		if _, ok := s.tests[id]; ok {
+			continue
+		}
+		t, ok := GetSeedTest(id, now)
+		if !ok {
+			continue
+		}
+		if _, ok := s.groups[t.GroupID]; !ok {
+			s.groups[t.GroupID] = &Group{ID: t.GroupID, Name: humanizeName(t.GroupID), Order: len(s.groups)}
+			_ = s.saveCategoryLocked(s.groups[t.GroupID])
+		}
+		// Don't clobber an unrelated file with the same name.
+		if _, err := os.Stat(filepath.Join(s.dir, t.GroupID, t.Filename)); err == nil {
+			continue
+		}
+		t.normalizeEvaluation()
+		if err := s.saveTestLocked(&t); err != nil {
+			continue
+		}
+		s.writeSeedSidecarsLocked(t.GroupID, t.Filename)
+		s.attachSidecarsLocked(filepath.Join(s.dir, t.GroupID), &t)
+		s.tests[t.ID] = &t
+	}
+}
+
+// writeSeedSidecarsLocked generates known seed sidecar fixtures next to a
+// test file (no-op for unknown names, never overwrites). Call with s.mu held.
+func (s *Store) writeSeedSidecarsLocked(groupID, filename string) {
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if base == "" {
+		return
+	}
+	catDir := filepath.Join(s.dir, groupID)
+	for n := 1; n <= 9; n++ {
+		for _, ext := range []string{".png", ".txt"} {
+			name := fmt.Sprintf("%s-%d%s", base, n, ext)
+			content, ok := seedSidecarContent(name)
+			if !ok {
+				continue
+			}
+			target := filepath.Join(catDir, name)
+			if _, err := os.Stat(target); err == nil {
+				continue
+			}
+			_ = os.WriteFile(target, content, 0o644)
+		}
+	}
 }
 
 func (t *Test) normalizeEvaluation() {
@@ -428,6 +748,7 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 		return Test{}, err
 	}
 
+	s.attachSidecarsLocked(targetDir, &t)
 	s.tests[id] = &t
 	return t, nil
 }
@@ -482,7 +803,8 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	}
 	t.EvaluationConfig = in.EvaluationConfig
 	t.RequiredCaps = in.RequiredCaps
-	t.Attachments = in.Attachments
+	// NOTE: case/step attachments are runtime-only (sidecar files); the
+	// test-level Attachments field no longer exists.
 	t.Options = in.Options
 	t.UpdatedAt = time.Now().UTC()
 
@@ -521,11 +843,15 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 				_ = os.Rename(oldHistPath, newHistPath)
 			}
 		}
+		// Move sidecar files along with the test file.
+		s.moveSidecarsLocked(filepath.Join(s.dir, oldGroup), oldHistBase, targetDir, newHistBase)
 	}
 
 	if err := s.saveTestLocked(t); err != nil {
 		return Test{}, err
 	}
+
+	s.attachSidecarsLocked(filepath.Join(s.dir, t.GroupID), t)
 
 	cp := *t
 	return cp, nil
@@ -552,6 +878,7 @@ func (s *Store) DeleteTest(id string) (DeleteTestResult, error) {
 
 	filePath := filepath.Join(s.dir, t.GroupID, t.Filename)
 	_ = os.Remove(filePath)
+	s.removeSidecarsLocked(filepath.Join(s.dir, t.GroupID), strings.TrimSuffix(t.Filename, filepath.Ext(t.Filename)))
 	delete(s.tests, id)
 
 	return DeleteTestResult{Reseeded: false}, nil
@@ -718,128 +1045,45 @@ func (s *Store) PopulateSeed() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(s.groups) > 0 {
+	// Idempotent: only write the original seeds that are missing (the newer
+	// catalog is backfilled by Load, which may run first and create the group).
+	missing := false
+	for _, id := range []string{"example-arithmetic", "example-weather-tool", "example-multi-turn"} {
+		if _, ok := s.tests[id]; !ok {
+			missing = true
+			break
+		}
+	}
+	if !missing {
 		return nil
 	}
-
-	examplesGroup := &Group{
-		ID:          "examples",
-		Name:        "Examples",
-		Description: "Reference test suites and evaluation templates in YAML",
-		Order:       0,
+	if _, ok := s.groups["examples"]; !ok {
+		s.groups["examples"] = &Group{
+			ID:          "examples",
+			Name:        "Examples",
+			Description: "Reference test suites and evaluation templates in YAML",
+			Order:       len(s.groups),
+		}
+		if err := s.saveCategoryLocked(s.groups["examples"]); err != nil {
+			return fmt.Errorf("create examples category: %w", err)
+		}
 	}
-
-	if err := s.saveCategoryLocked(examplesGroup); err != nil {
-		return fmt.Errorf("create examples category: %w", err)
-	}
-	s.groups[examplesGroup.ID] = examplesGroup
 
 	now := time.Now().UTC()
-	seedExamples := []Test{
-		{
-			ID:           "example-arithmetic",
-			Name:         "Math Suite (Multiple Exercises)",
-			Description:  "Evaluates multiple diverse arithmetic and mathematical operations in a single test.",
-			GroupID:      "examples",
-			Active:       true,
-			Order:        0,
-			SystemPrompt: "You are a concise calculator. Reply with only the final numerical answer or expression.",
-			Cases: []TestCase{
-				{
-					Name:   "Basic order of operations",
-					Prompt: "What is 2 + 3 * 4? Return only the final number.",
-					Evaluation: &Evaluation{
-						Type:     "contains",
-						Expected: "14",
-					},
-				},
-				{
-					Name:   "Fraction simplification",
-					Prompt: "Simplify the fraction 18/24 to its lowest terms. Answer with plain text only.",
-					Evaluation: &Evaluation{
-						Type:     "contains",
-						Expected: "3/4",
-					},
-				},
-				{
-					Name:   "Exponentiation",
-					Prompt: "What is 2 raised to the power of 8 (2^8)? Return only the number.",
-					Evaluation: &Evaluation{
-						Type:     "contains",
-						Expected: "256",
-					},
-				},
-				{
-					Name:   "Percentages",
-					Prompt: "What is 15% of 200? Return only the number.",
-					Evaluation: &Evaluation{
-						Type:     "contains",
-						Expected: "30",
-					},
-				},
-			},
-			Filename:  "arithmetic.yaml",
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		{
-			ID:           "example-weather-tool",
-			Name:         "Weather Tool Call",
-			Description:  "One-shot tool call evaluation for weather query.",
-			GroupID:      "examples",
-			Active:       true,
-			Order:        1,
-			RequiredCaps: []string{"tools"},
-			SystemPrompt: "You have access to the following tool:\nget_weather(location: string) -> {temperature: number, condition: string}\nWhen the user asks about weather, respond ONLY with the tool call. Example:\nget_weather(\"London\")\nDo not add any other text.",
-			Prompt:       "What is the weather like in Paris right now?",
-			Evaluation: &Evaluation{
-				Type:    "regex",
-				Pattern: `(?i)get_weather\s*\(\s*"Paris"\s*\)`,
-			},
-			Filename:  "weather_tool.yaml",
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		{
-			ID:           "example-multi-turn",
-			Name:         "Sequential Dialogue Chain",
-			Description:  "Multi-step interactive chain testing sequential context retention across turns.",
-			GroupID:      "examples",
-			Active:       true,
-			Order:        2,
-			SystemPrompt: "You are a helpful and concise programming assistant.",
-			Steps: []Step{
-				{
-					Step:   1,
-					Name:   "Initial context inquiry",
-					Prompt: "I am learning Python for data analysis and machine learning. What is the primary library used for dataframes?",
-					Evaluation: &Evaluation{
-						Type:     "contains",
-						Expected: "pandas",
-					},
-				},
-				{
-					Step:   2,
-					Name:   "Contextual follow-up",
-					Prompt: "What programming language did I mention I was learning in my previous message? Reply with just the language name.",
-					Evaluation: &Evaluation{
-						Type:     "contains",
-						Expected: "Python",
-					},
-				},
-			},
-			Filename:  "multi_turn.yaml",
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-	}
-
-	for i := range seedExamples {
-		t := seedExamples[i]
+	for _, id := range []string{"example-arithmetic", "example-weather-tool", "example-multi-turn"} {
+		if _, ok := s.tests[id]; ok {
+			continue
+		}
+		t, ok := GetSeedTest(id, now)
+		if !ok {
+			continue
+		}
 		t.normalizeEvaluation()
 		if err := s.saveTestLocked(&t); err != nil {
 			return fmt.Errorf("save seed test %s: %w", t.ID, err)
 		}
+		s.writeSeedSidecarsLocked(t.GroupID, t.Filename)
+		s.attachSidecarsLocked(filepath.Join(s.dir, t.GroupID), &t)
 		s.tests[t.ID] = &t
 	}
 

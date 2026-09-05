@@ -65,24 +65,13 @@ function updateEvalConfigVisibility() {
   configWrap.hidden = type !== "json_schema" && type !== "agent";
 }
 
-// Test editor attachments
-$("te-add-image-btn")?.addEventListener("click", () => {
-  $("te-image-input")?.click();
-});
-$("te-add-audio-btn")?.addEventListener("click", () => {
-  $("te-audio-input")?.click();
-});
-$("te-image-input")?.addEventListener("change", (e) => {
+// Test editor per-case sidecar picker. The target case index is set by the
+// card's "Add file" button (see app-svg.js); a single hidden input serves
+// all cards.
+$("te-case-file-input")?.addEventListener("change", (e) => {
   const files = e.target.files;
   if (files?.length) {
-    void handleTestEditorFileInput(Array.from(files), "image");
-  }
-  e.target.value = "";
-});
-$("te-audio-input")?.addEventListener("change", (e) => {
-  const files = e.target.files;
-  if (files?.length) {
-    void handleTestEditorFileInput(Array.from(files), "audio");
+    void handleTestEditorCaseFile(Array.from(files).slice(0, 1));
   }
   e.target.value = "";
 });

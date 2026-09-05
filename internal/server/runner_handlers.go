@@ -61,6 +61,12 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fail fast on unknown evaluation types (they would score silent false).
+	if err := runner.ValidateTestsForBattery(testsList); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	// Fetch capabilities for selected models.
 	ctx := r.Context()
 	models, err := s.ollama.List(ctx)

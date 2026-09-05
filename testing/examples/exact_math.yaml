@@ -1,0 +1,19 @@
+id: example-exact-math
+name: Exact Math (EN/ES)
+description: Bilingual exact-match arithmetic. The answer must be exactly the number.
+group_id: examples
+active: true
+order: 3
+system_prompt: Reply with only the final number. No words, no punctuation.
+cases:
+  - name: Multiplication EN
+    prompt: "Reply with only the number: 7 * 6"
+    evaluation:
+      type: exact_match
+      expected: "42"
+
+  - name: Multiplicación ES
+    prompt: "Responde solo con el número: 12 * 12"
+    evaluation:
+      type: exact_match
+      expected: "144"

@@ -1,0 +1,22 @@
+id: code-create-go
+name: 'Coding 03 · Create (Go)'
+description: 'Write a one-level Flatten function from a spec.'
+group_id: coding
+active: true
+order: 8
+
+system_prompt: |
+  You are a precise coding assistant. Reply with the requested code.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Write Flatten
+    prompt: |
+      Write a Go function Flatten(xs []any) []any that flattens one level:
+      Flatten([]any{[]any{1, 2}, []any{3}, 4}) must give []any{1, 2, 3, 4}.
+      Reply with the complete function.
+    evaluation:
+      type: regex
+      pattern: '(?s)func\s+Flatten.*append'

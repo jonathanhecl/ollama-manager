@@ -1,0 +1,24 @@
+id: code-trace-js
+name: 'Coding 02 · Trace (JavaScript)'
+description: 'Predict the output of closures over a var loop counter.'
+group_id: coding
+active: true
+order: 3
+
+system_prompt: |
+  You are a precise coding assistant. Read code carefully and answer exactly what is asked.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Trace var closures
+    prompt: |
+      What does this JavaScript print? Reply with ONLY the printed line:
+
+      const fns = [];
+      for (var i = 0; i < 3; i++) { fns.push(() => i); }
+      console.log(fns.map(f => f()).join(","));
+    evaluation:
+      type: exact_match
+      expected: "3,3,3"

@@ -1,0 +1,22 @@
+id: code-create-js
+name: 'Coding 03 · Create (JavaScript)'
+description: 'Write a one-level flatten function from a spec.'
+group_id: coding
+active: true
+order: 6
+
+system_prompt: |
+  You are a precise coding assistant. Reply with the requested code.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Write flatten
+    prompt: |
+      Write a JavaScript function flatten(arr) that flattens one level:
+      flatten([[1, 2], [3], 4]) must give [1, 2, 3, 4].
+      Reply with the complete function.
+    evaluation:
+      type: regex
+      pattern: '(?s)function\s+flatten.*(concat|push|\.\.\.)'

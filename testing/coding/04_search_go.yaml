@@ -1,0 +1,35 @@
+id: code-search-go
+name: 'Coding 04 · Search (Go)'
+description: 'Locate a function definition with a fake search tool, then answer from the results.'
+group_id: coding
+active: true
+order: 11
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | list_dir("path") | search_code("word") — search all files for a word.
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Find where ConnectDB is defined
+    prompt: |
+      Repo files: main.go, store.go, server.go.
+      In which file is the function `ConnectDB` defined?
+      First locate it: reply with ONLY the tool call search_code("ConnectDB").
+    evaluation:
+      type: regex
+      pattern: '(?i)search_code\s*\(\s*"ConnectDB"\s*\)'
+    steps:
+      - name: Answer from search hits
+        prompt: |
+          [tool-result ok] search_code("ConnectDB") ->
+          main.go:9: // TODO call ConnectDB here
+          store.go:5: func ConnectDB(dsn string) {
+          server.go:33: ConnectDB(os.Getenv("DSN"))
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*store\.go'

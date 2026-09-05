@@ -1,0 +1,25 @@
+id: code-trace-go
+name: 'Coding 02 · Trace (Go)'
+description: 'Predict the effect of slice aliasing.'
+group_id: coding
+active: true
+order: 5
+
+system_prompt: |
+  You are a precise coding assistant. Read code carefully and answer exactly what is asked.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Trace slice aliasing
+    prompt: |
+      What does this Go program print? Reply with ONLY the number:
+
+      s := []int{1, 2, 3}
+      t := s[:2]
+      t[0] = 9
+      fmt.Println(s[0])
+    evaluation:
+      type: exact_match
+      expected: "9"

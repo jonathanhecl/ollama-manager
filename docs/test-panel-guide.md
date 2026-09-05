@@ -423,3 +423,29 @@ compile). Absence checks (e.g. "no more tool calls") therefore use
 | 10 | `10_strategy_choice.yaml` | Ambiguous failure (disk full, no hint) → recovery judged by a human |
 | 11 | `11_skill_selection.yaml` | Invented skills (`invoice-parser`, `web-search`, `translator`) via `use_skill("name", "task")`; pick the right one unprompted, none for plain math |
 | 12 | `12_skill_recipe.yaml` | Follow a 3-step skill recipe in order; pass requires all three consecutive simulated steps |
+
+---
+
+## 11. Coding Scenarios (`testing/coding/`)
+
+Battery tests for coding ability in JavaScript, Python and Go. There is no
+code execution: answers are evaluated statically (`exact_match` for
+deterministic outputs, `regex` for code structure, `contains` where a token
+suffices). Same conventions as §10: `options: { temperature: 0.2 }`, no
+`required_caps`, RE2 regex (no lookahead).
+
+Layout is one file per task × language (`01_fix_js.yaml`,
+`01_fix_py.yaml`, …), so the leaderboard compares languages directly: run the
+whole category on a model and contrast the `01_fix_*` / `02_trace_*` / … rows.
+
+Fake editing/search tools extend the §10 protocol per file (`apply_patch`,
+`search_code`) and are declared in that file's `system_prompt`.
+
+### Scenario table
+
+| # | Files | Behavior under test |
+|---|-------|---------------------|
+| 1 | `01_fix_{js,py,go}.yaml` | Fix the same off-by-one bug in each language (direct fix + `apply_patch` variant) |
+| 2 | `02_trace_{js,py,go}.yaml` | Predict exact output: JS `var` closures (`3,3,3`), Py accumulator (`20`), Go slice aliasing (`9`) |
+| 3 | `03_create_{js,py,go}.yaml` | Write one-level `flatten`/`Flatten` from a spec; signature + key tokens checked |
+| 4 | `04_search_{js,py,go}.yaml` | Needle-in-haystack, chained: call `search_code`, then `FINAL:` with the defining file from 3 fake hits |

@@ -1,0 +1,35 @@
+id: code-search-js
+name: 'Coding 04 · Search (JavaScript)'
+description: 'Locate a function definition with a fake search tool, then answer from the results.'
+group_id: coding
+active: true
+order: 9
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | list_dir("path") | search_code("word") — search all files for a word.
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Find where authenticate is defined
+    prompt: |
+      Repo files: app.js, utils.js, server.js.
+      In which file is the function `authenticate` defined?
+      First locate it: reply with ONLY the tool call search_code("authenticate").
+    evaluation:
+      type: regex
+      pattern: '(?i)search_code\s*\(\s*"authenticate"\s*\)'
+    steps:
+      - name: Answer from search hits
+        prompt: |
+          [tool-result ok] search_code("authenticate") ->
+          app.js:12: // TODO use authenticate here
+          utils.js:4: function authenticate(user) {
+          server.js:30: authenticate(req.user);
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*utils\.js'

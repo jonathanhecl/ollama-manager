@@ -1,0 +1,33 @@
+id: sim-write-then-verify
+name: 'SimAgent 05: Write Then Verify'
+description: 'Chain with state across tools: write a file, verify it, then confirm.'
+group_id: simulated-agent
+active: true
+order: 4
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Create and verify file
+    prompt: 'Create hello.txt containing exactly: hello world'
+    evaluation:
+      type: regex
+      pattern: '(?i)write_file\s*\(\s*"hello\.txt".*hello world'
+    steps:
+      - name: Verify the written file
+        prompt: '[tool-result ok] write_file("hello.txt") - wrote hello.txt'
+        evaluation:
+          type: regex
+          pattern: '(?i)(read_file\s*\(\s*"hello\.txt"\s*\)|exec\s*\(\s*"cat hello\.txt"\s*\))'
+      - name: Confirm contents
+        prompt: '[tool-result ok] read_file("hello.txt") -> "hello world"'
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*hello world'

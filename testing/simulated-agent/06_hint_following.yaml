@@ -1,0 +1,33 @@
+id: sim-hint-following
+name: 'SimAgent 06: Follow Error Hint'
+description: The error message suggests the fix; the model must read it and apply it.
+group_id: simulated-agent
+active: true
+order: 5
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Apply the suggested directory
+    prompt: 'Run the test suite with exec("pytest tests/"), then reply FINAL with the result.'
+    evaluation:
+      type: regex
+      pattern: '(?i)exec\s*\(\s*"pytest tests/"\s*\)'
+    steps:
+      - name: Use the hinted path
+        prompt: '[tool-result ERROR] exit:2 - no such directory "tests/". Did you mean "testing/"?'
+        evaluation:
+          type: regex
+          pattern: '(?i)exec\s*\(\s*"pytest testing/"\s*\)'
+      - name: Report test result
+        prompt: '[tool-result ok] exec("pytest testing/") exit:0 - 5 passed'
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*5 passed'

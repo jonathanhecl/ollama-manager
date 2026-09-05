@@ -377,3 +377,47 @@ All new keys live under the `tests.` prefix:
 Plus the generic action keys:
 - `action.save`
 - `action.edit`
+
+---
+
+## 10. Simulated Agent Scenarios (`testing/simulated-agent/`)
+
+The battery runner skips tests with `evaluation_type: agent` (real agent
+sessions are human-interactive only). The `simulated-agent` category works
+around this: plain battery tests that **simulate** the agent loop.
+
+### Simulation protocol
+
+Every test declares the same fake toolset in its `system_prompt`
+(weather-style syntax, see `testing/examples/weather_tool.yaml`):
+
+- Tool calls are single lines: `read_file("p")`, `write_file("p", "c")`,
+  `list_dir("p")`, `exec("cmd")` — reply with ONLY the call, no other text.
+- Simulated results are injected as chained `steps` prompts, always starting
+  with `[tool-result ok]` or `[tool-result ERROR]`. The model must never
+  invent results.
+- A finished task ends with `FINAL: <answer>`.
+- `options: { temperature: 0.2 }` keeps runs deterministic.
+- No `required_caps`: plain text, runs on any model.
+
+Regex notes: patterns run on Go RE2 — **no lookahead** (`(?!…)` won't
+compile). Absence checks (e.g. "no more tool calls") therefore use
+`human_review`. Prompts starting with `[tool-result …]` must be YAML-quoted
+(leading `[` would parse as a flow sequence).
+
+### Scenario table
+
+| # | File | Behavior under test |
+|---|------|---------------------|
+| 1 | `01_read_then_answer.yaml` | Grounding: call `read_file` instead of guessing, answer from the result |
+| 2 | `02_file_not_found.yaml` | `read` fails → `list_dir` → read the discovered file → `FINAL` |
+| 3 | `03_exec_fail_retry.yaml` | `exec` permission denied → retry with `chmod`/`sudo`/`bash` alternative |
+| 4 | `04_malformed_call.yaml` | Validation error (`missing param`) → re-emit the corrected call |
+| 5 | `05_write_then_verify.yaml` | Stateful chain: `write_file` → verify via `read_file`/`cat` → confirm |
+| 6 | `06_hint_following.yaml` | Error contains the fix (`Did you mean "testing/"?`) → apply it |
+| 7 | `07_stop_condition.yaml` | After success, answer `FINAL` instead of looping (`human_review`) |
+| 8 | `08_param_extraction.yaml` | NL requests → correct tool + arguments (path, content, flags) |
+| 9 | `09_dangerous_command.yaml` | Refuse/confirm `rm -rf /`, but still run the safe `ls /` mirror case |
+| 10 | `10_strategy_choice.yaml` | Ambiguous failure (disk full, no hint) → recovery judged by a human |
+| 11 | `11_skill_selection.yaml` | Invented skills (`invoice-parser`, `web-search`, `translator`) via `use_skill("name", "task")`; pick the right one unprompted, none for plain math |
+| 12 | `12_skill_recipe.yaml` | Follow a 3-step skill recipe in order; pass requires all three consecutive simulated steps |

@@ -1,0 +1,27 @@
+id: sim-strategy-choice
+name: 'SimAgent 10: Open Strategy After Failure'
+description: Ambiguous failure with no obvious fix; the recovery strategy is judged by a human.
+group_id: simulated-agent
+active: true
+order: 9
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Disk full during backup
+    prompt: 'Back up the database with exec("backup.sh"), then reply FINAL: BACKED UP.'
+    evaluation:
+      type: regex
+      pattern: '(?i)exec\s*\(\s*"backup\.sh"\s*\)'
+    steps:
+      - name: Recovery strategy is human judged
+        prompt: '[tool-result ERROR] exec("backup.sh") exit:1 - disk full, 0 MB free. No hint available.'
+        evaluation:
+          type: human_review

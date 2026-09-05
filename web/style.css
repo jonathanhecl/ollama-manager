@@ -6035,6 +6035,14 @@ button.chat-send:disabled:hover {
   .te-top-row .te-field-active { align-items: flex-start; flex-direction: row; justify-content: space-between; }
 }
 
+@media (max-width: 640px) {
+  .tests-item { flex-wrap: wrap; }
+  .tests-item-actions { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+  .tests-item-main { flex: 1 1 100%; }
+  .te-case-step-extra { flex-direction: column; align-items: stretch; }
+  .te-case-step-extra .te-case-step-temperature { width: 100%; }
+}
+
 /* ---------- Test editor attachments ---------- */
 .te-attach-field { align-items: flex-start; }
 .te-attach-col { display: flex; flex-direction: column; gap: 10px; }

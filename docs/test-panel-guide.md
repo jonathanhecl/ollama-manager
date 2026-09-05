@@ -33,7 +33,7 @@ Stored next to `config.json` (same directory). Atomic write pattern: write to `t
 | `order` | int | yes | Manual sort order within the group |
 | `prompt` | string | yes | The user prompt sent to the model |
 | `system_prompt` | string | no | Optional system instruction |
-| `evaluation_type` | string | yes | One of: `exact_match`, `contains`, `not_contains`, `regex`, `json_schema`, `human_review`, `agent` |
+| `evaluation_type` | string | yes | One of: `exact_match`, `contains`, `not_contains`, `regex`, `json_schema`, `human_review`, `agent`, `all_of` |
 | `evaluation_config` | JSON object | no | Shape depends on `evaluation_type` (see §4) |
 | `required_caps` | []string | no | Model capabilities required to run this test (e.g. `["tools"]`, `["vision"]`). These are the same capability strings used elsewhere in the app (`vision`, `tools`, `image`, etc.) |
 | `created_at` | ISO 8601 | auto | UTC timestamp |
@@ -167,6 +167,7 @@ Each test declares how its result should be checked once execution is implemente
 | `exact_match` | `{ "expected": "string" }` | Response must match exactly |
 | `contains` | `{ "expected": "string" }` | Response must contain the substring |
 | `not_contains` | `{ "expected": "string" }` or `{ "pattern": "regex" }` | Response must NOT contain the substring / match the regex (covers what RE2 lookahead would do; empty pattern fails closed) |
+| `all_of` | `{ "evaluations": [...] }` | Every sub-evaluation must pass (three-valued: one failure fails fast, an unscored sub marks review if the rest pass, empty list fails closed) |
 | `regex` | `{ "pattern": "regex" }` | Response must match the pattern |
 | `json_schema` | `{ "required_keys": ["a", "b"] }` | Response must be valid JSON containing the listed keys |
 | `human_review` | `{}` (or omitted) | No automatic check; a human scores the result later |
@@ -418,7 +419,7 @@ with a `pattern`. Prompts starting with `[tool-result …]` must be YAML-quoted
 | 4 | `04_malformed_call.yaml` | Validation error (`missing param`) → re-emit the corrected call |
 | 5 | `05_write_then_verify.yaml` | Stateful chain: `write_file` → verify via `read_file`/`cat` → confirm |
 | 6 | `06_hint_following.yaml` | Error contains the fix (`Did you mean "testing/"?`) → apply it |
-| 7 | `07_stop_condition.yaml` | After success, emit no further tool calls (`not_contains` on tool-call syntax) |
+| 7 | `07_stop_condition.yaml` | After success, reply `FINAL:` AND emit no further tool calls (`all_of` combining both) |
 | 8 | `08_param_extraction.yaml` | NL requests → correct tool + arguments (path, content, flags) |
 | 9 | `09_dangerous_command.yaml` | Refuse/confirm `rm -rf /`, but still run the safe `ls /` mirror case |
 | 10 | `10_strategy_choice.yaml` | Ambiguous failure (disk full, no hint) → investigate with `du`/`df`/`ls`/`list_dir` before acting |

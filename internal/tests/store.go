@@ -48,12 +48,14 @@ type Message struct {
 }
 
 // Evaluation specifies the evaluation strategy and parameters.
+// The "all_of" type combines sub-evaluations that must all pass.
 type Evaluation struct {
-	Type     string          `json:"type" yaml:"type"`
-	Expected any             `json:"expected,omitempty" yaml:"expected,omitempty"`
-	Pattern  string          `json:"pattern,omitempty" yaml:"pattern,omitempty"`
-	Schema   any             `json:"schema,omitempty" yaml:"schema,omitempty"`
-	Config   json.RawMessage `json:"config,omitempty" yaml:"config,omitempty"`
+	Type        string          `json:"type" yaml:"type"`
+	Expected    any             `json:"expected,omitempty" yaml:"expected,omitempty"`
+	Pattern     string          `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	Schema      any             `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Config      json.RawMessage `json:"config,omitempty" yaml:"config,omitempty"`
+	Evaluations []*Evaluation   `json:"evaluations,omitempty" yaml:"evaluations,omitempty"`
 }
 
 // Step represents one turn in a sequential multi-step interactive test.

@@ -1045,16 +1045,57 @@ function newEditorCase(name) {
     temperature: "",
     top_p: "",
     max_tokens: "",
+    subevals: [],
     steps: [],
   };
 }
 
 function newEditorStep(name) {
-  return { name: name || "", prompt: "", type: "contains", expected: "", pattern: "", system_prompt: "", temperature: "" };
+  return { name: name || "", prompt: "", type: "contains", expected: "", pattern: "", subevals: [], system_prompt: "", temperature: "" };
 }
 
 function isPatternEvalType(type) {
   return type === "regex" || type === "not_contains";
+}
+
+function evalLeafOptionsHtml(selectedType) {
+  return ["contains", "not_contains", "exact_match", "regex", "human_review"].map((v) =>
+    `<option value="${v}" ${selectedType === v ? "selected" : ""}>${t("tests.eval_" + v)}</option>`
+  ).join("");
+}
+
+function subevalsHtml(subs) {
+  return (subs || []).map((s) => `
+    <div class="te-subeval-row">
+      <select class="te-subeval-type" autocomplete="off">${evalLeafOptionsHtml(s.type || "contains")}</select>
+      <input type="text" class="te-subeval-value" value="${escapeHtml((s.pattern || s.expected) ?? "")}" placeholder="${t("tests.case_expected_placeholder")}" autocomplete="off" ${s.type === "human_review" ? "hidden" : ""}>
+      <button type="button" class="btn-icon te-subeval-delete" title="${t("tests.delete_condition")}">×</button>
+    </div>`).join("");
+}
+
+function readSubevals(listEl) {
+  if (!listEl) return [];
+  return Array.from(listEl.querySelectorAll(":scope > .te-subeval-row")).map((row) => {
+    const t = row.querySelector(".te-subeval-type")?.value || "contains";
+    const v = row.querySelector(".te-subeval-value")?.value.trim() || "";
+    const isPat = t === "regex" || t === "not_contains";
+    return { type: t, expected: !isPat ? v : "", pattern: isPat ? v : "" };
+  });
+}
+
+function wireSubevalList(listEl) {
+  if (!listEl || listEl.dataset.wired) return;
+  listEl.dataset.wired = "1";
+  listEl.addEventListener("click", (e) => {
+    const del = e.target.closest(".te-subeval-delete");
+    if (del) del.closest(".te-subeval-row")?.remove();
+  });
+  listEl.addEventListener("change", (e) => {
+    const sel = e.target.closest(".te-subeval-type");
+    if (!sel) return;
+    const input = sel.closest(".te-subeval-row")?.querySelector(".te-subeval-value");
+    if (input) input.hidden = sel.value === "human_review";
+  });
 }
 
 function evalOptionsHtml(selectedType) {
@@ -1063,6 +1104,7 @@ function evalOptionsHtml(selectedType) {
     <option value="not_contains" ${selectedType === "not_contains" ? "selected" : ""}>${t("tests.eval_not_contains")}</option>
     <option value="exact_match" ${selectedType === "exact_match" ? "selected" : ""}>${t("tests.eval_exact_match")}</option>
     <option value="regex" ${selectedType === "regex" ? "selected" : ""}>${t("tests.eval_regex")}</option>
+    <option value="all_of" ${selectedType === "all_of" ? "selected" : ""}>${t("tests.eval_all_of")}</option>
     <option value="human_review" ${selectedType === "human_review" ? "selected" : ""}>${t("tests.eval_human_review")}</option>
   `;
 }
@@ -1076,6 +1118,7 @@ function renderEditorCasesList() {
   container.innerHTML = currentEditorCases.map((c, idx) => {
     const isRegex = isPatternEvalType(c.type);
     const isHuman = c.type === "human_review";
+    const isAllOf = c.type === "all_of";
     const isFirst = idx === 0;
     const isLast = idx === currentEditorCases.length - 1;
     const deleteBtn = currentEditorCases.length > 1
@@ -1085,6 +1128,7 @@ function renderEditorCasesList() {
     const stepsHtml = steps.map((s, sidx) => {
       const sIsRegex = isPatternEvalType(s.type);
       const sIsHuman = s.type === "human_review";
+      const sIsAllOf = s.type === "all_of";
       return `
         <div class="te-case-step" data-step-idx="${sidx}">
           <div class="te-case-step-header">
@@ -1096,7 +1140,12 @@ function renderEditorCasesList() {
             <textarea class="te-case-step-prompt" rows="2" placeholder="${t("tests.step_prompt_placeholder")}" autocomplete="off">${escapeHtml(s.prompt || "")}</textarea>
             <div class="te-case-step-eval">
               <select class="te-case-step-eval-type" autocomplete="off">${evalOptionsHtml(s.type || "contains")}</select>
-              <input type="text" class="te-case-step-expected" value="${escapeHtml(sIsRegex ? (s.pattern || "") : (s.expected || ""))}" placeholder="${sIsRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off" ${sIsHuman ? "hidden" : ""}>
+              <input type="text" class="te-case-step-expected" value="${escapeHtml(sIsRegex ? (s.pattern || "") : (s.expected || ""))}" placeholder="${sIsRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off" ${sIsHuman || sIsAllOf ? "hidden" : ""}>
+              <div class="te-subeval-block" ${sIsAllOf ? "" : "hidden"}>
+                <span class="te-case-label">${t("tests.subevals_title")}</span>
+                <div class="te-subeval-list">${subevalsHtml(s.subevals)}</div>
+                <button type="button" class="ghost te-subeval-add">${t("tests.add_condition")}</button>
+              </div>
             </div>
           </div>
           <div class="te-case-step-extra">
@@ -1129,9 +1178,14 @@ function renderEditorCasesList() {
                 <label class="te-case-label">${t("tests.case_eval_type")}</label>
                 <select class="te-case-eval-type" autocomplete="off">${evalOptionsHtml(c.type || "contains")}</select>
               </div>
-              <div class="field te-case-expected-field" ${isHuman ? "hidden" : ""}>
+              <div class="field te-case-expected-field" ${isHuman || isAllOf ? "hidden" : ""}>
                 <label class="te-case-label">${isRegex ? t("tests.eval_pattern") : t("tests.case_expected")}</label>
                 <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || "") : (c.expected || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
+              </div>
+              <div class="field te-case-subevals-field" ${isAllOf ? "" : "hidden"}>
+                <label class="te-case-label">${t("tests.subevals_title")}</label>
+                <div class="te-subeval-list">${subevalsHtml(c.subevals)}</div>
+                <button type="button" class="ghost te-subeval-add">${t("tests.add_condition")}</button>
               </div>
             </div>
           </div>
@@ -1211,23 +1265,37 @@ function renderEditorCasesList() {
       const label = expectedField?.querySelector("label");
       const input = expectedField?.querySelector("input");
       const type = sel.value;
+      const subField = card?.querySelector(":scope > .te-case-card-body > .te-case-content-grid .te-case-subevals-field");
       if (expectedField) {
-        expectedField.hidden = type === "human_review";
+        expectedField.hidden = type === "human_review" || type === "all_of";
         if (label) label.textContent = isPatternEvalType(type) ? t("tests.eval_pattern") : t("tests.case_expected");
         if (input) input.placeholder = isPatternEvalType(type) ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
       }
+      if (subField) subField.hidden = type !== "all_of";
     });
   });
 
   container.querySelectorAll(".te-case-step-eval-type").forEach((sel) => {
     sel.addEventListener("change", () => {
       const evalBox = sel.closest(".te-case-step-eval");
-      const input = evalBox?.querySelector(".te-case-step-expected");
+      const input = evalBox?.querySelector(":scope > .te-case-step-expected");
+      const block = evalBox?.querySelector(":scope > .te-subeval-block");
       const type = sel.value;
       if (input) {
-        input.hidden = type === "human_review";
+        input.hidden = type === "human_review" || type === "all_of";
         input.placeholder = isPatternEvalType(type) ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
       }
+      if (block) block.hidden = type !== "all_of";
+    });
+  });
+
+  container.querySelectorAll(".te-subeval-list").forEach(wireSubevalList);
+  container.querySelectorAll(".te-subeval-add").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const block = btn.closest(".te-subeval-block, .te-case-subevals-field");
+      const list = block?.querySelector(".te-subeval-list");
+      if (!list) return;
+      list.insertAdjacentHTML("beforeend", subevalsHtml([{ type: "contains", expected: "", pattern: "" }]));
     });
   });
 
@@ -1296,10 +1364,12 @@ function syncEditorCasesFromDOM() {
         type: sType,
         expected: !sIsPattern ? sVal : "",
         pattern: sIsPattern ? sVal : "",
+        subevals: readSubevals(sel2.querySelector(".te-subeval-list")),
         system_prompt: sSys,
         temperature: sTemp,
       };
     });
+    const caseSubList = card.querySelector(":scope > .te-case-card-body > .te-case-content-grid > .te-case-eval-col > .te-case-subevals-field > .te-subeval-list");
     const isPattern = isPatternEvalType(type);
     return {
       name,
@@ -1307,6 +1377,7 @@ function syncEditorCasesFromDOM() {
       type,
       expected: !isPattern ? val : "",
       pattern: isPattern ? val : "",
+      subevals: readSubevals(caseSubList),
       system_prompt: systemPrompt,
       temperature,
       top_p: topP,
@@ -1339,12 +1410,23 @@ async function showTestEditorView(id) {
       $("te-required-caps").value = (test.required_caps || []).join(", ");
       $("te-order").value = String(test.order || 0);
 
+      const toEditorSub = (e) => {
+        const t = e.type || "contains";
+        const isPat = t === "regex" || t === "not_contains";
+        return {
+          type: t,
+          expected: !isPat && e.expected != null ? String(e.expected) : "",
+          pattern: isPat ? (e.pattern || "") : "",
+        };
+      };
       const toEditorStep = (s, i) => ({
         name: s.name || `Step ${i + 1}`,
         prompt: s.prompt || "",
         type: s.evaluation?.type || test.evaluation_type || "contains",
         expected: s.evaluation?.expected != null ? String(s.evaluation.expected) : "",
         pattern: s.evaluation?.pattern || "",
+        subevals: s.evaluation?.type === "all_of" && Array.isArray(s.evaluation.evaluations)
+          ? s.evaluation.evaluations.map(toEditorSub) : [],
         system_prompt: s.system_prompt || "",
         temperature: s.options?.temperature ?? "",
       });
@@ -1358,6 +1440,8 @@ async function showTestEditorView(id) {
         temperature: c.options?.temperature ?? "",
         top_p: c.options?.top_p ?? "",
         max_tokens: c.options?.max_tokens ?? "",
+        subevals: c.evaluation?.type === "all_of" && Array.isArray(c.evaluation.evaluations)
+          ? c.evaluation.evaluations.map(toEditorSub) : [],
         steps: Array.isArray(c.steps) ? c.steps.map(toEditorStep) : [],
       });
       // Load cases
@@ -1841,8 +1925,21 @@ async function saveTestEditor() {
     currentEditorCases = [newEditorCase("Case 1")];
   }
 
-  const buildEval = (type, expected, pattern) => {
+  const buildEval = (type, expected, pattern, subevals) => {
     const evaluation = { type: type || "contains" };
+    if (type === "all_of") {
+      evaluation.evaluations = (subevals || []).map((s) => {
+        const st = s.type || "contains";
+        if (st === "regex" || st === "not_contains") {
+          const p = s.pattern || s.expected || "";
+          return p ? { type: st, pattern: p } : null;
+        }
+        if (st === "human_review") return { type: st };
+        const e = (s.expected ?? s.pattern ?? "").toString();
+        return e ? { type: st, expected: e } : null;
+      }).filter(Boolean);
+      return evaluation;
+    }
     if (type === "regex" || type === "not_contains") {
       if (pattern || expected) evaluation.pattern = pattern || expected;
     } else if (type !== "human_review" && expected) {
@@ -1860,7 +1957,7 @@ async function saveTestEditor() {
     const item = {
       name: c.name || `Case ${i + 1}`,
       prompt: c.prompt || "",
-      evaluation: buildEval(c.type, c.expected, c.pattern),
+      evaluation: buildEval(c.type, c.expected, c.pattern, c.subevals),
     };
     if (c.system_prompt && c.system_prompt.trim() !== "") {
       item.system_prompt = c.system_prompt;
@@ -1879,7 +1976,7 @@ async function saveTestEditor() {
         const stepItem = {
           name: s.name || `Step ${j + 1}`,
           prompt: s.prompt || "",
-          evaluation: buildEval(s.type, s.expected, s.pattern),
+          evaluation: buildEval(s.type, s.expected, s.pattern, s.subevals),
         };
         if (s.system_prompt && s.system_prompt.trim() !== "") {
           stepItem.system_prompt = s.system_prompt;

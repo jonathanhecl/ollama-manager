@@ -11184,6 +11184,44 @@ button.chat-send:disabled:hover {
   color: var(--text);
   border-color: var(--accent);
 }
+.te-subeval-block[hidden],
+.te-case-subevals-field[hidden],
+.te-subeval-list[hidden] {
+  display: none;
+}
+.te-subeval-block,
+.te-case-subevals-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.te-subeval-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.te-subeval-list:empty {
+  display: none;
+}
+.te-subeval-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.te-subeval-row .te-subeval-type {
+  width: 128px;
+  flex: none;
+}
+.te-subeval-row .te-subeval-value {
+  flex: 1;
+  min-width: 0;
+}
+.te-subeval-add {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
 
 
 

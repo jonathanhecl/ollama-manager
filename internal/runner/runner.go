@@ -950,6 +950,34 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 			return &v
 		}
 
+	case "all_of":
+		// Every sub-evaluation must pass. Three-valued logic: a single
+		// failure fails fast, an unscored sub (e.g. human_review) marks the
+		// whole check as needing review when everything else passes, and an
+		// empty list fails closed.
+		subs := eval.Evaluations
+		if len(subs) == 0 {
+			v := false
+			return &v
+		}
+		needsReview := false
+		for _, sub := range subs {
+			r := scoreEval(sub, "", nil, response)
+			if r == nil {
+				needsReview = true
+				continue
+			}
+			if !*r {
+				v := false
+				return &v
+			}
+		}
+		if needsReview {
+			return nil
+		}
+		v := true
+		return &v
+
 	case "human_review":
 		return nil
 

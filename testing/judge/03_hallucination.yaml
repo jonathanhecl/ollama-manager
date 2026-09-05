@@ -1,0 +1,33 @@
+id: jd-hallucination
+name: 'Judge 03 · Detect Hallucination'
+description: 'Reject a summary with an invented date, approve the faithful one.'
+group_id: judge
+active: true
+order: 2
+
+system_prompt: |
+  You are an impartial judge. Evaluate ONLY what is asked.
+  Reply in this exact format and nothing else:
+  Verdict: CORRECT  (or INCORRECT)
+  Reason: <one sentence>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Invented date fails
+    prompt: |
+      Text: "The Eiffel Tower, completed in 1889, stands in Paris and was designed by Gustave Eiffel."
+      Summary: "The Eiffel Tower in Paris was completed in 1879 by Gustave Eiffel."
+      Is the summary fully supported by the text?
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*incorrect'
+  - name: Faithful summary passes
+    prompt: |
+      Text: "The Eiffel Tower, completed in 1889, stands in Paris and was designed by Gustave Eiffel."
+      Summary: "The Eiffel Tower in Paris was completed in 1889."
+      Is the summary fully supported by the text?
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*correct'

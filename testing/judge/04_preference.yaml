@@ -1,0 +1,35 @@
+id: jd-preference
+name: 'Judge 04 · Prefer Answer'
+description: 'Pick the correct answer of a pair, with order swapped as position-bias control.'
+group_id: judge
+active: true
+order: 3
+
+system_prompt: |
+  You are an impartial judge. Evaluate ONLY what is asked.
+  Reply in this exact format and nothing else:
+  Verdict: A  (or B)
+  Reason: <one sentence>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Correct answer is A
+    prompt: |
+      Question: "What is the capital of Australia?"
+      A: "Canberra."
+      B: "Sydney, the largest city."
+      Which answer is correct?
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*a\b'
+  - name: Correct answer is B (swapped)
+    prompt: |
+      Question: "What is the capital of Australia?"
+      A: "Sydney, the largest city."
+      B: "Canberra."
+      Which answer is correct?
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*b\b'

@@ -1,0 +1,31 @@
+id: vis-judge-missing
+name: 'Vision 08 · Judge Missing (SCAFFOLD)'
+description: 'SCAFFOLD — attach an image via the editor. The model must list what the incomplete description omits. Fill TODO items, then set active: true.'
+group_id: vision
+active: false
+order: 7
+
+system_prompt: |
+  You are an impartial judge. Evaluate ONLY what is asked.
+  Reply with the verdict first, then list every missing item.
+
+prompt: |
+  Candidate description: "TODO-incomplete-description".
+  Is anything visible in the image missing from this description? List each missing item.
+evaluation:
+  type: contains
+  expected: "TODO-missing-item"
+
+options:
+  temperature: 0.2
+
+required_caps:
+  - vision
+
+attachments:
+  - id: att-vis-missing
+    kind: image
+    name: TODO_judge_missing.jpg
+    mime: image/jpeg
+    # TODO: attach the real image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""

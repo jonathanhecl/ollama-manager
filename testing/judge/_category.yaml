@@ -1,0 +1,4 @@
+id: judge
+name: Judge
+description: Models acting as judges: grade solutions, review code, detect hallucinations, prefer answers, judge descriptions
+order: 9

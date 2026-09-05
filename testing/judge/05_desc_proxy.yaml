@@ -1,0 +1,33 @@
+id: jd-desc-proxy
+name: 'Judge 05 · Description Proxy'
+description: 'Judge a candidate image description against a textual ground truth (runs without images).'
+group_id: judge
+active: true
+order: 4
+
+system_prompt: |
+  You are an impartial judge. Evaluate ONLY what is asked.
+  Reply in this exact format and nothing else:
+  Verdict: CORRECT  (or INCORRECT)
+  Reason: <one sentence>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Faithful description passes
+    prompt: |
+      Ground truth objects in the image: cat, chair, window.
+      Candidate description: "A cat sits on a chair next to a window."
+      Does the description match the ground truth without inventing or omitting objects?
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*correct'
+  - name: Hallucination fails, missing named
+    prompt: |
+      Ground truth objects in the image: cat, chair.
+      Candidate description: "A cat and a dog sit on a chair."
+      Does the description match the ground truth without inventing or omitting objects? If not, name what is wrong.
+    evaluation:
+      type: regex
+      pattern: '(?is)verdict:\s*incorrect.*dog'

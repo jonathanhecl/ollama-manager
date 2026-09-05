@@ -513,3 +513,32 @@ Notes: images are only sent in the single-prompt format (top-level `prompt`
 | 4 | `04_locate_position.yaml` | Reply position as `"x,y"` 0-1000 coordinates (regex format check; tighten ranges per image) |
 | 5 | `05_describe_scene.yaml` | Free scene description (`human_review`: accuracy, no hallucinations) |
 | 6 | `06_compare_images.yaml` | Spot the single difference between two attached images |
+| 7 | `07_judge_description.yaml` | Verdict CORRECT/INCORRECT on a candidate description (same format as §14; tighten to the true verdict per image) |
+| 8 | `08_judge_missing.yaml` | List what an incomplete description omits from the image |
+
+---
+
+## 14. Judge Scenarios (`testing/judge/`)
+
+The model acts as judge/jury: a `system_prompt` fixes the role once per
+file, and verdicts follow a rigid format so they stay auto-scorable:
+
+```
+Verdict: CORRECT  (or INCORRECT, or A/B)
+Reason: <one sentence>
+```
+
+Validated with `(?i)verdict:\s*…` regexes. The rationale (`Reason:`) is
+deliberately out of score — grading rationales needs a human or a future
+LLM-as-judge, which these tests would then calibrate. `temperature: 0.2`.
+
+| # | File | What is judged |
+|---|------|----------------|
+| 1 | `01_grade_math.yaml` | Correct solution passes, planted step-2 error fails |
+| 2 | `02_review_code.yaml` | Off-by-one fails, fixed version passes (no default approval) |
+| 3 | `03_hallucination.yaml` | Invented date fails, faithful summary passes |
+| 4 | `04_preference.yaml` | Picks the right answer of a pair, order-swapped as position-bias control |
+| 5 | `05_desc_proxy.yaml` | Textual ground truth + candidate description (runs without images); `(?s)` flag spans the `Reason:` line |
+
+The visual counterparts live in §12 (`07_judge_description`,
+`08_judge_missing`): same verdict mechanics once images are attached.

@@ -1,0 +1,31 @@
+id: jd-grade-math
+name: 'Judge 01 · Grade Math'
+description: 'Approve a correct solution, reject one with a planted step-2 error.'
+group_id: judge
+active: true
+order: 0
+
+system_prompt: |
+  You are an impartial judge. Evaluate ONLY what is asked.
+  Reply in this exact format and nothing else:
+  Verdict: CORRECT  (or INCORRECT)
+  Reason: <one sentence>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Correct solution passes
+    prompt: |
+      Grade this solution. Problem: "What is 14 times 3?"
+      Solution: "Step 1: 10 times 3 is 30. Step 2: 4 times 3 is 12. Total: 42."
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*correct'
+  - name: Step-2 error fails
+    prompt: |
+      Grade this solution. Problem: "What is 14 times 3?"
+      Solution: "Step 1: 10 times 3 is 30. Step 2: 4 times 3 is 15. Total: 45."
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*incorrect'

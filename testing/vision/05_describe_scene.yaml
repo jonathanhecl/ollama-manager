@@ -1,0 +1,24 @@
+id: vis-describe-scene
+name: 'Vision 05 · Describe Scene (SCAFFOLD)'
+description: 'SCAFFOLD — attach any scene image via the editor. Judged by human review: accuracy, no hallucinations, relevant detail. Then set active: true.'
+group_id: vision
+active: false
+order: 4
+
+prompt: Describe this image in two or three sentences. Mention only what is actually visible.
+evaluation:
+  type: human_review
+
+options:
+  temperature: 0.2
+
+required_caps:
+  - vision
+
+attachments:
+  - id: att-vis-describe
+    kind: image
+    name: TODO_any_scene.jpg
+    mime: image/jpeg
+    # TODO: attach the real image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""

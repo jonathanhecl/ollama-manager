@@ -1,0 +1,25 @@
+id: vis-find-objects
+name: 'Vision 01 · Find Objects (SCAFFOLD)'
+description: 'SCAFFOLD — attach an image with countable objects via the editor, set expected to the count, then set active: true.'
+group_id: vision
+active: false
+order: 0
+
+prompt: How many red cars are visible in this image? Reply with ONLY the number.
+evaluation:
+  type: contains
+  expected: "TODO-count"
+
+options:
+  temperature: 0.2
+
+required_caps:
+  - vision
+
+attachments:
+  - id: att-vis-scene
+    kind: image
+    name: TODO_scene.jpg
+    mime: image/jpeg
+    # TODO: attach the real image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""

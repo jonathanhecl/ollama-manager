@@ -449,3 +449,34 @@ Fake editing/search tools extend the §10 protocol per file (`apply_patch`,
 | 2 | `02_trace_{js,py,go}.yaml` | Predict exact output: JS `var` closures (`3,3,3`), Py accumulator (`20`), Go slice aliasing (`9`) |
 | 3 | `03_create_{js,py,go}.yaml` | Write one-level `flatten`/`Flatten` from a spec; signature + key tokens checked |
 | 4 | `04_search_{js,py,go}.yaml` | Needle-in-haystack, chained: call `search_code`, then `FINAL:` with the defining file from 3 fake hits |
+
+---
+
+## 12. Vision Scaffolds (`testing/vision/`)
+
+Vision tests without images yet: structure, prompts and evaluations are
+ready, the `attachments` hold empty placeholders (`data: ""`). All are
+`active: false` so battery runs skip them.
+
+### Activation workflow
+
+1. Open the test in the editor and attach the real image(s) — this replaces
+   the `TODO_*.jpg` placeholder with base64 data.
+2. Fill the `TODO-*` expected value (or tighten the regex) with the true
+   answer for your image.
+3. Set the test to active.
+
+Notes: images are only sent in the single-prompt format (top-level `prompt`
++ `attachments`); the `cases`/`steps` branches do not forward media.
+`required_caps: [vision]` restricts runs to vision-capable models.
+
+### Scaffold table
+
+| # | File | Behavior under test |
+|---|------|---------------------|
+| 1 | `01_find_objects.yaml` | Count objects of a kind in the image (`contains` number) |
+| 2 | `02_follow_image_instructions.yaml` | Read instructions shown in the image, quote the action |
+| 3 | `03_ocr_document.yaml` | Transcribe a document photo/scan (distinctive phrases) |
+| 4 | `04_locate_position.yaml` | Reply position as `"x,y"` 0-1000 coordinates (regex format check; tighten ranges per image) |
+| 5 | `05_describe_scene.yaml` | Free scene description (`human_review`: accuracy, no hallucinations) |
+| 6 | `06_compare_images.yaml` | Spot the single difference between two attached images |

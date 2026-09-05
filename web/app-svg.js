@@ -1053,9 +1053,14 @@ function newEditorStep(name) {
   return { name: name || "", prompt: "", type: "contains", expected: "", pattern: "", system_prompt: "", temperature: "" };
 }
 
+function isPatternEvalType(type) {
+  return type === "regex" || type === "not_contains";
+}
+
 function evalOptionsHtml(selectedType) {
   return `
     <option value="contains" ${selectedType === "contains" ? "selected" : ""}>${t("tests.eval_contains")}</option>
+    <option value="not_contains" ${selectedType === "not_contains" ? "selected" : ""}>${t("tests.eval_not_contains")}</option>
     <option value="exact_match" ${selectedType === "exact_match" ? "selected" : ""}>${t("tests.eval_exact_match")}</option>
     <option value="regex" ${selectedType === "regex" ? "selected" : ""}>${t("tests.eval_regex")}</option>
     <option value="human_review" ${selectedType === "human_review" ? "selected" : ""}>${t("tests.eval_human_review")}</option>
@@ -1069,7 +1074,7 @@ function renderEditorCasesList() {
   if (countBadge) countBadge.textContent = String(currentEditorCases.length);
 
   container.innerHTML = currentEditorCases.map((c, idx) => {
-    const isRegex = c.type === "regex";
+    const isRegex = isPatternEvalType(c.type);
     const isHuman = c.type === "human_review";
     const isFirst = idx === 0;
     const isLast = idx === currentEditorCases.length - 1;
@@ -1078,7 +1083,7 @@ function renderEditorCasesList() {
       : "";
     const steps = Array.isArray(c.steps) ? c.steps : [];
     const stepsHtml = steps.map((s, sidx) => {
-      const sIsRegex = s.type === "regex";
+      const sIsRegex = isPatternEvalType(s.type);
       const sIsHuman = s.type === "human_review";
       return `
         <div class="te-case-step" data-step-idx="${sidx}">
@@ -1208,8 +1213,8 @@ function renderEditorCasesList() {
       const type = sel.value;
       if (expectedField) {
         expectedField.hidden = type === "human_review";
-        if (label) label.textContent = type === "regex" ? t("tests.eval_pattern") : t("tests.case_expected");
-        if (input) input.placeholder = type === "regex" ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
+        if (label) label.textContent = isPatternEvalType(type) ? t("tests.eval_pattern") : t("tests.case_expected");
+        if (input) input.placeholder = isPatternEvalType(type) ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
       }
     });
   });
@@ -1221,7 +1226,7 @@ function renderEditorCasesList() {
       const type = sel.value;
       if (input) {
         input.hidden = type === "human_review";
-        input.placeholder = type === "regex" ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
+        input.placeholder = isPatternEvalType(type) ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
       }
     });
   });
@@ -1284,22 +1289,24 @@ function syncEditorCasesFromDOM() {
       const sVal = sel2.querySelector(".te-case-step-expected")?.value.trim() || "";
       const sSys = sel2.querySelector(".te-case-step-system")?.value || "";
       const sTemp = sel2.querySelector(".te-case-step-temperature")?.value.trim() || "";
+      const sIsPattern = isPatternEvalType(sType);
       return {
         name: sName,
         prompt: sPrompt,
         type: sType,
-        expected: sType !== "regex" ? sVal : "",
-        pattern: sType === "regex" ? sVal : "",
+        expected: !sIsPattern ? sVal : "",
+        pattern: sIsPattern ? sVal : "",
         system_prompt: sSys,
         temperature: sTemp,
       };
     });
+    const isPattern = isPatternEvalType(type);
     return {
       name,
       prompt,
       type,
-      expected: type !== "regex" ? val : "",
-      pattern: type === "regex" ? val : "",
+      expected: !isPattern ? val : "",
+      pattern: isPattern ? val : "",
       system_prompt: systemPrompt,
       temperature,
       top_p: topP,
@@ -1836,7 +1843,7 @@ async function saveTestEditor() {
 
   const buildEval = (type, expected, pattern) => {
     const evaluation = { type: type || "contains" };
-    if (type === "regex") {
+    if (type === "regex" || type === "not_contains") {
       if (pattern || expected) evaluation.pattern = pattern || expected;
     } else if (type !== "human_review" && expected) {
       evaluation.expected = expected;

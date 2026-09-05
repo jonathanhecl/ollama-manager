@@ -807,25 +807,29 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 		return &v
 
 	case "contains":
-		expected := ""
-		if s, ok := directExpected.(string); ok {
-			expected = s
-		} else if directExpected != nil {
-			expected = fmt.Sprintf("%v", directExpected)
-		} else if len(cfgBytes) > 0 {
-			var cfg struct {
-				Expected string `json:"expected"`
+		v := containsText(response, resolveExpected(directExpected, cfgBytes))
+		return &v
+
+	case "not_contains":
+		// Negation of contains. If pattern is set, the response must NOT
+		// match the regex (this covers what RE2 lookahead would do).
+		// Otherwise the expected substring must be absent. An empty
+		// pattern/expected fails closed (misconfigured check).
+		if directPattern != "" {
+			re, err := regexp.Compile(directPattern)
+			if err != nil {
+				v := false
+				return &v
 			}
-			_ = json.Unmarshal(cfgBytes, &cfg)
-			expected = cfg.Expected
+			v := !re.MatchString(response)
+			return &v
 		}
-		normResponse := normalizeForContains(response)
-		normExpected := normalizeForContains(expected)
-		if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
-			normResponse = stripWhitespace(normResponse)
-			normExpected = stripWhitespace(normExpected)
+		expected := resolveExpected(directExpected, cfgBytes)
+		if expected == "" {
+			v := false
+			return &v
 		}
-		v := strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
+		v := !containsText(response, expected)
 		return &v
 
 	case "contains_list":
@@ -953,6 +957,37 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 		v := false
 		return &v
 	}
+}
+
+// resolveExpected extracts the expected substring from a direct value,
+// falling back to the JSON evaluation config.
+func resolveExpected(directExpected any, cfgBytes json.RawMessage) string {
+	if s, ok := directExpected.(string); ok {
+		return s
+	}
+	if directExpected != nil {
+		return fmt.Sprintf("%v", directExpected)
+	}
+	if len(cfgBytes) > 0 {
+		var cfg struct {
+			Expected string `json:"expected"`
+		}
+		_ = json.Unmarshal(cfgBytes, &cfg)
+		return cfg.Expected
+	}
+	return ""
+}
+
+// containsText reports whether response contains expected, using the same
+// normalization as the contains check (case-insensitive, formatting-tolerant).
+func containsText(response, expected string) bool {
+	normResponse := normalizeForContains(response)
+	normExpected := normalizeForContains(expected)
+	if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
+		normResponse = stripWhitespace(normResponse)
+		normExpected = stripWhitespace(normExpected)
+	}
+	return strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
 }
 
 // normalizeForContains strips LaTeX/markdown/JSON formatting so that

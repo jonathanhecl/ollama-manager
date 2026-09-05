@@ -1,6 +1,6 @@
 id: sim-strategy-choice
-name: 'SimAgent 10: Open Strategy After Failure'
-description: Ambiguous failure with no obvious fix; the recovery strategy is judged by a human.
+name: 'SimAgent 10: Diagnose Before Fixing'
+description: Ambiguous failure with no obvious fix; the model must investigate (disk listing) instead of declaring success or acting blind.
 group_id: simulated-agent
 active: true
 order: 9
@@ -21,7 +21,8 @@ cases:
       type: regex
       pattern: '(?i)exec\s*\(\s*"backup\.sh"\s*\)'
     steps:
-      - name: Recovery strategy is human judged
+      - name: Investigate disk usage first
         prompt: '[tool-result ERROR] exec("backup.sh") exit:1 - disk full, 0 MB free. No hint available.'
         evaluation:
-          type: human_review
+          type: regex
+          pattern: '(?i)(exec\s*\(\s*"(du|df|ls)\b|list_dir\s*\()'

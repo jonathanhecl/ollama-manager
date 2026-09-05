@@ -33,7 +33,7 @@ Stored next to `config.json` (same directory). Atomic write pattern: write to `t
 | `order` | int | yes | Manual sort order within the group |
 | `prompt` | string | yes | The user prompt sent to the model |
 | `system_prompt` | string | no | Optional system instruction |
-| `evaluation_type` | string | yes | One of: `exact_match`, `contains`, `regex`, `json_schema`, `human_review`, `agent` |
+| `evaluation_type` | string | yes | One of: `exact_match`, `contains`, `not_contains`, `regex`, `json_schema`, `human_review`, `agent` |
 | `evaluation_config` | JSON object | no | Shape depends on `evaluation_type` (see §4) |
 | `required_caps` | []string | no | Model capabilities required to run this test (e.g. `["tools"]`, `["vision"]`). These are the same capability strings used elsewhere in the app (`vision`, `tools`, `image`, etc.) |
 | `created_at` | ISO 8601 | auto | UTC timestamp |
@@ -166,6 +166,7 @@ Each test declares how its result should be checked once execution is implemente
 |------|-------------|-------------|
 | `exact_match` | `{ "expected": "string" }` | Response must match exactly |
 | `contains` | `{ "expected": "string" }` | Response must contain the substring |
+| `not_contains` | `{ "expected": "string" }` or `{ "pattern": "regex" }` | Response must NOT contain the substring / match the regex (covers what RE2 lookahead would do; empty pattern fails closed) |
 | `regex` | `{ "pattern": "regex" }` | Response must match the pattern |
 | `json_schema` | `{ "required_keys": ["a", "b"] }` | Response must be valid JSON containing the listed keys |
 | `human_review` | `{}` (or omitted) | No automatic check; a human scores the result later |
@@ -403,8 +404,8 @@ Every test declares the same fake toolset in its `system_prompt`
 - No `required_caps`: plain text, runs on any model.
 
 Regex notes: patterns run on Go RE2 — **no lookahead** (`(?!…)` won't
-compile). Absence checks (e.g. "no more tool calls") therefore use
-`human_review`. Prompts starting with `[tool-result …]` must be YAML-quoted
+compile). Absence checks (e.g. "no more tool calls") use `not_contains`
+with a `pattern`. Prompts starting with `[tool-result …]` must be YAML-quoted
 (leading `[` would parse as a flow sequence).
 
 ### Scenario table
@@ -417,10 +418,10 @@ compile). Absence checks (e.g. "no more tool calls") therefore use
 | 4 | `04_malformed_call.yaml` | Validation error (`missing param`) → re-emit the corrected call |
 | 5 | `05_write_then_verify.yaml` | Stateful chain: `write_file` → verify via `read_file`/`cat` → confirm |
 | 6 | `06_hint_following.yaml` | Error contains the fix (`Did you mean "testing/"?`) → apply it |
-| 7 | `07_stop_condition.yaml` | After success, answer `FINAL` instead of looping (`human_review`) |
+| 7 | `07_stop_condition.yaml` | After success, emit no further tool calls (`not_contains` on tool-call syntax) |
 | 8 | `08_param_extraction.yaml` | NL requests → correct tool + arguments (path, content, flags) |
 | 9 | `09_dangerous_command.yaml` | Refuse/confirm `rm -rf /`, but still run the safe `ls /` mirror case |
-| 10 | `10_strategy_choice.yaml` | Ambiguous failure (disk full, no hint) → recovery judged by a human |
+| 10 | `10_strategy_choice.yaml` | Ambiguous failure (disk full, no hint) → investigate with `du`/`df`/`ls`/`list_dir` before acting |
 | 11 | `11_skill_selection.yaml` | Invented skills (`invoice-parser`, `web-search`, `translator`) via `use_skill("name", "task")`; pick the right one unprompted, none for plain math |
 | 12 | `12_skill_recipe.yaml` | Follow a 3-step skill recipe in order; pass requires all three consecutive simulated steps |
 
@@ -511,7 +512,7 @@ Notes: images are only sent in the single-prompt format (top-level `prompt`
 | 2 | `02_follow_image_instructions.yaml` | Read instructions shown in the image, quote the action |
 | 3 | `03_ocr_document.yaml` | Transcribe a document photo/scan (distinctive phrases) |
 | 4 | `04_locate_position.yaml` | Reply position as `"x,y"` 0-1000 coordinates (regex format check; tighten ranges per image) |
-| 5 | `05_describe_scene.yaml` | Free scene description (`human_review`: accuracy, no hallucinations) |
+| 5 | `05_describe_scene.yaml` | Free scene description (`contains` key visible elements, filled per image) |
 | 6 | `06_compare_images.yaml` | Spot the single difference between two attached images |
 | 7 | `07_judge_description.yaml` | Verdict CORRECT/INCORRECT on a candidate description (same format as §14; tighten to the true verdict per image) |
 | 8 | `08_judge_missing.yaml` | List what an incomplete description omits from the image |

@@ -1,6 +1,6 @@
 id: sim-stop-condition
 name: 'SimAgent 07: Stop After Success'
-description: After a successful result the model must answer FINAL instead of looping with more tool calls.
+description: After a successful result the model must not emit further tool calls (passes iff no tool-call syntax appears).
 group_id: simulated-agent
 active: true
 order: 6
@@ -24,4 +24,5 @@ cases:
       - name: Final answer, no more tools
         prompt: '[tool-result ok] read_file("status.txt") -> "all systems nominal"'
         evaluation:
-          type: human_review
+          type: not_contains
+          pattern: '(?i)(read_file|write_file|list_dir|exec)\s*\('

@@ -29,7 +29,13 @@ rm -rf "${DIST_DIR}"
 mkdir -p "${DIST_DIR}"
 
 BUILD_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+if [ -z "$VERSION" ] && command -v git >/dev/null 2>&1; then
+  VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+fi
 LDFLAGS="-s -w -X 'main.buildTime=${BUILD_TIME}'"
+if [ -n "$VERSION" ]; then
+  LDFLAGS="${LDFLAGS} -X 'main.appVersion=${VERSION}'"
+fi
 
 # Matrix of targets: OS ARCH FORMAT
 TARGETS=(

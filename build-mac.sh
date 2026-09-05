@@ -22,6 +22,7 @@ default_arch() {
 
 ARCH="$(default_arch)"
 OUTPUT="ollama-manager"
+VERSION=""
 
 usage() {
   cat <<'EOF'
@@ -30,14 +31,16 @@ Usage: ./build-mac.sh [-a arm64|amd64] [-o output-path]
 Options:
   -a ARCH    Target architecture (default: native)
   -o PATH    Output binary path (default: ollama-manager)
+  -v VERSION Version string injected as main.appVersion (default: git describe)
   -h         Show this help
 EOF
 }
 
-while getopts ":a:o:h" opt; do
+while getopts ":a:o:v:h" opt; do
   case "$opt" in
     a) ARCH="$OPTARG" ;;
     o) OUTPUT="$OPTARG" ;;
+    v) VERSION="$OPTARG" ;;
     h)
       usage
       exit 0
@@ -63,7 +66,13 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 BUILD_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+if [ -z "$VERSION" ] && command -v git >/dev/null 2>&1; then
+  VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+fi
 LDFLAGS="-s -w -X 'main.buildTime=${BUILD_TIME}'"
+if [ -n "$VERSION" ]; then
+  LDFLAGS="${LDFLAGS} -X 'main.appVersion=${VERSION}'"
+fi
 
 export CGO_ENABLED=0
 export GOOS=darwin

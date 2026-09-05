@@ -82,17 +82,21 @@ Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact 
 # Standard build (embeds VCS metadata automatically)
 go build -o ollama-manager .
 
-# Embed compilation date/time manually
-go build -ldflags "-X 'main.buildTime=$(date +'%F %T')'" -o ollama-manager .
+# Embed version + compilation date/time manually
+go build -ldflags "-X 'main.appVersion=v1.0.6' -X 'main.buildTime=$(date +'%F %T')'" -o ollama-manager .
 ```
 
 ### Cross-Compilation
 
 ```bash
-GOOS=linux   GOARCH=amd64 go build -ldflags "-X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager-linux .
-GOOS=darwin  GOARCH=arm64 go build -ldflags "-s -w -X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager-macos .
-GOOS=windows GOARCH=amd64 go build -ldflags "-X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager.exe .
+GOOS=linux   GOARCH=amd64 go build -ldflags "-X 'main.appVersion=v1.0.6' -X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager-linux .
+GOOS=darwin  GOARCH=arm64 go build -ldflags "-s -w -X 'main.appVersion=v1.0.6' -X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager-macos .
+GOOS=windows GOARCH=amd64 go build -ldflags "-X 'main.appVersion=v1.0.6' -X 'main.buildTime=$(date +'%F %T')'" -o dist/ollama-manager.exe .
 ```
+
+> Los scripts `build-all.ps1/sh`, `build-mac.ps1/sh` y `release.ps1/sh` ya inyectan
+> `main.appVersion` automáticamente (usan `-Version` o `git describe --tags`).
+> Sin inyección el binario reporta `dev` (con fallback a metadatos VCS si existen).
 
 ### Build & Release Scripts
 

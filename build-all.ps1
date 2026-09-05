@@ -28,7 +28,14 @@ if (Test-Path $distDir) {
 New-Item -ItemType Directory -Path $distDir | Out-Null
 
 $buildTime = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+$appVersion = $Version
+if ([string]::IsNullOrEmpty($appVersion)) {
+    try { $appVersion = (git describe --tags --abbrev=0 2>$null).Trim() } catch {}
+}
 $ldflags = "-s -w -X 'main.buildTime=$buildTime'"
+if (-not [string]::IsNullOrEmpty($appVersion)) {
+    $ldflags += " -X 'main.appVersion=$appVersion'"
+}
 
 # Target matrix: OS, Arch, Packaging Format
 $targets = @(

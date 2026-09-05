@@ -16,9 +16,19 @@ if (-not $env:GOARCH -or $env:GOARCH -eq "arm64") {
 $outputName = "ollama-manager.exe"
 $buildFlags = @()
 
+$appVersion = ""
+try { $appVersion = (git describe --tags --abbrev=0 2>$null).Trim() } catch {}
+$versionFlags = ""
+if (-not [string]::IsNullOrEmpty($appVersion)) {
+    $versionFlags = " -X 'main.appVersion=$appVersion'"
+}
+
 if ($Release) {
-    $buildFlags += @("-ldflags", "-s -w")
-    Write-Host "Building RELEASE binary..." -ForegroundColor Cyan
+    $buildFlags += @("-ldflags", "-s -w$versionFlags")
+    Write-Host "Building RELEASE binary ($appVersion)..." -ForegroundColor Cyan
+} elseif (-not [string]::IsNullOrEmpty($versionFlags)) {
+    $buildFlags += @("-ldflags", $versionFlags.Trim())
+    Write-Host "Building DEBUG binary ($appVersion)..." -ForegroundColor Cyan
 } else {
     Write-Host "Building DEBUG binary..." -ForegroundColor Cyan
 }

@@ -30,9 +30,13 @@ import (
 //go:embed all:web
 var webFS embed.FS
 
-const version = "0.1.0"
-
-var buildTime = ""
+var (
+	// appVersion se inyecta en compilación vía:
+	//   go build -ldflags "-X 'main.appVersion=v1.2.3'"
+	// Sin inyección vale "dev" y getVersionInfo() intenta el fallback a VCS.
+	appVersion = "dev"
+	buildTime  = ""
+)
 
 func getVersionInfo() string {
 	info, ok := debug.ReadBuildInfo()
@@ -51,7 +55,10 @@ func getVersionInfo() string {
 		}
 	}
 
-	res := version
+	res := appVersion
+	if res == "" {
+		res = "dev"
+	}
 	if buildTime != "" {
 		res += fmt.Sprintf(" (built at %s)", buildTime)
 	} else if vcsTime != "" {

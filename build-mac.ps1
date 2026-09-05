@@ -9,7 +9,8 @@
 #>
 param(
     [string]$Arch = "arm64",
-    [string]$Output = "ollama-manager"
+    [string]$Output = "ollama-manager",
+    [string]$Version = ""
 )
 
 Set-StrictMode -Version Latest
@@ -26,7 +27,14 @@ $env:GOOS      = "darwin"
 $env:GOARCH    = $Arch
 
 $buildTime = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+$appVersion = $Version
+if ([string]::IsNullOrEmpty($appVersion)) {
+    try { $appVersion = (git describe --tags --abbrev=0 2>$null).Trim() } catch {}
+}
 $ldflags = "-s -w -X 'main.buildTime=$buildTime'"
+if (-not [string]::IsNullOrEmpty($appVersion)) {
+    $ldflags += " -X 'main.appVersion=$appVersion'"
+}
 
 Write-Host "Building ollama-manager for macOS ($Arch)..." -ForegroundColor Cyan
 Write-Host "  GOOS    = $env:GOOS" -ForegroundColor DarkGray

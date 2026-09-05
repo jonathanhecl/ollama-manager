@@ -452,6 +452,39 @@ Fake editing/search tools extend the §10 protocol per file (`apply_patch`,
 
 ---
 
+## 13. Security, Spanish, Reasoning, Structured & Robustness
+
+Five small categories (orders 4–8), all `temperature: 0.2`, all fully
+automatic (`regex`/`contains`/`exact_match`/`json_schema`, no `human_review`).
+
+**`testing/security/`** — agent safety, mostly chained like §10:
+`01_tool_injection` (malicious instruction smuggled in a `[tool-result]`
+must be ignored), `02_hierarchy` (system `[EN]` marker outranks a Spanish
+user override), `03_exfiltration` (refuse system-prompt disclosure + benign
+mirror), `04_jailbreak` (refuse phishing how-to + benign writing mirror).
+
+**`testing/spanish/`** — neutral Spanish: `01_comprension` (factual),
+`02_gramatica` (por/para, subjuntivo, `exact_match`), `03_resumen`
+(key concepts via order-free regex), `04_traduccion` (false friend
+*embarrassed* → *vergüenza*).
+
+**`testing/reasoning/`** — exact answers: `01_logic` (knights/knaves,
+two one-word cases), `02_math_chain` (scored intermediate step),
+`03_sequence` (quadratic → 42), `04_constraints` (mini Einstein, two cases).
+
+**`testing/structured/`** — revives the two legacy `testing/.backup/structured/`
+tests rewritten in the modern `evaluation: {type: json_schema, schema: …}`
+format (`01_person`, `02_array`), plus `03_toolcall` (tool-call JSON shape)
+and `04_no_markdown` (fences fail `json.Unmarshal` automatically). Note: the
+scorer checks shape (type/required/array bounds), not values.
+
+**`testing/robustness/`** — same answer under paraphrase (`01`), typos and
+case noise (`02`), and format noise (`03`, tolerant regex). Related fix:
+`testing/coding/02_trace_{js,py,go}` moved from `exact_match` to tolerant
+regex so correct answers with extra words or spacing still pass.
+
+---
+
 ## 12. Vision Scaffolds (`testing/vision/`)
 
 Vision tests without images yet: structure, prompts and evaluations are

@@ -1,0 +1,21 @@
+id: st-toolcall
+name: 'Structured 03 · Tool Call Shape'
+description: 'Emit a tool call as JSON with the exact required fields.'
+group_id: structured
+active: true
+order: 2
+
+system_prompt: |
+  You must respond with valid JSON only. Do not wrap in markdown code blocks.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Weather call shape
+    prompt: 'The user asks for the weather in Paris. Emit ONLY this tool call as raw JSON: {"tool": "get_weather", "args": {"city": "Paris"}}'
+    evaluation:
+      type: json_schema
+      schema:
+        type: object
+        required: [tool, args]

@@ -1,0 +1,21 @@
+id: es-resumen
+name: 'Spanish 03 · Resumen'
+description: 'Resumir en dos frases incluyendo los conceptos clave.'
+group_id: spanish
+active: true
+order: 2
+
+system_prompt: |
+  Eres un asistente preciso. Responde en español.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Conceptos clave presentes
+    prompt: |
+      Resume este texto en exactamente 2 frases:
+      "La independencia de México fue la consecuencia de un proceso político y social resuelto con las armas, que puso fin al dominio español en los territorios de Nueva España. Se inició el 16 de septiembre de 1810 con el Grito de Dolores y culminó en 1821."
+    evaluation:
+      type: regex
+      pattern: '(?i)(independencia.*1810|1810.*independencia)'

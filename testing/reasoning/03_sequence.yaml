@@ -1,0 +1,19 @@
+id: rsn-sequence
+name: 'Reasoning 03 · Number Sequence'
+description: 'Find the next term of a quadratic sequence.'
+group_id: reasoning
+active: true
+order: 2
+
+system_prompt: |
+  You solve number sequence puzzles.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Next term
+    prompt: 'What comes next? 2, 6, 12, 20, 30, ?. Reply with ONLY the number.'
+    evaluation:
+      type: exact_match
+      expected: "42"

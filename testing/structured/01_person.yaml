@@ -1,0 +1,23 @@
+id: st-person
+name: 'Structured 01 · Person Object'
+description: 'Revived legacy test: extract a person as raw JSON matching a schema.'
+group_id: structured
+active: true
+order: 0
+
+system_prompt: |
+  You must respond with valid JSON only. Do not wrap in markdown code blocks.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Extract person fields
+    prompt: |
+      Extract the person information from this text and return ONLY a raw JSON object with exactly these fields: name, age, job, city. No extra text.
+      Text: "John Doe is 34 years old and works as a software engineer in Berlin."
+    evaluation:
+      type: json_schema
+      schema:
+        type: object
+        required: [name, age, job, city]

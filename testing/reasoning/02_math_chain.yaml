@@ -1,0 +1,25 @@
+id: rsn-math-chain
+name: 'Reasoning 02 · Chained Arithmetic'
+description: 'Two-step word problem with the intermediate result scored.'
+group_id: reasoning
+active: true
+order: 1
+
+system_prompt: |
+  You solve math word problems step by step.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Two-step sharing
+    prompt: 'A box has 24 chocolates. Ana eats 6. How many remain? Reply with ONLY the number.'
+    evaluation:
+      type: exact_match
+      expected: "18"
+    steps:
+      - name: Share equally
+        prompt: 'Those are shared equally among 3 friends. How many does each get? Reply with ONLY the number.'
+        evaluation:
+          type: exact_match
+          expected: "6"

@@ -1,0 +1,4 @@
+id: structured
+name: Structured
+description: Valid JSON output matching schemas (revived legacy tests plus tool-call shapes)
+order: 7

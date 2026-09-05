@@ -1,0 +1,30 @@
+id: rsn-constraints
+name: 'Reasoning 04 · Constraint Houses'
+description: 'Mini Einstein puzzle: deduce who lives where from three constraints.'
+group_id: reasoning
+active: true
+order: 3
+
+system_prompt: |
+  You solve constraint puzzles by elimination.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Green house
+    prompt: |
+      Ana, Bruno and Carla live in the red, blue and green houses, one each.
+      Ana does not live in the red house. Bruno lives in neither the blue nor the red house.
+      Who lives in the green house? Reply with ONLY the name.
+    evaluation:
+      type: exact_match
+      expected: "Bruno"
+  - name: Red house
+    prompt: |
+      Ana, Bruno and Carla live in the red, blue and green houses, one each.
+      Ana does not live in the red house. Bruno lives in neither the blue nor the red house.
+      Who lives in the red house? Reply with ONLY the name.
+    evaluation:
+      type: exact_match
+      expected: "Carla"

@@ -1,0 +1,24 @@
+id: rb-format-noise
+name: 'Robustness 03 · Format Noise'
+description: 'Correct answers wrapped in extra words or spacing still pass.'
+group_id: robustness
+active: true
+order: 2
+
+system_prompt: |
+  You are a precise assistant. Answer exactly what is asked.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Number with extra words
+    prompt: 'What is 7 times 6? Reply with the number (extra words are fine).'
+    evaluation:
+      type: regex
+      pattern: '(?i)\b42\b'
+  - name: List with extra spacing
+    prompt: 'Print 3,3,3 (spacing variations are fine).'
+    evaluation:
+      type: regex
+      pattern: '3\s*,\s*3\s*,\s*3'

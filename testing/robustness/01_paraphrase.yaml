@@ -1,0 +1,29 @@
+id: rb-paraphrase
+name: 'Robustness 01 · Paraphrase Consistency'
+description: 'Same fact asked three ways must yield the same answer.'
+group_id: robustness
+active: true
+order: 0
+
+system_prompt: |
+  You are a precise assistant. Answer exactly what is asked.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Direct form
+    prompt: 'In which city is the Eiffel Tower? Reply with ONLY the city.'
+    evaluation:
+      type: contains
+      expected: "Paris"
+  - name: Indirect form
+    prompt: 'The Eiffel Tower stands in which city? Reply with ONLY the city.'
+    evaluation:
+      type: contains
+      expected: "Paris"
+  - name: Fill-in form
+    prompt: 'Complete with ONLY the city: "The Eiffel Tower is located in ___."'
+    evaluation:
+      type: contains
+      expected: "Paris"

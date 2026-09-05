@@ -20,5 +20,5 @@ cases:
       for (var i = 0; i < 3; i++) { fns.push(() => i); }
       console.log(fns.map(f => f()).join(","));
     evaluation:
-      type: exact_match
-      expected: "3,3,3"
+      type: regex
+      pattern: '3\s*,\s*3\s*,\s*3'

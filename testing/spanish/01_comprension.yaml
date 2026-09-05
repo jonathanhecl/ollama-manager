@@ -1,0 +1,21 @@
+id: es-comprension
+name: 'Spanish 01 · Comprensión'
+description: 'Responder una pregunta factual sobre un texto breve en español neutro.'
+group_id: spanish
+active: true
+order: 0
+
+system_prompt: |
+  Eres un asistente preciso. Responde en español.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Dato factual del texto
+    prompt: |
+      Texto: "El Museo del Prado, ubicado en Madrid, alberga Las Meninas de Velázquez, pintada en 1656."
+      ¿En qué ciudad está el museo que alberga Las Meninas? Responde SOLO con la ciudad.
+    evaluation:
+      type: contains
+      expected: "Madrid"

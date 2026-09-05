@@ -1,0 +1,23 @@
+id: st-no-markdown
+name: 'Structured 04 · Raw JSON Only'
+description: 'JSON must parse as-is; markdown fences fail automatically.'
+group_id: structured
+active: true
+order: 3
+
+system_prompt: |
+  You must respond with valid JSON only. Do not wrap in markdown code blocks.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: No fences around object
+    prompt: |
+      Return ONLY a raw JSON object with exactly these fields: name, age. No markdown fences, no extra text.
+      Text: "Ada is 36 years old."
+    evaluation:
+      type: json_schema
+      schema:
+        type: object
+        required: [name, age]

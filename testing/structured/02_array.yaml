@@ -1,0 +1,24 @@
+id: st-array
+name: 'Structured 02 · String Array'
+description: 'Revived legacy test: return a JSON array of strings within size bounds.'
+group_id: structured
+active: true
+order: 1
+
+system_prompt: |
+  You must respond with valid JSON only. Do not wrap in markdown code blocks.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: List fruits as array
+    prompt: 'Return ONLY a raw JSON array with between 3 and 5 fruit names, e.g. ["apple", "pear"]. No extra text.'
+    evaluation:
+      type: json_schema
+      schema:
+        type: array
+        minItems: 3
+        maxItems: 5
+        items:
+          type: string

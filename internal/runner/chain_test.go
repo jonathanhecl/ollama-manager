@@ -65,3 +65,57 @@ func TestEffectiveChainSystems(t *testing.T) {
 		})
 	}
 }
+
+func fptr(v float64) *float64 { return &v }
+func iptr(v int) *int         { return &v }
+
+// Same sticky idea as systems, but field by field: a step's set fields win
+// from its turn onward, nil fields keep the active values.
+func TestEffectiveChainOptions(t *testing.T) {
+	cases := []struct {
+		name      string
+		base      *tests.TestOptions
+		overrides []*tests.TestOptions
+		want      []*tests.TestOptions
+	}{
+		{
+			name:      "override mid-chain sticks",
+			base:      &tests.TestOptions{Temperature: fptr(0.2)},
+			overrides: []*tests.TestOptions{nil, {Temperature: fptr(0.9)}, nil},
+			want: []*tests.TestOptions{
+				{Temperature: fptr(0.2)},
+				{Temperature: fptr(0.9)},
+				{Temperature: fptr(0.9)},
+			},
+		},
+		{
+			name:      "unset fields inherit across levels",
+			base:      &tests.TestOptions{Temperature: fptr(0.2), MaxTokens: iptr(100)},
+			overrides: []*tests.TestOptions{{TopP: fptr(0.5)}, nil},
+			want: []*tests.TestOptions{
+				{Temperature: fptr(0.2), TopP: fptr(0.5), MaxTokens: iptr(100)},
+				{Temperature: fptr(0.2), TopP: fptr(0.5), MaxTokens: iptr(100)},
+			},
+		},
+		{
+			name:      "nil base adopts first override",
+			base:      nil,
+			overrides: []*tests.TestOptions{nil, {Temperature: fptr(0.7)}},
+			want:      []*tests.TestOptions{nil, {Temperature: fptr(0.7)}},
+		},
+		{
+			name:      "empty chain",
+			base:      &tests.TestOptions{Temperature: fptr(0.2)},
+			overrides: nil,
+			want:      []*tests.TestOptions{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effectiveChainOptions(tc.base, tc.overrides); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("effectiveChainOptions(%+v, %+v) = %+v, want %+v", tc.base, tc.overrides, got, tc.want)
+			}
+		})
+	}
+}

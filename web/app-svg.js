@@ -1050,7 +1050,7 @@ function newEditorCase(name) {
 }
 
 function newEditorStep(name) {
-  return { name: name || "", prompt: "", type: "contains", expected: "", pattern: "", system_prompt: "" };
+  return { name: name || "", prompt: "", type: "contains", expected: "", pattern: "", system_prompt: "", temperature: "" };
 }
 
 function evalOptionsHtml(selectedType) {
@@ -1094,7 +1094,10 @@ function renderEditorCasesList() {
               <input type="text" class="te-case-step-expected" value="${escapeHtml(sIsRegex ? (s.pattern || "") : (s.expected || ""))}" placeholder="${sIsRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off" ${sIsHuman ? "hidden" : ""}>
             </div>
           </div>
-          <input type="text" class="te-case-step-system" value="${escapeHtml(s.system_prompt || "")}" placeholder="${t("tests.step_system_placeholder")}" title="${t("tests.step_system_placeholder")}" autocomplete="off">
+          <div class="te-case-step-extra">
+            <input type="text" class="te-case-step-system" value="${escapeHtml(s.system_prompt || "")}" placeholder="${t("tests.step_system_placeholder")}" title="${t("tests.step_system_placeholder")}" autocomplete="off">
+            <input type="number" class="te-case-step-temperature" min="0" max="2" step="0.05" value="${escapeHtml(s.temperature ?? "")}" placeholder="${t("tests.inherit_placeholder")}" title="${t("tests.step_temp_hint")}" autocomplete="off">
+          </div>
         </div>
       `;
     }).join("");
@@ -1280,6 +1283,7 @@ function syncEditorCasesFromDOM() {
       const sType = sel2.querySelector(".te-case-step-eval-type")?.value || "contains";
       const sVal = sel2.querySelector(".te-case-step-expected")?.value.trim() || "";
       const sSys = sel2.querySelector(".te-case-step-system")?.value || "";
+      const sTemp = sel2.querySelector(".te-case-step-temperature")?.value.trim() || "";
       return {
         name: sName,
         prompt: sPrompt,
@@ -1287,6 +1291,7 @@ function syncEditorCasesFromDOM() {
         expected: sType !== "regex" ? sVal : "",
         pattern: sType === "regex" ? sVal : "",
         system_prompt: sSys,
+        temperature: sTemp,
       };
     });
     return {
@@ -1334,6 +1339,7 @@ async function showTestEditorView(id) {
         expected: s.evaluation?.expected != null ? String(s.evaluation.expected) : "",
         pattern: s.evaluation?.pattern || "",
         system_prompt: s.system_prompt || "",
+        temperature: s.options?.temperature ?? "",
       });
       const toEditorCase = (c, i) => ({
         name: c.name || `Case ${i + 1}`,
@@ -1870,6 +1876,10 @@ async function saveTestEditor() {
         };
         if (s.system_prompt && s.system_prompt.trim() !== "") {
           stepItem.system_prompt = s.system_prompt;
+        }
+        const sTemp = parseNum(s.temperature);
+        if (sTemp !== undefined) {
+          stepItem.options = { temperature: sTemp };
         }
         return stepItem;
       });

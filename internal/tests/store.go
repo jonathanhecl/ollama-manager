@@ -59,6 +59,7 @@ type Evaluation struct {
 // Step represents one turn in a sequential multi-step interactive test.
 // SystemPrompt is sticky within the chain: a non-empty value replaces the
 // active system from that step onward; empty keeps the active one.
+// Options folds the same way field by field over the active options.
 type Step struct {
 	Step         int          `json:"step" yaml:"step"`
 	Name         string       `json:"name,omitempty" yaml:"name,omitempty"`
@@ -76,11 +77,14 @@ type Step struct {
 // SystemPrompt is sticky within the chain: a non-empty value replaces the
 // active system from that step onward; an empty value keeps whatever system
 // is currently active (the case-level system, or the test-level one).
+// Options behaves the same way field by field: set fields replace the active
+// ones from that step onward, nil fields keep the active values.
 type CaseStep struct {
-	Name         string      `json:"name,omitempty" yaml:"name,omitempty"`
-	Prompt       string      `json:"prompt" yaml:"prompt"`
-	Evaluation   *Evaluation `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
-	SystemPrompt string      `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	Name         string       `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt       string       `json:"prompt" yaml:"prompt"`
+	Evaluation   *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	SystemPrompt string       `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	Options      *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
 }
 
 // TestCase represents an individual case in a batch/matrix test suite.

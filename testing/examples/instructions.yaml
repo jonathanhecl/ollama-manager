@@ -60,6 +60,8 @@ cases:
         prompt: Say hello in one short sentence.
         system_prompt: |
           You are a pirate. Every reply must contain the word "arr".
+        options:
+          temperature: 0.9
         evaluation:
           type: regex
           pattern: (?i)\barr\b

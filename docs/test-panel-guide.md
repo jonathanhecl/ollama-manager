@@ -52,7 +52,7 @@ history scoped to the case).
 | `evaluation` | object | no | `{ type, expected?, pattern?, schema? }`; same types as §4 |
 | `system_prompt` | string | no | Override for this case only; empty/missing = inherits the test-level `system_prompt` |
 | `options` | object | no | `{ temperature?, top_p?, max_tokens? }`; set fields override the test-level `options` |
-| `steps` | []CaseStep | no | Chained follow-up turns; each `{ name?, prompt, evaluation?, system_prompt? }` is sent in order keeping prior turns in context. A step-level `system_prompt` is **sticky**: it replaces the active system from that step onward, while an empty one keeps the active system (case-level, or test-level). Each case starts fresh from the test-level system (or its own override) |
+| `steps` | []CaseStep | no | Chained follow-up turns; each `{ name?, prompt, evaluation?, system_prompt?, options? }` is sent in order keeping prior turns in context. A step-level `system_prompt` is **sticky**: it replaces the active system from that step onward, while an empty one keeps the active system (case-level, or test-level). Step-level `options` (`{ temperature?, top_p?, max_tokens? }`) fold the same way field by field over the active options. Each case starts fresh from the test-level system and options (or its own overrides) |
 
 Example (instruction-list following with a per-case voice override):
 
@@ -91,7 +91,9 @@ cases:
 
 Overall result: the test passes when **all** scored turns pass (case-level
 evaluations plus every chained step). In the UI, chained turns appear as
-`Case › Step` sub-results and share the case's progress counter.
+`Case › Step` sub-results and share the case's progress counter. Each
+sub-result records the effective `system_prompt` and `options` used for that
+turn (the detail modal shows the active temperature when set).
 
 ### Group
 

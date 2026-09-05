@@ -11165,6 +11165,25 @@ button.chat-send:disabled:hover {
   color: var(--text);
   border-color: var(--accent);
 }
+.te-case-step-extra {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.te-case-step-extra .te-case-step-system {
+  flex: 1;
+  min-width: 0;
+}
+.te-case-step-temperature {
+  width: 92px;
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.te-case-step-temperature:not(:placeholder-shown) {
+  color: var(--text);
+  border-color: var(--accent);
+}
 
 
 

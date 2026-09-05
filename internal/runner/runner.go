@@ -29,19 +29,20 @@ type BatteryRun struct {
 
 // SubResult holds the detailed outcome and analytics of a single step or case within a test.
 type SubResult struct {
-	Index          int     `json:"index"`
-	Name           string  `json:"name,omitempty"`
-	Prompt         string  `json:"prompt,omitempty"`
-	SystemPrompt   string  `json:"system_prompt,omitempty"`
-	Passed         *bool   `json:"passed,omitempty"`
-	ResponseTimeMs int64   `json:"response_time_ms"`
-	TokensPerSec   float64 `json:"tokens_per_sec,omitempty"`
-	PromptTokens   int     `json:"prompt_tokens,omitempty"`
-	EvalTokens     int     `json:"eval_tokens,omitempty"`
-	TotalTokens    int     `json:"total_tokens,omitempty"`
-	ReasoningUsed  bool    `json:"reasoning_used"`
-	ModelResponse  string  `json:"model_response,omitempty"`
-	Error          string  `json:"error,omitempty"`
+	Index          int                `json:"index"`
+	Name           string             `json:"name,omitempty"`
+	Prompt         string             `json:"prompt,omitempty"`
+	SystemPrompt   string             `json:"system_prompt,omitempty"`
+	Options        *tests.TestOptions `json:"options,omitempty"`
+	Passed         *bool              `json:"passed,omitempty"`
+	ResponseTimeMs int64              `json:"response_time_ms"`
+	TokensPerSec   float64            `json:"tokens_per_sec,omitempty"`
+	PromptTokens   int                `json:"prompt_tokens,omitempty"`
+	EvalTokens     int                `json:"eval_tokens,omitempty"`
+	TotalTokens    int                `json:"total_tokens,omitempty"`
+	ReasoningUsed  bool               `json:"reasoning_used"`
+	ModelResponse  string             `json:"model_response,omitempty"`
+	Error          string             `json:"error,omitempty"`
 }
 
 // TestResult holds the outcome of a single test for a single model.
@@ -260,10 +261,13 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		var responsesSummary []string
 		var totalEvalDuration int64
 		stepOverrides := make([]string, len(test.Steps))
+		stepOptOverrides := make([]*tests.TestOptions, len(test.Steps))
 		for i, s := range test.Steps {
 			stepOverrides[i] = s.SystemPrompt
+			stepOptOverrides[i] = s.Options
 		}
 		effStepSys := effectiveChainSystems(test.SystemPrompt, stepOverrides)
+		effStepOpts := effectiveChainOptions(test.Options, stepOptOverrides)
 
 		for i, step := range test.Steps {
 			if ctx.Err() != nil {
@@ -294,7 +298,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			})
 
 			history = append(history, ollama.ChatMessage{Role: "user", Content: step.Prompt})
-			turn := c.execChatTurn(ctx, runID, model, history, optsFor(tests.MergeOptions(test.Options, step.Options)))
+			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effStepOpts[i]))
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
 				break
@@ -328,6 +332,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				Name:           stepLabel,
 				Prompt:         step.Prompt,
 				SystemPrompt:   effStepSys[i],
+				Options:        effStepOpts[i],
 				Passed:         stepPassed,
 				ResponseTimeMs: turn.ResponseTimeMs,
 				TokensPerSec:   turn.TokensPerSec,
@@ -358,7 +363,8 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	// present, an optional case-level prompt is sent first as the opening turn
 	// (scored with the case-level evaluation when set). Within a chain the
 	// system is sticky: a step's system_prompt replaces the active system from
-	// that step onward, an empty one keeps the active system.
+	// that step onward, an empty one keeps the active system. Options fold the
+	// same way field by field over the active options.
 	if len(test.Cases) > 0 {
 		allPassed := true
 		hasScored := false
@@ -376,7 +382,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 
 		// runCaseTurn executes one user turn inside the given history, scores it
 		// and records the sub-result. It returns false when execution must stop.
-		runCaseTurn := func(history []ollama.ChatMessage, unitName, prompt, sys string, eval *tests.Evaluation, opts map[string]any) ([]ollama.ChatMessage, bool) {
+		runCaseTurn := func(history []ollama.ChatMessage, unitName, prompt, sys string, eval *tests.Evaluation, effOpts *tests.TestOptions) ([]ollama.ChatMessage, bool) {
 			if ctx.Err() != nil {
 				res.Error = ctx.Err().Error()
 				return history, false
@@ -397,7 +403,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			})
 
 			history = append(history, ollama.ChatMessage{Role: "user", Content: prompt})
-			turn := c.execChatTurn(ctx, runID, model, history, opts)
+			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effOpts))
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
 				return history, false
@@ -431,6 +437,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				Name:           unitName,
 				Prompt:         prompt,
 				SystemPrompt:   sys,
+				Options:        effOpts,
 				Passed:         passed,
 				ResponseTimeMs: turn.ResponseTimeMs,
 				TokensPerSec:   turn.TokensPerSec,
@@ -449,7 +456,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				caseLabel = fmt.Sprintf("Case %d", i+1)
 			}
 			caseSys := tests.EffectiveSystemPrompt(test.SystemPrompt, tc.SystemPrompt)
-			caseOpts := optsFor(tests.MergeOptions(test.Options, tc.Options))
+			caseOptsMerged := tests.MergeOptions(test.Options, tc.Options)
 
 			var history []ollama.ChatMessage
 			if caseSys != "" {
@@ -458,7 +465,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 
 			if len(tc.Steps) == 0 {
 				var ok bool
-				if _, ok = runCaseTurn(history, caseLabel, tc.Prompt, caseSys, tc.Evaluation, caseOpts); !ok {
+				if _, ok = runCaseTurn(history, caseLabel, tc.Prompt, caseSys, tc.Evaluation, caseOptsMerged); !ok {
 					break
 				}
 				continue
@@ -469,15 +476,18 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			// (scored with the case-level evaluation when set).
 			if tc.Prompt != "" {
 				var ok bool
-				if history, ok = runCaseTurn(history, caseLabel+" › context", tc.Prompt, caseSys, tc.Evaluation, caseOpts); !ok {
+				if history, ok = runCaseTurn(history, caseLabel+" › context", tc.Prompt, caseSys, tc.Evaluation, caseOptsMerged); !ok {
 					break
 				}
 			}
 			stepOverrides := make([]string, len(tc.Steps))
+			stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
 			for j, st := range tc.Steps {
 				stepOverrides[j] = st.SystemPrompt
+				stepOptOverrides[j] = st.Options
 			}
 			effStepSys := effectiveChainSystems(caseSys, stepOverrides)
+			effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
 			stopped := false
 			for j, st := range tc.Steps {
 				stepLabel := st.Name
@@ -488,7 +498,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					history = setSystemPrompt(history, st.SystemPrompt)
 				}
 				var ok bool
-				if history, ok = runCaseTurn(history, caseLabel+" › "+stepLabel, st.Prompt, effStepSys[j], st.Evaluation, caseOpts); !ok {
+				if history, ok = runCaseTurn(history, caseLabel+" › "+stepLabel, st.Prompt, effStepSys[j], st.Evaluation, effStepOpts[j]); !ok {
 					stopped = true
 					break
 				}
@@ -727,6 +737,20 @@ func effectiveChainSystems(base string, overrides []string) []string {
 		if o != "" {
 			active = o
 		}
+		out[i] = active
+	}
+	return out
+}
+
+// effectiveChainOptions resolves the sticky inference options for each turn
+// of a conversation chain. base is the options active before the first turn
+// (test-level merged with the case-level override); each step's set fields
+// replace the active ones from its turn onward, nil fields keep them.
+func effectiveChainOptions(base *tests.TestOptions, overrides []*tests.TestOptions) []*tests.TestOptions {
+	out := make([]*tests.TestOptions, len(overrides))
+	active := base
+	for i, o := range overrides {
+		active = tests.MergeOptions(active, o)
 		out[i] = active
 	}
 	return out

@@ -57,6 +57,7 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 	foundSteps := false
 	foundCaseOverride := false
 	foundCaseSteps := false
+	foundStepOptions := false
 	for _, tst := range t2 {
 		if len(tst.Cases) > 0 {
 			foundCases = true
@@ -71,6 +72,11 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 			if len(c.Steps) > 0 {
 				foundCaseSteps = true
 			}
+			for _, s := range c.Steps {
+				if s.Options != nil && s.Options.Temperature != nil {
+					foundStepOptions = true
+				}
+			}
 		}
 	}
 	if !foundCases {
@@ -84,6 +90,9 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 	}
 	if !foundCaseSteps {
 		t.Fatal("expected case with chained steps")
+	}
+	if !foundStepOptions {
+		t.Fatal("expected chained step with options override")
 	}
 }
 

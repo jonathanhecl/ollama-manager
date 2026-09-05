@@ -197,6 +197,7 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 							Name:         "Switch to pirate",
 							Prompt:       "Say hello in one short sentence.",
 							SystemPrompt: `You are a pirate. Every reply must contain the word "arr".`,
+							Options:      &TestOptions{Temperature: &tempHigh},
 							Evaluation: &Evaluation{
 								Type:    "regex",
 								Pattern: `(?i)\barr\b`,

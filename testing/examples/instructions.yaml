@@ -1,0 +1,70 @@
+id: example-instructions
+name: Instruction Following (Per-Case Config)
+description: Demonstrates per-case system prompts, per-case options and chained multi-turn steps within a case.
+group_id: examples
+active: true
+order: 3
+
+system_prompt: |
+  You are a concise assistant. Always reply in English.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Inherits global system prompt
+    prompt: Say the word "apple" and nothing else.
+    evaluation:
+      type: contains
+      expected: "apple"
+
+  - name: Pirate voice override
+    prompt: Say hello in one short sentence.
+    system_prompt: |
+      You are a pirate. Every reply must contain the word "arr".
+    options:
+      temperature: 0.9
+    evaluation:
+      type: regex
+      pattern: (?i)\barr\b
+
+  - name: Follow a list of instructions
+    prompt: "Memorize this list in order: red, green, blue. Reply with only the word OK."
+    evaluation:
+      type: contains
+      expected: "OK"
+    steps:
+      - name: Recall second item
+        prompt: What was the second color of the list? Reply with just the color.
+        evaluation:
+          type: contains
+          expected: "green"
+      - name: Repeat full list
+        prompt: Repeat the full list in order, comma-separated, with nothing else.
+        evaluation:
+          type: regex
+          pattern: (?i)red.*green.*blue
+
+  - name: Mid-chain voice switch
+    prompt: Say the word "start" and nothing else.
+    evaluation:
+      type: contains
+      expected: "start"
+    steps:
+      - name: Still the default voice
+        prompt: Say the word "middle" and nothing else.
+        evaluation:
+          type: contains
+          expected: "middle"
+      - name: Switch to pirate
+        prompt: Say hello in one short sentence.
+        system_prompt: |
+          You are a pirate. Every reply must contain the word "arr".
+        evaluation:
+          type: regex
+          pattern: (?i)\barr\b
+      - name: Pirate voice sticks
+        prompt: Say goodbye in one short sentence.
+        evaluation:
+          type: regex
+          pattern: (?i)\barr\b

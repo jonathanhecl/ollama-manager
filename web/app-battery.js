@@ -1372,7 +1372,11 @@ function renderBatteryResults(run) {
       const caseName = sub?.name || `Case #${sidx + 1}`;
       const titleEl = $("response-view-modal-title");
       if (titleEl) titleEl.textContent = `${res?.test_name || testId} — ${caseName}`;
-      openResponseViewModal(model, sub?.model_response || sub?.error || t("battery.no_response"));
+      let detail = "";
+      if (sub?.system_prompt) detail += `${t("battery.system_label")}\n${sub.system_prompt}\n\n`;
+      if (sub?.prompt) detail += `${t("battery.user_label")}\n${sub.prompt}\n\n`;
+      detail += `${t("battery.assistant_label")}\n${sub?.model_response || sub?.error || t("battery.no_response")}`;
+      openResponseViewModal(model, detail);
     });
   });
 

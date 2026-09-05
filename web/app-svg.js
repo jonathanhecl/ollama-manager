@@ -1034,6 +1034,34 @@ function showTestsView(preserveGroup = false) {
 
 let currentEditorCases = [];
 
+function newEditorCase(name) {
+  return {
+    name: name || "",
+    prompt: "",
+    type: "contains",
+    expected: "",
+    pattern: "",
+    system_prompt: "",
+    temperature: "",
+    top_p: "",
+    max_tokens: "",
+    steps: [],
+  };
+}
+
+function newEditorStep(name) {
+  return { name: name || "", prompt: "", type: "contains", expected: "", pattern: "", system_prompt: "" };
+}
+
+function evalOptionsHtml(selectedType) {
+  return `
+    <option value="contains" ${selectedType === "contains" ? "selected" : ""}>${t("tests.eval_contains")}</option>
+    <option value="exact_match" ${selectedType === "exact_match" ? "selected" : ""}>${t("tests.eval_exact_match")}</option>
+    <option value="regex" ${selectedType === "regex" ? "selected" : ""}>${t("tests.eval_regex")}</option>
+    <option value="human_review" ${selectedType === "human_review" ? "selected" : ""}>${t("tests.eval_human_review")}</option>
+  `;
+}
+
 function renderEditorCasesList() {
   const container = $("te-cases-list");
   const countBadge = $("te-cases-count-badge");
@@ -1048,6 +1076,28 @@ function renderEditorCasesList() {
     const deleteBtn = currentEditorCases.length > 1
       ? `<button type="button" class="btn-icon te-case-delete" data-idx="${idx}" title="${t("tests.delete_case")}">🗑️</button>`
       : "";
+    const steps = Array.isArray(c.steps) ? c.steps : [];
+    const stepsHtml = steps.map((s, sidx) => {
+      const sIsRegex = s.type === "regex";
+      const sIsHuman = s.type === "human_review";
+      return `
+        <div class="te-case-step" data-step-idx="${sidx}">
+          <div class="te-case-step-header">
+            <span class="te-case-step-badge">${t("tests.step_num", { n: sidx + 1 })}</span>
+            <input type="text" class="te-case-step-name" value="${escapeHtml(s.name || "")}" placeholder="${t("tests.step_name_placeholder")}" autocomplete="off">
+            <button type="button" class="btn-icon te-case-step-delete" data-case-idx="${idx}" data-step-idx="${sidx}" title="${t("tests.delete_step")}">×</button>
+          </div>
+          <div class="te-case-step-grid">
+            <textarea class="te-case-step-prompt" rows="2" placeholder="${t("tests.step_prompt_placeholder")}" autocomplete="off">${escapeHtml(s.prompt || "")}</textarea>
+            <div class="te-case-step-eval">
+              <select class="te-case-step-eval-type" autocomplete="off">${evalOptionsHtml(s.type || "contains")}</select>
+              <input type="text" class="te-case-step-expected" value="${escapeHtml(sIsRegex ? (s.pattern || "") : (s.expected || ""))}" placeholder="${sIsRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off" ${sIsHuman ? "hidden" : ""}>
+            </div>
+          </div>
+          <input type="text" class="te-case-step-system" value="${escapeHtml(s.system_prompt || "")}" placeholder="${t("tests.step_system_placeholder")}" title="${t("tests.step_system_placeholder")}" autocomplete="off">
+        </div>
+      `;
+    }).join("");
 
     return `
       <div class="te-case-card" data-idx="${idx}">
@@ -1069,18 +1119,44 @@ function renderEditorCasesList() {
             <div class="te-case-eval-col">
               <div class="field te-case-eval-type-field">
                 <label class="te-case-label">${t("tests.case_eval_type")}</label>
-                <select class="te-case-eval-type" autocomplete="off">
-                  <option value="contains" ${c.type === "contains" ? "selected" : ""}>${t("tests.eval_contains")}</option>
-                  <option value="exact_match" ${c.type === "exact_match" ? "selected" : ""}>${t("tests.eval_exact_match")}</option>
-                  <option value="regex" ${c.type === "regex" ? "selected" : ""}>${t("tests.eval_regex")}</option>
-                  <option value="human_review" ${c.type === "human_review" ? "selected" : ""}>${t("tests.eval_human_review")}</option>
-                </select>
+                <select class="te-case-eval-type" autocomplete="off">${evalOptionsHtml(c.type || "contains")}</select>
               </div>
               <div class="field te-case-expected-field" ${isHuman ? "hidden" : ""}>
                 <label class="te-case-label">${isRegex ? t("tests.eval_pattern") : t("tests.case_expected")}</label>
                 <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || "") : (c.expected || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
               </div>
             </div>
+          </div>
+          <details class="te-case-advanced">
+            <summary>${t("tests.case_advanced")}</summary>
+            <div class="field te-case-system-field">
+              <label class="te-case-label">${t("tests.case_system_override")}</label>
+              <textarea class="te-case-system" rows="2" placeholder="${t("tests.case_system_placeholder")}" autocomplete="off">${escapeHtml(c.system_prompt || "")}</textarea>
+            </div>
+            <div class="te-case-options-row">
+              <div class="field">
+                <label class="te-case-label">${t("tests.case_temp")}</label>
+                <input type="number" class="te-case-temperature" min="0" max="2" step="0.05" value="${escapeHtml(c.temperature ?? "")}" placeholder="${t("tests.inherit_placeholder")}" autocomplete="off">
+              </div>
+              <div class="field">
+                <label class="te-case-label">${t("tests.case_topp")}</label>
+                <input type="number" class="te-case-top-p" min="0" max="1" step="0.05" value="${escapeHtml(c.top_p ?? "")}" placeholder="${t("tests.inherit_placeholder")}" autocomplete="off">
+              </div>
+              <div class="field">
+                <label class="te-case-label">${t("tests.case_maxtokens")}</label>
+                <input type="number" class="te-case-max-tokens" min="1" step="1" value="${escapeHtml(c.max_tokens ?? "")}" placeholder="${t("tests.inherit_placeholder")}" autocomplete="off">
+              </div>
+            </div>
+          </details>
+          <div class="te-case-steps-block">
+            <div class="te-case-steps-header">
+              <div>
+                <span class="te-case-label">${t("tests.case_steps_title")}</span>
+                <small class="muted te-case-steps-hint">${t("tests.case_steps_hint")}</small>
+              </div>
+              <button type="button" class="ghost te-case-add-step-btn" data-case-idx="${idx}">${t("tests.add_step")}</button>
+            </div>
+            <div class="te-case-steps-list">${stepsHtml}</div>
           </div>
         </div>
       </div>
@@ -1123,7 +1199,7 @@ function renderEditorCasesList() {
   container.querySelectorAll(".te-case-eval-type").forEach((sel) => {
     sel.addEventListener("change", () => {
       const card = sel.closest(".te-case-card");
-      const expectedField = card?.querySelector(".te-case-expected-field");
+      const expectedField = card?.querySelector(":scope > .te-case-card-body > .te-case-content-grid .te-case-expected-field");
       const label = expectedField?.querySelector("label");
       const input = expectedField?.querySelector("input");
       const type = sel.value;
@@ -1135,18 +1211,46 @@ function renderEditorCasesList() {
     });
   });
 
+  container.querySelectorAll(".te-case-step-eval-type").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const evalBox = sel.closest(".te-case-step-eval");
+      const input = evalBox?.querySelector(".te-case-step-expected");
+      const type = sel.value;
+      if (input) {
+        input.hidden = type === "human_review";
+        input.placeholder = type === "regex" ? "^[A-Z]+$" : t("tests.case_expected_placeholder");
+      }
+    });
+  });
+
+  container.querySelectorAll(".te-case-add-step-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const caseIdx = Number(btn.dataset.caseIdx);
+      syncEditorCasesFromDOM();
+      const target = currentEditorCases[caseIdx];
+      if (!target) return;
+      if (!Array.isArray(target.steps)) target.steps = [];
+      target.steps.push(newEditorStep(`Step ${target.steps.length + 1}`));
+      renderEditorCasesList();
+    });
+  });
+
+  container.querySelectorAll(".te-case-step-delete").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const caseIdx = Number(btn.dataset.caseIdx);
+      const stepIdx = Number(btn.dataset.stepIdx);
+      syncEditorCasesFromDOM();
+      currentEditorCases[caseIdx]?.steps?.splice(stepIdx, 1);
+      renderEditorCasesList();
+    });
+  });
+
   const addCaseBtn = $("te-add-case-btn");
   if (addCaseBtn && !addCaseBtn.dataset.wired) {
     addCaseBtn.dataset.wired = "1";
     addCaseBtn.addEventListener("click", () => {
       syncEditorCasesFromDOM();
-      currentEditorCases.push({
-        name: `Case ${currentEditorCases.length + 1}`,
-        prompt: "",
-        type: "contains",
-        expected: "",
-        pattern: "",
-      });
+      currentEditorCases.push(newEditorCase(`Case ${currentEditorCases.length + 1}`));
       renderEditorCasesList();
       const lastCard = $("te-cases-list")?.lastElementChild;
       lastCard?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1165,12 +1269,37 @@ function syncEditorCasesFromDOM() {
     const prompt = card.querySelector(".te-case-prompt")?.value.trim() || "";
     const type = card.querySelector(".te-case-eval-type")?.value || "contains";
     const val = card.querySelector(".te-case-expected")?.value.trim() || "";
+    const systemPrompt = card.querySelector(".te-case-system")?.value || "";
+    const temperature = card.querySelector(".te-case-temperature")?.value.trim() || "";
+    const topP = card.querySelector(".te-case-top-p")?.value.trim() || "";
+    const maxTokens = card.querySelector(".te-case-max-tokens")?.value.trim() || "";
+    const stepEls = card.querySelectorAll(".te-case-step");
+    const steps = Array.from(stepEls).map((sel2, sidx) => {
+      const sName = sel2.querySelector(".te-case-step-name")?.value.trim() || `Step ${sidx + 1}`;
+      const sPrompt = sel2.querySelector(".te-case-step-prompt")?.value.trim() || "";
+      const sType = sel2.querySelector(".te-case-step-eval-type")?.value || "contains";
+      const sVal = sel2.querySelector(".te-case-step-expected")?.value.trim() || "";
+      const sSys = sel2.querySelector(".te-case-step-system")?.value || "";
+      return {
+        name: sName,
+        prompt: sPrompt,
+        type: sType,
+        expected: sType !== "regex" ? sVal : "",
+        pattern: sType === "regex" ? sVal : "",
+        system_prompt: sSys,
+      };
+    });
     return {
       name,
       prompt,
       type,
       expected: type !== "regex" ? val : "",
       pattern: type === "regex" ? val : "",
+      system_prompt: systemPrompt,
+      temperature,
+      top_p: topP,
+      max_tokens: maxTokens,
+      steps,
     };
   });
 }
@@ -1198,24 +1327,39 @@ async function showTestEditorView(id) {
       $("te-required-caps").value = (test.required_caps || []).join(", ");
       $("te-order").value = String(test.order || 0);
 
+      const toEditorStep = (s, i) => ({
+        name: s.name || `Step ${i + 1}`,
+        prompt: s.prompt || "",
+        type: s.evaluation?.type || test.evaluation_type || "contains",
+        expected: s.evaluation?.expected != null ? String(s.evaluation.expected) : "",
+        pattern: s.evaluation?.pattern || "",
+        system_prompt: s.system_prompt || "",
+      });
+      const toEditorCase = (c, i) => ({
+        name: c.name || `Case ${i + 1}`,
+        prompt: c.prompt || "",
+        type: c.evaluation?.type || test.evaluation_type || "contains",
+        expected: c.evaluation?.expected != null ? String(c.evaluation.expected) : (test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : ""),
+        pattern: c.evaluation?.pattern || test.evaluation_config?.pattern || "",
+        system_prompt: c.system_prompt || "",
+        temperature: c.options?.temperature ?? "",
+        top_p: c.options?.top_p ?? "",
+        max_tokens: c.options?.max_tokens ?? "",
+        steps: Array.isArray(c.steps) ? c.steps.map(toEditorStep) : [],
+      });
       // Load cases
       if (Array.isArray(test.cases) && test.cases.length > 0) {
-        currentEditorCases = test.cases.map((c, i) => ({
-          name: c.name || `Case ${i + 1}`,
-          prompt: c.prompt || "",
-          type: c.evaluation?.type || test.evaluation_type || "contains",
-          expected: c.evaluation?.expected != null ? String(c.evaluation.expected) : (test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : ""),
-          pattern: c.evaluation?.pattern || test.evaluation_config?.pattern || "",
-        }));
+        currentEditorCases = test.cases.map(toEditorCase);
       } else {
-        currentEditorCases = [{
+        currentEditorCases = [toEditorCase({
           name: "Case 1",
           prompt: test.prompt || "",
-          type: test.evaluation_type || "contains",
-          expected: test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : "",
-          pattern: test.evaluation_config?.pattern || "",
-        }];
+          evaluation: test.evaluation_type || test.evaluation ? { type: test.evaluation_type, expected: test.evaluation_config?.expected, pattern: test.evaluation_config?.pattern } : undefined,
+        }, 0)];
       }
+      $("te-temperature").value = test.options?.temperature ?? "";
+      $("te-top-p").value = test.options?.top_p ?? "";
+      $("te-max-tokens").value = test.options?.max_tokens ?? "";
       renderEditorCasesList();
 
       testEditorAttachments = (test.attachments || []).map((a) => ({ ...a }));
@@ -1234,15 +1378,12 @@ async function showTestEditorView(id) {
   $("te-group").value = selectedGroupId || "";
   $("te-active").checked = true;
   $("te-system").value = "";
+  $("te-temperature").value = "";
+  $("te-top-p").value = "";
+  $("te-max-tokens").value = "";
   $("te-required-caps").value = "";
   $("te-order").value = "0";
-  currentEditorCases = [{
-    name: "Case 1",
-    prompt: "",
-    type: "contains",
-    expected: "",
-    pattern: "",
-  }];
+  currentEditorCases = [newEditorCase("Case 1")];
   renderEditorCasesList();
   testEditorAttachments = [];
   renderTestEditorAttachments();
@@ -1684,42 +1825,88 @@ function populateTestEditorGroupSelect() {
 async function saveTestEditor() {
   syncEditorCasesFromDOM();
   if (currentEditorCases.length === 0) {
-    currentEditorCases = [{ name: "Case 1", prompt: "", type: "contains", expected: "", pattern: "" }];
+    currentEditorCases = [newEditorCase("Case 1")];
   }
+
+  const buildEval = (type, expected, pattern) => {
+    const evaluation = { type: type || "contains" };
+    if (type === "regex") {
+      if (pattern || expected) evaluation.pattern = pattern || expected;
+    } else if (type !== "human_review" && expected) {
+      evaluation.expected = expected;
+    }
+    return evaluation;
+  };
+  const parseNum = (v) => {
+    if (v === "" || v === null || v === undefined) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
 
   const cases = currentEditorCases.map((c, i) => {
     const item = {
       name: c.name || `Case ${i + 1}`,
       prompt: c.prompt || "",
-      evaluation: {
-        type: c.type || "contains",
-      },
+      evaluation: buildEval(c.type, c.expected, c.pattern),
     };
-    if (c.type === "regex") {
-      item.evaluation.pattern = c.pattern || c.expected;
-    } else if (c.type !== "human_review" && c.expected) {
-      item.evaluation.expected = c.expected;
+    if (c.system_prompt && c.system_prompt.trim() !== "") {
+      item.system_prompt = c.system_prompt;
+    }
+    const temp = parseNum(c.temperature);
+    const topP = parseNum(c.top_p);
+    const maxTokens = parseNum(c.max_tokens);
+    if (temp !== undefined || topP !== undefined || maxTokens !== undefined) {
+      item.options = {};
+      if (temp !== undefined) item.options.temperature = temp;
+      if (topP !== undefined) item.options.top_p = topP;
+      if (maxTokens !== undefined) item.options.max_tokens = Math.round(maxTokens);
+    }
+    if (Array.isArray(c.steps) && c.steps.length > 0) {
+      item.steps = c.steps.map((s, j) => {
+        const stepItem = {
+          name: s.name || `Step ${j + 1}`,
+          prompt: s.prompt || "",
+          evaluation: buildEval(s.type, s.expected, s.pattern),
+        };
+        if (s.system_prompt && s.system_prompt.trim() !== "") {
+          stepItem.system_prompt = s.system_prompt;
+        }
+        return stepItem;
+      });
     }
     return item;
   });
 
   const firstCase = cases[0] || { prompt: "", evaluation: { type: "contains" } };
+  const firstPrompt = firstCase.prompt || firstCase.steps?.[0]?.prompt || "";
+  const firstEval = firstCase.evaluation?.type === "human_review" && firstCase.steps?.[0]?.evaluation
+    ? firstCase.steps[0].evaluation
+    : firstCase.evaluation;
   const autoCaps = getAutoCapsFromAttachments();
   const userCaps = $("te-required-caps").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const gTemp = parseNum($("te-temperature")?.value);
+  const gTopP = parseNum($("te-top-p")?.value);
+  const gMaxTokens = parseNum($("te-max-tokens")?.value);
   const payload = {
     name: $("te-name").value.trim(),
     description: $("te-description").value.trim(),
     group_id: $("te-group").value,
     active: $("te-active").checked,
     system_prompt: $("te-system").value,
-    prompt: firstCase.prompt,
+    prompt: firstPrompt,
     cases: cases,
-    evaluation_type: firstCase.evaluation.type,
-    evaluation_config: firstCase.evaluation.expected ? { expected: firstCase.evaluation.expected } : (firstCase.evaluation.pattern ? { pattern: firstCase.evaluation.pattern } : null),
+    evaluation_type: (firstEval || {}).type || "contains",
+    evaluation_config: firstEval?.expected ? { expected: firstEval.expected } : (firstEval?.pattern ? { pattern: firstEval.pattern } : null),
     required_caps: Array.from(new Set([...userCaps, ...autoCaps])),
     attachments: testEditorAttachments.map((a) => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, data: a.data })),
     order: Number($("te-order").value) || 0,
   };
+  if (gTemp !== undefined || gTopP !== undefined || gMaxTokens !== undefined) {
+    payload.options = {};
+    if (gTemp !== undefined) payload.options.temperature = gTemp;
+    if (gTopP !== undefined) payload.options.top_p = gTopP;
+    if (gMaxTokens !== undefined) payload.options.max_tokens = Math.round(gMaxTokens);
+  }
   try {
     if (currentTestId) {
       await api("/api/tests/" + encodeURIComponent(currentTestId), {

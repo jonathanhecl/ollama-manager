@@ -638,6 +638,25 @@
             <textarea id="te-system" rows="2" data-i18n-attr="placeholder" data-i18n="tests.system_placeholder" placeholder="Optional system instruction..." autocomplete="off"></textarea>
           </div>
 
+          <div class="field">
+            <label data-i18n="tests.global_options">Inference options</label>
+            <div class="te-options-row">
+              <div class="te-option-field">
+                <span class="te-case-label" data-i18n="tests.case_temp">Temperature</span>
+                <input id="te-temperature" type="number" min="0" max="2" step="0.05" data-i18n-attr="placeholder" data-i18n="tests.inherit_placeholder" placeholder="inherit" autocomplete="off">
+              </div>
+              <div class="te-option-field">
+                <span class="te-case-label" data-i18n="tests.case_topp">Top P</span>
+                <input id="te-top-p" type="number" min="0" max="1" step="0.05" data-i18n-attr="placeholder" data-i18n="tests.inherit_placeholder" placeholder="inherit" autocomplete="off">
+              </div>
+              <div class="te-option-field">
+                <span class="te-case-label" data-i18n="tests.case_maxtokens">Max tokens</span>
+                <input id="te-max-tokens" type="number" min="1" step="1" data-i18n-attr="placeholder" data-i18n="tests.inherit_placeholder" placeholder="inherit" autocomplete="off">
+              </div>
+            </div>
+            <small class="muted" data-i18n="tests.global_options_hint">Empty = model default. Individual cases can override these values.</small>
+          </div>
+
           <!-- Multi-case test cases section (full width) -->
           <div class="te-cases-section">
             <div class="te-cases-section-header">

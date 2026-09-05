@@ -32,6 +32,7 @@ type SubResult struct {
 	Index          int     `json:"index"`
 	Name           string  `json:"name,omitempty"`
 	Prompt         string  `json:"prompt,omitempty"`
+	SystemPrompt   string  `json:"system_prompt,omitempty"`
 	Passed         *bool   `json:"passed,omitempty"`
 	ResponseTimeMs int64   `json:"response_time_ms"`
 	TokensPerSec   float64 `json:"tokens_per_sec,omitempty"`
@@ -245,20 +246,6 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		return res
 	}
 
-	var opts map[string]any
-	if test.Options != nil {
-		opts = make(map[string]any)
-		if test.Options.Temperature != nil {
-			opts["temperature"] = *test.Options.Temperature
-		}
-		if test.Options.TopP != nil {
-			opts["top_p"] = *test.Options.TopP
-		}
-		if test.Options.MaxTokens != nil {
-			opts["num_predict"] = *test.Options.MaxTokens
-		}
-	}
-
 	start := time.Now()
 
 	// Multi-step interactive sequential test
@@ -272,6 +259,11 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		hasScored := false
 		var responsesSummary []string
 		var totalEvalDuration int64
+		stepOverrides := make([]string, len(test.Steps))
+		for i, s := range test.Steps {
+			stepOverrides[i] = s.SystemPrompt
+		}
+		effStepSys := effectiveChainSystems(test.SystemPrompt, stepOverrides)
 
 		for i, step := range test.Steps {
 			if ctx.Err() != nil {
@@ -282,6 +274,9 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			stepLabel := step.Name
 			if stepLabel == "" {
 				stepLabel = fmt.Sprintf("Step %d", step.Step)
+			}
+			if step.SystemPrompt != "" {
+				history = setSystemPrompt(history, step.SystemPrompt)
 			}
 
 			c.setProgress(Progress{
@@ -299,7 +294,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			})
 
 			history = append(history, ollama.ChatMessage{Role: "user", Content: step.Prompt})
-			turn := c.execChatTurn(ctx, runID, model, history, opts)
+			turn := c.execChatTurn(ctx, runID, model, history, optsFor(tests.MergeOptions(test.Options, step.Options)))
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
 				break
@@ -332,6 +327,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				Index:          i + 1,
 				Name:           stepLabel,
 				Prompt:         step.Prompt,
+				SystemPrompt:   effStepSys[i],
 				Passed:         stepPassed,
 				ResponseTimeMs: turn.ResponseTimeMs,
 				TokensPerSec:   turn.TokensPerSec,
@@ -354,24 +350,38 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		return res
 	}
 
-	// Multi-case test suite
+	// Multi-case test suite.
+	// Each case runs in isolation (fresh conversation history) and may override
+	// the test-level system prompt (empty = inherit) and inference options.
+	// A case is either single-turn (prompt + evaluation) or multi-turn
+	// (ordered steps sharing one history scoped to the case). When steps are
+	// present, an optional case-level prompt is sent first as the opening turn
+	// (scored with the case-level evaluation when set). Within a chain the
+	// system is sticky: a step's system_prompt replaces the active system from
+	// that step onward, an empty one keeps the active system.
 	if len(test.Cases) > 0 {
 		allPassed := true
 		hasScored := false
 		var casesSummary []string
 		var totalEvalDuration int64
 
-		for i, tc := range test.Cases {
+		totalUnits := 0
+		for _, tc := range test.Cases {
+			totalUnits += len(tc.Steps)
+			if len(tc.Steps) == 0 || tc.Prompt != "" {
+				totalUnits++
+			}
+		}
+		unitIdx := 0
+
+		// runCaseTurn executes one user turn inside the given history, scores it
+		// and records the sub-result. It returns false when execution must stop.
+		runCaseTurn := func(history []ollama.ChatMessage, unitName, prompt, sys string, eval *tests.Evaluation, opts map[string]any) ([]ollama.ChatMessage, bool) {
 			if ctx.Err() != nil {
 				res.Error = ctx.Err().Error()
-				break
+				return history, false
 			}
-
-			caseLabel := tc.Name
-			if caseLabel == "" {
-				caseLabel = fmt.Sprintf("Case %d", i+1)
-			}
-
+			unitIdx++
 			c.setProgress(Progress{
 				RunID:          runID,
 				Model:          model,
@@ -379,23 +389,18 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				TestName:       test.Name,
 				TestIndex:      idx,
 				TotalTests:     total,
-				CaseName:       caseLabel,
-				CaseIndex:      i + 1,
-				TotalCases:     len(test.Cases),
-				ActivePrompt:   tc.Prompt,
+				CaseName:       unitName,
+				CaseIndex:      unitIdx,
+				TotalCases:     totalUnits,
+				ActivePrompt:   prompt,
 				CompletedCases: append([]SubResult(nil), res.SubResults...),
 			})
 
-			var msgs []ollama.ChatMessage
-			if test.SystemPrompt != "" {
-				msgs = append(msgs, ollama.ChatMessage{Role: "system", Content: test.SystemPrompt})
-			}
-			msgs = append(msgs, ollama.ChatMessage{Role: "user", Content: tc.Prompt})
-
-			turn := c.execChatTurn(ctx, runID, model, msgs, opts)
+			history = append(history, ollama.ChatMessage{Role: "user", Content: prompt})
+			turn := c.execChatTurn(ctx, runID, model, history, opts)
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
-				break
+				return history, false
 			}
 
 			if turn.Thinking != "" {
@@ -406,24 +411,27 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			res.TotalTokens += turn.TotalTokens
 			totalEvalDuration += turn.EvalDuration
 
-			casePassed := scoreEval(tc.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
+			history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
+
+			passed := scoreEval(eval, test.EvaluationType, test.EvaluationConfig, turn.Content)
 			status := "PASS"
-			if casePassed != nil {
+			if passed != nil {
 				hasScored = true
-				if !*casePassed {
+				if !*passed {
 					allPassed = false
 					status = "FAIL"
 				}
 			} else {
 				status = "REVIEW"
 			}
-			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, caseLabel, strings.TrimSpace(turn.Content)))
+			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, unitName, strings.TrimSpace(turn.Content)))
 
 			res.SubResults = append(res.SubResults, SubResult{
-				Index:          i + 1,
-				Name:           caseLabel,
-				Prompt:         tc.Prompt,
-				Passed:         casePassed,
+				Index:          unitIdx,
+				Name:           unitName,
+				Prompt:         prompt,
+				SystemPrompt:   sys,
+				Passed:         passed,
 				ResponseTimeMs: turn.ResponseTimeMs,
 				TokensPerSec:   turn.TokensPerSec,
 				PromptTokens:   turn.PromptTokens,
@@ -432,6 +440,62 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				ReasoningUsed:  turn.Thinking != "",
 				ModelResponse:  turn.Content,
 			})
+			return history, true
+		}
+
+		for i, tc := range test.Cases {
+			caseLabel := tc.Name
+			if caseLabel == "" {
+				caseLabel = fmt.Sprintf("Case %d", i+1)
+			}
+			caseSys := tests.EffectiveSystemPrompt(test.SystemPrompt, tc.SystemPrompt)
+			caseOpts := optsFor(tests.MergeOptions(test.Options, tc.Options))
+
+			var history []ollama.ChatMessage
+			if caseSys != "" {
+				history = append(history, ollama.ChatMessage{Role: "system", Content: caseSys})
+			}
+
+			if len(tc.Steps) == 0 {
+				var ok bool
+				if _, ok = runCaseTurn(history, caseLabel, tc.Prompt, caseSys, tc.Evaluation, caseOpts); !ok {
+					break
+				}
+				continue
+			}
+
+			// Multi-turn case: chained steps sharing one case-scoped history.
+			// An optional case-level prompt is sent first as the opening turn
+			// (scored with the case-level evaluation when set).
+			if tc.Prompt != "" {
+				var ok bool
+				if history, ok = runCaseTurn(history, caseLabel+" › context", tc.Prompt, caseSys, tc.Evaluation, caseOpts); !ok {
+					break
+				}
+			}
+			stepOverrides := make([]string, len(tc.Steps))
+			for j, st := range tc.Steps {
+				stepOverrides[j] = st.SystemPrompt
+			}
+			effStepSys := effectiveChainSystems(caseSys, stepOverrides)
+			stopped := false
+			for j, st := range tc.Steps {
+				stepLabel := st.Name
+				if stepLabel == "" {
+					stepLabel = fmt.Sprintf("Step %d", j+1)
+				}
+				if st.SystemPrompt != "" {
+					history = setSystemPrompt(history, st.SystemPrompt)
+				}
+				var ok bool
+				if history, ok = runCaseTurn(history, caseLabel+" › "+stepLabel, st.Prompt, effStepSys[j], st.Evaluation, caseOpts); !ok {
+					stopped = true
+					break
+				}
+			}
+			if stopped {
+				break
+			}
 		}
 
 		res.ResponseTimeMs = time.Since(start).Milliseconds()
@@ -497,7 +561,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		ActivePrompt: promptText,
 	})
 
-	turn := c.execChatTurn(ctx, runID, model, messages, opts)
+	turn := c.execChatTurn(ctx, runID, model, messages, optsFor(test.Options))
 	res.ResponseTimeMs = turn.ResponseTimeMs
 	if turn.Error != nil {
 		res.Error = turn.Error.Error()
@@ -632,6 +696,54 @@ func (c *Client) updateProgressStream(runID string, thinking bool, content, reas
 		p.PartialResponse = content
 		p.PartialThinking = reasoning
 	}
+}
+
+// optsFor converts TestOptions into the Ollama request options map.
+func optsFor(o *tests.TestOptions) map[string]any {
+	if o == nil {
+		return nil
+	}
+	opts := make(map[string]any)
+	if o.Temperature != nil {
+		opts["temperature"] = *o.Temperature
+	}
+	if o.TopP != nil {
+		opts["top_p"] = *o.TopP
+	}
+	if o.MaxTokens != nil {
+		opts["num_predict"] = *o.MaxTokens
+	}
+	return opts
+}
+
+// effectiveChainSystems resolves the sticky system prompt for each turn of a
+// conversation chain. base is the system active before the first turn
+// (test-level, or the case-level override); each non-empty override replaces
+// the active system from its turn onward, an empty value keeps the active one.
+func effectiveChainSystems(base string, overrides []string) []string {
+	out := make([]string, len(overrides))
+	active := base
+	for i, o := range overrides {
+		if o != "" {
+			active = o
+		}
+		out[i] = active
+	}
+	return out
+}
+
+// setSystemPrompt sets (or adds) the system message at the head of history.
+func setSystemPrompt(history []ollama.ChatMessage, sys string) []ollama.ChatMessage {
+	if sys == "" {
+		return history
+	}
+	for i := range history {
+		if history[i].Role == "system" {
+			history[i].Content = sys
+			return history
+		}
+	}
+	return append([]ollama.ChatMessage{{Role: "system", Content: sys}}, history...)
 }
 
 func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMessage, response string) *bool {

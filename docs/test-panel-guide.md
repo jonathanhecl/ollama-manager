@@ -39,6 +39,60 @@ Stored next to `config.json` (same directory). Atomic write pattern: write to `t
 | `created_at` | ISO 8601 | auto | UTC timestamp |
 | `updated_at` | ISO 8601 | auto | UTC timestamp |
 
+### TestCase (entry in `cases`)
+
+Each case runs in **isolation** (fresh conversation history). A case is either
+single-turn (`prompt` + `evaluation`) or multi-turn (`steps` sharing one
+history scoped to the case).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | no | Human-readable case name |
+| `prompt` | string | yes, unless `steps` has an opening turn | Single-turn prompt, or the opening turn of a multi-turn chain (scored with the case-level `evaluation` when set) |
+| `evaluation` | object | no | `{ type, expected?, pattern?, schema? }`; same types as §4 |
+| `system_prompt` | string | no | Override for this case only; empty/missing = inherits the test-level `system_prompt` |
+| `options` | object | no | `{ temperature?, top_p?, max_tokens? }`; set fields override the test-level `options` |
+| `steps` | []CaseStep | no | Chained follow-up turns; each `{ name?, prompt, evaluation?, system_prompt? }` is sent in order keeping prior turns in context. A step-level `system_prompt` is **sticky**: it replaces the active system from that step onward, while an empty one keeps the active system (case-level, or test-level). Each case starts fresh from the test-level system (or its own override) |
+
+Example (instruction-list following with a per-case voice override):
+
+```yaml
+system_prompt: |
+  You are a concise assistant. Always reply in English.
+options:
+  temperature: 0.2
+cases:
+  - name: Pirate voice override
+    prompt: Say hello in one short sentence.
+    system_prompt: |
+      You are a pirate. Every reply must contain the word "arr".
+    options:
+      temperature: 0.9
+    evaluation:
+      type: regex
+      pattern: (?i)\barr\b
+  - name: Follow a list of instructions
+    prompt: Memorize this list in order: red, green, blue. Reply with only OK.
+    evaluation:
+      type: contains
+      expected: "OK"
+    steps:
+      - name: Recall second item
+        prompt: What was the second color? Reply with just the color.
+        evaluation:
+          type: contains
+          expected: "green"
+      - name: Repeat full list
+        prompt: Repeat the full list in order, comma-separated.
+        evaluation:
+          type: regex
+          pattern: (?i)red.*green.*blue
+```
+
+Overall result: the test passes when **all** scored turns pass (case-level
+evaluations plus every chained step). In the UI, chained turns appear as
+`Case › Step` sub-results and share the case's progress counter.
+
 ### Group
 
 | Field | Type | Required | Description |

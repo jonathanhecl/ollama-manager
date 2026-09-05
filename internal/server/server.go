@@ -287,8 +287,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/artifacts/screenshot", s.requireAuth(s.handleArtifactScreenshot))
 	mux.Handle("POST /api/artifacts/eval", s.requireAuth(s.handleArtifactEval))
 
-	// Artifact files — public (no auth) so sandboxed iframes can load them.
-	mux.HandleFunc("GET /api/artifacts/{rest...}", s.handleArtifactFiles)
+	// Artifact files — same auth as the rest of the API. The preview iframe
+	// sends the session cookie (allow-same-origin), so it keeps working
+	// while logged in.
+	mux.Handle("GET /api/artifacts/{rest...}", s.requireAuth(s.handleArtifactFiles))
 	mux.Handle("DELETE /api/artifacts/{rest...}", s.requireAuth(s.handleDeleteArtifact))
 
 	return logging(mux)

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 )
@@ -37,7 +38,10 @@ func (s *archivedModelsStore) Load() error {
 	}
 	var file archivedModelsFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return err
+		if q := quarantineCorrupt(s.path); q != "" {
+			return fmt.Errorf("archived_models: corrupt %s quarantined to %s: %w", s.path, q, err)
+		}
+		return fmt.Errorf("archived_models: corrupt %s (quarantine failed): %w", s.path, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,23 +87,17 @@ func (s *archivedModelsStore) save() error {
 	if s.path == "" {
 		return nil
 	}
-	s.mu.RLock()
+	// Full write lock for the whole snapshot+write: concurrent saves share
+	// the same ".tmp" file, so they must serialize (last writer wins, but
+	// the file on disk is always complete and valid).
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	file := archivedModelsFile{
 		Models: make([]string, 0, len(s.models)),
 	}
 	for m := range s.models {
 		file.Models = append(file.Models, m)
 	}
-	s.mu.RUnlock()
 
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return writeJSONFileAtomic(s.path, file, 0o600)
 }

@@ -3163,6 +3163,13 @@ func (s *Server) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+		// Never serve the agent's private files (prompt/context + metadata),
+		// even to authenticated callers — mirrors the read_file tool block.
+		switch strings.ToLower(filepath.Base(cleanPath)) {
+		case "prompt.txt", ".artifact.json":
+			http.NotFound(w, r)
+			return
+		}
 	}
 
 	// Check if requested cleanPath exists as a regular file

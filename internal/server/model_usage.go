@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -127,6 +128,19 @@ func (s *modelUsageStore) findOrCreateCurrentLocked() *DeviceUsageEntry {
 	return newEntry
 }
 
+// findCurrent returns the entry for the current device without mutating the
+// store, so it is safe to call under RLock. It returns nil when the entry
+// does not exist yet (callers must then take the write lock and use
+// findOrCreateCurrentLocked).
+func (s *modelUsageStore) findCurrent() *DeviceUsageEntry {
+	for _, e := range s.entries {
+		if e.ID == s.currentID {
+			return e
+		}
+	}
+	return nil
+}
+
 func (s *modelUsageStore) currentModelsLocked() map[string]ModelUsageRecord {
 	cur := s.findOrCreateCurrentLocked()
 	if cur.Models == nil {
@@ -151,27 +165,27 @@ func (s *modelUsageStore) Load() error {
 		return nil
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	var loadedEntries []*DeviceUsageEntry
 	migratedFromLegacy := false
 
-	if trimmed[0] == '[' {
+	// Parse before taking the lock so a corrupt file can be quarantined
+	// without holding it. A corrupt file is renamed aside (forensics) and
+	// Load reports an error instead of silently starting empty — otherwise
+	// the next save() would overwrite the evidence forever.
+	var parseErr error
+	switch {
+	case trimmed[0] == '[':
 		// New array format: [ {"specs": ..., "models": ...}, ... ]
-		if err := json.Unmarshal(trimmed, &loadedEntries); err != nil {
-			return err
-		}
-	} else if trimmed[0] == '{' {
+		parseErr = json.Unmarshal(trimmed, &loadedEntries)
+	case trimmed[0] == '{':
 		// Legacy format: {"models": {...}} or wrapper {"devices": [...]}
 		var wrapper struct {
 			Devices []*DeviceUsageEntry         `json:"devices"`
 			Models  map[string]ModelUsageRecord `json:"models"`
 		}
 		if err := json.Unmarshal(trimmed, &wrapper); err != nil {
-			return err
-		}
-		if len(wrapper.Devices) > 0 {
+			parseErr = err
+		} else if len(wrapper.Devices) > 0 {
 			loadedEntries = wrapper.Devices
 		} else if wrapper.Models != nil {
 			// Legacy migration: preserve all existing model telemetry under the current machine's specs.
@@ -183,7 +197,18 @@ func (s *modelUsageStore) Load() error {
 			}
 			loadedEntries = []*DeviceUsageEntry{legacyEntry}
 		}
+	default:
+		parseErr = errors.New("unrecognized content (not a JSON object or array)")
 	}
+	if parseErr != nil {
+		if q := quarantineCorrupt(s.path); q != "" {
+			return fmt.Errorf("model_usage: corrupt %s quarantined to %s: %w", s.path, q, parseErr)
+		}
+		return fmt.Errorf("model_usage: corrupt %s (quarantine failed): %w", s.path, parseErr)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if len(loadedEntries) > 0 {
 		s.entries = loadedEntries
@@ -212,7 +237,19 @@ func (s *modelUsageStore) Load() error {
 
 func (s *modelUsageStore) All() map[string]ModelUsageRecord {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if cur := s.findCurrent(); cur != nil && cur.Models != nil {
+		res := make(map[string]ModelUsageRecord, len(cur.Models))
+		for k, v := range cur.Models {
+			res[k] = v
+		}
+		s.mu.RUnlock()
+		return res
+	}
+	s.mu.RUnlock()
+
+	// Current entry missing: take the write lock and create it lazily.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	models := s.currentModelsLocked()
 	res := make(map[string]ModelUsageRecord, len(models))
 	for k, v := range models {
@@ -239,9 +276,23 @@ func (s *modelUsageStore) Devices() []DeviceUsageSummary {
 }
 
 func (s *modelUsageStore) GetDeviceModels(deviceID string) (map[string]ModelUsageRecord, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if deviceID == "" || deviceID == "current" || deviceID == s.currentID {
+		// Fast path first: read-only lookup under RLock (no lazy creation).
+		s.mu.RLock()
+		var snapshot map[string]ModelUsageRecord
+		if cur := s.findCurrent(); cur != nil && cur.Models != nil {
+			snapshot = make(map[string]ModelUsageRecord, len(cur.Models))
+			for k, v := range cur.Models {
+				snapshot[k] = v
+			}
+		}
+		s.mu.RUnlock()
+		if snapshot != nil {
+			return snapshot, true
+		}
+		// Current entry missing: create it lazily under the write lock.
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		models := s.currentModelsLocked()
 		res := make(map[string]ModelUsageRecord, len(models))
 		for k, v := range models {
@@ -250,6 +301,8 @@ func (s *modelUsageStore) GetDeviceModels(deviceID string) (map[string]ModelUsag
 		return res, true
 	}
 	if deviceID == "all" {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
 		merged := make(map[string]ModelUsageRecord)
 		for _, e := range s.entries {
 			for k, v := range e.Models {
@@ -330,9 +383,24 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 	if name == "" {
 		return ModelUsageRecord{}, false
 	}
+	// Fast path: read-only lookup under RLock (no lazy creation).
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	models := s.currentModelsLocked()
+	if cur := s.findCurrent(); cur != nil && cur.Models != nil {
+		rec, ok := lookupUsageModel(cur.Models, name)
+		s.mu.RUnlock()
+		return rec, ok
+	}
+	s.mu.RUnlock()
+
+	// Current entry missing: take the write lock and create it lazily.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return lookupUsageModel(s.currentModelsLocked(), name)
+}
+
+// lookupUsageModel resolves a model record with the :latest-alias and :fixed
+// fallbacks. Pure function over the given map: holds no locks itself.
+func lookupUsageModel(models map[string]ModelUsageRecord, name string) (ModelUsageRecord, bool) {
 	rec, ok := models[name]
 	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0) {
 		return rec, true
@@ -637,8 +705,11 @@ func (s *modelUsageStore) ResetAnalytics(name string) error {
 }
 
 func (s *modelUsageStore) save() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// Full write lock for the whole snapshot+write: concurrent saves share
+	// the same ".tmp" file, so they must serialize (last writer wins, but
+	// the file on disk is always complete and valid).
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.saveLocked()
 }
 
@@ -646,14 +717,5 @@ func (s *modelUsageStore) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(s.entries, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return writeJSONFileAtomic(s.path, s.entries, 0o600)
 }

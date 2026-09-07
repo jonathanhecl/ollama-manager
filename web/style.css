@@ -2951,8 +2951,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   gap: 6px;
 }
 .chat-edit-replace-btn,
-.chat-edit-delete-btn,
-.chat-edit-attach-btns .chat-edit-attach-add-btn {
+.chat-edit-delete-btn {
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2973,11 +2972,6 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   color: #ff6b6b;
   border-color: #ff6b6b;
   background: rgba(255, 107, 107, 0.15);
-}
-.chat-edit-attach-btns .chat-edit-attach-add-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 15%, #1d212d);
 }
 .chat-edit-attach-add-card {
   display: flex;
@@ -3086,6 +3080,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
 }
 .chat-edit-actions button {
   padding: 5px 12px;
@@ -3171,6 +3166,9 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   color: #fff;
 }
 
+.chat-file-list {
+  margin-top: 6px;
+}
 .chat-file-list, .chat-attachments {
   display: flex;
   flex-wrap: wrap;

@@ -3204,12 +3204,6 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   </div>
   <div class="chat-edit-actions">
     <div class="chat-edit-upload-actions">
-      <button type="button" class="chat-edit-add-file-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.add_attachment") || "Add attachment")}">
-        <svg class="chat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
-          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-        </svg>
-        <span>${escapeHtml(t("chat.add_attachment") || "Add file")}</span>
-      </button>
       <input type="file" class="chat-edit-add-file-input" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" multiple />
     </div>
     <div class="chat-edit-btn-group">
@@ -3299,8 +3293,8 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
         </div>
       </header>
       ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
-      ${files ? `<div class="chat-file-list">${files}</div>` : ""}
       ${contentBlock}
+      ${files ? `<div class="chat-file-list">${files}</div>` : ""}
       ${artifactBadge}
       ${footBlock}
     </article>
@@ -3768,13 +3762,6 @@ function renderEditAttachmentsHTML(attachments) {
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
             </svg>
-          </button>
-          <button type="button" class="btn-icon chat-edit-attach-add-btn chat-edit-add-file-btn" title="${escapeHtml(t("chat.add_attachment") || "Add attachment")}" aria-label="${escapeHtml(t("chat.add_attachment") || "Add attachment")}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-          </button>
           <input type="file" class="chat-edit-replace-file-input" data-att-id="${escapeHtml(a.id)}" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" />
         </div>
       </div>

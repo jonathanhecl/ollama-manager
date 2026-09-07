@@ -423,7 +423,10 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
     const completed = modelResults.length;
     const passed = modelResults.filter((r) => r.passed === true).length;
     const failed = modelResults.filter((r) => r.passed === false).length;
-    const passRate = completed > 0 ? (passed / completed) * 100 : 0;
+    const totalExpected = expected > 0 ? expected : completed;
+    // Pass rate relative to total expected tests (done + pending) so it builds up progressively and never moves downward
+    const passRate = totalExpected > 0 ? (passed / totalExpected) * 100 : 0;
+    const completedPassRate = completed > 0 ? (passed / completed) * 100 : 0;
     const totalSpeed = modelResults.reduce((sum, r) => sum + (r.tokens_per_sec || 0), 0);
     const avgSpeed = completed > 0 ? totalSpeed / completed : 0;
     const totalDuration = modelResults.reduce((sum, r) => sum + (r.response_time_ms || 0), 0);
@@ -438,6 +441,7 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
       passed,
       failed,
       passRate,
+      completedPassRate,
       avgSpeed,
       avgLatency,
       isCurrent,
@@ -641,10 +645,12 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
   `;
 
   for (const m of modelIDs) {
-    const st = modelMap.get(m) || { expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, avgSpeed: 0, isCurrent: m === currentModel, isDone: false };
+    const st = modelMap.get(m) || { expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, completedPassRate: 0, avgSpeed: 0, isCurrent: m === currentModel, isDone: false };
+    const totalExp = st.expected > 0 ? st.expected : st.completed;
     const passPct = Math.round(st.passRate);
-    const passBarWidth = st.completed > 0 ? (st.passed / st.completed) * 100 : 0;
-    const failBarWidth = st.completed > 0 ? (st.failed / st.completed) * 100 : 0;
+    const passBarWidth = totalExp > 0 ? (st.passed / totalExp) * 100 : 0;
+    const failBarWidth = totalExp > 0 ? (st.failed / totalExp) * 100 : 0;
+    const pendingCount = Math.max(0, totalExp - st.completed);
 
     let statusBadge = `<span class="badge badge-muted">⏳ ${escapeHtml(t("battery.status_pending"))}</span>`;
     if (st.isCurrent) {
@@ -655,6 +661,8 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
 
     const rowClass = st.isCurrent ? "battery-leaderboard-row active-model-row" : "battery-leaderboard-row";
     const passPctColor = passPct >= 75 ? "var(--good)" : (passPct >= 50 ? "var(--warn)" : "var(--danger)");
+    const ratioTooltip = `${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}${pendingCount > 0 ? ` · ${pendingCount} ${t("battery.status_pending")}` : ""}`;
+    const pctTooltip = st.completed > 0 ? `${st.passed}/${totalExp} (${passPct}%)` : "";
 
     html += `
       <tr class="${rowClass}">
@@ -667,12 +675,12 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
         </td>
         <td class="mono">${st.completed} / ${st.expected}</td>
         <td>
-          <div class="leaderboard-ratio-bar" title="${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}">
+          <div class="leaderboard-ratio-bar" title="${escapeHtml(ratioTooltip)}">
             <div class="ratio-bar-pass" style="width: ${passBarWidth}%"></div>
             <div class="ratio-bar-fail" style="width: ${failBarWidth}%"></div>
           </div>
         </td>
-        <td class="mono font-bold" style="color:${st.completed > 0 ? passPctColor : 'var(--muted)'};">
+        <td class="mono font-bold" style="color:${st.completed > 0 ? passPctColor : 'var(--muted)'};" title="${escapeHtml(pctTooltip)}">
           ${st.completed > 0 ? passPct + "%" : "--"}
         </td>
         <td class="mono muted">
@@ -704,7 +712,7 @@ function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
 
   // Find models with stats
   const allModelStats = modelIDs.map((m) => {
-    return modelMap.get(m) || { model: m, completed: 0, passed: 0, failed: 0, passRate: 0, avgSpeed: 0 };
+    return modelMap.get(m) || { model: m, expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, avgSpeed: 0 };
   });
 
   const maxSpeed = Math.max(...allModelStats.map((s) => s.avgSpeed || 0), 20);
@@ -716,10 +724,11 @@ function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
   allModelStats.forEach((st, idx) => {
     const y = idx * rowHeight + 8;
     const isTested = st.completed > 0;
+    const totalExp = st.expected > 0 ? st.expected : st.completed;
     const barWidth = isTested ? Math.max(3, Math.round(st.passRate * 2.8)) : 0;
     const passColor = st.passRate >= 75 ? "#10b981" : (st.passRate >= 50 ? "#f59e0b" : "#ef4444");
     const shortName = st.model.length > 22 ? st.model.slice(0, 20) + "…" : st.model;
-    const valText = isTested ? `${Math.round(st.passRate)}% (${st.passed}/${st.completed})` : `-- (0/${st.expected || 0})`;
+    const valText = isTested ? `${Math.round(st.passRate)}% (${st.passed}/${totalExp})` : `-- (0/${totalExp || 0})`;
 
     passBars += `
       <g class="chart-row">

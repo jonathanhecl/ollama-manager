@@ -974,6 +974,7 @@ function bindChatEvents() {
     }
     const editB = e.target.closest(".chat-edit-btn");
     if (editB) {
+      if (chatStreamLock || chatMessages.some((x) => x.streaming)) return;
       e.preventDefault();
       const id = editB.getAttribute("data-msg-id");
       if (!id) return;

@@ -3064,7 +3064,8 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   }
 
   const isEditingUser = m.role === "user" && m.id === chatEditingMessageId;
-  const canEditUser = m.role === "user" && !chatStreamLock && i === lastUserMsgIdx;
+  const isStreamingAny = chatStreamLock || chatMessages.some((msg) => Boolean(msg.streaming));
+  const canEditUser = m.role === "user" && !isStreamingAny && i === lastUserMsgIdx;
 
   const files = isEditingUser ? "" : (m.attachments || []).map((a) => {
     if (a.kind === "image" && a.data) {
@@ -5154,6 +5155,7 @@ async function runChatRequest(assistantMsg) {
 }
 
 async function runOneChatTurn(text, attachments) {
+  chatStreamLock = true;
   chatEditingMessageId = "";
   chatEditingDraft = "";
   const userMsg = {
@@ -5191,6 +5193,7 @@ async function regenerateLastAssistantMessage(clickedId) {
     toast(t("chat.no_models"), "error");
     return;
   }
+  chatStreamLock = true;
   chatMessages.pop();
   const assistantMsg = newAssistantMessage();
   assistantMsg.model = $("chat-model").value;
@@ -5245,6 +5248,7 @@ async function editAndResendUserMessage(userId, newText) {
   const trimmed = newText.trim();
   const atts = (chatEditingAttachments || []).slice();
   if (!trimmed && !atts.length) return;
+  chatStreamLock = true;
   chatMessages[idx].content = trimmed;
   chatMessages[idx].attachments = atts;
   chatMessages = chatMessages.slice(0, idx + 1);

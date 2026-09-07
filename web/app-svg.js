@@ -3392,11 +3392,12 @@ function renderAttachments() {
     return;
   }
   box.hidden = false;
+  const trashIconSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
   box.innerHTML = chatAttachments.map((a) => {
     if (a.kind === "image") {
       const src = attachmentImageSrc(a);
       if (!src) {
-        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}" aria-label="${escapeHtml(t("chat.remove_attachment"))}">${trashIconSVG}</button></span>`;
       }
       return `<div class="chat-attach-card">
         <button type="button" class="image-preview-open chat-attach-thumb" data-name="${escapeHtml(a.name)}" title="${escapeHtml(t("chat.image_preview_title"))}">
@@ -3404,20 +3405,20 @@ function renderAttachments() {
         </button>
         <div class="chat-attach-foot">
           <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
-          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}" aria-label="${escapeHtml(t("chat.remove_attachment"))}">${trashIconSVG}</button>
         </div>
       </div>`;
     }
     if (a.kind === "audio" && a.data) {
       const src = attachmentAudioSrc(a);
       if (!src) {
-        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+        return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}" aria-label="${escapeHtml(t("chat.remove_attachment"))}">${trashIconSVG}</button></span>`;
       }
       return `<div class="chat-attach-card chat-attach-card-audio">
         <audio class="chat-audio-player" controls preload="metadata" src="${src}"></audio>
         <div class="chat-attach-foot">
           <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
-          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}" aria-label="${escapeHtml(t("chat.remove_attachment"))}">${trashIconSVG}</button>
         </div>
       </div>`;
     }
@@ -3427,11 +3428,11 @@ function renderAttachments() {
         <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
         <div class="chat-attach-foot">
           <span class="chat-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
-          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button>
+          <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}" aria-label="${escapeHtml(t("chat.remove_attachment"))}">${trashIconSVG}</button>
         </div>
       </div>`;
     }
-    return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}">×</button></span>`;
+    return `<span class="chat-attach-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)} <button type="button" class="btn-icon chat-attach-x" data-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment"))}" aria-label="${escapeHtml(t("chat.remove_attachment"))}">${trashIconSVG}</button></span>`;
   }).join("");
   box.querySelectorAll(".chat-attach-x").forEach((btn) => {
     btn.addEventListener("click", (e) => {

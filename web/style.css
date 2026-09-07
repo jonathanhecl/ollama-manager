@@ -3186,9 +3186,31 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 }
 .chat-attach-pill { display: inline-flex; align-items: center; gap: 4px; }
 .chat-attach-x {
-  width: 18px; height: 18px;
-  font-size: 12px;
-  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #1d212d;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.chat-attach-x:hover {
+  color: #ff6b6b;
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.15);
+}
+.chat-attach-pill .chat-attach-x {
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+  border-radius: 3px;
 }
 .chat-attach-card {
   display: flex;

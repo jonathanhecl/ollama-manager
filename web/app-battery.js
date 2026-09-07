@@ -606,13 +606,18 @@ function setupMarquees(container = document) {
   wrappers.forEach((wrap) => {
     const content = wrap.querySelector(".marquee-content");
     if (!content) return;
-    wrap.classList.remove("is-overflowing");
+    if (wrap.clientWidth <= 0) return;
     const diff = content.scrollWidth - wrap.clientWidth;
     if (diff > 4) {
-      wrap.classList.add("is-overflowing");
-      const duration = Math.max(5, Math.min(18, Math.round(diff / 18)));
-      wrap.style.setProperty("--marquee-end", `-${diff + 10}px`);
-      wrap.style.setProperty("--marquee-dur", `${duration}s`);
+      const endVal = `-${diff + 8}px`;
+      const durVal = `${Math.max(5, Math.min(22, Math.round(diff / 16)))}s`;
+      if (wrap.style.getPropertyValue("--marquee-end") !== endVal) {
+        wrap.style.setProperty("--marquee-end", endVal);
+        wrap.style.setProperty("--marquee-dur", durVal);
+      }
+      if (!wrap.classList.contains("is-overflowing")) {
+        wrap.classList.add("is-overflowing");
+      }
     } else {
       wrap.classList.remove("is-overflowing");
       wrap.style.removeProperty("--marquee-end");
@@ -633,12 +638,12 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
     <table class="battery-leaderboard-table">
       <thead>
         <tr>
-          <th>${escapeHtml(t("battery.col_model"))}</th>
-          <th>${escapeHtml(t("battery.col_tests"))}</th>
-          <th>${escapeHtml(t("battery.col_ratio"))}</th>
-          <th>${escapeHtml(t("battery.col_pass_pct"))}</th>
-          <th>${escapeHtml(t("battery.col_speed"))}</th>
-          <th>${escapeHtml(t("battery.col_status"))}</th>
+          <th class="col-head-model">${escapeHtml(t("battery.col_model"))}</th>
+          <th class="col-head-tests">${escapeHtml(t("battery.col_tests"))}</th>
+          <th class="col-head-ratio">${escapeHtml(t("battery.col_ratio"))}</th>
+          <th class="col-head-pass">${escapeHtml(t("battery.col_pass_pct"))}</th>
+          <th class="col-head-speed">${escapeHtml(t("battery.col_speed"))}</th>
+          <th class="col-head-status">${escapeHtml(t("battery.col_status"))}</th>
         </tr>
       </thead>
       <tbody>
@@ -664,29 +669,36 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
     const ratioTooltip = `${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}${pendingCount > 0 ? ` · ${pendingCount} ${t("battery.status_pending")}` : ""}`;
     const pctTooltip = st.completed > 0 ? `${st.passed}/${totalExp} (${passPct}%)` : "";
 
+    let modelDisplay = escapeHtml(m);
+    if (m.startsWith("hf.co/")) {
+      modelDisplay = `<span class="model-ns-prefix">hf.co/</span>${escapeHtml(m.slice(6))}`;
+    }
+
     html += `
       <tr class="${rowClass}">
-        <td>
+        <td class="col-cell-model">
           <div class="leaderboard-model-cell">
             <div class="marquee-wrapper leaderboard-marquee">
-              <span class="marquee-content leaderboard-model-name mono" title="${escapeHtml(m)}">${escapeHtml(m)}</span>
+              <span class="marquee-content leaderboard-model-name mono" title="${escapeHtml(m)}">${modelDisplay}</span>
             </div>
           </div>
         </td>
-        <td class="mono">${st.completed} / ${st.expected}</td>
-        <td>
+        <td class="col-cell-tests mono" title="${st.completed} / ${totalExp}">
+          <span class="tests-val">${st.completed}</span><span class="tests-sep">/</span><span class="tests-total">${totalExp}</span>
+        </td>
+        <td class="col-cell-ratio">
           <div class="leaderboard-ratio-bar" title="${escapeHtml(ratioTooltip)}">
             <div class="ratio-bar-pass" style="width: ${passBarWidth}%"></div>
             <div class="ratio-bar-fail" style="width: ${failBarWidth}%"></div>
           </div>
         </td>
-        <td class="mono font-bold" style="color:${st.completed > 0 ? passPctColor : 'var(--muted)'};" title="${escapeHtml(pctTooltip)}">
-          ${st.completed > 0 ? passPct + "%" : "--"}
+        <td class="col-cell-pass mono font-bold" style="color:${st.completed > 0 ? passPctColor : 'var(--muted)'};" title="${escapeHtml(pctTooltip)}">
+          ${st.completed > 0 ? passPct + "%" : "—"}
         </td>
-        <td class="mono muted">
-          ${st.avgSpeed > 0 ? st.avgSpeed.toFixed(1) + " tok/s" : "--"}
+        <td class="col-cell-speed mono muted">
+          ${st.avgSpeed > 0 ? `${st.avgSpeed.toFixed(1)} <span class="speed-unit">tok/s</span>` : "—"}
         </td>
-        <td>${statusBadge}</td>
+        <td class="col-cell-status">${statusBadge}</td>
       </tr>
     `;
   }
@@ -697,16 +709,11 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
 }
 
 function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
-  const containers = [
-    $("battery-leaderboard-charts"),
-    $("battery-analytics-charts-container"),
-  ].filter(Boolean);
-
-  if (!containers.length) return;
+  const container = $("battery-analytics-charts-container");
+  if (!container) return;
 
   if (!modelIDs || !modelIDs.length) {
-    const emptyHtml = `<div class="muted" style="padding: 24px; text-align: center;">${escapeHtml(t("battery.charts_no_data"))}</div>`;
-    containers.forEach((c) => (c.innerHTML = emptyHtml));
+    container.innerHTML = `<div class="muted" style="padding: 24px; text-align: center;">${escapeHtml(t("battery.charts_no_data"))}</div>`;
     return;
   }
 
@@ -780,9 +787,7 @@ function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
     </div>
   `;
 
-  containers.forEach((c) => {
-    c.innerHTML = fullChartsHtml;
-  });
+  container.innerHTML = fullChartsHtml;
 }
 
 function initBatteryProgressControls() {

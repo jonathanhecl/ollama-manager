@@ -109,6 +109,73 @@ func TestSkipCurrentTest(t *testing.T) {
 	}
 }
 
+func TestRetryCurrentTest(t *testing.T) {
+	c := NewClient(nil)
+
+	// No active test
+	if c.RetryCurrentTest("non-existent") {
+		t.Errorf("expected RetryCurrentTest to return false for non-existent run")
+	}
+
+	// Setup active test cancel
+	runID := "run-456"
+	called := false
+	c.setTestCancel(runID, func(cause error) {
+		called = true
+		if cause != errManualRetry {
+			t.Errorf("expected cause to be errManualRetry, got %v", cause)
+		}
+	})
+
+	if !c.RetryCurrentTest(runID) {
+		t.Errorf("expected RetryCurrentTest to return true")
+	}
+	if !called {
+		t.Errorf("expected cancel func to be called")
+	}
+
+	// Retry must not be confused with skip
+	if errors.Is(errManualRetry, errManualSkip) {
+		t.Errorf("errManualRetry must be distinct from errManualSkip")
+	}
+
+	c.clearTestCancel(runID)
+	if c.RetryCurrentTest(runID) {
+		t.Errorf("expected RetryCurrentTest to return false after clear")
+	}
+}
+
+func TestRetryCaseCancellation(t *testing.T) {
+	c := NewClient(nil)
+	parentCtx, parentCancel := context.WithCancelCause(context.Background())
+	defer parentCancel(nil)
+
+	runID := "run-multi-case-retry"
+
+	// Case 1 starts
+	case1Ctx, case1Cancel := context.WithCancelCause(parentCtx)
+	c.setTestCancel(runID, case1Cancel)
+
+	// User clicks Retry Test during Case 1
+	if !c.RetryCurrentTest(runID) {
+		t.Fatalf("expected RetryCurrentTest to succeed for case 1")
+	}
+
+	// Verify Case 1 was cancelled with errManualRetry
+	if case1Ctx.Err() == nil {
+		t.Fatalf("expected case1Ctx to be cancelled")
+	}
+	if !errors.Is(context.Cause(case1Ctx), errManualRetry) {
+		t.Fatalf("expected cause to be errManualRetry, got %v", context.Cause(case1Ctx))
+	}
+
+	// Verify parentCtx was NOT cancelled (retry restarts the case, it does
+	// not abort the test or the run)
+	if parentCtx.Err() != nil {
+		t.Fatalf("expected parentCtx to remain active, but got %v", parentCtx.Err())
+	}
+}
+
 func TestSkipCaseCancellation(t *testing.T) {
 	c := NewClient(nil)
 	parentCtx, parentCancel := context.WithCancelCause(context.Background())

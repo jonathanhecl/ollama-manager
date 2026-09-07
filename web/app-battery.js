@@ -1587,6 +1587,41 @@ async function cancelBatteryRun() {
   }
 }
 
+async function retryCurrentBatteryTest() {
+  const saved = localStorage.getItem(BATTERY_KEY);
+  if (!saved) return;
+  let runID = "";
+  try {
+    const data = JSON.parse(saved);
+    runID = data.runID || "";
+  } catch { }
+  if (!runID) return;
+  const retryBtn = $("battery-progress-retry");
+  if (retryBtn) retryBtn.disabled = true;
+  try {
+    const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/retry", { method: "POST" });
+    if (res?.retried) {
+      toast(t("toast.test_retried") || "Retrying current test from the start", "info");
+      batteryActiveTurnKey = "";
+      batteryTurnStartTime = 0;
+      batteryThinkingStartTime = 0;
+      batteryResponseStartTime = 0;
+      updateBatteryCurrentTurnTimer();
+      if (batteryActiveRunID === runID) {
+        void pollBatteryProgress(runID, []);
+      }
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  } finally {
+    if (retryBtn) {
+      setTimeout(() => {
+        if (retryBtn) retryBtn.disabled = false;
+      }, 1000);
+    }
+  }
+}
+
 async function skipCurrentBatteryTest() {
   const saved = localStorage.getItem(BATTERY_KEY);
   if (!saved) return;

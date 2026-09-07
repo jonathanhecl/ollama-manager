@@ -211,14 +211,25 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 				if !hasAllCaps(caps, test.RequiredCaps) {
 					continue
 				}
-				idx++
-				testCtx, testCancel := context.WithCancelCause(runCtx)
-				c.setTestCancel(run.ID, testCancel)
-				res := c.runTest(testCtx, run.ID, model, test, idx, total)
-				testCancel(nil)
-				c.clearTestCancel(run.ID)
-				run.Results = append(run.Results, res)
-				c.updateProgressResults(run.ID, run.Results)
+		idx++
+		for {
+			testCtx, testCancel := context.WithCancelCause(runCtx)
+			c.setTestCancel(run.ID, testCancel)
+			res := c.runTest(testCtx, run.ID, model, test, idx, total)
+			retry := errors.Is(context.Cause(testCtx), errManualRetry)
+			testCancel(nil)
+			c.clearTestCancel(run.ID)
+			if retry {
+				// Manual retry: discard the cancelled attempt and re-run the
+				// same test from scratch (same idx, nothing appended).
+				// Case-level retries are handled inside runTest; reaching
+				// here with a retry cause means a whole-test retry.
+				continue
+			}
+			run.Results = append(run.Results, res)
+			c.updateProgressResults(run.ID, run.Results)
+			break
+		}
 				if runCtx.Err() != nil {
 					runErr = runCtx.Err().Error()
 					break
@@ -266,6 +277,21 @@ func (c *Client) clearTestCancel(runID string) {
 	c.cancelMu.Lock()
 	defer c.cancelMu.Unlock()
 	delete(c.testCancels, runID)
+}
+
+// RetryCurrentTest cancels the currently executing test (or case) of an active
+// battery run so it restarts from the beginning. It mirrors SkipCurrentTest
+// but uses the retry cause, which the run loops interpret as "discard this
+// attempt and run it again" instead of "record and move on".
+func (c *Client) RetryCurrentTest(runID string) bool {
+	c.cancelMu.Lock()
+	cancel, ok := c.testCancels[runID]
+	c.cancelMu.Unlock()
+	if ok && cancel != nil {
+		cancel(errManualRetry)
+		return true
+	}
+	return false
 }
 
 // SkipCurrentTest cancels the currently executing test of an active battery run.
@@ -624,9 +650,6 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				break
 			}
 
-			caseCtx, caseCancel := context.WithCancelCause(ctx)
-			c.setTestCancel(runID, caseCancel)
-
 			caseLabel := tc.Name
 			if caseLabel == "" {
 				caseLabel = fmt.Sprintf("Case %d", i+1)
@@ -634,96 +657,148 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			caseSys := tests.EffectiveSystemPrompt(test.SystemPrompt, tc.SystemPrompt)
 			caseOptsMerged := tests.MergeOptions(test.Options, tc.Options)
 
-			var history []ollama.ChatMessage
-			if caseSys != "" {
-				history = append(history, ollama.ChatMessage{Role: "system", Content: caseSys})
-			}
+			// Snapshot everything a case attempt may mutate, so a manual
+			// retry restarts this same case from scratch as if the
+			// cancelled attempt never ran.
+			snapUnitIdx := unitIdx
+			snapSubLen := len(res.SubResults)
+			snapSummaryLen := len(casesSummary)
+			snapEvalDuration := totalEvalDuration
+			snapPromptTokens := res.PromptTokens
+			snapEvalTokens := res.EvalTokens
+			snapTotalTokens := res.TotalTokens
+			snapReasoning := res.ReasoningUsed
+			snapHasScored := hasScored
+			snapAllPassed := allPassed
+			snapSkippedOrLoop := anySkippedOrLoop
+			snapResError := res.Error
 
-			if len(tc.Steps) == 0 {
-				_, _ = runCaseTurn(caseCtx, history, caseLabel, tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
-				caseCancel(nil)
-				if ctx.Err() != nil {
-					res.Error = ctx.Err().Error()
-					break
+			// runAttempt executes the case once. It reports whether the run
+			// must advance (true = next case, false = abort the test).
+			runAttempt := func(caseCtx context.Context, caseCancel context.CancelCauseFunc) bool {
+				var history []ollama.ChatMessage
+				if caseSys != "" {
+					history = append(history, ollama.ChatMessage{Role: "system", Content: caseSys})
 				}
-				continue
-			}
 
-			// Multi-turn case: chained steps sharing one case-scoped history.
-			// An optional case-level prompt is sent first as the opening turn
-			// (scored with the case-level evaluation when set).
-			stopped := false
-			var lastStepIdx int = -1
-			if tc.Prompt != "" {
-				var ok bool
-				history, ok = runCaseTurn(caseCtx, history, caseLabel+" › context", tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
-				if !ok {
-					stopped = true
+				if len(tc.Steps) == 0 {
+					_, _ = runCaseTurn(caseCtx, history, caseLabel, tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
+					caseCancel(nil)
+					if ctx.Err() != nil {
+						res.Error = ctx.Err().Error()
+						return false
+					}
+					return true
 				}
-			}
-			if !stopped {
-				stepOverrides := make([]string, len(tc.Steps))
-				stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
-				for j, st := range tc.Steps {
-					stepOverrides[j] = st.SystemPrompt
-					stepOptOverrides[j] = st.Options
-				}
-				effStepSys := effectiveChainSystems(caseSys, stepOverrides)
-				effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
-				for j, st := range tc.Steps {
-					lastStepIdx = j
-					stepLabel := st.Name
-					if stepLabel == "" {
-						stepLabel = fmt.Sprintf("Step %d", j+1)
-					}
-					turnLabel := caseLabel + " › " + stepLabel
-					if len(tc.Steps) == 1 && tc.Prompt == "" && (st.Name == "" || st.Name == fmt.Sprintf("Step %d", j+1)) {
-						turnLabel = caseLabel
-					}
-					if st.SystemPrompt != "" {
-						history = setSystemPrompt(history, st.SystemPrompt)
-					}
+
+				// Multi-turn case: chained steps sharing one case-scoped history.
+				// An optional case-level prompt is sent first as the opening turn
+				// (scored with the case-level evaluation when set).
+				stopped := false
+				var lastStepIdx int = -1
+				if tc.Prompt != "" {
 					var ok bool
-					history, ok = runCaseTurn(caseCtx, history, turnLabel, st.Prompt, st.Attachments, effStepSys[j], st.Evaluation, effStepOpts[j])
+					history, ok = runCaseTurn(caseCtx, history, caseLabel+" › context", tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
 					if !ok {
 						stopped = true
-						break
 					}
 				}
+				if !stopped {
+					stepOverrides := make([]string, len(tc.Steps))
+					stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
+					for j, st := range tc.Steps {
+						stepOverrides[j] = st.SystemPrompt
+						stepOptOverrides[j] = st.Options
+					}
+					effStepSys := effectiveChainSystems(caseSys, stepOverrides)
+					effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
+					for j, st := range tc.Steps {
+						lastStepIdx = j
+						stepLabel := st.Name
+						if stepLabel == "" {
+							stepLabel = fmt.Sprintf("Step %d", j+1)
+						}
+						turnLabel := caseLabel + " › " + stepLabel
+						if len(tc.Steps) == 1 && tc.Prompt == "" && (st.Name == "" || st.Name == fmt.Sprintf("Step %d", j+1)) {
+							turnLabel = caseLabel
+						}
+						if st.SystemPrompt != "" {
+							history = setSystemPrompt(history, st.SystemPrompt)
+						}
+						var ok bool
+						history, ok = runCaseTurn(caseCtx, history, turnLabel, st.Prompt, st.Attachments, effStepSys[j], st.Evaluation, effStepOpts[j])
+						if !ok {
+							stopped = true
+							break
+						}
+					}
+				}
+
+				caseCancel(nil)
+
+				if stopped {
+					isSkip := errors.Is(context.Cause(caseCtx), errManualSkip)
+					remainingErr := "skipped due to case failure"
+					if isSkip {
+						remainingErr = "manually skipped"
+					}
+					for nextJ := lastStepIdx + 1; nextJ < len(tc.Steps); nextJ++ {
+						st := tc.Steps[nextJ]
+						stepLabel := st.Name
+						if stepLabel == "" {
+							stepLabel = fmt.Sprintf("Step %d", nextJ+1)
+						}
+						turnLabel := caseLabel + " › " + stepLabel
+						unitIdx++
+						falseVal := false
+						res.SubResults = append(res.SubResults, SubResult{
+							Index:  unitIdx,
+							Name:   turnLabel,
+							Prompt: st.Prompt,
+							Passed: &falseVal,
+							Error:  remainingErr,
+						})
+						casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", turnLabel, remainingErr))
+					}
+
+					if ctx.Err() != nil {
+						res.Error = ctx.Err().Error()
+						return false
+					}
+					return true
+				}
+				return true
 			}
 
-			caseCancel(nil)
-
-			if stopped {
-				isSkip := errors.Is(context.Cause(caseCtx), errManualSkip)
-				remainingErr := "skipped due to case failure"
-				if isSkip {
-					remainingErr = "manually skipped"
+			aborted := false
+			for {
+				caseCtx, caseCancel := context.WithCancelCause(ctx)
+				c.setTestCancel(runID, caseCancel)
+				advance := runAttempt(caseCtx, caseCancel)
+				retry := errors.Is(context.Cause(caseCtx), errManualRetry)
+				caseCancel(nil)
+				if retry {
+					// Manual retry: roll back this attempt and run the
+					// same case again from scratch.
+					unitIdx = snapUnitIdx
+					res.SubResults = res.SubResults[:snapSubLen]
+					casesSummary = casesSummary[:snapSummaryLen]
+					totalEvalDuration = snapEvalDuration
+					res.PromptTokens = snapPromptTokens
+					res.EvalTokens = snapEvalTokens
+					res.TotalTokens = snapTotalTokens
+					res.ReasoningUsed = snapReasoning
+					hasScored = snapHasScored
+					allPassed = snapAllPassed
+					anySkippedOrLoop = snapSkippedOrLoop
+					res.Error = snapResError
+					continue
 				}
-				for nextJ := lastStepIdx + 1; nextJ < len(tc.Steps); nextJ++ {
-					st := tc.Steps[nextJ]
-					stepLabel := st.Name
-					if stepLabel == "" {
-						stepLabel = fmt.Sprintf("Step %d", nextJ+1)
-					}
-					turnLabel := caseLabel + " › " + stepLabel
-					unitIdx++
-					falseVal := false
-					res.SubResults = append(res.SubResults, SubResult{
-						Index:  unitIdx,
-						Name:   turnLabel,
-						Prompt: st.Prompt,
-						Passed: &falseVal,
-						Error:  remainingErr,
-					})
-					casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", turnLabel, remainingErr))
-				}
-
-				if ctx.Err() != nil {
-					res.Error = ctx.Err().Error()
-					break
-				}
-				continue
+				aborted = !advance
+				break
+			}
+			if aborted {
+				break
 			}
 		}
 
@@ -899,6 +974,8 @@ retryLoop:
 
 		if cause := context.Cause(ctx); errors.Is(cause, errManualSkip) {
 			chatErr = errManualSkip
+		} else if errors.Is(cause, errManualRetry) {
+			chatErr = errManualRetry
 		}
 		if chatErr != nil {
 			break
@@ -910,6 +987,8 @@ retryLoop:
 
 	if cause := context.Cause(ctx); errors.Is(cause, errManualSkip) {
 		chatErr = errManualSkip
+	} else if errors.Is(cause, errManualRetry) {
+		chatErr = errManualRetry
 	}
 
 	elapsed := time.Since(start).Milliseconds()

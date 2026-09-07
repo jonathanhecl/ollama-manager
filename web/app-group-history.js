@@ -334,6 +334,9 @@ $("battery-history-back")?.addEventListener("click", () => {
 $("battery-progress-cancel")?.addEventListener("click", () => {
   void cancelBatteryRun();
 });
+$("battery-progress-retry")?.addEventListener("click", () => {
+  void retryCurrentBatteryTest();
+});
 $("battery-progress-skip")?.addEventListener("click", () => {
   void skipCurrentBatteryTest();
 });

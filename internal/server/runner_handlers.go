@@ -234,6 +234,16 @@ func (s *Server) handleCancelBatteryRun(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})
 }
 
+func (s *Server) handleRetryBatteryTest(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing run id"))
+		return
+	}
+	retried := s.runner.RetryCurrentTest(id)
+	writeJSON(w, http.StatusOK, map[string]any{"retried": retried})
+}
+
 func (s *Server) handleSkipBatteryTest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

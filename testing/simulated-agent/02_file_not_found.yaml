@@ -1,0 +1,41 @@
+id: sim-file-not-found
+name: 'SimAgent 02: File Not Found Recovery'
+description: After a read failure the model must explore with list_dir and read the correct file.
+group_id: simulated-agent
+active: true
+order: 1
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Explore after read failure
+    prompt: 'Read "config.yml" and reply FINAL with its version field.'
+    evaluation:
+      type: regex
+      pattern: '(?i)read_file\s*\(\s*"config\.yml"\s*\)'
+    steps:
+      - name: List directory after error
+        prompt: '[tool-result ERROR] read_file("config.yml") - file not found'
+        evaluation:
+          type: regex
+          pattern: '(?i)list_dir\s*\('
+      - name: Read the discovered file
+        prompt: |
+          [tool-result ok] list_dir(".") ->
+          file app-config.yml
+          file notes.txt
+        evaluation:
+          type: regex
+          pattern: '(?i)read_file\s*\(\s*"app-config\.yml"\s*\)'
+      - name: Report the version
+        prompt: '[tool-result ok] read_file("app-config.yml") -> "version: 3.2.1"'
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*3\.2\.1'

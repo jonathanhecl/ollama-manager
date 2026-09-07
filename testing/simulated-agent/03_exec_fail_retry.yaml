@@ -1,0 +1,33 @@
+id: sim-exec-fail-retry
+name: 'SimAgent 03: Retry With Another Strategy'
+description: After an exec permission failure the model must retry with an alternative command.
+group_id: simulated-agent
+active: true
+order: 2
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Permission denied then alternative
+    prompt: 'Deploy the app by running deploy.sh, then reply FINAL: DEPLOYED.'
+    evaluation:
+      type: regex
+      pattern: '(?i)exec\s*\(\s*"(\./)?deploy\.sh"\s*\)'
+    steps:
+      - name: Retry after permission error
+        prompt: '[tool-result ERROR] exec("deploy.sh") exit:1 - permission denied'
+        evaluation:
+          type: regex
+          pattern: '(?i)exec\s*\(\s*"(chmod \+x deploy\.sh|sudo (\./)?deploy\.sh|bash deploy\.sh)"\s*\)'
+      - name: Confirm deployment
+        prompt: '[tool-result ok] exec("chmod +x deploy.sh") exit:0 - deployed v1.0'
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*DEPLOYED'

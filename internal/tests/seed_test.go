@@ -42,14 +42,14 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 		t.Fatalf("expected arithmetic.yaml in examples folder: %v", err)
 	}
 
-	// Test reload from disk: backfill adds the newer seeds (3 + 7).
+	// Test reload from disk: backfill adds the newer seeds (3 + 8).
 	storeReloaded := New(dir)
 	if err := storeReloaded.Load(); err != nil {
 		t.Fatalf("Load reloaded: %v", err)
 	}
 	g2, t2 := storeReloaded.List()
-	if len(g2) != 1 || len(t2) != 10 {
-		t.Fatalf("expected 1 group and 10 tests on reload (3 seeds + 7 backfilled), got %d groups and %d tests", len(g2), len(t2))
+	if len(g2) != 1 || len(t2) != 11 {
+		t.Fatalf("expected 1 group and 11 tests on reload (3 seeds + 8 backfilled), got %d groups and %d tests", len(g2), len(t2))
 	}
 	for _, id := range backfillSeedIDs {
 		if _, ok := storeReloaded.GetTest(id); !ok {
@@ -79,6 +79,9 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 	// Verify multi-case and multi-step parsing
 	foundCases := false
 	foundSteps := false
+	foundCaseOverride := false
+	foundCaseSteps := false
+	foundStepOptions := false
 	for _, tst := range t2 {
 		if len(tst.Cases) > 0 {
 			foundCases = true
@@ -86,12 +89,89 @@ func TestPopulateSeedCreatesExamples(t *testing.T) {
 		if len(tst.Steps) > 0 {
 			foundSteps = true
 		}
+		for _, c := range tst.Cases {
+			if c.SystemPrompt != "" {
+				foundCaseOverride = true
+			}
+			if len(c.Steps) > 0 {
+				foundCaseSteps = true
+			}
+			for _, s := range c.Steps {
+				if s.Options != nil && s.Options.Temperature != nil {
+					foundStepOptions = true
+				}
+			}
+		}
 	}
 	if !foundCases {
 		t.Fatal("expected test with Cases")
 	}
 	if !foundSteps {
 		t.Fatal("expected test with Steps")
+	}
+	if !foundCaseOverride {
+		t.Fatal("expected case with system_prompt override")
+	}
+	if !foundCaseSteps {
+		t.Fatal("expected case with chained steps")
+	}
+	if !foundStepOptions {
+		t.Fatal("expected chained step with options override")
+	}
+}
+
+func TestMergeOptionsAndEffectiveSystemPrompt(t *testing.T) {
+	baseTemp, overTemp := 0.2, 0.9
+	baseMax := 100
+	base := &TestOptions{Temperature: &baseTemp, MaxTokens: &baseMax}
+	over := &TestOptions{Temperature: &overTemp}
+
+	merged := MergeOptions(base, over)
+	if merged.Temperature == nil || *merged.Temperature != overTemp {
+		t.Fatalf("expected override temperature %v, got %+v", overTemp, merged)
+	}
+	if merged.MaxTokens == nil || *merged.MaxTokens != baseMax {
+		t.Fatalf("expected inherited max_tokens %v, got %+v", baseMax, merged)
+	}
+	if MergeOptions(base, nil) != base {
+		t.Fatal("expected nil override to return base unchanged")
+	}
+
+	if got := EffectiveSystemPrompt("global", ""); got != "global" {
+		t.Fatalf("expected global fallback, got %q", got)
+	}
+	if got := EffectiveSystemPrompt("global", "custom"); got != "custom" {
+		t.Fatalf("expected custom override, got %q", got)
+	}
+}
+
+func TestCreateTestRejectsEmptyCase(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+	_ = store.PopulateSeed()
+
+	_, err := store.CreateTest(Test{
+		Name:    "Bad Suite",
+		GroupID: "custom",
+		Active:  true,
+		Cases:   []TestCase{{Name: "empty case"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for case without prompt or steps")
+	}
+
+	_, err = store.CreateTest(Test{
+		Name:    "Bad Chain",
+		GroupID: "custom",
+		Active:  true,
+		Cases: []TestCase{{
+			Name:   "chain",
+			Prompt: "setup",
+			Steps:  []CaseStep{{Name: "empty step"}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected error for step without prompt")
 	}
 }
 

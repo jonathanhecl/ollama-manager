@@ -1,0 +1,4 @@
+id: vision
+name: Vision
+description: Vision model tests (scaffolds — attach images via the editor, fill expected answers, then set active)
+order: 3

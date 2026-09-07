@@ -6036,6 +6036,14 @@ button.chat-send:disabled:hover {
   .te-top-row .te-field-active { align-items: flex-start; flex-direction: row; justify-content: space-between; }
 }
 
+@media (max-width: 640px) {
+  .tests-item { flex-wrap: wrap; }
+  .tests-item-actions { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+  .tests-item-main { flex: 1 1 100%; }
+  .te-case-step-extra { flex-direction: column; align-items: stretch; }
+  .te-case-step-extra .te-case-step-temperature { width: 100%; }
+}
+
 /* ---------- Test editor attachments ---------- */
 .te-case-sidecar {
   display: flex;
@@ -10516,6 +10524,89 @@ button.chat-send:disabled:hover {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
+/* Charts View (pure-CSS bars) */
+.battery-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 6px;
+}
+.battery-chart-section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.battery-chart-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+.battery-chart-group {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.battery-chart-group h5 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.battery-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+}
+.battery-chart-label {
+  flex: 0 0 148px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.battery-chart-track {
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.battery-chart-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: var(--accent);
+  opacity: 0.75;
+  transition: width 0.4s ease;
+}
+.battery-chart-fill-first {
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(122, 162, 255, 0.45);
+}
+.battery-chart-fill-speed {
+  background: #3fb950;
+  opacity: 0.8;
+}
+.battery-chart-val {
+  flex: 0 0 92px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text);
+}
+@media (max-width: 640px) {
+  .battery-chart-label {
+    flex-basis: 96px;
+  }
+  .battery-chart-val {
+    flex-basis: 70px;
+  }
+}
+
 /* Side-by-Side Matrix Table */
 .battery-matrix-wrap {
   overflow-x: auto;
@@ -11040,6 +11131,205 @@ button.chat-send:disabled:hover {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-dim);
+}
+.te-options-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 850px) {
+  .te-options-row {
+    grid-template-columns: 1fr;
+  }
+}
+.te-option-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.te-case-advanced {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+.te-case-advanced > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.te-case-system-field {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.te-case-system {
+  min-height: 52px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
+}
+.te-case-options-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+.te-case-options-row .field {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+@media (max-width: 850px) {
+  .te-case-options-row {
+    grid-template-columns: 1fr;
+  }
+}
+.te-case-steps-block {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.te-case-steps-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.te-case-steps-hint {
+  display: block;
+  margin-top: 2px;
+}
+.te-case-add-step-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.te-case-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.te-case-steps-list:empty {
+  display: none;
+}
+.te-case-step {
+  background: var(--panel-2, #141a23);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.te-case-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.te-case-step-badge {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  white-space: nowrap;
+}
+.te-case-step-name {
+  flex: 1;
+  font-size: 13px;
+}
+.te-case-step-grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 10px;
+  align-items: start;
+}
+@media (max-width: 850px) {
+  .te-case-step-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.te-case-step-prompt {
+  min-height: 56px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
+}
+.te-case-step-eval {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.te-case-step-system {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.te-case-step-system:not(:placeholder-shown) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.te-case-step-extra {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.te-case-step-extra .te-case-step-system {
+  flex: 1;
+  min-width: 0;
+}
+.te-case-step-temperature {
+  width: 92px;
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.te-case-step-temperature:not(:placeholder-shown) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.te-subeval-block[hidden],
+.te-case-subevals-field[hidden],
+.te-subeval-list[hidden] {
+  display: none;
+}
+.te-subeval-block,
+.te-case-subevals-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.te-subeval-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.te-subeval-list:empty {
+  display: none;
+}
+.te-subeval-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.te-subeval-row .te-subeval-type {
+  width: 128px;
+  flex: none;
+}
+.te-subeval-row .te-subeval-value {
+  flex: 1;
+  min-width: 0;
+}
+.te-subeval-add {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 4px 12px;
+  white-space: nowrap;
 }
 
 

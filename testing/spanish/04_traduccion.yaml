@@ -1,0 +1,19 @@
+id: es-traduccion
+name: 'Spanish 04 · Traducción'
+description: 'Traducir evitando el falso amigo actually/embarrassed.'
+group_id: spanish
+active: true
+order: 3
+
+system_prompt: |
+  Eres un traductor preciso del inglés al español neutro.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Falso amigo embarrassed
+    prompt: 'Traduce al español, responde SOLO con la traducción: "Actually, I am so embarrassed right now."'
+    evaluation:
+      type: contains
+      expected: "vergüenza"

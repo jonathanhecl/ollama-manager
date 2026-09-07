@@ -1,0 +1,43 @@
+id: sim-skill-recipe
+name: 'SimAgent 12: Follow Skill Recipe'
+description: Follow a simulated skill recipe step by step; passing requires three consecutive simulated steps.
+group_id: simulated-agent
+active: true
+order: 11
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Deploy service recipe, three steps in a row
+    prompt: |
+      Follow skill "deploy-service" exactly, in order:
+      1) exec("healthcheck.sh") and continue only if exit 0
+      2) exec("deploy.sh")
+      3) exec("verify.sh"), then reply FINAL: DEPLOYED
+      Begin with step 1 now.
+    evaluation:
+      type: regex
+      pattern: '(?i)exec\s*\(\s*"healthcheck\.sh"\s*\)'
+    steps:
+      - name: Recipe step 2 after ok
+        prompt: '[tool-result ok] exec("healthcheck.sh") exit:0 - all services healthy'
+        evaluation:
+          type: regex
+          pattern: '(?i)exec\s*\(\s*"deploy\.sh"\s*\)'
+      - name: Recipe step 3 after ok
+        prompt: '[tool-result ok] exec("deploy.sh") exit:0 - deployed v2.4'
+        evaluation:
+          type: regex
+          pattern: '(?i)exec\s*\(\s*"verify\.sh"\s*\)'
+      - name: Approved on third consecutive step
+        prompt: '[tool-result ok] exec("verify.sh") exit:0 - version 2.4 live'
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*DEPLOYED'

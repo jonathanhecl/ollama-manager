@@ -1,0 +1,4 @@
+id: coding
+name: Coding
+description: Coding skills per language (JavaScript, Python, Go): fix bugs, trace execution, write code from scratch, search codebases
+order: 2

@@ -31,18 +31,20 @@ type BatteryRun struct {
 
 // SubResult holds the detailed outcome and analytics of a single step or case within a test.
 type SubResult struct {
-	Index          int     `json:"index"`
-	Name           string  `json:"name,omitempty"`
-	Prompt         string  `json:"prompt,omitempty"`
-	Passed         *bool   `json:"passed,omitempty"`
-	ResponseTimeMs int64   `json:"response_time_ms"`
-	TokensPerSec   float64 `json:"tokens_per_sec,omitempty"`
-	PromptTokens   int     `json:"prompt_tokens,omitempty"`
-	EvalTokens     int     `json:"eval_tokens,omitempty"`
-	TotalTokens    int     `json:"total_tokens,omitempty"`
-	ReasoningUsed  bool    `json:"reasoning_used"`
-	ModelResponse  string  `json:"model_response,omitempty"`
-	Error          string  `json:"error,omitempty"`
+	Index          int                `json:"index"`
+	Name           string             `json:"name,omitempty"`
+	Prompt         string             `json:"prompt,omitempty"`
+	SystemPrompt   string             `json:"system_prompt,omitempty"`
+	Options        *tests.TestOptions `json:"options,omitempty"`
+	Passed         *bool              `json:"passed,omitempty"`
+	ResponseTimeMs int64              `json:"response_time_ms"`
+	TokensPerSec   float64            `json:"tokens_per_sec,omitempty"`
+	PromptTokens   int                `json:"prompt_tokens,omitempty"`
+	EvalTokens     int                `json:"eval_tokens,omitempty"`
+	TotalTokens    int                `json:"total_tokens,omitempty"`
+	ReasoningUsed  bool               `json:"reasoning_used"`
+	ModelResponse  string             `json:"model_response,omitempty"`
+	Error          string             `json:"error,omitempty"`
 }
 
 // TestResult holds the outcome of a single test for a single model.
@@ -294,20 +296,6 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		return res
 	}
 
-	var opts map[string]any
-	if test.Options != nil {
-		opts = make(map[string]any)
-		if test.Options.Temperature != nil {
-			opts["temperature"] = *test.Options.Temperature
-		}
-		if test.Options.TopP != nil {
-			opts["top_p"] = *test.Options.TopP
-		}
-		if test.Options.MaxTokens != nil {
-			opts["num_predict"] = *test.Options.MaxTokens
-		}
-	}
-
 	start := time.Now()
 
 	// Multi-step interactive sequential test
@@ -321,6 +309,14 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		hasScored := false
 		var responsesSummary []string
 		var totalEvalDuration int64
+		stepOverrides := make([]string, len(test.Steps))
+		stepOptOverrides := make([]*tests.TestOptions, len(test.Steps))
+		for i, s := range test.Steps {
+			stepOverrides[i] = s.SystemPrompt
+			stepOptOverrides[i] = s.Options
+		}
+		effStepSys := effectiveChainSystems(test.SystemPrompt, stepOverrides)
+		effStepOpts := effectiveChainOptions(test.Options, stepOptOverrides)
 
 		for i, step := range test.Steps {
 			if ctx.Err() != nil {
@@ -331,6 +327,9 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			stepLabel := step.Name
 			if stepLabel == "" {
 				stepLabel = fmt.Sprintf("Step %d", step.Step)
+			}
+			if step.SystemPrompt != "" {
+				history = setSystemPrompt(history, step.SystemPrompt)
 			}
 
 			c.setProgress(Progress{
@@ -348,12 +347,12 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			})
 
 			stepPrompt, stepMedia := applyCaseMedia(step.Prompt, step.Attachments)
-		stepMsg := ollama.ChatMessage{Role: "user", Content: stepPrompt}
-		if len(stepMedia) > 0 {
-			stepMsg.Images = stepMedia
-		}
-		history = append(history, stepMsg)
-			turn := c.execChatTurn(ctx, runID, model, history, opts)
+			stepMsg := ollama.ChatMessage{Role: "user", Content: stepPrompt}
+			if len(stepMedia) > 0 {
+				stepMsg.Images = stepMedia
+			}
+			history = append(history, stepMsg)
+			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effStepOpts[i]))
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
 				break
@@ -386,6 +385,8 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				Index:          i + 1,
 				Name:           stepLabel,
 				Prompt:         step.Prompt,
+				SystemPrompt:   effStepSys[i],
+				Options:        effStepOpts[i],
 				Passed:         stepPassed,
 				ResponseTimeMs: turn.ResponseTimeMs,
 				TokensPerSec:   turn.TokensPerSec,
@@ -408,24 +409,39 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		return res
 	}
 
-	// Multi-case test suite
+	// Multi-case test suite.
+	// Each case runs in isolation (fresh conversation history) and may override
+	// the test-level system prompt (empty = inherit) and inference options.
+	// A case is either single-turn (prompt + evaluation) or multi-turn
+	// (ordered steps sharing one history scoped to the case). When steps are
+	// present, an optional case-level prompt is sent first as the opening turn
+	// (scored with the case-level evaluation when set). Within a chain the
+	// system is sticky: a step's system_prompt replaces the active system from
+	// that step onward, an empty one keeps the active system. Options fold the
+	// same way field by field over the active options.
 	if len(test.Cases) > 0 {
 		allPassed := true
 		hasScored := false
 		var casesSummary []string
 		var totalEvalDuration int64
 
-		for i, tc := range test.Cases {
+		totalUnits := 0
+		for _, tc := range test.Cases {
+			totalUnits += len(tc.Steps)
+			if len(tc.Steps) == 0 || tc.Prompt != "" {
+				totalUnits++
+			}
+		}
+		unitIdx := 0
+
+		// runCaseTurn executes one user turn inside the given history, scores it
+		// and records the sub-result. It returns false when execution must stop.
+		runCaseTurn := func(history []ollama.ChatMessage, unitName, prompt string, attachments []tests.Attachment, sys string, eval *tests.Evaluation, effOpts *tests.TestOptions) ([]ollama.ChatMessage, bool) {
 			if ctx.Err() != nil {
 				res.Error = ctx.Err().Error()
-				break
+				return history, false
 			}
-
-			caseLabel := tc.Name
-			if caseLabel == "" {
-				caseLabel = fmt.Sprintf("Case %d", i+1)
-			}
-
+			unitIdx++
 			c.setProgress(Progress{
 				RunID:          runID,
 				Model:          model,
@@ -433,28 +449,23 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				TestName:       test.Name,
 				TestIndex:      idx,
 				TotalTests:     total,
-				CaseName:       caseLabel,
-				CaseIndex:      i + 1,
-				TotalCases:     len(test.Cases),
-				ActivePrompt:   tc.Prompt,
+				CaseName:       unitName,
+				CaseIndex:      unitIdx,
+				TotalCases:     totalUnits,
+				ActivePrompt:   prompt,
 				CompletedCases: append([]SubResult(nil), res.SubResults...),
 			})
 
-		var msgs []ollama.ChatMessage
-		if test.SystemPrompt != "" {
-			msgs = append(msgs, ollama.ChatMessage{Role: "system", Content: test.SystemPrompt})
-		}
-		casePrompt, caseMedia := applyCaseMedia(tc.Prompt, tc.Attachments)
-		caseMsg := ollama.ChatMessage{Role: "user", Content: casePrompt}
-		if len(caseMedia) > 0 {
-			caseMsg.Images = caseMedia
-		}
-		msgs = append(msgs, caseMsg)
-
-			turn := c.execChatTurn(ctx, runID, model, msgs, opts)
+			casePrompt, caseMedia := applyCaseMedia(prompt, attachments)
+			caseMsg := ollama.ChatMessage{Role: "user", Content: casePrompt}
+			if len(caseMedia) > 0 {
+				caseMsg.Images = caseMedia
+			}
+			history = append(history, caseMsg)
+			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effOpts))
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
-				break
+				return history, false
 			}
 
 			if turn.Thinking != "" {
@@ -465,24 +476,28 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			res.TotalTokens += turn.TotalTokens
 			totalEvalDuration += turn.EvalDuration
 
-			casePassed := scoreEval(tc.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
+			history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
+
+			passed := scoreEval(eval, test.EvaluationType, test.EvaluationConfig, turn.Content)
 			status := "PASS"
-			if casePassed != nil {
+			if passed != nil {
 				hasScored = true
-				if !*casePassed {
+				if !*passed {
 					allPassed = false
 					status = "FAIL"
 				}
 			} else {
 				status = "REVIEW"
 			}
-			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, caseLabel, strings.TrimSpace(turn.Content)))
+			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, unitName, strings.TrimSpace(turn.Content)))
 
 			res.SubResults = append(res.SubResults, SubResult{
-				Index:          i + 1,
-				Name:           caseLabel,
-				Prompt:         tc.Prompt,
-				Passed:         casePassed,
+				Index:          unitIdx,
+				Name:           unitName,
+				Prompt:         prompt,
+				SystemPrompt:   sys,
+				Options:        effOpts,
+				Passed:         passed,
 				ResponseTimeMs: turn.ResponseTimeMs,
 				TokensPerSec:   turn.TokensPerSec,
 				PromptTokens:   turn.PromptTokens,
@@ -491,6 +506,65 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				ReasoningUsed:  turn.Thinking != "",
 				ModelResponse:  turn.Content,
 			})
+			return history, true
+		}
+
+		for i, tc := range test.Cases {
+			caseLabel := tc.Name
+			if caseLabel == "" {
+				caseLabel = fmt.Sprintf("Case %d", i+1)
+			}
+			caseSys := tests.EffectiveSystemPrompt(test.SystemPrompt, tc.SystemPrompt)
+			caseOptsMerged := tests.MergeOptions(test.Options, tc.Options)
+
+			var history []ollama.ChatMessage
+			if caseSys != "" {
+				history = append(history, ollama.ChatMessage{Role: "system", Content: caseSys})
+			}
+
+			if len(tc.Steps) == 0 {
+				var ok bool
+				if _, ok = runCaseTurn(history, caseLabel, tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged); !ok {
+					break
+				}
+				continue
+			}
+
+			// Multi-turn case: chained steps sharing one case-scoped history.
+			// An optional case-level prompt is sent first as the opening turn
+			// (scored with the case-level evaluation when set).
+			if tc.Prompt != "" {
+				var ok bool
+				if history, ok = runCaseTurn(history, caseLabel+" › context", tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged); !ok {
+					break
+				}
+			}
+			stepOverrides := make([]string, len(tc.Steps))
+			stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
+			for j, st := range tc.Steps {
+				stepOverrides[j] = st.SystemPrompt
+				stepOptOverrides[j] = st.Options
+			}
+			effStepSys := effectiveChainSystems(caseSys, stepOverrides)
+			effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
+			stopped := false
+			for j, st := range tc.Steps {
+				stepLabel := st.Name
+				if stepLabel == "" {
+					stepLabel = fmt.Sprintf("Step %d", j+1)
+				}
+				if st.SystemPrompt != "" {
+					history = setSystemPrompt(history, st.SystemPrompt)
+				}
+				var ok bool
+				if history, ok = runCaseTurn(history, caseLabel+" › "+stepLabel, st.Prompt, nil, effStepSys[j], st.Evaluation, effStepOpts[j]); !ok {
+					stopped = true
+					break
+				}
+			}
+			if stopped {
+				break
+			}
 		}
 
 		res.ResponseTimeMs = time.Since(start).Milliseconds()
@@ -557,7 +631,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		ActivePrompt: promptText,
 	})
 
-	turn := c.execChatTurn(ctx, runID, model, messages, opts)
+	turn := c.execChatTurn(ctx, runID, model, messages, optsFor(test.Options))
 	res.ResponseTimeMs = turn.ResponseTimeMs
 	if turn.Error != nil {
 		res.Error = turn.Error.Error()
@@ -694,6 +768,68 @@ func (c *Client) updateProgressStream(runID string, thinking bool, content, reas
 	}
 }
 
+// optsFor converts TestOptions into the Ollama request options map.
+func optsFor(o *tests.TestOptions) map[string]any {
+	if o == nil {
+		return nil
+	}
+	opts := make(map[string]any)
+	if o.Temperature != nil {
+		opts["temperature"] = *o.Temperature
+	}
+	if o.TopP != nil {
+		opts["top_p"] = *o.TopP
+	}
+	if o.MaxTokens != nil {
+		opts["num_predict"] = *o.MaxTokens
+	}
+	return opts
+}
+
+// effectiveChainSystems resolves the sticky system prompt for each turn of a
+// conversation chain. base is the system active before the first turn
+// (test-level, or the case-level override); each non-empty override replaces
+// the active system from its turn onward, an empty value keeps the active one.
+func effectiveChainSystems(base string, overrides []string) []string {
+	out := make([]string, len(overrides))
+	active := base
+	for i, o := range overrides {
+		if o != "" {
+			active = o
+		}
+		out[i] = active
+	}
+	return out
+}
+
+// effectiveChainOptions resolves the sticky inference options for each turn
+// of a conversation chain. base is the options active before the first turn
+// (test-level merged with the case-level override); each step's set fields
+// replace the active ones from its turn onward, nil fields keep them.
+func effectiveChainOptions(base *tests.TestOptions, overrides []*tests.TestOptions) []*tests.TestOptions {
+	out := make([]*tests.TestOptions, len(overrides))
+	active := base
+	for i, o := range overrides {
+		active = tests.MergeOptions(active, o)
+		out[i] = active
+	}
+	return out
+}
+
+// setSystemPrompt sets (or adds) the system message at the head of history.
+func setSystemPrompt(history []ollama.ChatMessage, sys string) []ollama.ChatMessage {
+	if sys == "" {
+		return history
+	}
+	for i := range history {
+		if history[i].Role == "system" {
+			history[i].Content = sys
+			return history
+		}
+	}
+	return append([]ollama.ChatMessage{{Role: "system", Content: sys}}, history...)
+}
+
 func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMessage, response string) *bool {
 	evalType := defaultType
 	cfgBytes := defaultCfg
@@ -731,25 +867,29 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 		return &v
 
 	case "contains":
-		expected := ""
-		if s, ok := directExpected.(string); ok {
-			expected = s
-		} else if directExpected != nil {
-			expected = fmt.Sprintf("%v", directExpected)
-		} else if len(cfgBytes) > 0 {
-			var cfg struct {
-				Expected string `json:"expected"`
+		v := containsText(response, resolveExpected(directExpected, cfgBytes))
+		return &v
+
+	case "not_contains":
+		// Negation of contains. If pattern is set, the response must NOT
+		// match the regex (this covers what RE2 lookahead would do).
+		// Otherwise the expected substring must be absent. An empty
+		// pattern/expected fails closed (misconfigured check).
+		if directPattern != "" {
+			re, err := regexp.Compile(directPattern)
+			if err != nil {
+				v := false
+				return &v
 			}
-			_ = json.Unmarshal(cfgBytes, &cfg)
-			expected = cfg.Expected
+			v := !re.MatchString(response)
+			return &v
 		}
-		normResponse := normalizeForContains(response)
-		normExpected := normalizeForContains(expected)
-		if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
-			normResponse = stripWhitespace(normResponse)
-			normExpected = stripWhitespace(normExpected)
+		expected := resolveExpected(directExpected, cfgBytes)
+		if expected == "" {
+			v := false
+			return &v
 		}
-		v := strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
+		v := !containsText(response, expected)
 		return &v
 
 	case "contains_list":
@@ -870,6 +1010,34 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 			return &v
 		}
 
+	case "all_of":
+		// Every sub-evaluation must pass. Three-valued logic: a single
+		// failure fails fast, an unscored sub (e.g. human_review) marks the
+		// whole check as needing review when everything else passes, and an
+		// empty list fails closed.
+		subs := eval.Evaluations
+		if len(subs) == 0 {
+			v := false
+			return &v
+		}
+		needsReview := false
+		for _, sub := range subs {
+			r := scoreEval(sub, "", nil, response)
+			if r == nil {
+				needsReview = true
+				continue
+			}
+			if !*r {
+				v := false
+				return &v
+			}
+		}
+		if needsReview {
+			return nil
+		}
+		v := true
+		return &v
+
 	case "human_review":
 		return nil
 
@@ -882,7 +1050,7 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 // BatteryEvaluationTypes are the evaluation types a battery run can score.
 // Anything else scores a silent false (see scoreEval), so launches validate
 // upfront instead.
-var BatteryEvaluationTypes = []string{"exact_match", "contains", "contains_list", "regex", "json_schema", "human_review"}
+var BatteryEvaluationTypes = []string{"exact_match", "contains", "contains_list", "regex", "json_schema", "human_review", "not_contains", "all_of"}
 
 func isKnownEvalType(t string) bool {
 	if t == "" || t == "agent" {
@@ -910,6 +1078,11 @@ func ValidateTestsForBattery(testsList []tests.Test) error {
 			if tc.Evaluation != nil && !isKnownEvalType(tc.Evaluation.Type) {
 				return fmt.Errorf("test %q case %d uses unknown evaluation type %q", t.Name, i+1, tc.Evaluation.Type)
 			}
+			for j, cs := range tc.Steps {
+				if cs.Evaluation != nil && !isKnownEvalType(cs.Evaluation.Type) {
+					return fmt.Errorf("test %q case %d step %d uses unknown evaluation type %q", t.Name, i+1, j+1, cs.Evaluation.Type)
+				}
+			}
 		}
 		for _, st := range t.Steps {
 			if st.Evaluation != nil && !isKnownEvalType(st.Evaluation.Type) {
@@ -918,6 +1091,37 @@ func ValidateTestsForBattery(testsList []tests.Test) error {
 		}
 	}
 	return nil
+}
+
+// resolveExpected extracts the expected substring from a direct value,
+// falling back to the JSON evaluation config.
+func resolveExpected(directExpected any, cfgBytes json.RawMessage) string {
+	if s, ok := directExpected.(string); ok {
+		return s
+	}
+	if directExpected != nil {
+		return fmt.Sprintf("%v", directExpected)
+	}
+	if len(cfgBytes) > 0 {
+		var cfg struct {
+			Expected string `json:"expected"`
+		}
+		_ = json.Unmarshal(cfgBytes, &cfg)
+		return cfg.Expected
+	}
+	return ""
+}
+
+// containsText reports whether response contains expected, using the same
+// normalization as the contains check (case-insensitive, formatting-tolerant).
+func containsText(response, expected string) bool {
+	normResponse := normalizeForContains(response)
+	normExpected := normalizeForContains(expected)
+	if strings.Contains(normExpected, "\n") || strings.Contains(normExpected, "\t") {
+		normResponse = stripWhitespace(normResponse)
+		normExpected = stripWhitespace(normExpected)
+	}
+	return strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
 }
 
 // normalizeForContains strips LaTeX/markdown/JSON formatting so that

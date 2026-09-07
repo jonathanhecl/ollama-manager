@@ -1,0 +1,34 @@
+id: vis-judge-description
+name: 'Vision 07 · Judge Description (SCAFFOLD)'
+description: 'SCAFFOLD — attach an image via the editor. The judge verdict format matches testing/judge. Fill TODO expected, then set active: true.'
+group_id: vision
+active: false
+order: 6
+
+system_prompt: |
+  You are an impartial judge. Evaluate ONLY what is asked.
+  Reply in this exact format and nothing else:
+  Verdict: CORRECT  (or INCORRECT)
+  Reason: <one sentence>
+
+prompt: |
+  Candidate description: "TODO-candidate-description".
+  Does this description match the image without inventing or omitting objects?
+evaluation:
+  type: regex
+  # TODO: tighten to the true verdict once the image is known, e.g. '(?i)verdict:\s*incorrect'
+  pattern: '(?i)verdict:\s*(correct|incorrect)'
+
+options:
+  temperature: 0.2
+
+required_caps:
+  - vision
+
+attachments:
+  - id: att-vis-judge
+    kind: image
+    name: TODO_judge_me.jpg
+    mime: image/jpeg
+    # TODO: attach the real image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""

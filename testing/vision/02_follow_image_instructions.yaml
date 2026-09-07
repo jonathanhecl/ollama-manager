@@ -1,0 +1,25 @@
+id: vis-follow-instructions
+name: 'Vision 02 · Follow Image Instructions (SCAFFOLD)'
+description: 'SCAFFOLD — attach an image containing instructions (sign, diagram, label), set expected to key tokens of the correct action, then set active: true.'
+group_id: vision
+active: false
+order: 1
+
+prompt: Read the instructions shown in this image and tell me what action to take. Quote the relevant part.
+evaluation:
+  type: contains
+  expected: "TODO-key-phrase"
+
+options:
+  temperature: 0.2
+
+required_caps:
+  - vision
+
+attachments:
+  - id: att-vis-instructions
+    kind: image
+    name: TODO_instructions.jpg
+    mime: image/jpeg
+    # TODO: attach the real image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""

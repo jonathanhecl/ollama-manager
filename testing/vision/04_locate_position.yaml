@@ -1,0 +1,26 @@
+id: vis-locate-position
+name: 'Vision 04 · Locate Position (SCAFFOLD)'
+description: 'SCAFFOLD — attach an image via the editor and ask for the position of a target object. Tighten the regex with the true coordinates, then set active: true.'
+group_id: vision
+active: false
+order: 3
+
+prompt: 'Locate the main entrance door in this image. Reply with ONLY its position as coordinates "x,y" in a 0-1000 scale, e.g. "512,340".'
+evaluation:
+  type: regex
+  # TODO: tighten once the image is known, e.g. '(?i)\b(5[0-9]{2}|51[0-9])\s*,\s*(3[0-9]{2})\b'
+  pattern: '(?i)\b\d{1,4}\s*,\s*\d{1,4}\b'
+
+options:
+  temperature: 0.2
+
+required_caps:
+  - vision
+
+attachments:
+  - id: att-vis-locate
+    kind: image
+    name: TODO_building.jpg
+    mime: image/jpeg
+    # TODO: attach the real image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""

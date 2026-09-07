@@ -53,29 +53,58 @@ type Message struct {
 }
 
 // Evaluation specifies the evaluation strategy and parameters.
+// The "all_of" type combines sub-evaluations that must all pass.
 type Evaluation struct {
-	Type     string          `json:"type" yaml:"type"`
-	Expected any             `json:"expected,omitempty" yaml:"expected,omitempty"`
-	Pattern  string          `json:"pattern,omitempty" yaml:"pattern,omitempty"`
-	Schema   any             `json:"schema,omitempty" yaml:"schema,omitempty"`
-	Config   json.RawMessage `json:"config,omitempty" yaml:"config,omitempty"`
+	Type        string          `json:"type" yaml:"type"`
+	Expected    any             `json:"expected,omitempty" yaml:"expected,omitempty"`
+	Pattern     string          `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	Schema      any             `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Config      json.RawMessage `json:"config,omitempty" yaml:"config,omitempty"`
+	Evaluations []*Evaluation   `json:"evaluations,omitempty" yaml:"evaluations,omitempty"`
 }
 
 // Step represents one turn in a sequential multi-step interactive test.
+// SystemPrompt is sticky within the chain: a non-empty value replaces the
+// active system from that step onward; empty keeps the active one.
+// Options folds the same way field by field over the active options.
 type Step struct {
-	Step        int          `json:"step" yaml:"step"`
-	Name        string       `json:"name,omitempty" yaml:"name,omitempty"`
-	Prompt      string       `json:"prompt" yaml:"prompt"`
-	Evaluation  *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty" yaml:"-"`
+	Step         int          `json:"step" yaml:"step"`
+	Name         string       `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt       string       `json:"prompt" yaml:"prompt"`
+	Evaluation   *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	SystemPrompt string       `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	Options      *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
+	Attachments  []Attachment `json:"attachments,omitempty" yaml:"-"`
+}
+
+// CaseStep is a single chained turn inside a multi-turn test case.
+// Steps share one conversation history scoped to their parent case:
+// each user prompt is sent in order, keeping prior turns in context,
+// so instruction-following across turns can be evaluated.
+//
+// SystemPrompt is sticky within the chain: a non-empty value replaces the
+// active system from that step onward; an empty value keeps whatever system
+// is currently active (the case-level system, or the test-level one).
+// Options behaves the same way field by field: set fields replace the active
+// ones from that step onward, nil fields keep the active values.
+type CaseStep struct {
+	Name         string       `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt       string       `json:"prompt" yaml:"prompt"`
+	Evaluation   *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	SystemPrompt string       `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	Options      *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
 }
 
 // TestCase represents an individual case in a batch/matrix test suite.
+// Each case runs in isolation (fresh conversation history).
 type TestCase struct {
-	Name        string       `json:"name,omitempty" yaml:"name,omitempty"`
-	Prompt      string       `json:"prompt" yaml:"prompt"`
-	Evaluation  *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty" yaml:"-"`
+	Name         string       `json:"name,omitempty" yaml:"name,omitempty"`
+	Prompt       string       `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Evaluation   *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
+	SystemPrompt string       `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	Options      *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
+	Steps        []CaseStep   `json:"steps,omitempty" yaml:"steps,omitempty"`
+	Attachments  []Attachment `json:"attachments,omitempty" yaml:"-"`
 }
 
 // TestOptions represents optional inference parameters.
@@ -83,6 +112,38 @@ type TestOptions struct {
 	Temperature *float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
 	MaxTokens   *int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+}
+
+// MergeOptions returns the effective inference options for a case or step:
+// fields set in override win, nil fields fall back to base.
+// A nil override returns base unchanged.
+func MergeOptions(base, override *TestOptions) *TestOptions {
+	if override == nil {
+		return base
+	}
+	if base == nil {
+		return override
+	}
+	out := *base
+	if override.Temperature != nil {
+		out.Temperature = override.Temperature
+	}
+	if override.TopP != nil {
+		out.TopP = override.TopP
+	}
+	if override.MaxTokens != nil {
+		out.MaxTokens = override.MaxTokens
+	}
+	return &out
+}
+
+// EffectiveSystemPrompt resolves which system prompt applies to a case or step:
+// a non-empty override wins, otherwise the parent (test-level) prompt is used.
+func EffectiveSystemPrompt(parent, override string) string {
+	if override != "" {
+		return override
+	}
+	return parent
 }
 
 // Test is an individual evaluation test script.
@@ -679,6 +740,16 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 	if in.Prompt == "" && len(in.Messages) == 0 && len(in.Steps) == 0 && len(in.Cases) == 0 {
 		return Test{}, errors.New("test prompt, messages, steps, or cases are required")
 	}
+	for i, c := range in.Cases {
+		if c.Prompt == "" && len(c.Steps) == 0 {
+			return Test{}, fmt.Errorf("case %d (%s) needs a prompt or steps", i+1, c.Name)
+		}
+		for j, s := range c.Steps {
+			if s.Prompt == "" {
+				return Test{}, fmt.Errorf("case %d (%s) step %d (%s) needs a prompt", i+1, c.Name, j+1, s.Name)
+			}
+		}
+	}
 
 	evalType := in.EvaluationType
 	if evalType == "" && in.Evaluation != nil {
@@ -779,10 +850,10 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	t.Order = in.Order
 	t.Prompt = in.Prompt
 	t.SystemPrompt = in.SystemPrompt
-	if len(in.Messages) > 0 {
+	if in.Messages != nil {
 		t.Messages = in.Messages
 	}
-	if len(in.Steps) > 0 {
+	if in.Steps != nil {
 		t.Steps = in.Steps
 	}
 	if in.Cases != nil {

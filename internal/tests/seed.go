@@ -17,6 +17,7 @@ var seedExampleIDs = map[string]struct{}{
 	"example-codegen":      {},
 	"example-json-output":  {},
 	"example-instructions": {},
+	"example-format-regex": {},
 	"example-memory":       {},
 	"example-human-review": {},
 	"example-vision-cases": {},
@@ -30,6 +31,7 @@ var backfillSeedIDs = []string{
 	"example-codegen",
 	"example-json-output",
 	"example-instructions",
+	"example-format-regex",
 	"example-memory",
 	"example-human-review",
 	"example-vision-cases",
@@ -236,10 +238,10 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 			CreatedAt: now,
 			UpdatedAt: now,
 		}, true
-	case "example-instructions":
+	case "example-format-regex":
 		return Test{
-			ID:           "example-instructions",
-			Name:         "Follow Instructions (EN/ES)",
+			ID:           "example-format-regex",
+			Name:         "Format Compliance (EN/ES)",
 			Description:  "Bilingual regex check for exact-format compliance.",
 			GroupID:      "examples",
 			Active:       true,
@@ -364,6 +366,102 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 				},
 			},
 			Filename:  "vision_cases.yaml",
+		}, true
+	case "example-instructions":
+		tempLow := 0.2
+		tempHigh := 0.9
+		return Test{
+			ID:           "example-instructions",
+			Name:         "Instruction Following (Per-Case Config)",
+			Description:  "Demonstrates per-case system prompts, per-case options and chained multi-turn steps within a case.",
+			GroupID:      "examples",
+			Active:       true,
+			Order:        3,
+			SystemPrompt: "You are a concise assistant. Always reply in English.",
+			Options:      &TestOptions{Temperature: &tempLow},
+			Cases: []TestCase{
+				{
+					Name:   "Inherits global system prompt",
+					Prompt: `Say the word "apple" and nothing else.`,
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "apple",
+					},
+				},
+				{
+					Name:         "Pirate voice override",
+					Prompt:       "Say hello in one short sentence.",
+					SystemPrompt: `You are a pirate. Every reply must contain the word "arr".`,
+					Options:      &TestOptions{Temperature: &tempHigh},
+					Evaluation: &Evaluation{
+						Type:    "regex",
+						Pattern: `(?i)\barr\b`,
+					},
+				},
+				{
+					Name:   "Follow a list of instructions",
+					Prompt: "Memorize this list in order: red, green, blue. Reply with only the word OK.",
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "OK",
+					},
+					Steps: []CaseStep{
+						{
+							Name:   "Recall second item",
+							Prompt: "What was the second color of the list? Reply with just the color.",
+							Evaluation: &Evaluation{
+								Type:     "contains",
+								Expected: "green",
+							},
+						},
+						{
+							Name:   "Repeat full list",
+							Prompt: "Repeat the full list in order, comma-separated, with nothing else.",
+							Evaluation: &Evaluation{
+								Type:    "regex",
+								Pattern: `(?i)red.*green.*blue`,
+							},
+						},
+					},
+				},
+				{
+					Name:   "Mid-chain voice switch",
+					Prompt: `Say the word "start" and nothing else.`,
+					Evaluation: &Evaluation{
+						Type:     "contains",
+						Expected: "start",
+					},
+					Steps: []CaseStep{
+						{
+							Name:   "Still the default voice",
+							Prompt: `Say the word "middle" and nothing else.`,
+							Evaluation: &Evaluation{
+								Type:     "contains",
+								Expected: "middle",
+							},
+						},
+						{
+							Name:         "Switch to pirate",
+							Prompt:       "Say hello in one short sentence.",
+							SystemPrompt: `You are a pirate. Every reply must contain the word "arr".`,
+							Options:      &TestOptions{Temperature: &tempHigh},
+							Evaluation: &Evaluation{
+								Type:    "regex",
+								Pattern: `(?i)\barr\b`,
+							},
+						},
+						{
+							Name:   "Pirate voice sticks",
+							Prompt: "Say goodbye in one short sentence.",
+							Evaluation: &Evaluation{
+								Type:    "regex",
+								Pattern: `(?i)\barr\b`,
+							},
+						},
+					},
+				},
+			},
+			Filename:  "instructions.yaml",
 			CreatedAt: now,
 			UpdatedAt: now,
 		}, true

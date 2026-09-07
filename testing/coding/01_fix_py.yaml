@@ -1,0 +1,36 @@
+id: code-fix-py
+name: 'Coding 01 · Fix (Python)'
+description: 'Fix an off-by-one error, directly and via a fake apply_patch tool.'
+group_id: coding
+active: true
+order: 1
+
+system_prompt: |
+  You are a precise coding assistant. Reply with code unless asked for a tool call.
+  You also have a fake editing tool. To use it, reply with ONLY the tool call on one line:
+  apply_patch("file", "diff") — replace a file with a unified diff.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Fix loop bound
+    prompt: |
+      Fix the bug in this Python function so it sums ALL elements:
+
+      def total(xs):
+          s = 0
+          for i in range(1, len(xs)):
+              s += xs[i]
+          return s
+
+      Reply with the complete fixed function.
+    evaluation:
+      type: regex
+      pattern: 'range\s*\(\s*(0\s*,\s*)?len\s*\(\s*xs\s*\)\s*\)'
+
+  - name: Fix via patch tool
+    prompt: 'Emit ONLY the tool call apply_patch("totals.py", "<unified diff that fixes the range so it starts at 0>")'
+    evaluation:
+      type: regex
+      pattern: '(?s)apply_patch\s*\(\s*"totals\.py".*range\s*\(\s*(0\s*,\s*)?len'

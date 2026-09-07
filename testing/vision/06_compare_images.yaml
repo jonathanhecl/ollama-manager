@@ -1,0 +1,31 @@
+id: vis-compare-images
+name: 'Vision 06 · Compare Images (SCAFFOLD)'
+description: 'SCAFFOLD — attach two images via the editor (before/after, original vs altered), set expected to the true difference, then set active: true.'
+group_id: vision
+active: false
+order: 5
+
+prompt: These two images are almost identical. What is the single difference between the first and the second one?
+evaluation:
+  type: contains
+  expected: "TODO-difference"
+
+options:
+  temperature: 0.2
+
+required_caps:
+  - vision
+
+attachments:
+  - id: att-vis-compare-a
+    kind: image
+    name: TODO_before.jpg
+    mime: image/jpeg
+    # TODO: attach the real first image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""
+  - id: att-vis-compare-b
+    kind: image
+    name: TODO_after.jpg
+    mime: image/jpeg
+    # TODO: attach the real second image via the test editor (this placeholder is replaced, then set active: true)
+    data: ""

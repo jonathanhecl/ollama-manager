@@ -1,0 +1,24 @@
+id: es-gramatica
+name: 'Spanish 02 · Gramática'
+description: 'Elegir la forma gramatical correcta en español neutro.'
+group_id: spanish
+active: true
+order: 1
+
+system_prompt: |
+  Eres un asistente preciso. Responde en español.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Por o para
+    prompt: 'Completa con "por" o "para", responde SOLO con la palabra: "Este regalo es ___ ti."'
+    evaluation:
+      type: exact_match
+      expected: "para"
+  - name: Subjuntivo
+    prompt: 'Completa con la forma correcta, responde SOLO con la palabra: "Espero que (venir) ___ mañana."'
+    evaluation:
+      type: exact_match
+      expected: "venga"

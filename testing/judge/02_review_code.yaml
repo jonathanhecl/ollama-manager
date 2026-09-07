@@ -1,0 +1,43 @@
+id: jd-review-code
+name: 'Judge 02 · Review Code'
+description: 'Reject buggy code, approve the fixed version (no default approval).'
+group_id: judge
+active: true
+order: 1
+
+system_prompt: |
+  You are an impartial judge. Evaluate ONLY what is asked.
+  Reply in this exact format and nothing else:
+  Verdict: CORRECT  (or INCORRECT)
+  Reason: <one sentence>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Off-by-one fails
+    prompt: |
+      Review this JavaScript. Is it correct?
+      function total(arr) {
+        let s = 0;
+        for (let i = 0; i <= arr.length; i++) {
+          s += arr[i];
+        }
+        return s;
+      }
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*incorrect'
+  - name: Fixed version passes
+    prompt: |
+      Review this JavaScript. Is it correct?
+      function total(arr) {
+        let s = 0;
+        for (let i = 0; i < arr.length; i++) {
+          s += arr[i];
+        }
+        return s;
+      }
+    evaluation:
+      type: regex
+      pattern: '(?i)verdict:\s*correct'

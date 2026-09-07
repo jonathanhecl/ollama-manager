@@ -1,0 +1,38 @@
+id: code-fix-js
+name: 'Coding 01 · Fix (JavaScript)'
+description: 'Fix an off-by-one error, directly and via a fake apply_patch tool.'
+group_id: coding
+active: true
+order: 0
+
+system_prompt: |
+  You are a precise coding assistant. Reply with code unless asked for a tool call.
+  You also have a fake editing tool. To use it, reply with ONLY the tool call on one line:
+  apply_patch("file", "diff") — replace a file with a unified diff.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Fix loop bound
+    prompt: |
+      Fix the bug in this JavaScript function so it sums ALL elements without going out of bounds:
+
+      function total(arr) {
+        let s = 0;
+        for (let i = 0; i <= arr.length; i++) {
+          s += arr[i];
+        }
+        return s;
+      }
+
+      Reply with the complete fixed function.
+    evaluation:
+      type: regex
+      pattern: '(i\s*<\s*arr\.length|i\s*<=\s*arr\.length\s*-\s*1)'
+
+  - name: Fix via patch tool
+    prompt: 'Emit ONLY the tool call apply_patch("app.js", "<unified diff that fixes the i <= arr.length bound>")'
+    evaluation:
+      type: regex
+      pattern: '(?s)apply_patch\s*\(\s*"app\.js".*(i\s*<\s*arr\.length|i\s*<=\s*arr\.length\s*-\s*1)'

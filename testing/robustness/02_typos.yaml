@@ -1,0 +1,24 @@
+id: rb-typos
+name: 'Robustness 02 · Typo Tolerance'
+description: 'Sloppy prompts must still yield the right fact.'
+group_id: robustness
+active: true
+order: 1
+
+system_prompt: |
+  You are a precise assistant. Answer exactly what is asked.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Typos in question
+    prompt: 'Whta is teh capitel of Frence? Reply with ONLY the name.'
+    evaluation:
+      type: contains
+      expected: "Paris"
+  - name: Case and spacing noise
+    prompt: '  WHAT   is the CAPITAL of france?? Reply with ONLY the name.  '
+    evaluation:
+      type: contains
+      expected: "Paris"

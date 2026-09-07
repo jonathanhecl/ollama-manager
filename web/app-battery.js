@@ -840,6 +840,86 @@ function batteryLbHeatStyle(v, range, strong) {
   return `background: color-mix(in srgb, var(--accent) ${(base + rel * span).toFixed(0)}%, transparent);`;
 }
 
+// Short display name for a model ("owner/name" -> "name").
+function batteryShortModel(m) {
+  return escapeHtml(m).replace(/^[^/]+\//, "");
+}
+
+// One horizontal bar row: label + track/fill + value.
+function batteryBarRow(label, title, pct, text, fillCls) {
+  const w = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  return `<div class="battery-chart-row">
+    <span class="battery-chart-label" title="${title}">${label}</span>
+    <div class="battery-chart-track"><div class="battery-chart-fill ${fillCls || ""}" style="width:${w.toFixed(1)}%"></div></div>
+    <span class="battery-chart-val mono">${text}</span>
+  </div>`;
+}
+
+// Charts view HTML: overall pass bars, per-category grouped bars, speed bars.
+// Pure CSS, no dependencies. lbRows must be pre-sorted (best first).
+function batteryChartsHtml(run, lbRows, groupIdsPresent, groupName, scores) {
+  const scored = (lbRows || []).filter((r) => r.overall != null);
+  const withTps = (lbRows || []).filter((r) => r.avgTps > 0);
+  if (!scored.length && !withTps.length) {
+    return `<div class="battery-empty"><div>${escapeHtml(t("battery.charts_no_data"))}</div></div>`;
+  }
+
+  let overallHtml = "";
+  if (scored.length) {
+    overallHtml = `<section class="battery-chart-section">
+      <h4>${escapeHtml(t("battery.charts_overall"))}</h4>
+      ${scored.map((row, idx) => batteryBarRow(
+        `${idx + 1}. ${batteryShortModel(row.model)}`,
+        `${row.model} — ${row.earned}/${row.total}`,
+        row.overall,
+        `${row.overall.toFixed(1)}%`,
+        idx === 0 ? "battery-chart-fill-first" : ""
+      )).join("")}
+    </section>`;
+  }
+
+  let groupsHtml = "";
+  const groupSections = (groupIdsPresent || []).map((gid) => {
+    const rows = (lbRows || []).map((row) => {
+      const c = (scores[row.model] || {})[gid];
+      if (!c || c.total === 0) return null;
+      const pct = (c.earned / c.total) * 100;
+      return { row, pct, text: `${pct.toFixed(0)}%`, title: `${row.model} — ${c.earned}/${c.total}` };
+    }).filter(Boolean);
+    if (!rows.length) return "";
+    return `<div class="battery-chart-group">
+      <h5>${escapeHtml(groupName(gid))}</h5>
+      ${rows.map((r) => batteryBarRow(
+        batteryShortModel(r.row.model), r.title, r.pct, r.text, ""
+      )).join("")}
+    </div>`;
+  }).join("");
+  if (groupSections) {
+    groupsHtml = `<section class="battery-chart-section">
+      <h4>${escapeHtml(t("battery.charts_by_group"))}</h4>
+      <div class="battery-chart-groups">${groupSections}</div>
+    </section>`;
+  }
+
+  let speedHtml = "";
+  if (withTps.length) {
+    const maxTps = Math.max(...withTps.map((r) => r.avgTps));
+    const bySpeed = [...withTps].sort((a, b) => b.avgTps - a.avgTps);
+    speedHtml = `<section class="battery-chart-section">
+      <h4>${escapeHtml(t("battery.charts_speed"))}</h4>
+      ${bySpeed.map((row, idx) => batteryBarRow(
+        `${idx + 1}. ${batteryShortModel(row.model)}`,
+        `${row.model}`,
+        maxTps > 0 ? (row.avgTps / maxTps) * 100 : 0,
+        `⚡ ${row.avgTps.toFixed(1)} tok/s`,
+        "battery-chart-fill-speed"
+      )).join("")}
+    </section>`;
+  }
+
+  return `<div class="battery-charts">${overallHtml}${groupsHtml}${speedHtml}</div>`;
+}
+
 function renderBatteryResults(run) {
   if (!run) return;
   const title = $("battery-results-title");
@@ -982,7 +1062,8 @@ function renderBatteryResults(run) {
   const isMultiModel = run.models && run.models.length > 1;
   const isMatrix = isMultiModel && batteryResultsViewMode === "matrix";
   const isLeaderboard = isMultiModel && batteryResultsViewMode === "leaderboard";
-  const isDetailed = !isMatrix && !isLeaderboard;
+  const isCharts = isMultiModel && batteryResultsViewMode === "charts";
+  const isDetailed = !isMatrix && !isLeaderboard && !isCharts;
 
   const viewToggleHtml = isMultiModel ? `
     <div class="battery-view-toolbar">
@@ -992,6 +1073,9 @@ function renderBatteryResults(run) {
         </button>
         <button type="button" class="battery-toggle-btn ${isLeaderboard ? "active" : ""}" id="btn-view-leaderboard">
           🏆 ${t("battery.view_leaderboard")}
+        </button>
+        <button type="button" class="battery-toggle-btn ${isCharts ? "active" : ""}" id="btn-view-charts">
+          📈 ${t("battery.view_charts")}
         </button>
         <button type="button" class="battery-toggle-btn ${isDetailed ? "active" : ""}" id="btn-view-detailed">
           📋 ${t("battery.view_detailed")}
@@ -1112,60 +1196,61 @@ function renderBatteryResults(run) {
     `;
   }
 
+  // Shared leaderboard/charts data: groups present, per-model per-group
+  // scores, and overall ranking.
+  const groupIdsPresent = [];
+  for (const tid of testIds) {
+    const test = tests.find((x) => x.id === tid);
+    const gid = test?.group_id || "";
+    if (!groupIdsPresent.includes(gid)) groupIdsPresent.push(gid);
+  }
+  groupIdsPresent.sort((a, b) => {
+    const ga = testsGroups.find((g) => g.id === a);
+    const gb = testsGroups.find((g) => g.id === b);
+    const oa = ga && typeof ga.order === "number" ? ga.order : Number.MAX_SAFE_INTEGER;
+    const ob = gb && typeof gb.order === "number" ? gb.order : Number.MAX_SAFE_INTEGER;
+    if (oa !== ob) return oa - ob;
+    return String(ga?.name || a).localeCompare(String(gb?.name || b));
+  });
+  const groupName = (gid) => {
+    if (!gid) return t("battery.leaderboard_uncategorized");
+    const g = testsGroups.find((x) => x.id === gid);
+    return g?.name || gid;
+  };
+
+  // Scores per model per group.
+  const scores = {};
+  for (const m of run.models) scores[m] = {};
+  for (const r of run.results) {
+    const sc = batteryResultScore(r);
+    if (!sc || !scores[r.model]) continue;
+    const test = tests.find((x) => x.id === r.test_id);
+    const gid = test?.group_id || "";
+    const cell = (scores[r.model][gid] ||= { earned: 0, total: 0 });
+    cell.earned += sc.earned;
+    cell.total += sc.total;
+  }
+
+  // Overall per model and ranking.
+  const lbRows = run.models.map((m) => {
+    let earned = 0;
+    let total = 0;
+    for (const gid of groupIdsPresent) {
+      const c = scores[m][gid];
+      if (c) {
+        earned += c.earned;
+        total += c.total;
+      }
+    }
+    const s = modelStats[m];
+    const avgTps = s && s.tpsCount > 0 ? s.tpsSum / s.tpsCount : 0;
+    return { model: m, earned, total, overall: total > 0 ? (earned / total) * 100 : null, avgTps };
+  });
+  lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || b.avgTps - a.avgTps);
+
   // 2. Leaderboard View (models as rows, categories as columns, heatmap scores)
   let leaderboardTableHtml = "";
   if (isLeaderboard) {
-    // Groups present in this run, ordered by group order then name.
-    const groupIdsPresent = [];
-    for (const tid of testIds) {
-      const test = tests.find((x) => x.id === tid);
-      const gid = test?.group_id || "";
-      if (!groupIdsPresent.includes(gid)) groupIdsPresent.push(gid);
-    }
-    groupIdsPresent.sort((a, b) => {
-      const ga = testsGroups.find((g) => g.id === a);
-      const gb = testsGroups.find((g) => g.id === b);
-      const oa = ga && typeof ga.order === "number" ? ga.order : Number.MAX_SAFE_INTEGER;
-      const ob = gb && typeof gb.order === "number" ? gb.order : Number.MAX_SAFE_INTEGER;
-      if (oa !== ob) return oa - ob;
-      return String(ga?.name || a).localeCompare(String(gb?.name || b));
-    });
-    const groupName = (gid) => {
-      if (!gid) return t("battery.leaderboard_uncategorized");
-      const g = testsGroups.find((x) => x.id === gid);
-      return g?.name || gid;
-    };
-
-    // Scores per model per group.
-    const scores = {};
-    for (const m of run.models) scores[m] = {};
-    for (const r of run.results) {
-      const sc = batteryResultScore(r);
-      if (!sc || !scores[r.model]) continue;
-      const test = tests.find((x) => x.id === r.test_id);
-      const gid = test?.group_id || "";
-      const cell = (scores[r.model][gid] ||= { earned: 0, total: 0 });
-      cell.earned += sc.earned;
-      cell.total += sc.total;
-    }
-
-    // Overall per model and ranking.
-    const lbRows = run.models.map((m) => {
-      let earned = 0;
-      let total = 0;
-      for (const gid of groupIdsPresent) {
-        const c = scores[m][gid];
-        if (c) {
-          earned += c.earned;
-          total += c.total;
-        }
-      }
-      const s = modelStats[m];
-      const avgTps = s && s.tpsCount > 0 ? s.tpsSum / s.tpsCount : 0;
-      return { model: m, earned, total, overall: total > 0 ? (earned / total) * 100 : null, avgTps };
-    });
-    lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || b.avgTps - a.avgTps);
-
     // Column ranges for the heatmap (column-relative, like public leaderboards).
     const colRange = {};
     for (const gid of groupIdsPresent) {
@@ -1232,6 +1317,12 @@ function renderBatteryResults(run) {
         </table>
       </div>
     `;
+  }
+
+  // 2b. Charts View (pure-CSS bars: overall, by category, speed).
+  let chartsHtml = "";
+  if (isCharts) {
+    chartsHtml = batteryChartsHtml(run, lbRows, groupIdsPresent, groupName, scores);
   }
 
   // 3. Detailed Table View
@@ -1367,7 +1458,7 @@ function renderBatteryResults(run) {
     `;
   }
 
-  body.innerHTML = podiumHtml + summaryHtml + viewToggleHtml + matrixTableHtml + leaderboardTableHtml + detailedTableHtml;
+  body.innerHTML = podiumHtml + summaryHtml + viewToggleHtml + matrixTableHtml + leaderboardTableHtml + chartsHtml + detailedTableHtml;
 
   const btnMatrix = body.querySelector("#btn-view-matrix");
   if (btnMatrix) {
@@ -1380,6 +1471,13 @@ function renderBatteryResults(run) {
   if (btnLeaderboard) {
     btnLeaderboard.addEventListener("click", () => {
       batteryResultsViewMode = "leaderboard";
+      renderBatteryResults(run);
+    });
+  }
+  const btnCharts = body.querySelector("#btn-view-charts");
+  if (btnCharts) {
+    btnCharts.addEventListener("click", () => {
+      batteryResultsViewMode = "charts";
       renderBatteryResults(run);
     });
   }
@@ -1423,7 +1521,12 @@ function renderBatteryResults(run) {
       const caseName = sub?.name || `Case #${sidx + 1}`;
       const titleEl = $("response-view-modal-title");
       if (titleEl) titleEl.textContent = `${res?.test_name || testId} — ${caseName}`;
-      openResponseViewModal(model, sub?.model_response || sub?.error || t("battery.no_response"));
+      let detail = "";
+      if (sub?.options?.temperature != null) detail += `${t("battery.temperature_label")}: ${sub.options.temperature}\n\n`;
+      if (sub?.system_prompt) detail += `${t("battery.system_label")}\n${sub.system_prompt}\n\n`;
+      if (sub?.prompt) detail += `${t("battery.user_label")}\n${sub.prompt}\n\n`;
+      detail += `${t("battery.assistant_label")}\n${sub?.model_response || sub?.error || t("battery.no_response")}`;
+      openResponseViewModal(model, detail);
     });
   });
 
@@ -1690,7 +1793,29 @@ async function renderBatteryHistory() {
       return;
     }
 
-    body.innerHTML = bannerHtml + modelSummaryHtml + `
+    // Trend chart: pass rate of recent runs, oldest → newest.
+    let trendHtml = "";
+    {
+      const trendRuns = [...runs].reverse().slice(-15);
+      const rows = trendRuns.map((run) => {
+        const pass = run.pass_count || 0;
+        const total = run.total_count || 0;
+        if (!total) return null;
+        const pct = (pass / total) * 100;
+        const date = String(run.timestamp || "").slice(5, 16).replace("T", " ");
+        const label = `${date} · ${run.group_name || ""}`;
+        const title = `${run.id} — ${pass}/${total} — ${(run.models || []).join(", ")}`;
+        return batteryBarRow(label, title, pct, `${pct.toFixed(0)}%`, "");
+      }).filter(Boolean);
+      if (rows.length > 1) {
+        trendHtml = `<section class="battery-chart-section">
+          <h4>📈 ${escapeHtml(t("battery.charts_trend"))}</h4>
+          ${rows.join("")}
+        </section>`;
+      }
+    }
+
+    body.innerHTML = bannerHtml + modelSummaryHtml + trendHtml + `
       <div class="battery-history-list">
         ${runs.map((run) => {
           const date = fmtDateTimeFull(run.timestamp);

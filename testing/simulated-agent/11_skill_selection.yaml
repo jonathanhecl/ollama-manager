@@ -1,0 +1,44 @@
+id: sim-skill-selection
+name: 'SimAgent 11: Pick The Right Skill'
+description: The model knows several invented skills and must choose the right one for each task unprompted.
+group_id: simulated-agent
+active: true
+order: 10
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  You also know these skills. To use one, reply with ONLY: use_skill("skill-name", "short task description")
+  - invoice-parser: extracts totals, dates and vendor names from invoice text
+  - web-search: finds current, up-to-date information from the internet
+  - translator: translates text between languages, always state the target language
+  Use a skill only when the task matches it. Otherwise act directly with the tools above.
+  When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Invoice total needs invoice-parser
+    prompt: 'From this invoice text, tell me the total: "INVOICE #42, vendor Acme, TOTAL: $1,250.00, due May 1".'
+    evaluation:
+      type: regex
+      pattern: '(?i)use_skill\s*\(\s*"invoice-parser"'
+
+  - name: Current price needs web-search
+    prompt: What is the current price of Brent crude oil today?
+    evaluation:
+      type: regex
+      pattern: '(?i)use_skill\s*\(\s*"web-search"'
+
+  - name: Translation needs translator
+    prompt: Translate "good morning" to Japanese.
+    evaluation:
+      type: regex
+      pattern: '(?i)use_skill\s*\(\s*"translator"'
+
+  - name: Simple math needs no skill
+    prompt: What is 15% of 200? Answer directly.
+    evaluation:
+      type: regex
+      pattern: '(?i)FINAL:.*\b30\b'

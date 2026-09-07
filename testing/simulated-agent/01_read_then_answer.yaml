@@ -1,0 +1,34 @@
+id: sim-read-then-answer
+name: 'SimAgent 01: Read Before Answering'
+description: The model must call read_file instead of guessing, then answer from the simulated result.
+group_id: simulated-agent
+active: true
+order: 0
+
+system_prompt: |
+  You are an agent with access to these tools. To call a tool, reply with ONLY the tool call on one line, no other text:
+  read_file("path") | write_file("path", "content") | list_dir("path") | exec("command")
+  After each call you receive a simulated result starting with [tool-result ok] or [tool-result ERROR].
+  Never invent results. When the task is fully done, reply with: FINAL: <answer>
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Calls the tool instead of guessing
+    prompt: The file "capital.txt" contains the capital of France. What is it?
+    evaluation:
+      type: regex
+      pattern: '(?i)read_file\s*\(\s*"capital\.txt"\s*\)'
+
+  - name: Answers from the tool result
+    prompt: What is the capital of France? The answer is inside capital.txt, read it first.
+    evaluation:
+      type: regex
+      pattern: '(?i)read_file\s*\(\s*"capital\.txt"\s*\)'
+    steps:
+      - name: Final answer from result
+        prompt: '[tool-result ok] read_file("capital.txt") -> "Paris"'
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*Paris'

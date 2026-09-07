@@ -1,0 +1,24 @@
+id: rsn-logic
+name: 'Reasoning 01 · Knights and Knaves'
+description: 'Classic liar/truth-teller puzzle, one word per answer.'
+group_id: reasoning
+active: true
+order: 0
+
+system_prompt: |
+  You solve logic puzzles. Knights always tell the truth, knaves always lie.
+
+options:
+  temperature: 0.2
+
+cases:
+  - name: Who is A
+    prompt: 'A and B are each either a knight or a knave. A says: "We are both lying." Is A a knight or a knave? Reply with ONLY one word.'
+    evaluation:
+      type: exact_match
+      expected: "knave"
+  - name: Who is B
+    prompt: 'A and B are each either a knight or a knave. A says: "We are both lying." Is B a knight or a knave? Reply with ONLY one word.'
+    evaluation:
+      type: exact_match
+      expected: "knight"

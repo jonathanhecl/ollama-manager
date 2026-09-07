@@ -1,5 +1,5 @@
-id: example-instructions
-name: Follow Instructions (EN/ES)
+id: example-format-regex
+name: Format Compliance (EN/ES)
 description: Bilingual regex check for exact-format compliance.
 group_id: examples
 active: true

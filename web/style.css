@@ -11627,6 +11627,27 @@ button.chat-send:disabled:hover {
   color: var(--text-dim);
   text-align: right;
 }
+.lb-model-top {
+  display: flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.lb-model-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 3px;
+  font-size: 11px;
+  white-space: normal;
+}
+.lb-model-meta .pill {
+  font-size: 10px;
+  padding: 1px 7px;
+}
+.lb-meta-sep {
+  opacity: 0.4;
+}
 
 .lb-row-first .lb-rank {
   color: var(--accent);

@@ -126,6 +126,13 @@ async function buildLeaderboardTableHtml() {
         .catch(() => [])
     )
   );
+  // Model metadata for the second line of the model cell (capabilities,
+  // context, disk size, record speed). Best-effort: rows still render if
+  // the model was deleted or the call fails.
+  const modelsData = await api("/api/models").catch(() => null);
+  const modelInfo = new Map(
+    ((modelsData && modelsData.models) || []).map((m) => [m.name, m])
+  );
 
   // Keep only groups that have data, as columns.
   const cols = [];
@@ -210,11 +217,32 @@ async function buildLeaderboardTableHtml() {
       modelDisplay = `<span style="opacity:0.45;font-weight:normal;">hf.co/</span>${escapeHtml(modelName.slice(6))}`;
     }
 
+    const info = modelInfo.get(row.model);
+    let metaHtml = "";
+    if (info) {
+      const pills = (typeof renderCapabilityPills === "function") ? renderCapabilityPills(info.capabilities) : "";
+      const parts = [];
+      if (Number(info.context_length) > 0) {
+        parts.push(`<span title="${escapeHtml(t("detail.context"))}">ctx ${escapeHtml(fmtCtx(Number(info.context_length)))}</span>`);
+      }
+      if (Number(info.size) > 0) {
+        parts.push(`<span title="${escapeHtml(t("col.size"))}">${escapeHtml(fmtBytes(Number(info.size)))}</span>`);
+      }
+      const rec = Number(info.record_tokens_per_sec) || 0;
+      if (rec > 0) {
+        const rc = (typeof getToksRecordColor === "function") ? getToksRecordColor(rec) : "";
+        parts.push(`<span title="${rec.toFixed(1)} tok/s"${rc ? ` style="color:${rc};"` : ""}>${rec.toFixed(1)} <span class="speed-unit">tok/s</span></span>`);
+      }
+      if (pills || parts.length > 0) {
+        metaHtml = `<div class="lb-model-meta muted mono">${pills}${(pills && parts.length > 0) ? `<span class="lb-meta-sep">·</span>` : ""}${parts.join(`<span class="lb-meta-sep">·</span>`)}</div>`;
+      }
+    }
+
     bodyRows += `
       <tr class="${idx === 0 ? "lb-row-first" : ""}">
         <td class="cell-lb-model">
-          <span class="lb-rank">${idx + 1}</span>
-          <strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong>
+          <div class="lb-model-top"><span class="lb-rank">${idx + 1}</span><strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong></div>
+          ${metaHtml}
         </td>
         ${cells}
       </tr>

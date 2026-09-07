@@ -797,7 +797,7 @@ func newTestServer(t *testing.T, ollamaURL string) *Server {
 		t.Fatal(err)
 	}
 	webRoot := os.DirFS(filepath.Join(wd, "..", "..", "web"))
-	srv, err := New(cfg, ollama.New(ollamaURL), webRoot)
+	srv, err := New(cfg, ollama.New(ollamaURL), webRoot, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

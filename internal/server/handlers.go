@@ -34,27 +34,44 @@ func configIsValidLang(lang string) bool { return config.IsValidLanguage(lang) }
 
 // ---------- index / login ----------
 
+// isSPAClientPath reports whether path is a client-side route of the web SPA
+// (driven by history.pushState in web/app-svg.js). These must serve index.html
+// so a browser refresh or direct link lands in the app instead of a 404.
+// Keep in sync with the router in web/app-svg.js.
+func isSPAClientPath(path string) bool {
+	return path == "/" ||
+		path == "/chat" ||
+		path == "/chat/" ||
+		strings.HasPrefix(path, "/chat/") ||
+		path == "/tests" ||
+		path == "/tests/" ||
+		path == "/tests/new" ||
+		strings.HasPrefix(path, "/tests/edit/") ||
+		strings.HasPrefix(path, "/tests/group/") ||
+		strings.HasPrefix(path, "/tests/agent/") ||
+		strings.HasPrefix(path, "/tests/battery/") ||
+		strings.HasPrefix(path, "/tests/history/") ||
+		path == "/leaderboard" ||
+		path == "/leaderboard/" ||
+		path == "/tests/leaderboard" ||
+		path == "/analytics" ||
+		path == "/analytics/" ||
+		path == "/settings" ||
+		strings.HasPrefix(path, "/settings/") ||
+		path == "/opencode" ||
+		path == "/opencode/" ||
+		path == "/archived" ||
+		path == "/archived/" ||
+		path == "/modelfile" ||
+		strings.HasPrefix(path, "/modelfile/") ||
+		path == "/hf" ||
+		strings.HasPrefix(path, "/hf/") ||
+		path == "/huggingface" ||
+		strings.HasPrefix(path, "/huggingface/")
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	isSPAPath := r.URL.Path == "/" ||
-		r.URL.Path == "/chat" ||
-		strings.HasPrefix(r.URL.Path, "/chat/") ||
-		r.URL.Path == "/tests" ||
-		r.URL.Path == "/tests/new" ||
-		strings.HasPrefix(r.URL.Path, "/tests/edit/") ||
-		strings.HasPrefix(r.URL.Path, "/tests/group/") ||
-		strings.HasPrefix(r.URL.Path, "/tests/agent/") ||
-		strings.HasPrefix(r.URL.Path, "/tests/battery/") ||
-		r.URL.Path == "/analytics" ||
-		r.URL.Path == "/settings" ||
-		strings.HasPrefix(r.URL.Path, "/settings/") ||
-		r.URL.Path == "/opencode" ||
-		r.URL.Path == "/archived" ||
-		r.URL.Path == "/modelfile" ||
-		strings.HasPrefix(r.URL.Path, "/modelfile/") ||
-		r.URL.Path == "/hf" ||
-		strings.HasPrefix(r.URL.Path, "/hf/") ||
-		r.URL.Path == "/huggingface" ||
-		strings.HasPrefix(r.URL.Path, "/huggingface/")
+	isSPAPath := isSPAClientPath(r.URL.Path)
 	if !isSPAPath {
 		http.NotFound(w, r)
 		return

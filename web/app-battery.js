@@ -1,7 +1,7 @@
 "use strict";
 
 // ---------- battery runner ----------
-let currentRunTarget = null; // { type: 'single' | 'group' | 'all', testId?: string, groupId?: string, name?: string }
+let currentRunTarget = null; // { type: 'single' | 'group' | 'multi' | 'all', testId?, groupId?, groupIds?, name? }
 let currentHistoryFilterTestId = null;
 let currentHistoryFilterModel = null;
 
@@ -49,6 +49,48 @@ function wireBatterySortButtons() {
   });
 }
 
+let batterySelectedGroups = new Set(); // group ids picked in the categories step
+let batteryModalStep = "models"; // "groups" | "models"
+let batteryModalSingleTestId = null;
+
+function batteryModalAllGroupIds() {
+  return (Array.isArray(testsGroups) ? testsGroups : []).map((g) => g.id);
+}
+
+function batteryModalGroupById(id) {
+  return (Array.isArray(testsGroups) ? testsGroups : []).find((g) => g.id === id) || null;
+}
+
+function batteryModalRunnableTests(groupIds) {
+  const ids = groupIds == null ? null : groupIds;
+  return (Array.isArray(tests) ? tests : []).filter(
+    (x) => (ids === null || ids.includes(x.group_id)) && x.active && x.evaluation_type !== "agent"
+  );
+}
+
+// Tests targeted by the current modal selection (single test, groups or all).
+function batteryModalTargetTests() {
+  if (currentRunTarget?.type === "single" && currentRunTarget.testId) {
+    const one = (Array.isArray(tests) ? tests : []).find((x) => x.id === currentRunTarget.testId);
+    return one ? [one] : [];
+  }
+  if (currentRunTarget?.type === "multi" && Array.isArray(currentRunTarget.groupIds)) {
+    return batteryModalRunnableTests(currentRunTarget.groupIds);
+  }
+  if (currentRunTarget?.type === "group" && currentRunTarget.groupId) {
+    return batteryModalRunnableTests([currentRunTarget.groupId]);
+  }
+  return batteryModalRunnableTests(null);
+}
+
+function batteryModalRequiredCaps() {
+  const caps = new Set();
+  for (const x of batteryModalTargetTests()) {
+    for (const c of x.required_caps || []) caps.add(c);
+  }
+  return caps;
+}
+
 async function openBatteryModal(options = {}) {
   batterySelectedModels.clear();
   const defaultModel = options.initialModel || (typeof selectedTestModel !== "undefined" ? selectedTestModel : "");
@@ -57,22 +99,12 @@ async function openBatteryModal(options = {}) {
   }
   $("battery-modal").hidden = false;
 
-  if (options.testId) {
-    const test = tests.find((t) => t.id === options.testId);
-    currentRunTarget = { type: "single", testId: options.testId, groupId: test?.group_id, name: test?.name || options.testId };
-    const titleEl = $("battery-modal-title");
-    if (titleEl) titleEl.textContent = t("battery.run_single", { name: test?.name || options.testId });
-  } else if (options.groupId && options.groupId !== "" && options.groupId !== "all") {
-    const group = testsGroups.find((g) => g.id === options.groupId);
-    currentRunTarget = { type: "group", groupId: options.groupId, name: group?.name || options.groupId };
-    const titleEl = $("battery-modal-title");
-    if (titleEl) titleEl.textContent = t("battery.run_group", { name: group?.name || options.groupId });
-  } else {
-    currentRunTarget = { type: "all", groupId: "all", name: t("battery.all_tests") };
-    const titleEl = $("battery-modal-title");
-    if (titleEl) titleEl.textContent = t("battery.run_all");
-  }
+  wireBatteryModalStepButtons();
 
+  // Data for the categories step.
+  if (!options.testId && (!Array.isArray(testsGroups) || testsGroups.length === 0)) {
+    try { await refreshTests(); } catch { }
+  }
   // Pre-fetch models and usage if needed
   if (typeof models === "undefined" || models.length === 0) {
     try { await refreshModels(); } catch { }
@@ -80,7 +112,31 @@ async function openBatteryModal(options = {}) {
 
   wireBatterySortButtons();
   updateBatterySortUI();
-  renderBatteryModalModels();
+
+  if (options.testId) {
+    // Single test: skip the categories step and go straight to models.
+    batteryModalSingleTestId = options.testId;
+    const test = (Array.isArray(tests) ? tests : []).find((t) => t.id === options.testId);
+    currentRunTarget = { type: "single", testId: options.testId, groupId: test?.group_id, name: test?.name || options.testId };
+    const titleEl = $("battery-modal-title");
+    if (titleEl) titleEl.textContent = t("battery.run_single", { name: test?.name || options.testId });
+    batteryModalShowStep("models");
+    renderBatteryModalModels();
+  } else {
+    // Group/all runs: pick categories first so several can run together.
+    batteryModalSingleTestId = null;
+    batterySelectedGroups.clear();
+    const allIds = batteryModalAllGroupIds();
+    const pre = options.groupId && options.groupId !== "" && options.groupId !== "all" ? [options.groupId] : allIds;
+    for (const id of pre) {
+      if (allIds.includes(id)) batterySelectedGroups.add(id);
+    }
+    if (batterySelectedGroups.size === 0) {
+      for (const id of allIds) batterySelectedGroups.add(id);
+    }
+    batteryModalShowStep("groups");
+    renderBatteryModalGroups();
+  }
   updateBatteryModalSelectionUI();
 
   // Wire toolbar quick buttons if not wired
@@ -115,13 +171,14 @@ async function openBatteryModal(options = {}) {
       }
     });
   }
+}
 
-  // Load system info preview.
+async function loadBatteryModalSysinfo() {
   const sysEl = $("battery-modal-sysinfo");
-  if (sysEl) {
-    sysEl.textContent = t("status.loading");
-    try {
-      const info = await api("/api/runner/sys-info");
+  if (!sysEl) return;
+  sysEl.textContent = t("status.loading");
+  try {
+    const info = await api("/api/runner/sys-info");
       const parts = [];
       if (info.os) parts.push(`${t("battery.sys_os")}: ${info.os}`);
       if (info.cpu_model) parts.push(`${t("battery.sys_cpu")}: ${info.cpu_model}`);
@@ -134,7 +191,6 @@ async function openBatteryModal(options = {}) {
       sysEl.textContent = "";
       sysEl.hidden = true;
     }
-  }
 }
 
 function updateBatteryModalSelectionUI() {
@@ -142,6 +198,153 @@ function updateBatteryModalSelectionUI() {
   if (countEl) {
     countEl.textContent = batterySelectedModels.size > 0 ? t("battery.models_count", { count: batterySelectedModels.size }) : "";
   }
+  updateBatteryGroupsCountUI();
+}
+
+function updateBatteryGroupsCountUI() {
+  const countEl = $("battery-modal-groups-count");
+  if (countEl) {
+    countEl.textContent = batterySelectedGroups.size > 0 ? t("battery.categories_count", { count: batterySelectedGroups.size }) : "";
+  }
+}
+
+function batteryModalShowStep(step) {
+  batteryModalStep = step;
+  const isGroups = step === "groups";
+  const groupsStep = $("battery-modal-groups-step");
+  const modelsStep = $("battery-modal-models-step");
+  const backBtn = $("battery-modal-back");
+  const confirmBtn = $("battery-modal-confirm");
+  const subtitleEl = $("battery-modal-subtitle");
+  const titleEl = $("battery-modal-title");
+  if (groupsStep) groupsStep.hidden = !isGroups;
+  if (modelsStep) modelsStep.hidden = isGroups;
+  if (backBtn) backBtn.hidden = isGroups || !!batteryModalSingleTestId;
+  if (confirmBtn) confirmBtn.textContent = isGroups ? t("battery.continue") : t("battery.confirm");
+  if (subtitleEl) {
+    subtitleEl.textContent = isGroups ? t("battery.select_categories_hint") : t("battery.select_models_hint");
+  }
+  if (isGroups && titleEl) {
+    titleEl.textContent = t("battery.select_categories");
+  }
+  if (isGroups) {
+    updateBatteryGroupsCountUI();
+  } else {
+    updateBatteryModalSelectionUI();
+    void loadBatteryModalSysinfo();
+  }
+}
+
+function wireBatteryModalStepButtons() {
+  const backBtn = $("battery-modal-back");
+  if (backBtn && !backBtn.dataset.wired) {
+    backBtn.dataset.wired = "1";
+    backBtn.addEventListener("click", () => {
+      batteryModalShowStep("groups");
+      renderBatteryModalGroups();
+    });
+  }
+  const selectAllBtn = $("battery-modal-groups-select-all");
+  if (selectAllBtn && !selectAllBtn.dataset.wired) {
+    selectAllBtn.dataset.wired = "1";
+    selectAllBtn.addEventListener("click", () => {
+      for (const id of batteryModalAllGroupIds()) batterySelectedGroups.add(id);
+      renderBatteryModalGroups();
+    });
+  }
+  const clearBtn = $("battery-modal-groups-clear");
+  if (clearBtn && !clearBtn.dataset.wired) {
+    clearBtn.dataset.wired = "1";
+    clearBtn.addEventListener("click", () => {
+      batterySelectedGroups.clear();
+      renderBatteryModalGroups();
+    });
+  }
+}
+
+function renderBatteryModalGroups() {
+  const container = $("battery-modal-groups-list");
+  if (!container) return;
+  const groups = Array.isArray(testsGroups) ? testsGroups : [];
+  if (groups.length === 0) {
+    container.innerHTML = `<div class="muted">${escapeHtml(t("battery.no_categories"))}</div>`;
+    updateBatteryGroupsCountUI();
+    return;
+  }
+  container.innerHTML = groups.map((g) => {
+    const n = batteryModalRunnableTests([g.id]).length;
+    const isChecked = batterySelectedGroups.has(g.id);
+    return `
+      <label class="battery-model-item ${isChecked ? "selected" : ""}">
+        <input type="checkbox" value="${escapeHtml(g.id)}" ${isChecked ? "checked" : ""} />
+        <div class="battery-model-main">
+          <div class="battery-model-name">${escapeHtml(g.name || g.id)}</div>
+        </div>
+        <div class="battery-model-right-cols">
+          <div class="battery-model-specs mono muted">
+            <span>${escapeHtml(t("battery.group_tests_count", { count: n }))}</span>
+          </div>
+        </div>
+      </label>
+    `;
+  }).join("");
+
+  container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const parentLabel = cb.closest(".battery-model-item");
+      if (cb.checked) {
+        batterySelectedGroups.add(cb.value);
+        parentLabel?.classList.add("selected");
+      } else {
+        batterySelectedGroups.delete(cb.value);
+        parentLabel?.classList.remove("selected");
+      }
+      updateBatteryGroupsCountUI();
+    });
+  });
+
+  updateBatteryGroupsCountUI();
+}
+
+function batteryModalGoModels() {
+  if (batterySelectedGroups.size === 0) {
+    toast(t("battery.select_categories_warn"), "warn");
+    return;
+  }
+  const sel = batteryModalAllGroupIds().filter((id) => batterySelectedGroups.has(id));
+  if (sel.length === 0) {
+    toast(t("battery.select_categories_warn"), "warn");
+    return;
+  }
+  if (batteryModalRunnableTests(sel).length === 0) {
+    toast(t("battery.no_tests_in_groups"), "warn");
+    return;
+  }
+  const titleEl = $("battery-modal-title");
+  const allIds = batteryModalAllGroupIds();
+  const isAll = sel.length === allIds.length && allIds.length > 0;
+  if (isAll) {
+    currentRunTarget = { type: "all", groupId: "all", name: t("battery.all_tests") };
+    if (titleEl) titleEl.textContent = t("battery.run_all");
+  } else if (sel.length === 1) {
+    const g = batteryModalGroupById(sel[0]);
+    currentRunTarget = { type: "group", groupId: sel[0], name: g?.name || sel[0] };
+    if (titleEl) titleEl.textContent = t("battery.run_group", { name: g?.name || sel[0] });
+  } else {
+    currentRunTarget = { type: "multi", groupIds: sel, name: t("battery.run_n_categories", { count: sel.length }) };
+    if (titleEl) titleEl.textContent = t("battery.run_n_categories", { count: sel.length });
+  }
+  batteryModalShowStep("models");
+  renderBatteryModalModels();
+  updateBatteryModalSelectionUI();
+}
+
+function batteryModalConfirm() {
+  if (batteryModalStep === "groups" && !batteryModalSingleTestId) {
+    batteryModalGoModels();
+    return;
+  }
+  void confirmBatteryRun();
 }
 
 function closeBatteryModal() {
@@ -154,17 +357,9 @@ function renderBatteryModalModels() {
 
   const activeModels = (typeof models !== "undefined" ? models : []).filter((m) => !m.archived);
 
-  // Determine required caps based on currentRunTarget
-  let requiredCaps = new Set();
-  if (currentRunTarget?.type === "single") {
-    const test = tests.find((t) => t.id === currentRunTarget.testId);
-    requiredCaps = new Set(test?.required_caps || []);
-  } else if (currentRunTarget?.type === "group") {
-    const groupTests = tests.filter((t) => t.group_id === currentRunTarget.groupId && t.active && t.evaluation_type !== "agent");
-    for (const t of groupTests) {
-      for (const c of t.required_caps || []) requiredCaps.add(c);
-    }
-  }
+  // Required caps across the targeted tests (union, so partially
+  // compatible models stay selectable).
+  const requiredCaps = batteryModalRequiredCaps();
 
   const items = activeModels
     .filter((m) => (m.capabilities || []).includes("completion"))
@@ -992,9 +1187,10 @@ function getTestCategoryName(testId, fallbackGroupId = "") {
   return gid.charAt(0).toUpperCase() + gid.slice(1);
 }
 
-function buildBatteryTimelineQueue(groupId, modelIDs) {
+function buildBatteryTimelineQueue(groupFilter, modelIDs) {
+  const ids = Array.isArray(groupFilter) ? groupFilter : (groupFilter === "all" || !groupFilter ? null : [groupFilter]);
   const activeTests = tests
-    .filter((t) => (groupId === "all" || !groupId || t.group_id === groupId) && t.active && t.evaluation_type !== "agent")
+    .filter((t) => (ids === null || ids.includes(t.group_id)) && t.active && t.evaluation_type !== "agent")
     .sort((a, b) => (a.order || 0) - (b.order || 0));
   const queue = [];
   let idx = 0;
@@ -1044,12 +1240,19 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
 
   const groupBadge = $("battery-progress-group-badge");
   if (groupBadge) {
-    if (groupId && groupId !== "all") {
-      const g = (typeof groups !== "undefined" && Array.isArray(groups)) ? groups.find((grp) => grp.id === groupId) : null;
+    if (Array.isArray(groupId) && groupId.length > 1) {
       groupBadge.hidden = false;
-      groupBadge.textContent = g ? g.name : groupId;
+      groupBadge.textContent = t("battery.n_categories", { count: groupId.length });
     } else {
-      groupBadge.hidden = true;
+      const singleId = Array.isArray(groupId) ? groupId[0] : groupId;
+      if (singleId && singleId !== "all") {
+        const g = batteryModalGroupById(singleId) ||
+          ((typeof groups !== "undefined" && Array.isArray(groups)) ? groups.find((grp) => grp.id === singleId) : null);
+        groupBadge.hidden = false;
+        groupBadge.textContent = g ? g.name : singleId;
+      } else {
+        groupBadge.hidden = true;
+      }
     }
   }
 
@@ -1665,12 +1868,20 @@ async function confirmBatteryRun() {
   closeBatteryModal();
   const modelIDs = Array.from(batterySelectedModels);
   const payload = { model_ids: modelIDs };
+  let groupFilter = "all";
   if (currentRunTarget?.type === "single" && currentRunTarget.testId) {
     payload.test_id = currentRunTarget.testId;
+  } else if (currentRunTarget?.type === "multi" && Array.isArray(currentRunTarget.groupIds) && currentRunTarget.groupIds.length > 0) {
+    if (currentRunTarget.groupIds.length === 1) {
+      payload.group_id = currentRunTarget.groupIds[0];
+      groupFilter = currentRunTarget.groupIds[0];
+    } else {
+      payload.group_ids = [...currentRunTarget.groupIds];
+      groupFilter = [...currentRunTarget.groupIds];
+    }
   } else if (currentRunTarget?.type === "group" && currentRunTarget.groupId) {
     payload.group_id = currentRunTarget.groupId;
-  } else if (selectedGroupId && selectedGroupId !== "") {
-    payload.group_id = selectedGroupId;
+    groupFilter = currentRunTarget.groupId;
   } else {
     payload.group_id = "all";
   }
@@ -1682,8 +1893,7 @@ async function confirmBatteryRun() {
       const one = tests.find((x) => x.id === payload.test_id);
       if (one) targetTests = [one];
     } else {
-      const gid = payload.group_id || "all";
-      targetTests = tests.filter((x) => (gid === "all" || x.group_id === gid) && x.active && x.evaluation_type !== "agent");
+      targetTests = batteryModalTargetTests();
     }
     const hasImages = (x) => [
       ...((x.cases || []).flatMap((c) => c.attachments || [])),
@@ -1708,7 +1918,7 @@ async function confirmBatteryRun() {
       toast(t("toast.error", { msg: "No run_id returned" }), "error");
       return;
     }
-    showBatteryProgressView(modelIDs, runID, payload.group_id || "all");
+    showBatteryProgressView(modelIDs, runID, groupFilter);
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
     showTestsView();

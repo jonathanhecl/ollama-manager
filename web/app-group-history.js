@@ -320,7 +320,7 @@ $("battery-modal")?.addEventListener("click", (e) => {
 $("battery-modal-close")?.addEventListener("click", closeBatteryModal);
 $("battery-modal-cancel")?.addEventListener("click", closeBatteryModal);
 $("battery-modal-confirm")?.addEventListener("click", () => {
-  void confirmBatteryRun();
+  batteryModalConfirm();
 });
 $("battery-results-back")?.addEventListener("click", () => {
   showTestsView();

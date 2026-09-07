@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gense/ollama-manager/internal/runner"
 	"github.com/gense/ollama-manager/internal/tests"
@@ -15,6 +16,7 @@ import (
 func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		GroupID  string   `json:"group_id"`
+		GroupIDs []string `json:"group_ids"`
 		TestID   string   `json:"test_id"`
 		ModelIDs []string `json:"model_ids"`
 	}
@@ -42,6 +44,41 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 			group = tests.Group{ID: test.GroupID, Name: test.Name}
 		}
 		testsList = []tests.Test{test}
+	} else if len(body.GroupIDs) > 0 {
+		// Multi-category run: tests from any of the given groups.
+		allowed := make(map[string]bool, len(body.GroupIDs))
+		var resolved []tests.Group
+		for _, gid := range body.GroupIDs {
+			if allowed[gid] {
+				continue
+			}
+			g, ok := s.testsStore.GetGroup(gid)
+			if !ok {
+				writeError(w, http.StatusNotFound, errors.New("group not found: "+gid))
+				return
+			}
+			allowed[gid] = true
+			resolved = append(resolved, g)
+		}
+		_, allTests := s.testsStore.List()
+		for _, t := range allTests {
+			if allowed[t.GroupID] {
+				testsList = append(testsList, t)
+			}
+		}
+		if len(resolved) == 1 {
+			group = resolved[0]
+		} else {
+			names := make([]string, 0, len(resolved))
+			for _, g := range resolved {
+				if g.Name != "" {
+					names = append(names, g.Name)
+				} else {
+					names = append(names, g.ID)
+				}
+			}
+			group = tests.Group{ID: "all", Name: strings.Join(names, ", ")}
+		}
 	} else if body.GroupID == "" || body.GroupID == "all" {
 		group = tests.Group{ID: "all", Name: "All Tests"}
 		_, allTests := s.testsStore.List()

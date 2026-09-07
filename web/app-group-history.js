@@ -432,8 +432,23 @@ $("battery-results-history")?.addEventListener("click", () => {
 $("battery-history-back")?.addEventListener("click", () => {
   showTestsView();
 });
-$("battery-progress-cancel")?.addEventListener("click", () => {
-  void cancelBatteryRun();
+$("battery-progress-abort")?.addEventListener("click", () => {
+  openBatteryAbortModal();
+});
+$("battery-abort-keep")?.addEventListener("click", () => {
+  closeBatteryAbortModal();
+});
+$("battery-abort-discard")?.addEventListener("click", () => {
+  void abortBatteryRun("discard");
+});
+$("battery-abort-save")?.addEventListener("click", () => {
+  void abortBatteryRun("save-completed");
+});
+$("battery-abort-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("battery-abort-modal")) closeBatteryAbortModal();
+});
+$("battery-progress-skip-model")?.addEventListener("click", () => {
+  void skipModelBatteryTest();
 });
 $("battery-progress-retry")?.addEventListener("click", () => {
   void retryCurrentBatteryTest();

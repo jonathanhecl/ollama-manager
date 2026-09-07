@@ -9,6 +9,7 @@ var (
 	errRepetitionLoop = errors.New("repetition loop detected")
 	errManualSkip     = errors.New("manually skipped")
 	errManualRetry    = errors.New("manually retried")
+	errManualSkipModel = errors.New("manually skipped model")
 )
 
 // isUniformChar reports whether s is non-empty and composed entirely of the same rune.

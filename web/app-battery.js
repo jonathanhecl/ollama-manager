@@ -1880,22 +1880,118 @@ async function pollBatteryProgress(runID, modelIDs) {
   }
 }
 
-async function cancelBatteryRun() {
-  stopBatteryPolling();
+function batteryRunIdFromStorage() {
   const saved = localStorage.getItem(BATTERY_KEY);
-  if (!saved) return;
-  let runID = "";
+  if (!saved) return "";
   try {
-    const data = JSON.parse(saved);
-    runID = data.runID || "";
-  } catch { }
-  if (!runID) return;
+    return JSON.parse(saved).runID || "";
+  } catch {
+    return "";
+  }
+}
+
+function resetBatteryTurnTimers() {
+  batteryActiveTurnKey = "";
+  batteryTurnStartTime = 0;
+  batteryThinkingStartTime = 0;
+  batteryResponseStartTime = 0;
+  updateBatteryCurrentTurnTimer();
+}
+
+function openBatteryAbortModal() {
+  $("battery-abort-modal").hidden = false;
+}
+
+function closeBatteryAbortModal() {
+  $("battery-abort-modal").hidden = true;
+}
+
+// Abort the run, choosing what happens to partial results:
+// "discard" drops everything, "save-completed" keeps results of models
+// that completed all their expected tests.
+async function abortBatteryRun(mode) {
+  const runID = batteryRunIdFromStorage();
+  if (!runID) {
+    closeBatteryAbortModal();
+    return;
+  }
+  closeBatteryAbortModal();
+  let aborted = false;
   try {
-    await api("/api/runner/runs/" + encodeURIComponent(runID) + "/cancel", { method: "POST" });
-    localStorage.removeItem(BATTERY_KEY);
-    showTestsView();
+    const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/abort", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    aborted = !!res?.aborted;
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
+    return;
+  }
+  if (!aborted) {
+    // Run already finished: let the regular poll loop show the results.
+    return;
+  }
+  if (mode === "discard") {
+    // The backend drops the partial run; wait until it is done, then make
+    // sure nothing was persisted and leave the progress view.
+    stopBatteryPolling();
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      try {
+        const p = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/progress");
+        if (p?.done) break;
+      } catch {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    try {
+      await api("/api/runner/runs/" + encodeURIComponent(runID), { method: "DELETE" });
+    } catch { }
+    localStorage.removeItem(BATTERY_KEY);
+    toast(t("toast.run_discarded") || "Run discarded", "info");
+    showTestsView();
+  } else {
+    // Pruned results are saved by the backend; the regular poll loop picks
+    // up Done and shows the results view.
+    resetBatteryTurnTimers();
+    toast(t("toast.run_abort_saving") || "Stopping… completed models will be kept", "info");
+    if (batteryActiveRunID === runID) {
+      void pollBatteryProgress(runID, []);
+    }
+  }
+}
+
+async function skipModelBatteryTest() {
+  const runID = batteryRunIdFromStorage();
+  if (!runID) return;
+  const skipBtn = $("battery-progress-skip-model");
+  if (skipBtn) skipBtn.disabled = true;
+  try {
+    const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/skip-model", { method: "POST" });
+    if (res?.skipped) {
+      toast(t("toast.model_skipped") || "Current model skipped", "info");
+      // Drop the skipped model's future queue entries so the timeline and
+      // live stats no longer expect them.
+      const cur = batteryTimelineCurrent;
+      if (cur && cur.model && Array.isArray(batteryTimelineQueue)) {
+        batteryTimelineQueue = batteryTimelineQueue.filter(
+          (q) => q.model !== cur.model || (q.index || 0) <= (cur.index || 0)
+        );
+      }
+      resetBatteryTurnTimers();
+      if (batteryActiveRunID === runID) {
+        void pollBatteryProgress(runID, []);
+      }
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  } finally {
+    if (skipBtn) {
+      setTimeout(() => {
+        if (skipBtn) skipBtn.disabled = false;
+      }, 1000);
+    }
   }
 }
 

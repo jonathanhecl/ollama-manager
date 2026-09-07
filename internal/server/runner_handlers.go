@@ -307,6 +307,33 @@ func (s *Server) handleSkipBatteryTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"skipped": skipped})
 }
 
+func (s *Server) handleSkipBatteryModel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing run id"))
+		return
+	}
+	skipped := s.runner.SkipCurrentModel(id)
+	writeJSON(w, http.StatusOK, map[string]any{"skipped": skipped})
+}
+
+func (s *Server) handleAbortBatteryRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing run id"))
+		return
+	}
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Mode != "save-completed" {
+		body.Mode = "discard"
+	}
+	aborted := s.runner.AbortRun(id, body.Mode)
+	writeJSON(w, http.StatusOK, map[string]any{"aborted": aborted, "mode": body.Mode})
+}
+
 func (s *Server) handleBatteryProgress(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

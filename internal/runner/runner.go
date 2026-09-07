@@ -98,15 +98,29 @@ type Client struct {
 	cancelMu    sync.Mutex
 	cancels     map[string]context.CancelFunc
 	testCancels map[string]context.CancelCauseFunc
+	// modelCancels holds the outer per-test cancel funcs (one live per run).
+	// SkipCurrentModel cancels both the inner (step/case) and the outer
+	// cancel so the run jumps to the next model instead of retrying.
+	modelCancels map[string]context.CancelCauseFunc
+	abortMu      sync.Mutex
+	// abortMode records a pending abort choice per run ("discard" or
+	// "save-completed"), applied to the run before onComplete fires.
+	abortMode map[string]string
+	// runExpected tracks tests expected per model per run, used to keep
+	// only fully-completed models on abort with "save-completed".
+	runExpected map[string]map[string]int
 }
 
 // NewClient creates a runner client.
 func NewClient(ollamaClient *ollama.Client) *Client {
 	return &Client{
-		ollama:      ollamaClient,
-		progress:    make(map[string]*Progress),
-		cancels:     make(map[string]context.CancelFunc),
-		testCancels: make(map[string]context.CancelCauseFunc),
+		ollama:       ollamaClient,
+		progress:     make(map[string]*Progress),
+		cancels:      make(map[string]context.CancelFunc),
+		testCancels:  make(map[string]context.CancelCauseFunc),
+		modelCancels: make(map[string]context.CancelCauseFunc),
+		abortMode:    make(map[string]string),
+		runExpected:  make(map[string]map[string]int),
 	}
 }
 
@@ -178,14 +192,17 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 	}
 
 	total := 0
+	expectedByModel := make(map[string]int, len(modelIDs))
 	for _, model := range modelIDs {
 		caps := modelCaps[model]
 		for _, test := range activeTests {
 			if hasAllCaps(caps, test.RequiredCaps) {
 				total++
+				expectedByModel[model]++
 			}
 		}
 	}
+	c.setRunExpected(run.ID, expectedByModel)
 
 	c.setProgress(Progress{RunID: run.ID, TotalTests: total, GroupID: group.ID, GroupName: group.Name, Models: append([]string(nil), run.Models...)})
 
@@ -199,12 +216,14 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 			c.cancelMu.Lock()
 			delete(c.cancels, run.ID)
 			c.cancelMu.Unlock()
+			c.applyAbortMode(run)
 			if onComplete != nil {
 				onComplete(run)
 			}
 		}()
 		idx := 0
 		var runErr string
+	runModels:
 		for _, model := range modelIDs {
 			caps := modelCaps[model]
 			for _, test := range activeTests {
@@ -212,13 +231,19 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 					continue
 				}
 		idx++
+		skipModel := false
 		for {
 			testCtx, testCancel := context.WithCancelCause(runCtx)
 			c.setTestCancel(run.ID, testCancel)
+			c.setModelCancel(run.ID, testCancel)
 			res := c.runTest(testCtx, run.ID, model, test, idx, total)
 			retry := errors.Is(context.Cause(testCtx), errManualRetry)
+			if errors.Is(context.Cause(testCtx), errManualSkipModel) {
+				skipModel = true
+			}
 			testCancel(nil)
 			c.clearTestCancel(run.ID)
+			c.clearModelCancel(run.ID)
 			if retry {
 				// Manual retry: discard the cancelled attempt and re-run the
 				// same test from scratch (same idx, nothing appended).
@@ -232,6 +257,12 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 			c.updateProgressResults(run.ID, run.Results)
 			break
 		}
+				if skipModel {
+					// Manual model skip: the interrupted test was recorded
+					// above; drop this model's remaining tests and continue
+					// with the next model.
+					break
+				}
 				if runCtx.Err() != nil {
 					runErr = runCtx.Err().Error()
 					break
@@ -240,7 +271,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 			// Unload model from memory only after ALL tests for this model have completed.
 			_ = c.ollama.Unload(runCtx, model)
 			if runCtx.Err() != nil {
-				break
+				break runModels
 			}
 		}
 		if runErr != "" {
@@ -306,6 +337,100 @@ func (c *Client) SkipCurrentTest(runID string) bool {
 		return true
 	}
 	return false
+}
+
+// SkipCurrentModel aborts the currently executing test and all remaining
+// tests of the active model, continuing with the next model. Results
+// completed so far (including the interrupted test, recorded as skipped)
+// are kept.
+func (c *Client) SkipCurrentModel(runID string) bool {
+	c.cancelMu.Lock()
+	inner, hasInner := c.testCancels[runID]
+	outer, hasOuter := c.modelCancels[runID]
+	c.cancelMu.Unlock()
+	ok := false
+	if hasInner && inner != nil {
+		inner(errManualSkipModel)
+		ok = true
+	}
+	if hasOuter && outer != nil {
+		outer(errManualSkipModel)
+		ok = true
+	}
+	return ok
+}
+
+// AbortRun cancels an active battery run, choosing what happens to the
+// partial results. mode "discard" drops everything; mode "save-completed"
+// keeps only results of models that completed all their expected tests.
+// Returns false when there is no active run to abort.
+func (c *Client) AbortRun(runID, mode string) bool {
+	if mode != "save-completed" {
+		mode = "discard"
+	}
+	c.abortMu.Lock()
+	c.abortMode[runID] = mode
+	c.abortMu.Unlock()
+	return c.CancelRun(runID)
+}
+
+func (c *Client) setModelCancel(runID string, cancel context.CancelCauseFunc) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	c.modelCancels[runID] = cancel
+}
+
+func (c *Client) clearModelCancel(runID string) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	delete(c.modelCancels, runID)
+}
+
+func (c *Client) setRunExpected(runID string, expected map[string]int) {
+	c.abortMu.Lock()
+	defer c.abortMu.Unlock()
+	c.runExpected[runID] = expected
+}
+
+// applyAbortMode rewrites the finished run according to a pending abort
+// choice (if any) and releases per-run bookkeeping. Runs without an abort
+// choice are left untouched.
+func (c *Client) applyAbortMode(run *BatteryRun) {
+	c.abortMu.Lock()
+	mode := c.abortMode[run.ID]
+	delete(c.abortMode, run.ID)
+	expected := c.runExpected[run.ID]
+	delete(c.runExpected, run.ID)
+	c.abortMu.Unlock()
+
+	switch mode {
+	case "discard":
+		run.Results = nil
+		run.Models = nil
+	case "save-completed":
+		counts := make(map[string]int, len(run.Results))
+		for _, res := range run.Results {
+			counts[res.Model]++
+		}
+		kept := run.Results[:0]
+		for _, res := range run.Results {
+			if counts[res.Model] >= expected[res.Model] {
+				kept = append(kept, res)
+			}
+		}
+		// Clear the tail so dropped results are not retained.
+		for i := len(kept); i < len(run.Results); i++ {
+			run.Results[i] = TestResult{}
+		}
+		run.Results = kept
+		models := run.Models[:0]
+		for _, m := range run.Models {
+			if counts[m] >= expected[m] {
+				models = append(models, m)
+			}
+		}
+		run.Models = models
+	}
 }
 
 type turnResult struct {
@@ -789,7 +914,8 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				caseCancel(nil)
 
 				if stopped {
-					isSkip := errors.Is(context.Cause(caseCtx), errManualSkip)
+					cause := context.Cause(caseCtx)
+					isSkip := errors.Is(cause, errManualSkip) || errors.Is(cause, errManualSkipModel)
 					remainingErr := "skipped due to case failure"
 					if isSkip {
 						remainingErr = "manually skipped"
@@ -971,7 +1097,7 @@ func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages
 retryLoop:
 	for attempt := 0; attempt <= 3; attempt++ {
 		if attempt > 0 {
-			if errors.Is(chatErr, errRepetitionLoop) || errors.Is(chatErr, errManualSkip) || ctx.Err() != nil {
+			if errors.Is(chatErr, errRepetitionLoop) || errors.Is(chatErr, errManualSkip) || errors.Is(chatErr, errManualSkipModel) || ctx.Err() != nil {
 				break retryLoop
 			}
 			if loaded, psErr := c.isModelLoaded(ctx, model); psErr == nil && !loaded {
@@ -1026,6 +1152,8 @@ retryLoop:
 
 		if cause := context.Cause(ctx); errors.Is(cause, errManualSkip) {
 			chatErr = errManualSkip
+		} else if errors.Is(cause, errManualSkipModel) {
+			chatErr = errManualSkipModel
 		} else if errors.Is(cause, errManualRetry) {
 			chatErr = errManualRetry
 		}
@@ -1039,6 +1167,8 @@ retryLoop:
 
 	if cause := context.Cause(ctx); errors.Is(cause, errManualSkip) {
 		chatErr = errManualSkip
+	} else if errors.Is(cause, errManualSkipModel) {
+		chatErr = errManualSkipModel
 	} else if errors.Is(cause, errManualRetry) {
 		chatErr = errManualRetry
 	}

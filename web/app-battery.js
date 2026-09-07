@@ -594,10 +594,6 @@ function renderBatteryKPIs(p, stats) {
     elTokens.textContent = `${stats.totalTokens.toLocaleString()} tokens`;
   }
 
-  requestAnimationFrame(() => {
-    const view = $("battery-progress-view");
-    if (view) setupMarquees(view);
-  });
 }
 
 function setupMarquees(container = document) {
@@ -626,13 +622,28 @@ function setupMarquees(container = document) {
   });
 }
 
+let _leaderboardFingerprint = "";
 function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
   const container = $("battery-leaderboard-container");
   if (!container) return;
   if (!modelIDs || !modelIDs.length) {
+    _leaderboardFingerprint = "";
     container.innerHTML = `<div class="muted">${escapeHtml(t("battery.starting"))}</div>`;
     return;
   }
+
+  // Build a lightweight fingerprint of the data to skip DOM rebuild when nothing changed
+  let fp = currentModel + "|";
+  for (const m of modelIDs) {
+    const st = modelMap.get(m);
+    if (st) {
+      fp += `${m}:${st.completed},${st.passed},${st.failed},${st.expected},${st.isCurrent},${st.isDone},${(st.avgSpeed||0).toFixed(1)};`;
+    } else {
+      fp += `${m}:0;`;
+    }
+  }
+  if (fp === _leaderboardFingerprint) return; // data unchanged, skip rebuild
+  _leaderboardFingerprint = fp;
 
   let html = `
     <table class="battery-leaderboard-table">

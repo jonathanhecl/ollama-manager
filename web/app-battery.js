@@ -940,13 +940,32 @@ function batteryLbStatsFor(modelMap, m, currentModel) {
 function batteryLbRowSig(st) {
   return `${st.expected}|${st.completed}|${st.passed}|${st.failed}|${(st.avgSpeed || 0).toFixed(1)}|${st.isCurrent ? 1 : 0}|${st.isDone ? 1 : 0}`;
 }
+function batteryLbStatusKey(st) {
+  if (st.isCurrent) return "running";
+  if (st.isDone) return "done";
+  return "pending";
+}
+function batteryLbStatusLabel(st) {
+  if (st.isCurrent) return t("battery.status_running");
+  if (st.isDone) return t("battery.status_done");
+  return t("battery.status_pending");
+}
 function batteryLbStatusBadge(st) {
-  if (st.isCurrent) {
-    return `<span class="badge badge-primary pulse">⚡ ${escapeHtml(t("battery.status_running"))}</span>`;
-  } else if (st.isDone) {
-    return `<span class="badge badge-pass">✔ ${escapeHtml(t("battery.status_done"))}</span>`;
+  // Legacy helper kept for compatibility: status is now encoded as row
+  // background (see batteryLbStatusKey), not as a badge column.
+  const key = batteryLbStatusKey(st);
+  const label = escapeHtml(batteryLbStatusLabel(st));
+  if (key === "running") {
+    return `<span class="badge badge-primary pulse">⚡ ${label}</span>`;
+  } else if (key === "done") {
+    return `<span class="badge badge-pass">✔ ${label}</span>`;
   }
-  return `<span class="badge badge-muted">⏳ ${escapeHtml(t("battery.status_pending"))}</span>`;
+  return `<span class="badge badge-muted">⏳ ${label}</span>`;
+}
+function batteryLbRowClass(st) {
+  const key = batteryLbStatusKey(st);
+  const base = "battery-leaderboard-row status-" + key;
+  return key === "running" ? base + " active-model-row" : base;
 }
 function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
   const container = $("battery-leaderboard-container");
@@ -977,7 +996,6 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
           <th class="col-head-ratio">${escapeHtml(t("battery.col_ratio"))}</th>
           <th class="col-head-pass">${escapeHtml(t("battery.col_pass_pct"))}</th>
           <th class="col-head-speed">${escapeHtml(t("battery.col_speed"))}</th>
-          <th class="col-head-status">${escapeHtml(t("battery.col_status"))}</th>
         </tr>
       </thead>
       <tbody>
@@ -991,9 +1009,8 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
     const failBarWidth = totalExp > 0 ? (st.failed / totalExp) * 100 : 0;
     const pendingCount = Math.max(0, totalExp - st.completed);
 
-    const statusBadge = batteryLbStatusBadge(st);
-
-    const rowClass = st.isCurrent ? "battery-leaderboard-row active-model-row" : "battery-leaderboard-row";
+    const rowClass = batteryLbRowClass(st);
+    const statusLabel = batteryLbStatusLabel(st);
     const passPctColor = passPct >= 75 ? "var(--good)" : (passPct >= 50 ? "var(--warn)" : "var(--danger)");
     const ratioTooltip = `${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}${pendingCount > 0 ? ` · ${pendingCount} ${t("battery.status_pending")}` : ""}`;
     const pctTooltip = st.completed > 0 ? `${st.passed}/${totalExp} (${passPct}%)` : "";
@@ -1004,7 +1021,7 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
     }
 
     html += `
-      <tr class="${rowClass}" data-sig="${escapeHtml(batteryLbRowSig(st))}">
+      <tr class="${rowClass}" data-sig="${escapeHtml(batteryLbRowSig(st))}" title="${escapeHtml(m)} · ${escapeHtml(statusLabel)}">
         <td class="col-cell-model">
           <div class="leaderboard-model-cell">
             <div class="marquee-wrapper leaderboard-marquee">
@@ -1027,7 +1044,6 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
         <td class="col-cell-speed mono muted">
           ${st.avgSpeed > 0 ? `${st.avgSpeed.toFixed(1)} <span class="speed-unit">tok/s</span>` : "—"}
         </td>
-        <td class="col-cell-status">${statusBadge}</td>
       </tr>
     `;
   }
@@ -1040,8 +1056,8 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
 
 // In-place stat update for leaderboard rows. The model-name marquee nodes are
 // never touched here, so their animations survive polls, completed tests and
-// case changes. Only the numeric/status cells are rewritten, and only when
-// their per-row signature changed.
+// case changes. Only the numeric cells are rewritten, and only when
+// their per-row signature changed. Status is encoded as row background.
 function updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel) {
   const rows = tbody.querySelectorAll("tr.battery-leaderboard-row");
   modelIDs.forEach((m, i) => {
@@ -1051,7 +1067,12 @@ function updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel) {
     const sig = batteryLbRowSig(st);
     if (row.dataset.sig === sig) return;
     row.dataset.sig = sig;
+    const key = batteryLbStatusKey(st);
+    row.classList.toggle("status-running", key === "running");
+    row.classList.toggle("status-done", key === "done");
+    row.classList.toggle("status-pending", key === "pending");
     row.classList.toggle("active-model-row", !!st.isCurrent);
+    row.title = `${m} · ${batteryLbStatusLabel(st)}`;
 
     const totalExp = st.expected > 0 ? st.expected : st.completed;
     const passPct = Math.round(st.passRate);
@@ -1084,14 +1105,6 @@ function updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel) {
       if (speedCell.dataset.html !== html) {
         speedCell.dataset.html = html;
         speedCell.innerHTML = html;
-      }
-    }
-    const statusCell = row.querySelector(".col-cell-status");
-    if (statusCell) {
-      const html = batteryLbStatusBadge(st);
-      if (statusCell.dataset.html !== html) {
-        statusCell.dataset.html = html;
-        statusCell.innerHTML = html;
       }
     }
   });

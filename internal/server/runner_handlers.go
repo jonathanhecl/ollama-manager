@@ -261,6 +261,22 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// handleDeleteModelHistory removes all battery results for one model across
+// every run. The model name travels in a wildcard segment because names may
+// contain slashes (e.g. hf.co/org/model:tag).
+func (s *Server) handleDeleteModelHistory(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing model name"))
+		return
+	}
+	if err := s.runnerStore.DeleteModelHistory(name); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) handleCancelBatteryRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

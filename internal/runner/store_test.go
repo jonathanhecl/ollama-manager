@@ -76,6 +76,85 @@ func TestDeleteTestHistory(t *testing.T) {
 	}
 }
 
+func TestDeleteModelHistory(t *testing.T) {
+	dir := t.TempDir()
+	store := NewResultStore(dir)
+
+	passed := true
+	store.runs = []BatteryRun{
+		{
+			ID:        "run-1",
+			Timestamp: time.Now().UTC(),
+			GroupID:   "core",
+			GroupName: "Core",
+			Models:    []string{"m1", "m2"},
+			Results: []TestResult{
+				{TestID: "t1", TestName: "A", Model: "m1", Passed: &passed},
+				{TestID: "t2", TestName: "B", Model: "m1", Passed: &passed},
+				{TestID: "t1", TestName: "A", Model: "m2", Passed: &passed},
+			},
+		},
+		{
+			ID:        "run-2",
+			Timestamp: time.Now().UTC(),
+			GroupID:   "core",
+			GroupName: "Core",
+			Models:    []string{"m1"},
+			Results: []TestResult{
+				{TestID: "t1", TestName: "A", Model: "m1", Passed: &passed},
+			},
+		},
+	}
+
+	if err := store.saveGroupLocked("core"); err != nil {
+		t.Fatalf("saveGroupLocked: %v", err)
+	}
+
+	if err := store.DeleteModelHistory("m1"); err != nil {
+		t.Fatalf("DeleteModelHistory: %v", err)
+	}
+
+	// Only m2 results survive; run-2 (m1 only) is dropped entirely.
+	if len(store.runs) != 1 {
+		t.Fatalf("runs = %d, want 1", len(store.runs))
+	}
+	if len(store.runs[0].Results) != 1 || store.runs[0].Results[0].Model != "m2" {
+		t.Fatalf("unexpected remaining results: %+v", store.runs[0].Results)
+	}
+
+	// t2 had only m1 results: its history file must be gone.
+	if _, err := os.Stat(filepath.Join(dir, "core", "t2._history.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected t2._history.json to be deleted after DeleteModelHistory")
+	}
+	// t1 still has the m2 result: its file must remain with only m2 inside.
+	data, err := os.ReadFile(filepath.Join(dir, "core", "t1._history.json"))
+	if err != nil {
+		t.Fatalf("expected t1._history.json to remain: %v", err)
+	}
+	var pf persistFile
+	if err := json.Unmarshal(data, &pf); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, r := range pf.Runs {
+		for _, res := range r.Results {
+			if res.Model == "m1" {
+				t.Fatalf("m1 result leaked into t1 history: %+v", res)
+			}
+		}
+	}
+
+	// Deleting a model with no results is a no-op.
+	if err := store.DeleteModelHistory("m1"); err != nil {
+		t.Fatalf("DeleteModelHistory (absent model): %v", err)
+	}
+	if len(store.runs) != 1 {
+		t.Fatalf("runs = %d, want 1 after no-op delete", len(store.runs))
+	}
+	if err := store.DeleteModelHistory(""); err != nil {
+		t.Fatalf("DeleteModelHistory (empty model): %v", err)
+	}
+}
+
 func TestPerExerciseHistorySaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	catDir := filepath.Join(dir, "examples")

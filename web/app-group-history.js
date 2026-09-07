@@ -246,7 +246,9 @@ async function buildLeaderboardTableHtml() {
     bodyRows += `
       <tr class="${idx === 0 ? "lb-row-first" : ""}${installed ? "" : " lb-row-uninstalled"}"${installed ? "" : ` data-lb-uninstalled="1" data-lb-model="${escapeHtml(row.model)}"`}>
         <td class="cell-lb-model">
-          <div class="lb-model-top"><span class="lb-rank">${idx + 1}</span><strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong></div>
+          <div class="lb-model-top"><span class="lb-rank">${idx + 1}</span><strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong>
+            <span class="lb-row-actions">${installed ? `<button type="button" class="ghost lb-row-btn" data-lb-chat="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_chat"))}">💬</button>` : ""}${row.total > 0 ? `<button type="button" class="ghost lb-row-btn danger-text" data-lb-reset-model="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_reset_model"))}">🧹</button>` : ""}</span>
+          </div>
           ${metaHtml}
         </td>
         ${cells}
@@ -335,11 +337,52 @@ $("battery-leaderboard-refresh")?.addEventListener("click", () => {
   void renderLeaderboardPage();
 });
 
+// Reset all battery results for one model (the model itself is kept).
+async function resetLeaderboardModelHistory(name) {
+  if (!name) return;
+  const ok = await askConfirm({
+    title: t("battery.lb_reset_model_title"),
+    text: t("battery.lb_reset_model_text", { name }),
+    okText: t("action.delete"),
+    okClass: "danger",
+  });
+  if (!ok.ok) return;
+  try {
+    await api("/api/runner/model-history/" + encodeURIComponent(name), { method: "DELETE" });
+    toast(t("toast.model_history_deleted", { name }), "info");
+    if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) {
+      await renderLeaderboardModal();
+    }
+    if ($("battery-leaderboard-view") && !$("battery-leaderboard-view").hidden) {
+      await renderLeaderboardPage();
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
 // Click a leaderboard cell to run it: a score/empty cell opens the battery
 // modal with that category + model preselected (overall column = all
 // categories for the model, category header = that category). Delegated so
 // it survives table rebuilds and works in the modal too.
 document.addEventListener("click", (e) => {
+  // Row actions: chat with the model, or clear its test results.
+  const chatBtn = e.target?.closest?.("[data-lb-chat]");
+  if (chatBtn) {
+    const name = chatBtn.dataset.lbChat;
+    if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) {
+      closeLeaderboardModal();
+    }
+    if (typeof showChatViewWithModel === "function") {
+      void showChatViewWithModel(name);
+    }
+    return;
+  }
+  const resetBtn = e.target?.closest?.("[data-lb-reset-model]");
+  if (resetBtn) {
+    void resetLeaderboardModelHistory(resetBtn.dataset.lbResetModel);
+    return;
+  }
   // Uninstalled models: results stay visible but cannot be run.
   const lockedCell = e.target?.closest?.("tr[data-lb-uninstalled] td.cell-lb-score");
   if (lockedCell) {

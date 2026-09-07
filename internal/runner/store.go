@@ -681,6 +681,46 @@ func (s *ResultStore) DeleteTestHistory(testID string) error {
 	return nil
 }
 
+// DeleteModelHistory removes all battery results for a model across every
+// run. Runs left without results are dropped. Per-exercise history files are
+// re-saved (files with no remaining runs are removed by saveExerciseLocked).
+func (s *ResultStore) DeleteModelHistory(model string) error {
+	if model == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	affected := make(map[exerciseLocation]struct{})
+	kept := make([]BatteryRun, 0, len(s.runs))
+	for _, run := range s.runs {
+		filtered := run.Results[:0]
+		for _, res := range run.Results {
+			if res.Model == model {
+				gid, base := s.resolveExerciseLocked(res.TestID, run.GroupID)
+				affected[exerciseLocation{GroupID: gid, Base: base}] = struct{}{}
+				continue
+			}
+			filtered = append(filtered, res)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		if len(filtered) != len(run.Results) {
+			run.Results = filtered
+		}
+		kept = append(kept, run)
+	}
+
+	s.runs = kept
+
+	for ex := range affected {
+		_ = s.saveExerciseLocked(ex.GroupID, ex.Base)
+	}
+
+	return nil
+}
+
 // DeleteRun removes a run by ID.
 func (s *ResultStore) DeleteRun(id string) error {
 	s.mu.Lock()

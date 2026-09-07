@@ -629,11 +629,15 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				if stepLabel == "" {
 					stepLabel = fmt.Sprintf("Step %d", j+1)
 				}
+				turnLabel := caseLabel + " › " + stepLabel
+				if len(tc.Steps) == 1 && tc.Prompt == "" && (st.Name == "" || st.Name == fmt.Sprintf("Step %d", j+1)) {
+					turnLabel = caseLabel
+				}
 				if st.SystemPrompt != "" {
 					history = setSystemPrompt(history, st.SystemPrompt)
 				}
 				var ok bool
-				if history, ok = runCaseTurn(history, caseLabel+" › "+stepLabel, st.Prompt, nil, effStepSys[j], st.Evaluation, effStepOpts[j]); !ok {
+				if history, ok = runCaseTurn(history, turnLabel, st.Prompt, st.Attachments, effStepSys[j], st.Evaluation, effStepOpts[j]); !ok {
 					stopped = true
 					break
 				}

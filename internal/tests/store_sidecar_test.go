@@ -117,3 +117,62 @@ func TestSidecarSaveDelete(t *testing.T) {
 		t.Fatalf("expected error deleting missing sidecar")
 	}
 }
+
+func TestNamedAndStepAttachments(t *testing.T) {
+	dir := t.TempDir()
+	groupDir := filepath.Join(dir, "mygroup")
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const namedYAML = `id: named-demo
+name: Named Demo
+group_id: mygroup
+active: true
+order: 0
+cases:
+  - name: Case 1
+    prompt: "Prompt 1"
+    attachment: "shared.png"
+  - name: Case 2
+    prompt: "Prompt 2"
+    attachment: "shared.png"
+  - name: Case 3
+    steps:
+      - name: Step 1
+        prompt: "Step prompt"
+        attachment: "step_file.txt"
+`
+	if err := os.WriteFile(filepath.Join(groupDir, "named.yaml"), []byte(namedYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groupDir, "shared.png"), []byte("sharedpngbytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groupDir, "step_file.txt"), []byte("step text content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := New(dir)
+	if err := store.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	test, ok := store.GetTest("named-demo")
+	if !ok {
+		t.Fatalf("test not found")
+	}
+	if len(test.Cases) != 3 {
+		t.Fatalf("expected 3 cases, got %d", len(test.Cases))
+	}
+	// Case 1 and Case 2 both use shared.png
+	if len(test.Cases[0].Attachments) != 1 || test.Cases[0].Attachments[0].Name != "shared.png" {
+		t.Fatalf("case 0 attachment wrong: %+v", test.Cases[0].Attachments)
+	}
+	if len(test.Cases[1].Attachments) != 1 || test.Cases[1].Attachments[0].Name != "shared.png" {
+		t.Fatalf("case 1 attachment wrong: %+v", test.Cases[1].Attachments)
+	}
+	// Case 3 step has step_file.txt
+	if len(test.Cases[2].Steps) != 1 || len(test.Cases[2].Steps[0].Attachments) != 1 || test.Cases[2].Steps[0].Attachments[0].Name != "step_file.txt" {
+		t.Fatalf("case 2 step attachment wrong: %+v", test.Cases[2].Steps[0].Attachments)
+	}
+}
+

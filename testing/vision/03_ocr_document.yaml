@@ -1,25 +1,20 @@
 id: vis-ocr-document
-name: 'Vision 03 · OCR Document (SCAFFOLD)'
-description: 'SCAFFOLD — attach a document photo/scan via the editor, set expected to distinctive phrases of the true transcription, then set active: true.'
+name: 'Vision 03 · OCR Document'
+description: 'Transcribes text from an invoice document photo.'
 group_id: vision
-active: false
+active: true
 order: 2
-
-prompt: Transcribe all text visible in this document image. Do not add anything else.
-evaluation:
-  type: contains
-  expected: "TODO-distinctive-phrase"
-
-options:
-  temperature: 0.2
-
 required_caps:
   - vision
 
-attachments:
-  - id: att-vis-document
-    kind: image
-    name: TODO_document.jpg
-    mime: image/jpeg
-    # TODO: attach the real image via the test editor (this placeholder is replaced, then set active: true)
-    data: ""
+cases:
+  - name: 'Invoice'
+    steps:
+      - name: 'Transcribe document'
+        prompt: Transcribe all text visible in this document image. Do not add anything else.
+        attachment: 03_ocr_document-1.jpg
+        options:
+          temperature: 0.2
+        evaluation:
+          type: contains
+          expected: "INV-4092"

@@ -33,15 +33,36 @@ type Group struct {
 }
 
 // Attachment is a file attached to a single case or step (image, audio, or
-// text document). Attachments are NEVER written to the test YAML: they live
-// as sidecar files next to it named <base>-<N>.<ext> (N = 1-based case/step
-// index) and are discovered at Load time into these runtime-only fields.
+// text document). Attachments live as files next to the test YAML, referenced
+// by filename in YAML (attachment / attachments) or discovered automatically
+// as sidecars (<base>-<N>.<ext>).
 type Attachment struct {
-	ID   string `json:"id" yaml:"-"`
-	Kind string `json:"kind" yaml:"-"` // "image", "audio", "text"
-	Name string `json:"name" yaml:"-"` // sidecar filename, e.g. vision-cases-1.png
-	Mime string `json:"mime" yaml:"-"` // MIME type derived from the extension
-	Data string `json:"data" yaml:"-"` // base64 file content
+	ID   string `json:"id" yaml:"id,omitempty"`
+	Kind string `json:"kind" yaml:"kind,omitempty"` // "image", "audio", "text"
+	Name string `json:"name" yaml:"name,omitempty"` // sidecar or attachment filename, e.g. vision_cases-1.png
+	Mime string `json:"mime" yaml:"mime,omitempty"` // MIME type derived from the extension
+	Data string `json:"data" yaml:"-"`              // base64 file content (runtime only, never serialized to YAML)
+}
+
+func (a *Attachment) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		a.Name = value.Value
+		return nil
+	}
+	type rawAttachment Attachment
+	var raw rawAttachment
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*a = Attachment(raw)
+	return nil
+}
+
+func (a Attachment) MarshalYAML() (any, error) {
+	if a.Name != "" {
+		return a.Name, nil
+	}
+	return nil, nil
 }
 
 // Message represents a single chat turn in a multi-message test script.
@@ -74,7 +95,8 @@ type Step struct {
 	Evaluation   *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
 	SystemPrompt string       `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 	Options      *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
-	Attachments  []Attachment `json:"attachments,omitempty" yaml:"-"`
+	Attachment   string       `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Attachments  []Attachment `json:"attachments,omitempty" yaml:"attachments,omitempty"`
 }
 
 // CaseStep is a single chained turn inside a multi-turn test case.
@@ -93,6 +115,8 @@ type CaseStep struct {
 	Evaluation   *Evaluation  `json:"evaluation,omitempty" yaml:"evaluation,omitempty"`
 	SystemPrompt string       `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 	Options      *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
+	Attachment   string       `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Attachments  []Attachment `json:"attachments,omitempty" yaml:"attachments,omitempty"`
 }
 
 // TestCase represents an individual case in a batch/matrix test suite.
@@ -104,7 +128,8 @@ type TestCase struct {
 	SystemPrompt string       `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 	Options      *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
 	Steps        []CaseStep   `json:"steps,omitempty" yaml:"steps,omitempty"`
-	Attachments  []Attachment `json:"attachments,omitempty" yaml:"-"`
+	Attachment   string       `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Attachments  []Attachment `json:"attachments,omitempty" yaml:"attachments,omitempty"`
 }
 
 // TestOptions represents optional inference parameters.
@@ -208,19 +233,82 @@ func SidecarKindForExt(ext string) (kind, mime string, ok bool) {
 	return "", "", false
 }
 
-// attachSidecarsLocked discovers <base>-<N>.<ext> sidecar files next to the
-// test file and attaches them to case/step N (1-based), or — for simple
-// prompt-only tests — the <base>-1.<ext> file to the test itself. It resets
-// all runtime attachment fields first, so it can be re-run after uploads or
-// deletions. Call with s.mu held.
+// loadAttachmentFile loads an attachment by filename from catDir.
+func loadAttachmentFile(catDir string, filename string) (Attachment, bool) {
+	filename = filepath.Base(filename)
+	ext := filepath.Ext(filename)
+	kind, mime, ok := SidecarKindForExt(ext)
+	if !ok {
+		return Attachment{}, false
+	}
+	data, err := os.ReadFile(filepath.Join(catDir, filename))
+	if err != nil || len(data) == 0 || len(data) > MaxSidecarBytes {
+		return Attachment{}, false
+	}
+	return Attachment{
+		ID:   filename,
+		Kind: kind,
+		Name: filename,
+		Mime: mime,
+		Data: base64.StdEncoding.EncodeToString(data),
+	}, true
+}
+
+// attachSidecarsLocked discovers files next to the test YAML:
+// 1. Explicit attachments declared by filename in cases or steps (attachment / attachments).
+// 2. Fallback sidecar discovery for unattached cases/steps using <base>-<N>.<ext> convention.
 func (s *Store) attachSidecarsLocked(catDir string, t *Test) {
 	t.Sidecars = nil
 	for i := range t.Cases {
-		t.Cases[i].Attachments = nil
+		var resolved []Attachment
+		if t.Cases[i].Attachment != "" {
+			if att, ok := loadAttachmentFile(catDir, t.Cases[i].Attachment); ok {
+				resolved = append(resolved, att)
+			}
+		}
+		for _, raw := range t.Cases[i].Attachments {
+			if raw.Name != "" && (t.Cases[i].Attachment == "" || raw.Name != t.Cases[i].Attachment) {
+				if att, ok := loadAttachmentFile(catDir, raw.Name); ok {
+					resolved = append(resolved, att)
+				}
+			}
+		}
+		t.Cases[i].Attachments = resolved
+
+		for j := range t.Cases[i].Steps {
+			var stepResolved []Attachment
+			if t.Cases[i].Steps[j].Attachment != "" {
+				if att, ok := loadAttachmentFile(catDir, t.Cases[i].Steps[j].Attachment); ok {
+					stepResolved = append(stepResolved, att)
+				}
+			}
+			for _, raw := range t.Cases[i].Steps[j].Attachments {
+				if raw.Name != "" && (t.Cases[i].Steps[j].Attachment == "" || raw.Name != t.Cases[i].Steps[j].Attachment) {
+					if att, ok := loadAttachmentFile(catDir, raw.Name); ok {
+						stepResolved = append(stepResolved, att)
+					}
+				}
+			}
+			t.Cases[i].Steps[j].Attachments = stepResolved
+		}
 	}
 	for i := range t.Steps {
-		t.Steps[i].Attachments = nil
+		var stepResolved []Attachment
+		if t.Steps[i].Attachment != "" {
+			if att, ok := loadAttachmentFile(catDir, t.Steps[i].Attachment); ok {
+				stepResolved = append(stepResolved, att)
+			}
+		}
+		for _, raw := range t.Steps[i].Attachments {
+			if raw.Name != "" && (t.Steps[i].Attachment == "" || raw.Name != t.Steps[i].Attachment) {
+				if att, ok := loadAttachmentFile(catDir, raw.Name); ok {
+					stepResolved = append(stepResolved, att)
+				}
+			}
+		}
+		t.Steps[i].Attachments = stepResolved
 	}
+
 	base := strings.TrimSuffix(t.Filename, filepath.Ext(t.Filename))
 	if base == "" {
 		return
@@ -247,36 +335,29 @@ func (s *Store) attachSidecarsLocked(catDir string, t *Test) {
 		if err != nil || n < 1 {
 			continue
 		}
-		kind, mime, ok := SidecarKindForExt(rest[dot:])
+		att, ok := loadAttachmentFile(catDir, name)
 		if !ok {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(catDir, name))
-		if err != nil || len(data) == 0 || len(data) > MaxSidecarBytes {
-			continue
-		}
-		att := Attachment{
-			ID:   base + "-" + strconv.Itoa(n) + strings.ToLower(rest[dot:]),
-			Kind: kind,
-			Name: name,
-			Mime: mime,
-			Data: base64.StdEncoding.EncodeToString(data),
-		}
+		att.ID = base + "-" + strconv.Itoa(n) + strings.ToLower(rest[dot:])
 		idx := n - 1
 		switch {
 		case len(t.Cases) > 0:
-			if idx < len(t.Cases) {
+			if idx < len(t.Cases) && len(t.Cases[idx].Attachments) == 0 {
 				t.Cases[idx].Attachments = append(t.Cases[idx].Attachments, att)
 			}
 		case len(t.Steps) > 0:
-			if idx < len(t.Steps) {
+			if idx < len(t.Steps) && len(t.Steps[idx].Attachments) == 0 {
 				t.Steps[idx].Attachments = append(t.Steps[idx].Attachments, att)
 			}
 		default:
-			if n == 1 {
-				t.Sidecars = append(t.Sidecars, att)
-			}
+			t.Sidecars = append(t.Sidecars, att)
 		}
+	}
+	if len(t.Sidecars) > 1 {
+		sort.Slice(t.Sidecars, func(i, j int) bool {
+			return t.Sidecars[i].Name < t.Sidecars[j].Name
+		})
 	}
 }
 

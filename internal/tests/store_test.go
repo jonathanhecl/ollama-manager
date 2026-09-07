@@ -24,4 +24,22 @@ func TestWorkspaceMigration(t *testing.T) {
 
 	groups, tests := store.List()
 	t.Logf("Loaded %d groups and %d tests in testing directory", len(groups), len(tests))
+
+	for _, test := range tests {
+		if test.GroupID == "vision" {
+			if len(test.Cases) == 0 {
+				t.Fatalf("vision test %s has no cases", test.ID)
+			}
+			for ci, c := range test.Cases {
+				if len(c.Steps) == 0 {
+					t.Fatalf("vision test %s case %d has no steps", test.ID, ci)
+				}
+				for si, st := range c.Steps {
+					if len(st.Attachments) == 0 {
+						t.Fatalf("vision test %s case %d step %d has no attachments", test.ID, ci, si)
+					}
+				}
+			}
+		}
+	}
 }

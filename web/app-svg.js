@@ -1501,22 +1501,53 @@ async function showTestEditorView(id) {
         system_prompt: s.system_prompt || "",
         temperature: s.options?.temperature ?? "",
       });
-      const toEditorCase = (c, i) => ({
-        name: c.name || `Case ${i + 1}`,
-        prompt: c.prompt || "",
-        type: c.evaluation?.type || test.evaluation_type || "contains",
-        expected: c.evaluation?.expected != null ? String(c.evaluation.expected) : (test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : ""),
-        pattern: c.evaluation?.pattern || test.evaluation_config?.pattern || "",
-        system_prompt: c.system_prompt || "",
-        temperature: c.options?.temperature ?? "",
-        top_p: c.options?.top_p ?? "",
-        max_tokens: c.options?.max_tokens ?? "",
-        subevals: c.evaluation?.type === "all_of" && Array.isArray(c.evaluation.evaluations)
-          ? c.evaluation.evaluations.map(toEditorSub) : [],
-        steps: Array.isArray(c.steps) ? c.steps.map(toEditorStep) : [],
-        sidecars: (c.attachments || []).map((a) => ({ ...a })),
-        prevSidecarId: (c.attachments && c.attachments[0] && c.attachments[0].id) || "",
-      });
+      const toEditorCase = (c, i) => {
+        let name = c.name || `Case ${i + 1}`;
+        let prompt = c.prompt || "";
+        let evalObj = c.evaluation || test.evaluation;
+        let evalType = evalObj?.type || test.evaluation_type || "contains";
+        let expected = evalObj?.expected != null ? String(evalObj.expected) : (test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : "");
+        let pattern = evalObj?.pattern || test.evaluation_config?.pattern || "";
+        let sys = c.system_prompt || "";
+        let temp = c.options?.temperature ?? "";
+        let topP = c.options?.top_p ?? "";
+        let maxTok = c.options?.max_tokens ?? "";
+        let subevals = evalObj?.type === "all_of" && Array.isArray(evalObj.evaluations)
+          ? evalObj.evaluations.map(toEditorSub) : [];
+        let steps = Array.isArray(c.steps) ? c.steps.map(toEditorStep) : [];
+        let sidecars = (c.attachments || []).map((a) => ({ ...a }));
+
+        if (!prompt && steps.length === 1) {
+          const s = steps[0];
+          prompt = s.prompt || "";
+          evalType = s.type || evalType;
+          expected = s.expected || expected;
+          pattern = s.pattern || pattern;
+          sys = s.system_prompt || sys;
+          temp = s.temperature ?? temp;
+          subevals = s.subevals || subevals;
+          if (c.steps[0].attachments && c.steps[0].attachments.length && !sidecars.length) {
+            sidecars = c.steps[0].attachments.map((a) => ({ ...a }));
+          }
+          steps = [];
+        }
+
+        return {
+          name,
+          prompt,
+          type: evalType,
+          expected,
+          pattern,
+          system_prompt: sys,
+          temperature: temp,
+          top_p: topP,
+          max_tokens: maxTok,
+          subevals,
+          steps,
+          sidecars,
+          prevSidecarId: (sidecars && sidecars[0] && sidecars[0].id) || "",
+        };
+      };
       // Load cases
       if (Array.isArray(test.cases) && test.cases.length > 0) {
         currentEditorCases = test.cases.map(toEditorCase);
@@ -2041,6 +2072,9 @@ async function saveTestEditor() {
       prompt: c.prompt || "",
       evaluation: buildEval(c.type, c.expected, c.pattern, c.subevals),
     };
+    if (c.sidecars && c.sidecars[0] && c.sidecars[0].name) {
+      item.attachment = c.sidecars[0].name;
+    }
     if (c.system_prompt && c.system_prompt.trim() !== "") {
       item.system_prompt = c.system_prompt;
     }

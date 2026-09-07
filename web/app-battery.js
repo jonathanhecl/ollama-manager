@@ -511,6 +511,32 @@ function renderBatteryKPIs(p, stats) {
   if (elTokens) {
     elTokens.textContent = `${stats.totalTokens.toLocaleString()} tokens`;
   }
+
+  requestAnimationFrame(() => {
+    const view = $("battery-progress-view");
+    if (view) setupMarquees(view);
+  });
+}
+
+function setupMarquees(container = document) {
+  if (!container) return;
+  const wrappers = container.querySelectorAll(".marquee-wrapper");
+  wrappers.forEach((wrap) => {
+    const content = wrap.querySelector(".marquee-content");
+    if (!content) return;
+    wrap.classList.remove("is-overflowing");
+    const diff = content.scrollWidth - wrap.clientWidth;
+    if (diff > 4) {
+      wrap.classList.add("is-overflowing");
+      const duration = Math.max(5, Math.min(18, Math.round(diff / 18)));
+      wrap.style.setProperty("--marquee-end", `-${diff + 10}px`);
+      wrap.style.setProperty("--marquee-dur", `${duration}s`);
+    } else {
+      wrap.classList.remove("is-overflowing");
+      wrap.style.removeProperty("--marquee-end");
+      wrap.style.removeProperty("--marquee-dur");
+    }
+  });
 }
 
 function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
@@ -556,7 +582,9 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
       <tr class="${rowClass}">
         <td>
           <div class="leaderboard-model-cell">
-            <span class="leaderboard-model-name mono" title="${escapeHtml(m)}">${escapeHtml(m)}</span>
+            <div class="marquee-wrapper leaderboard-marquee">
+              <span class="marquee-content leaderboard-model-name mono" title="${escapeHtml(m)}">${escapeHtml(m)}</span>
+            </div>
           </div>
         </td>
         <td class="mono">${st.completed} / ${st.expected}</td>
@@ -579,63 +607,78 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
 
   html += `</tbody></table>`;
   container.innerHTML = html;
+  requestAnimationFrame(() => setupMarquees(container));
 }
 
 function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
-  const container = $("battery-analytics-charts-container");
-  if (!container) return;
+  const containers = [
+    $("battery-leaderboard-charts"),
+    $("battery-analytics-charts-container"),
+  ].filter(Boolean);
 
-  const testedModels = modelIDs
-    .map((m) => modelMap.get(m))
-    .filter((st) => st && st.completed > 0);
+  if (!containers.length) return;
 
-  if (!testedModels.length) {
-    container.innerHTML = `<div class="muted" style="padding: 24px; text-align: center;">${escapeHtml(t("battery.charts_no_data"))}</div>`;
+  if (!modelIDs || !modelIDs.length) {
+    const emptyHtml = `<div class="muted" style="padding: 24px; text-align: center;">${escapeHtml(t("battery.charts_no_data"))}</div>`;
+    containers.forEach((c) => (c.innerHTML = emptyHtml));
     return;
   }
 
-  const maxSpeed = Math.max(...testedModels.map((s) => s.avgSpeed || 0), 10);
-  const rowHeight = 36;
-  const chartHeight = Math.max(80, testedModels.length * rowHeight + 20);
+  // Find models with stats
+  const allModelStats = modelIDs.map((m) => {
+    return modelMap.get(m) || { model: m, completed: 0, passed: 0, failed: 0, passRate: 0, avgSpeed: 0 };
+  });
+
+  const maxSpeed = Math.max(...allModelStats.map((s) => s.avgSpeed || 0), 20);
+  const rowHeight = 34;
+  const chartHeight = Math.max(60, allModelStats.length * rowHeight + 16);
 
   // SVG for Pass Rates
   let passBars = "";
-  testedModels.forEach((st, idx) => {
-    const y = idx * rowHeight + 10;
-    const barWidth = Math.max(2, Math.round(st.passRate * 2.8)); // 0-100 mapped to 0-280px
+  allModelStats.forEach((st, idx) => {
+    const y = idx * rowHeight + 8;
+    const isTested = st.completed > 0;
+    const barWidth = isTested ? Math.max(3, Math.round(st.passRate * 2.8)) : 0;
     const passColor = st.passRate >= 75 ? "#10b981" : (st.passRate >= 50 ? "#f59e0b" : "#ef4444");
-    const shortName = st.model.length > 24 ? st.model.slice(0, 22) + "…" : st.model;
+    const shortName = st.model.length > 22 ? st.model.slice(0, 20) + "…" : st.model;
+    const valText = isTested ? `${Math.round(st.passRate)}% (${st.passed}/${st.completed})` : `-- (0/${st.expected || 0})`;
 
     passBars += `
-      <text x="10" y="${y + 14}" class="chart-label">${escapeHtml(shortName)}</text>
-      <rect x="180" y="${y}" width="280" height="18" class="chart-bar-bg" />
-      <rect x="180" y="${y}" width="${barWidth}" height="18" fill="${passColor}" rx="3" />
-      <text x="${180 + barWidth + 8}" y="${y + 14}" class="chart-val">${Math.round(st.passRate)}% (${st.passed}/${st.completed})</text>
+      <g class="chart-row">
+        <text x="8" y="${y + 13}" class="chart-label" font-family="monospace">${escapeHtml(shortName)}</text>
+        <rect x="175" y="${y}" width="280" height="16" class="chart-bar-bg" rx="3" />
+        ${isTested ? `<rect x="175" y="${y}" width="${barWidth}" height="16" fill="${passColor}" rx="3" />` : ""}
+        <text x="${175 + barWidth + 8}" y="${y + 13}" class="chart-val">${escapeHtml(valText)}</text>
+      </g>
     `;
   });
 
   // SVG for Speeds
   let speedBars = "";
-  testedModels.forEach((st, idx) => {
-    const y = idx * rowHeight + 10;
-    const speedRatio = maxSpeed > 0 ? (st.avgSpeed / maxSpeed) : 0;
-    const barWidth = Math.max(2, Math.round(speedRatio * 280));
-    const shortName = st.model.length > 24 ? st.model.slice(0, 22) + "…" : st.model;
+  allModelStats.forEach((st, idx) => {
+    const y = idx * rowHeight + 8;
+    const isTested = st.completed > 0;
+    const speedRatio = (maxSpeed > 0 && isTested) ? (st.avgSpeed / maxSpeed) : 0;
+    const barWidth = isTested ? Math.max(3, Math.round(speedRatio * 280)) : 0;
+    const shortName = st.model.length > 22 ? st.model.slice(0, 20) + "…" : st.model;
+    const valText = isTested ? `${st.avgSpeed.toFixed(1)} tok/s` : `--`;
 
     speedBars += `
-      <text x="10" y="${y + 14}" class="chart-label">${escapeHtml(shortName)}</text>
-      <rect x="180" y="${y}" width="280" height="18" class="chart-bar-bg" />
-      <rect x="180" y="${y}" width="${barWidth}" height="18" fill="#38bdf8" rx="3" />
-      <text x="${180 + barWidth + 8}" y="${y + 14}" class="chart-val">${st.avgSpeed.toFixed(1)} tok/s</text>
+      <g class="chart-row">
+        <text x="8" y="${y + 13}" class="chart-label" font-family="monospace">${escapeHtml(shortName)}</text>
+        <rect x="175" y="${y}" width="280" height="16" class="chart-bar-bg" rx="3" />
+        ${isTested ? `<rect x="175" y="${y}" width="${barWidth}" height="16" fill="#38bdf8" rx="3" />` : ""}
+        <text x="${175 + barWidth + 8}" y="${y + 13}" class="chart-val">${escapeHtml(valText)}</text>
+      </g>
     `;
   });
 
-  container.innerHTML = `
+  const fullChartsHtml = `
     <div class="analytics-card-section">
       <div class="analytics-section-title">
         <span>🎯</span> ${escapeHtml(t("battery.charts_overall"))}
       </div>
-      <svg class="analytics-svg-chart" viewBox="0 0 550 ${chartHeight}" height="${chartHeight}">
+      <svg class="analytics-svg-chart" viewBox="0 0 540 ${chartHeight}" height="${chartHeight}">
         ${passBars}
       </svg>
     </div>
@@ -644,11 +687,15 @@ function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
       <div class="analytics-section-title">
         <span>⚡</span> ${escapeHtml(t("battery.charts_speed"))}
       </div>
-      <svg class="analytics-svg-chart" viewBox="0 0 550 ${chartHeight}" height="${chartHeight}">
+      <svg class="analytics-svg-chart" viewBox="0 0 540 ${chartHeight}" height="${chartHeight}">
         ${speedBars}
       </svg>
     </div>
   `;
+
+  containers.forEach((c) => {
+    c.innerHTML = fullChartsHtml;
+  });
 }
 
 function initBatteryProgressControls() {

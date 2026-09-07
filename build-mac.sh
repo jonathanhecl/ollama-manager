@@ -10,6 +10,14 @@
 set -euo pipefail
 
 default_arch() {
+  # On macOS, default to the native CPU. Anywhere else this script is only
+  # cross-compiling *for* a Mac, so uname -m (the host CPU) is meaningless:
+  # default to Apple Silicon, which is wrong nowhere near as often as Intel.
+  if [ "$(uname -s)" != "Darwin" ]; then
+    echo "note: cross-compiling from $(uname -s); defaulting to arm64 (Apple Silicon, M1/M2/M3/M4). Use -a amd64 for Intel Macs." >&2
+    echo "arm64"
+    return
+  fi
   case "$(uname -m)" in
     arm64) echo "arm64" ;;
     x86_64) echo "amd64" ;;
@@ -88,3 +96,20 @@ echo
 go build -trimpath -ldflags "${LDFLAGS}" -o "${OUTPUT}" .
 
 echo "Build succeeded: ${OUTPUT}"
+
+# Verify the produced binary really targets the requested architecture.
+# NOTE: when run from Git Bash/MSYS on Windows, "$(uname -m)" reports the
+# *Windows* CPU (x86_64), so the default becomes Intel even though you are
+# building for a Mac. On an Apple Silicon Mac without Rosetta that binary
+# fails with "bad CPU type in executable" — pass -a arm64 explicitly.
+if ! go version -m "${OUTPUT}" 2>/dev/null | grep -q "GOARCH=${ARCH}\b"; then
+  found="$(go version -m "${OUTPUT}" 2>/dev/null | grep -o 'GOARCH=[^[:space:]]*' || echo GOARCH=unknown)"
+  echo "Error: '${OUTPUT}' reports ${found}, but arch '${ARCH}' was requested. Aborting to avoid shipping the wrong CPU type." >&2
+  exit 1
+fi
+
+if [ "$ARCH" = "arm64" ]; then
+  echo "Target: Apple Silicon Macs (M1/M2/M3/M4). Will NOT run on Intel Macs."
+else
+  echo "WARNING: Intel build. Apple Silicon Macs need Rosetta 2 installed or they fail with 'bad CPU type in executable'." >&2
+fi

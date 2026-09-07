@@ -57,3 +57,22 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Build succeeded: $Output" -ForegroundColor Green
+
+# Verify the produced binary really targets the requested architecture.
+# Catches mistakes like cross-checking out the wrong -Arch for the Mac
+# (an Intel binary fails on Apple Silicon without Rosetta with
+# "bad CPU type in executable", and vice versa).
+$buildInfo = & go version -m $Output 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Warning: could not inspect '$Output' with 'go version -m'." -ForegroundColor Yellow
+} elseif (-not ($buildInfo | Select-String -Pattern "GOARCH=$Arch\b" -Quiet)) {
+    $found = ($buildInfo | Select-String -Pattern 'GOARCH=\S+' | Select-Object -First 1).Matches.Value
+    Write-Host "Error: '$Output' reports $found, but -Arch $Arch was requested. Aborting to avoid shipping the wrong CPU type." -ForegroundColor Red
+    exit 1
+}
+
+if ($Arch -eq "arm64") {
+    Write-Host "Target: Apple Silicon Macs (M1/M2/M3/M4). Will NOT run on Intel Macs." -ForegroundColor DarkGray
+} else {
+    Write-Host "Target: Intel Macs. Apple Silicon Macs need Rosetta 2 installed or they fail with 'bad CPU type in executable'." -ForegroundColor Yellow
+}

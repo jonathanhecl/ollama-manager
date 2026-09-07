@@ -20,6 +20,7 @@ function hideAllMainViews() {
   $("battery-progress-view") && ($("battery-progress-view").hidden = true);
   $("battery-results-view") && ($("battery-results-view").hidden = true);
   $("battery-history-view") && ($("battery-history-view").hidden = true);
+  $("battery-leaderboard-view") && ($("battery-leaderboard-view").hidden = true);
   $("analytics-view") && ($("analytics-view").hidden = true);
   $("settings-view") && ($("settings-view").hidden = true);
   $("modelfile-view") && ($("modelfile-view").hidden = true);

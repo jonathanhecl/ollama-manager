@@ -1933,10 +1933,14 @@
     <div class="modal-card leaderboard-modal-card">
       <div class="group-history-modal-header">
         <h3 id="leaderboard-modal-title" data-i18n="battery.view_leaderboard">Leaderboard</h3>
-        <button type="button" id="leaderboard-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button type="button" id="leaderboard-modal-expand" class="btn-icon" title="Open full page" aria-label="Open full page">⤢</button>
+          <button type="button" id="leaderboard-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+        </div>
       </div>
-      <div id="leaderboard-modal-body" class="group-history-modal-body"></div>
-      <div class="modal-actions">
+      <div id="leaderboard-modal-body" class="leaderboard-modal-body"></div>
+      <div class="modal-actions" style="justify-content:space-between;">
+        <button type="button" id="leaderboard-modal-open-page" class="ghost">⤢ Open as Page</button>
         <button type="button" id="leaderboard-modal-done" class="primary" data-i18n="action.done">Done</button>
       </div>
     </div>
@@ -2334,6 +2338,28 @@
     <div class="battery-body">
       <div class="battery-container">
         <div id="battery-history-body" class="battery-history-body"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Battery leaderboard view -->
+  <main id="battery-leaderboard-view" class="battery-leaderboard-view" hidden>
+    <header class="battery-head">
+      <div class="battery-head-left">
+        <button type="button" id="battery-leaderboard-back" class="ghost header-breadcrumb-back" data-i18n="tests.title">Tests</button>
+        <span class="breadcrumb-separator">/</span>
+        <h2>
+          <span class="gear">🏆</span>
+          <span data-i18n="battery.view_leaderboard">Leaderboard</span>
+        </h2>
+      </div>
+      <div class="battery-head-actions">
+        <button type="button" id="battery-leaderboard-refresh" class="ghost" title="Refresh">🔄 Refresh</button>
+      </div>
+    </header>
+    <div class="battery-body">
+      <div class="battery-container" style="max-width: 100%; padding: 16px 20px;">
+        <div id="battery-leaderboard-page-body" class="battery-leaderboard-page-body"></div>
       </div>
     </div>
   </main>

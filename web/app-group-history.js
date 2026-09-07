@@ -107,132 +107,165 @@ function closeLeaderboardModal() {
   $("leaderboard-modal").hidden = true;
 }
 
+async function buildLeaderboardTableHtml() {
+  if (!testsGroups || testsGroups.length === 0) {
+    const data = await api("/api/tests");
+    testsGroups = data.groups || [];
+  }
+  const groups = testsGroups.slice().sort((a, b) => {
+    const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
+    const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
+    if (oa !== ob) return oa - ob;
+    return String(a.name || a.id).localeCompare(String(b.name || b.id));
+  });
+
+  const summaries = await Promise.all(
+    groups.map((g) =>
+      api("/api/runner/group-history/" + encodeURIComponent(g.id))
+        .then((d) => d.summary || [])
+        .catch(() => [])
+    )
+  );
+
+  // Keep only groups that have data, as columns.
+  const cols = [];
+  groups.forEach((g, i) => {
+    if (summaries[i].length > 0) cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] });
+  });
+  if (cols.length === 0) {
+    return `<div class="battery-empty">${t("battery.no_history")}</div>`;
+  }
+
+  // Per model per group: { passed, total }.
+  const modelSet = new Set();
+  const scores = {};
+  for (const col of cols) {
+    for (const s of col.summary) {
+      modelSet.add(s.model);
+      (scores[s.model] ||= {})[col.id] = { passed: s.passed || 0, total: s.total_tests || 0 };
+    }
+  }
+
+  const lbRows = Array.from(modelSet).map((m) => {
+    let passed = 0;
+    let total = 0;
+    for (const col of cols) {
+      const c = scores[m][col.id];
+      if (c && c.total > 0) {
+        passed += c.passed;
+        total += c.total;
+      }
+    }
+    return { model: m, passed, total, overall: total > 0 ? (passed / total) * 100 : null };
+  });
+  lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || b.total - a.total);
+
+  const colRange = {};
+  for (const col of cols) {
+    const vals = lbRows
+      .map((row) => {
+        const c = scores[row.model][col.id];
+        return c && c.total > 0 ? (c.passed / c.total) * 100 : null;
+      })
+      .filter((v) => v != null);
+    colRange[col.id] = {
+      min: vals.length ? Math.min(...vals) : 0,
+      max: vals.length ? Math.max(...vals) : 0,
+    };
+  }
+  const overallVals = lbRows.map((r) => r.overall).filter((v) => v != null);
+  const overallRange = {
+    min: overallVals.length ? Math.min(...overallVals) : 0,
+    max: overallVals.length ? Math.max(...overallVals) : 0,
+  };
+
+  let headerCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
+  for (const col of cols) {
+    headerCols += `<th class="cell-lb-group-head" title="${escapeHtml(col.name)}">${escapeHtml(col.name)}</th>`;
+  }
+
+  let bodyRows = "";
+  lbRows.forEach((row, idx) => {
+    let cells = "";
+    if (row.overall == null) {
+      cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty"><span class="muted">—</span></td>`;
+    } else {
+      cells += `<td class="cell-lb-score cell-lb-overall mono" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${row.passed}/${row.total}">${row.overall.toFixed(1)}</td>`;
+    }
+    for (const col of cols) {
+      const c = scores[row.model][col.id];
+      if (!c || c.total === 0) {
+        cells += `<td class="cell-lb-score cell-lb-empty"><span class="muted">—</span></td>`;
+        continue;
+      }
+      const pct = (c.passed / c.total) * 100;
+      cells += `<td class="cell-lb-score mono" style="${batteryLbHeatStyle(pct, colRange[col.id], false)}" title="${c.passed}/${c.total}">${pct.toFixed(1)}</td>`;
+    }
+
+    let modelName = row.model;
+    let modelDisplay = escapeHtml(modelName);
+    if (modelName.startsWith("hf.co/")) {
+      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">hf.co/</span>${escapeHtml(modelName.slice(6))}`;
+    }
+
+    bodyRows += `
+      <tr class="${idx === 0 ? "lb-row-first" : ""}">
+        <td class="cell-lb-model">
+          <span class="lb-rank">${idx + 1}</span>
+          <strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong>
+        </td>
+        ${cells}
+      </tr>
+    `;
+  });
+
+  return `
+    <div class="battery-table-wrap battery-lb-wrap">
+      <table class="battery-table battery-lb-table">
+        <thead>
+          <tr>
+            <th class="cell-lb-model-head">${t("chat.model")}</th>
+            ${headerCols}
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 async function renderLeaderboardModal() {
   const body = $("leaderboard-modal-body");
   if (!body) return;
-  body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
+  body.innerHTML = `<div class="muted" style="padding:16px;">${t("status.loading")}</div>`;
   try {
-    if (!testsGroups || testsGroups.length === 0) {
-      const data = await api("/api/tests");
-      testsGroups = data.groups || [];
-    }
-    const groups = testsGroups.slice().sort((a, b) => {
-      const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
-      const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
-      if (oa !== ob) return oa - ob;
-      return String(a.name || a.id).localeCompare(String(b.name || b.id));
-    });
-
-    const summaries = await Promise.all(
-      groups.map((g) =>
-        api("/api/runner/group-history/" + encodeURIComponent(g.id))
-          .then((d) => d.summary || [])
-          .catch(() => [])
-      )
-    );
-
-    // Keep only groups that have data, as columns.
-    const cols = [];
-    groups.forEach((g, i) => {
-      if (summaries[i].length > 0) cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] });
-    });
-    if (cols.length === 0) {
-      body.innerHTML = `<div class="battery-empty">${t("battery.no_history")}</div>`;
-      return;
-    }
-
-    // Per model per group: { passed, total }.
-    const modelSet = new Set();
-    const scores = {};
-    for (const col of cols) {
-      for (const s of col.summary) {
-        modelSet.add(s.model);
-        (scores[s.model] ||= {})[col.id] = { passed: s.passed || 0, total: s.total_tests || 0 };
-      }
-    }
-
-    const lbRows = Array.from(modelSet).map((m) => {
-      let passed = 0;
-      let total = 0;
-      for (const col of cols) {
-        const c = scores[m][col.id];
-        if (c && c.total > 0) {
-          passed += c.passed;
-          total += c.total;
-        }
-      }
-      return { model: m, passed, total, overall: total > 0 ? (passed / total) * 100 : null };
-    });
-    lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || b.total - a.total);
-
-    const colRange = {};
-    for (const col of cols) {
-      const vals = lbRows
-        .map((row) => {
-          const c = scores[row.model][col.id];
-          return c && c.total > 0 ? (c.passed / c.total) * 100 : null;
-        })
-        .filter((v) => v != null);
-      colRange[col.id] = {
-        min: vals.length ? Math.min(...vals) : 0,
-        max: vals.length ? Math.max(...vals) : 0,
-      };
-    }
-    const overallVals = lbRows.map((r) => r.overall).filter((v) => v != null);
-    const overallRange = {
-      min: overallVals.length ? Math.min(...overallVals) : 0,
-      max: overallVals.length ? Math.max(...overallVals) : 0,
-    };
-
-    let headerCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
-    for (const col of cols) {
-      headerCols += `<th class="cell-lb-group-head" title="${escapeHtml(col.name)}">${escapeHtml(col.name)}</th>`;
-    }
-
-    let bodyRows = "";
-    lbRows.forEach((row, idx) => {
-      let cells = "";
-      if (row.overall == null) {
-        cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty"><span class="muted">—</span></td>`;
-      } else {
-        cells += `<td class="cell-lb-score cell-lb-overall mono" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${row.passed}/${row.total}">${row.overall.toFixed(1)}</td>`;
-      }
-      for (const col of cols) {
-        const c = scores[row.model][col.id];
-        if (!c || c.total === 0) {
-          cells += `<td class="cell-lb-score cell-lb-empty"><span class="muted">—</span></td>`;
-          continue;
-        }
-        const pct = (c.passed / c.total) * 100;
-        cells += `<td class="cell-lb-score mono" style="${batteryLbHeatStyle(pct, colRange[col.id], false)}" title="${c.passed}/${c.total}">${pct.toFixed(1)}</td>`;
-      }
-      bodyRows += `
-        <tr class="${idx === 0 ? "lb-row-first" : ""}">
-          <td class="cell-lb-model">
-            <span class="lb-rank">${idx + 1}</span>
-            <strong class="lb-model-name" title="${escapeHtml(row.model)}">${escapeHtml(row.model).replace(/^[^/]+\//, "")}</strong>
-          </td>
-          ${cells}
-        </tr>
-      `;
-    });
-
-    body.innerHTML = `
-      <div class="battery-table-wrap battery-lb-wrap">
-        <table class="battery-table battery-lb-table">
-          <thead>
-            <tr>
-              <th class="cell-lb-model-head">${t("chat.model")}</th>
-              ${headerCols}
-            </tr>
-          </thead>
-          <tbody>${bodyRows}</tbody>
-        </table>
-      </div>
-    `;
+    const html = await buildLeaderboardTableHtml();
+    body.innerHTML = html;
   } catch (err) {
-    body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
+    body.innerHTML = `<div class="muted" style="padding:16px;">${escapeHtml(err.message)}</div>`;
   }
+}
+
+async function renderLeaderboardPage() {
+  const body = $("battery-leaderboard-page-body");
+  if (!body) return;
+  body.innerHTML = `<div class="muted" style="padding:32px;text-align:center;">${t("status.loading")}</div>`;
+  try {
+    const html = await buildLeaderboardTableHtml();
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = `<div class="muted" style="padding:32px;">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function showLeaderboardView() {
+  hideAllMainViews();
+  currentView = "leaderboard";
+  $("battery-leaderboard-view").hidden = false;
+  if (window.location.pathname !== "/leaderboard") {
+    history.pushState(null, "", "/leaderboard");
+  }
+  void renderLeaderboardPage();
 }
 
 $("test-history-modal")?.addEventListener("click", (e) => {
@@ -252,6 +285,20 @@ $("leaderboard-modal")?.addEventListener("click", (e) => {
 });
 $("leaderboard-modal-close")?.addEventListener("click", closeLeaderboardModal);
 $("leaderboard-modal-done")?.addEventListener("click", closeLeaderboardModal);
+$("leaderboard-modal-expand")?.addEventListener("click", () => {
+  closeLeaderboardModal();
+  showLeaderboardView();
+});
+$("leaderboard-modal-open-page")?.addEventListener("click", () => {
+  closeLeaderboardModal();
+  showLeaderboardView();
+});
+$("battery-leaderboard-back")?.addEventListener("click", () => {
+  showTestsView();
+});
+$("battery-leaderboard-refresh")?.addEventListener("click", () => {
+  void renderLeaderboardPage();
+});
 
 $("human-review-modal")?.addEventListener("click", (e) => {
   if (e.target === $("human-review-modal")) closeHumanReviewModal();

@@ -1821,7 +1821,7 @@ function renderTestsList() {
     if (!lbBtn.dataset.wired) {
       lbBtn.dataset.wired = "1";
       lbBtn.addEventListener("click", () => {
-        openLeaderboardModal();
+        showLeaderboardView();
       });
     }
   }
@@ -2504,6 +2504,8 @@ async function handleRouting() {
     if (filterTestId && typeof openTestHistoryModal === "function") {
       openTestHistoryModal(filterTestId);
     }
+  } else if (path === "/leaderboard" || path === "/leaderboard/" || path === "/tests/battery/leaderboard" || path === "/tests/leaderboard") {
+    showLeaderboardView();
   } else if (path === "/analytics" || path === "/analytics/") {
     showAnalyticsView();
   } else if (path === "/settings" || path.startsWith("/settings/")) {

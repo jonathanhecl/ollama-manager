@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -104,6 +106,47 @@ func TestSkipCurrentTest(t *testing.T) {
 	c.clearTestCancel(runID)
 	if c.SkipCurrentTest(runID) {
 		t.Errorf("expected SkipCurrentTest to return false after clear")
+	}
+}
+
+func TestSkipCaseCancellation(t *testing.T) {
+	c := NewClient(nil)
+	parentCtx, parentCancel := context.WithCancelCause(context.Background())
+	defer parentCancel(nil)
+
+	runID := "run-multi-case"
+
+	// Case 1 starts
+	case1Ctx, case1Cancel := context.WithCancelCause(parentCtx)
+	c.setTestCancel(runID, case1Cancel)
+
+	// User clicks Skip Test during Case 1
+	if !c.SkipCurrentTest(runID) {
+		t.Fatalf("expected SkipCurrentTest to succeed for case 1")
+	}
+
+	// Verify Case 1 was cancelled with errManualSkip
+	if case1Ctx.Err() == nil {
+		t.Fatalf("expected case1Ctx to be cancelled")
+	}
+	if !errors.Is(context.Cause(case1Ctx), errManualSkip) {
+		t.Fatalf("expected cause to be errManualSkip, got %v", context.Cause(case1Ctx))
+	}
+
+	// Verify parentCtx was NOT cancelled
+	if parentCtx.Err() != nil {
+		t.Fatalf("expected parentCtx to remain active, but got %v", parentCtx.Err())
+	}
+
+	// Case 1 finishes, Case 2 starts
+	case1Cancel(nil)
+	case2Ctx, case2Cancel := context.WithCancelCause(parentCtx)
+	c.setTestCancel(runID, case2Cancel)
+	defer case2Cancel(nil)
+
+	// Verify Case 2 is completely clean and active
+	if case2Ctx.Err() != nil {
+		t.Fatalf("expected case2Ctx to be active and not cancelled, got %v", case2Ctx.Err())
 	}
 }
 

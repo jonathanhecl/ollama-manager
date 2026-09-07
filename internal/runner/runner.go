@@ -498,6 +498,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	if len(test.Cases) > 0 {
 		allPassed := true
 		hasScored := false
+		anySkippedOrLoop := false
 		var casesSummary []string
 		var totalEvalDuration int64
 
@@ -512,9 +513,11 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 
 		// runCaseTurn executes one user turn inside the given history, scores it
 		// and records the sub-result. It returns false when execution must stop.
-		runCaseTurn := func(history []ollama.ChatMessage, unitName, prompt string, attachments []tests.Attachment, sys string, eval *tests.Evaluation, effOpts *tests.TestOptions) ([]ollama.ChatMessage, bool) {
-			if ctx.Err() != nil {
-				res.Error = ctx.Err().Error()
+		runCaseTurn := func(caseCtx context.Context, history []ollama.ChatMessage, unitName, prompt string, attachments []tests.Attachment, sys string, eval *tests.Evaluation, effOpts *tests.TestOptions) ([]ollama.ChatMessage, bool) {
+			if caseCtx.Err() != nil {
+				if ctx.Err() != nil {
+					res.Error = ctx.Err().Error()
+				}
 				return history, false
 			}
 			unitIdx++
@@ -538,11 +541,16 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				caseMsg.Images = caseMedia
 			}
 			history = append(history, caseMsg)
-			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effOpts))
+			turn := c.execChatTurn(caseCtx, runID, model, history, optsFor(effOpts))
 			if turn.Error != nil {
-				res.Error = turn.Error.Error()
+				if ctx.Err() != nil {
+					res.Error = ctx.Err().Error()
+				}
 				falseVal := false
 				allPassed = false
+				if isLoopOrSkip(turn.Error.Error()) {
+					anySkippedOrLoop = true
+				}
 				casesSummary = append(casesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", unitName, strings.TrimSpace(turn.Content), turn.Error.Error()))
 				res.SubResults = append(res.SubResults, SubResult{
 					Index:          unitIdx,
@@ -605,6 +613,14 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		}
 
 		for i, tc := range test.Cases {
+			if ctx.Err() != nil {
+				res.Error = ctx.Err().Error()
+				break
+			}
+
+			caseCtx, caseCancel := context.WithCancelCause(ctx)
+			c.setTestCancel(runID, caseCancel)
+
 			caseLabel := tc.Name
 			if caseLabel == "" {
 				caseLabel = fmt.Sprintf("Case %d", i+1)
@@ -618,8 +634,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			}
 
 			if len(tc.Steps) == 0 {
-				var ok bool
-				if _, ok = runCaseTurn(history, caseLabel, tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged); !ok {
+				_, _ = runCaseTurn(caseCtx, history, caseLabel, tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
+				caseCancel(nil)
+				if ctx.Err() != nil {
+					res.Error = ctx.Err().Error()
 					break
 				}
 				continue
@@ -628,41 +646,78 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			// Multi-turn case: chained steps sharing one case-scoped history.
 			// An optional case-level prompt is sent first as the opening turn
 			// (scored with the case-level evaluation when set).
+			stopped := false
+			var lastStepIdx int = -1
 			if tc.Prompt != "" {
 				var ok bool
-				if history, ok = runCaseTurn(history, caseLabel+" › context", tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged); !ok {
-					break
-				}
-			}
-			stepOverrides := make([]string, len(tc.Steps))
-			stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
-			for j, st := range tc.Steps {
-				stepOverrides[j] = st.SystemPrompt
-				stepOptOverrides[j] = st.Options
-			}
-			effStepSys := effectiveChainSystems(caseSys, stepOverrides)
-			effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
-			stopped := false
-			for j, st := range tc.Steps {
-				stepLabel := st.Name
-				if stepLabel == "" {
-					stepLabel = fmt.Sprintf("Step %d", j+1)
-				}
-				turnLabel := caseLabel + " › " + stepLabel
-				if len(tc.Steps) == 1 && tc.Prompt == "" && (st.Name == "" || st.Name == fmt.Sprintf("Step %d", j+1)) {
-					turnLabel = caseLabel
-				}
-				if st.SystemPrompt != "" {
-					history = setSystemPrompt(history, st.SystemPrompt)
-				}
-				var ok bool
-				if history, ok = runCaseTurn(history, turnLabel, st.Prompt, st.Attachments, effStepSys[j], st.Evaluation, effStepOpts[j]); !ok {
+				history, ok = runCaseTurn(caseCtx, history, caseLabel+" › context", tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
+				if !ok {
 					stopped = true
-					break
 				}
 			}
+			if !stopped {
+				stepOverrides := make([]string, len(tc.Steps))
+				stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
+				for j, st := range tc.Steps {
+					stepOverrides[j] = st.SystemPrompt
+					stepOptOverrides[j] = st.Options
+				}
+				effStepSys := effectiveChainSystems(caseSys, stepOverrides)
+				effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
+				for j, st := range tc.Steps {
+					lastStepIdx = j
+					stepLabel := st.Name
+					if stepLabel == "" {
+						stepLabel = fmt.Sprintf("Step %d", j+1)
+					}
+					turnLabel := caseLabel + " › " + stepLabel
+					if len(tc.Steps) == 1 && tc.Prompt == "" && (st.Name == "" || st.Name == fmt.Sprintf("Step %d", j+1)) {
+						turnLabel = caseLabel
+					}
+					if st.SystemPrompt != "" {
+						history = setSystemPrompt(history, st.SystemPrompt)
+					}
+					var ok bool
+					history, ok = runCaseTurn(caseCtx, history, turnLabel, st.Prompt, st.Attachments, effStepSys[j], st.Evaluation, effStepOpts[j])
+					if !ok {
+						stopped = true
+						break
+					}
+				}
+			}
+
+			caseCancel(nil)
+
 			if stopped {
-				break
+				isSkip := errors.Is(context.Cause(caseCtx), errManualSkip)
+				remainingErr := "skipped due to case failure"
+				if isSkip {
+					remainingErr = "manually skipped"
+				}
+				for nextJ := lastStepIdx + 1; nextJ < len(tc.Steps); nextJ++ {
+					st := tc.Steps[nextJ]
+					stepLabel := st.Name
+					if stepLabel == "" {
+						stepLabel = fmt.Sprintf("Step %d", nextJ+1)
+					}
+					turnLabel := caseLabel + " › " + stepLabel
+					unitIdx++
+					falseVal := false
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:  unitIdx,
+						Name:   turnLabel,
+						Prompt: st.Prompt,
+						Passed: &falseVal,
+						Error:  remainingErr,
+					})
+					casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", turnLabel, remainingErr))
+				}
+
+				if ctx.Err() != nil {
+					res.Error = ctx.Err().Error()
+					break
+				}
+				continue
 			}
 		}
 
@@ -671,7 +726,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		if totalEvalDuration > 0 && res.EvalTokens > 0 {
 			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
 		}
-		if isLoopOrSkip(res.Error) {
+		if ctx.Err() != nil {
+			res.Error = ctx.Err().Error()
+		}
+		if isLoopOrSkip(res.Error) || anySkippedOrLoop {
 			falseVal := false
 			res.Passed = &falseVal
 		} else if hasScored && res.Error == "" {

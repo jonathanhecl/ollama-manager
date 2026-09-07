@@ -222,8 +222,10 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 			if retry {
 				// Manual retry: discard the cancelled attempt and re-run the
 				// same test from scratch (same idx, nothing appended).
-				// Case-level retries are handled inside runTest; reaching
-				// here with a retry cause means a whole-test retry.
+				// Step/case-level retries are handled inside runTest;
+				// reaching here with a retry cause means a whole-test retry
+				// (single-prompt tests or a retry that landed outside any
+				// step/case attempt).
 				continue
 			}
 			run.Results = append(run.Results, res)
@@ -414,40 +416,128 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				history = setSystemPrompt(history, step.SystemPrompt)
 			}
 
-			c.setProgress(Progress{
-				RunID:          runID,
-				Model:          model,
-				GroupID:        test.GroupID,
-				GroupName:      test.GroupID,
-				TestID:         test.ID,
-				TestName:       test.Name,
-				TestIndex:      idx,
-				TotalTests:     total,
-				CaseName:       stepLabel,
-				CaseIndex:      i + 1,
-				TotalCases:     len(test.Steps),
-				ActivePrompt:   step.Prompt,
-				CompletedCases: append([]SubResult(nil), res.SubResults...),
-			})
+			// Snapshot everything this step may mutate, so a manual
+			// retry re-executes THIS step with the same history prefix
+			// (previous steps are kept, the cancelled attempt is
+			// discarded). Mirrors the per-case retry logic below.
+			snapHistLen := len(history)
+			snapSubLen := len(res.SubResults)
+			snapSummaryLen := len(responsesSummary)
+			snapEvalDuration := totalEvalDuration
+			snapPromptTokens := res.PromptTokens
+			snapEvalTokens := res.EvalTokens
+			snapTotalTokens := res.TotalTokens
+			snapReasoning := res.ReasoningUsed
+			snapHasScored := hasScored
+			snapAllPassed := allPassed
+			snapResError := res.Error
 
-			stepPrompt, stepMedia := applyCaseMedia(step.Prompt, step.Attachments)
-			stepMsg := ollama.ChatMessage{Role: "user", Content: stepPrompt}
-			if len(stepMedia) > 0 {
-				stepMsg.Images = stepMedia
-			}
-			history = append(history, stepMsg)
-			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effStepOpts[i]))
-			if turn.Error != nil {
-				res.Error = turn.Error.Error()
-				falseVal := false
-				allPassed = false
+			stepFailed := false
+			for {
+				if ctx.Err() != nil {
+					res.Error = ctx.Err().Error()
+					stepFailed = true
+					break
+				}
+
+				c.setProgress(Progress{
+					RunID:          runID,
+					Model:          model,
+					GroupID:        test.GroupID,
+					GroupName:      test.GroupID,
+					TestID:         test.ID,
+					TestName:       test.Name,
+					TestIndex:      idx,
+					TotalTests:     total,
+					CaseName:       stepLabel,
+					CaseIndex:      i + 1,
+					TotalCases:     len(test.Steps),
+					ActivePrompt:   step.Prompt,
+					CompletedCases: append([]SubResult(nil), res.SubResults...),
+				})
+
+				stepPrompt, stepMedia := applyCaseMedia(step.Prompt, step.Attachments)
+				stepMsg := ollama.ChatMessage{Role: "user", Content: stepPrompt}
+				if len(stepMedia) > 0 {
+					stepMsg.Images = stepMedia
+				}
+				history = append(history, stepMsg)
+				stepCtx, stepCancel := context.WithCancelCause(ctx)
+				c.setTestCancel(runID, stepCancel)
+				turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]))
+				retry := errors.Is(context.Cause(stepCtx), errManualRetry)
+				stepCancel(nil)
+				if retry {
+					// Manual retry: drop the cancelled attempt and run
+					// the same step again from its snapshot.
+					history = history[:snapHistLen]
+					res.SubResults = res.SubResults[:snapSubLen]
+					responsesSummary = responsesSummary[:snapSummaryLen]
+					totalEvalDuration = snapEvalDuration
+					res.PromptTokens = snapPromptTokens
+					res.EvalTokens = snapEvalTokens
+					res.TotalTokens = snapTotalTokens
+					res.ReasoningUsed = snapReasoning
+					hasScored = snapHasScored
+					allPassed = snapAllPassed
+					res.Error = snapResError
+					continue
+				}
+				if turn.Error != nil {
+					res.Error = turn.Error.Error()
+					falseVal := false
+					allPassed = false
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:          i + 1,
+						Name:           stepLabel,
+						Prompt:         step.Prompt,
+						SystemPrompt:   effStepSys[i],
+						Options:        effStepOpts[i],
+						Passed:         &falseVal,
+						ResponseTimeMs: turn.ResponseTimeMs,
+						TokensPerSec:   turn.TokensPerSec,
+						PromptTokens:   turn.PromptTokens,
+						EvalTokens:     turn.EvalTokens,
+						TotalTokens:    turn.TotalTokens,
+						ReasoningUsed:  turn.Thinking != "",
+						ModelResponse:  turn.Content,
+						Error:          turn.Error.Error(),
+					})
+					responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
+					stepFailed = true
+					break
+				}
+
+				if turn.Thinking != "" {
+					res.ReasoningUsed = true
+				}
+				res.PromptTokens += turn.PromptTokens
+				res.EvalTokens += turn.EvalTokens
+				res.TotalTokens += turn.TotalTokens
+				totalEvalDuration += turn.EvalDuration
+
+				history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
+
+				stepPassed := scoreEval(step.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
+				status := "PASS"
+				if stepPassed != nil {
+					hasScored = true
+					if !*stepPassed {
+						allPassed = false
+						status = "FAIL"
+					}
+				} else {
+					status = "REVIEW"
+				}
+				responsesSummary = append(responsesSummary, fmt.Sprintf("[%s] %s: %s", status, stepLabel, strings.TrimSpace(turn.Content)))
+
 				res.SubResults = append(res.SubResults, SubResult{
 					Index:          i + 1,
 					Name:           stepLabel,
 					Prompt:         step.Prompt,
 					SystemPrompt:   effStepSys[i],
 					Options:        effStepOpts[i],
-					Passed:         &falseVal,
+					Passed:         stepPassed,
 					ResponseTimeMs: turn.ResponseTimeMs,
 					TokensPerSec:   turn.TokensPerSec,
 					PromptTokens:   turn.PromptTokens,
@@ -455,50 +545,12 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					TotalTokens:    turn.TotalTokens,
 					ReasoningUsed:  turn.Thinking != "",
 					ModelResponse:  turn.Content,
-					Error:          turn.Error.Error(),
 				})
-				responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
 				break
 			}
-
-			if turn.Thinking != "" {
-				res.ReasoningUsed = true
+			if stepFailed {
+				break
 			}
-			res.PromptTokens += turn.PromptTokens
-			res.EvalTokens += turn.EvalTokens
-			res.TotalTokens += turn.TotalTokens
-			totalEvalDuration += turn.EvalDuration
-
-			history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
-
-			stepPassed := scoreEval(step.Evaluation, test.EvaluationType, test.EvaluationConfig, turn.Content)
-			status := "PASS"
-			if stepPassed != nil {
-				hasScored = true
-				if !*stepPassed {
-					allPassed = false
-					status = "FAIL"
-				}
-			} else {
-				status = "REVIEW"
-			}
-			responsesSummary = append(responsesSummary, fmt.Sprintf("[%s] %s: %s", status, stepLabel, strings.TrimSpace(turn.Content)))
-
-			res.SubResults = append(res.SubResults, SubResult{
-				Index:          i + 1,
-				Name:           stepLabel,
-				Prompt:         step.Prompt,
-				SystemPrompt:   effStepSys[i],
-				Options:        effStepOpts[i],
-				Passed:         stepPassed,
-				ResponseTimeMs: turn.ResponseTimeMs,
-				TokensPerSec:   turn.TokensPerSec,
-				PromptTokens:   turn.PromptTokens,
-				EvalTokens:     turn.EvalTokens,
-				TotalTokens:    turn.TotalTokens,
-				ReasoningUsed:  turn.Thinking != "",
-				ModelResponse:  turn.Content,
-			})
 		}
 
 		res.ResponseTimeMs = time.Since(start).Milliseconds()

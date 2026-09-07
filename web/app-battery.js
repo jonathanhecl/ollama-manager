@@ -1913,7 +1913,7 @@ async function retryCurrentBatteryTest() {
   try {
     const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/retry", { method: "POST" });
     if (res?.retried) {
-      toast(t("toast.test_retried") || "Retrying current test from the start", "info");
+      toast(t("toast.test_retried") || "Retrying current step", "info");
       batteryActiveTurnKey = "";
       batteryTurnStartTime = 0;
       batteryThinkingStartTime = 0;

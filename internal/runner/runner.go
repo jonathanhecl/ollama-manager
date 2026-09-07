@@ -71,6 +71,8 @@ type Progress struct {
 	RunID           string       `json:"run_id"`
 	Model           string       `json:"model"`
 	Models          []string     `json:"models,omitempty"`
+	GroupID         string       `json:"group_id,omitempty"`
+	GroupName       string       `json:"group_name,omitempty"`
 	TestID          string       `json:"test_id"`
 	TestName        string       `json:"test_name"`
 	TestIndex       int          `json:"test_index"`
@@ -185,7 +187,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 		}
 	}
 
-	c.setProgress(Progress{RunID: run.ID, TotalTests: total, Models: append([]string(nil), run.Models...)})
+	c.setProgress(Progress{RunID: run.ID, TotalTests: total, GroupID: group.ID, GroupName: group.Name, Models: append([]string(nil), run.Models...)})
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	c.cancelMu.Lock()
@@ -389,6 +391,8 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			c.setProgress(Progress{
 				RunID:          runID,
 				Model:          model,
+				GroupID:        test.GroupID,
+				GroupName:      test.GroupID,
 				TestID:         test.ID,
 				TestName:       test.Name,
 				TestIndex:      idx,
@@ -524,6 +528,8 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			c.setProgress(Progress{
 				RunID:          runID,
 				Model:          model,
+				GroupID:        test.GroupID,
+				GroupName:      test.GroupID,
 				TestID:         test.ID,
 				TestName:       test.Name,
 				TestIndex:      idx,
@@ -782,6 +788,8 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	c.setProgress(Progress{
 		RunID:        runID,
 		Model:        model,
+		GroupID:      test.GroupID,
+		GroupName:    test.GroupID,
 		TestID:       test.ID,
 		TestName:     test.Name,
 		TestIndex:    idx,

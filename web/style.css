@@ -11600,6 +11600,23 @@ button.chat-send:disabled:hover {
   text-overflow: ellipsis;
 }
 
+.battery-stream-category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  color: #c084fc;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .battery-stream-case-pill {
   font-size: 11px;
   font-weight: 600;
@@ -11609,6 +11626,21 @@ button.chat-send:disabled:hover {
   padding: 2px 8px;
   border-radius: 12px;
   white-space: nowrap;
+}
+
+.battery-timeline-category-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #c084fc;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .battery-stream-status-badge {
@@ -11674,6 +11706,13 @@ button.chat-send:disabled:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.case-chip-sep {
+  color: var(--accent);
+  opacity: 0.7;
+  font-weight: 700;
+  margin: 0 3px;
 }
 
 .case-chip-meta {

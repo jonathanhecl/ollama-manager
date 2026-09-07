@@ -835,6 +835,18 @@ function renderBatteryProgressModels(modelIDs, currentModel, isThinking) {
   container.innerHTML = "";
 }
 
+function getTestCategoryName(testId, fallbackGroupId = "") {
+  let gid = fallbackGroupId;
+  const tObj = (typeof tests !== "undefined" && Array.isArray(tests)) ? tests.find((t) => t.id === testId) : null;
+  if (tObj && tObj.group_id) {
+    gid = tObj.group_id;
+  }
+  if (!gid) return "";
+  const gObj = (typeof testsGroups !== "undefined" && Array.isArray(testsGroups)) ? testsGroups.find((g) => g.id === gid) : null;
+  if (gObj && gObj.name) return gObj.name;
+  return gid.charAt(0).toUpperCase() + gid.slice(1);
+}
+
 function buildBatteryTimelineQueue(groupId, modelIDs) {
   const activeTests = tests
     .filter((t) => (groupId === "all" || !groupId || t.group_id === groupId) && t.active && t.evaluation_type !== "agent")
@@ -847,7 +859,7 @@ function buildBatteryTimelineQueue(groupId, modelIDs) {
       const required = (test.required_caps || []).map((c) => String(c).toLowerCase());
       if (required.every((c) => caps.has(c))) {
         idx++;
-        queue.push({ index: idx, testId: test.id, testName: test.name, model });
+        queue.push({ index: idx, testId: test.id, testName: test.name, model, groupId: test.group_id });
       }
     }
   }
@@ -865,6 +877,17 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryTimelineScrollKey = "";
   batteryLiveResults = [];
   batteryStartTime = Date.now();
+
+  if (!tests || tests.length === 0 || !testsGroups || testsGroups.length === 0) {
+    void api("/api/tests").then((data) => {
+      if (data) {
+        if (data.tests) tests = data.tests;
+        if (data.groups) testsGroups = data.groups;
+        batteryTimelineQueue = buildBatteryTimelineQueue(groupId, modelIDs);
+        renderBatteryTimeline(batteryLiveResults);
+      }
+    }).catch(() => {});
+  }
 
   if (batteryElapsedInterval) {
     clearInterval(batteryElapsedInterval);
@@ -949,6 +972,9 @@ function renderBatteryTimeline(liveResults = []) {
       }
     }
 
+    const catName = getTestCategoryName(item.testId, item.groupId);
+    const catBadge = catName ? `<span class="battery-timeline-category-tag">📁 ${escapeHtml(catName)}</span>` : "";
+
     html += `
       <div class="${itemClass}">
         <div class="battery-timeline-left">
@@ -956,7 +982,7 @@ function renderBatteryTimeline(liveResults = []) {
           <div class="battery-timeline-line"></div>
         </div>
         <div class="battery-timeline-body">
-          <div class="battery-timeline-name">${escapeHtml(item.name || "Test")}</div>
+          <div class="battery-timeline-name">${catBadge}${escapeHtml(item.name || "Test")}</div>
           <div class="battery-timeline-meta">${escapeHtml(item.model || "")}${metaDetails}</div>
         </div>
       </div>
@@ -967,6 +993,8 @@ function renderBatteryTimeline(liveResults = []) {
     const caseBadge = (batteryTimelineCurrent.totalCases > 1 && batteryTimelineCurrent.caseName)
       ? `<div class="battery-timeline-case-badge">⚡ ${escapeHtml(batteryTimelineCurrent.caseName)} (${batteryTimelineCurrent.caseIndex}/${batteryTimelineCurrent.totalCases})</div>`
       : "";
+    const activeCatName = getTestCategoryName(batteryTimelineCurrent.testId, batteryTimelineCurrent.groupId);
+    const activeCatBadge = activeCatName ? `<span class="battery-timeline-category-tag">📁 ${escapeHtml(activeCatName)}</span>` : "";
 
     html += `
       <div class="battery-timeline-item active">
@@ -975,7 +1003,7 @@ function renderBatteryTimeline(liveResults = []) {
           <div class="battery-timeline-line"></div>
         </div>
         <div class="battery-timeline-body">
-          <div class="battery-timeline-name">${escapeHtml(batteryTimelineCurrent.name || "Test")}</div>
+          <div class="battery-timeline-name">${activeCatBadge}${escapeHtml(batteryTimelineCurrent.name || "Test")}</div>
           ${caseBadge}
           <div class="battery-timeline-meta">
             ${escapeHtml(batteryTimelineCurrent.model || "")}
@@ -992,6 +1020,8 @@ function renderBatteryTimeline(liveResults = []) {
     const shownIdx = shown + i + 1;
     const queueItem = batteryTimelineQueue.find((q) => q.index === shownIdx);
     const isLast = i === pending - 1;
+    const pendingCatName = queueItem ? getTestCategoryName(queueItem.testId, queueItem.groupId) : "";
+    const pendingCatBadge = pendingCatName ? `<span class="battery-timeline-category-tag">📁 ${escapeHtml(pendingCatName)}</span>` : "";
     html += `
       <div class="battery-timeline-item pending">
         <div class="battery-timeline-left">
@@ -999,7 +1029,7 @@ function renderBatteryTimeline(liveResults = []) {
           ${isLast ? "" : "<div class=\"battery-timeline-line\"></div>"}
         </div>
         <div class="battery-timeline-body">
-          <div class="battery-timeline-name">${escapeHtml(queueItem ? queueItem.testName : t("battery.status_pending"))}</div>
+          <div class="battery-timeline-name">${pendingCatBadge}${escapeHtml(queueItem ? queueItem.testName : t("battery.status_pending"))}</div>
           ${queueItem ? `<div class="battery-timeline-meta">${escapeHtml(queueItem.model)}</div>` : ""}
         </div>
       </div>
@@ -1055,6 +1085,7 @@ function updateBatteryProgressUI(p, liveResults = []) {
       name: batteryTimelineCurrent.name,
       model: batteryTimelineCurrent.model,
       testId: batteryTimelineCurrent.testId,
+      groupId: batteryTimelineCurrent.groupId,
     });
   }
 
@@ -1069,6 +1100,7 @@ function updateBatteryProgressUI(p, liveResults = []) {
       caseName: p.case_name || "",
       caseIndex: p.case_index || 0,
       totalCases: p.total_cases || 0,
+      groupId: p.group_id || "",
     };
   } else if (done) {
     // Archive final current
@@ -1078,6 +1110,7 @@ function updateBatteryProgressUI(p, liveResults = []) {
         name: batteryTimelineCurrent.name,
         model: batteryTimelineCurrent.model,
         testId: batteryTimelineCurrent.testId,
+        groupId: batteryTimelineCurrent.groupId,
       });
     }
     batteryTimelineCurrent = null;
@@ -1173,9 +1206,20 @@ async function pollBatteryProgress(runID, modelIDs) {
 
       // Topbar elements
       const testTitleEl = $("battery-stream-test-title");
+      const categoryBadgeEl = $("battery-stream-category-badge");
       const casePillEl = $("battery-stream-case-pill");
       const statusBadgeEl = $("battery-stream-status-badge");
 
+      const catName = getTestCategoryName(p.test_id, p.group_id || (currentTest ? currentTest.group_id : ""));
+      if (categoryBadgeEl) {
+        if (catName) {
+          categoryBadgeEl.hidden = false;
+          categoryBadgeEl.innerHTML = `📁 ${escapeHtml(catName)}`;
+          categoryBadgeEl.title = `Category: ${catName}`;
+        } else {
+          categoryBadgeEl.hidden = true;
+        }
+      }
       if (testTitleEl) testTitleEl.textContent = p.test_name;
       if (casePillEl) {
         if (p.total_cases > 1) {
@@ -1206,6 +1250,36 @@ async function pollBatteryProgress(runID, modelIDs) {
         if (casesCountEl) casesCountEl.textContent = `${p.case_index || 1} / ${p.total_cases}`;
         if (casesListEl) {
           let casesHtml = "";
+          // Precompute unit labels from currentTest if available
+          const unitLabels = [];
+          if (currentTest && currentTest.cases && Array.isArray(currentTest.cases)) {
+            for (let ci = 0; ci < currentTest.cases.length; ci++) {
+              const tc = currentTest.cases[ci];
+              const cName = tc.name || `Case ${ci + 1}`;
+              if (!tc.steps || tc.steps.length === 0) {
+                unitLabels.push(cName);
+              } else {
+                if (tc.prompt) {
+                  unitLabels.push(`${cName} › context`);
+                }
+                for (let si = 0; si < tc.steps.length; si++) {
+                  const st = tc.steps[si];
+                  const sName = st.name || `Step ${si + 1}`;
+                  unitLabels.push(`${cName} › ${sName}`);
+                }
+              }
+            }
+          }
+
+          const formatTurnLabel = (fullName) => {
+            if (!fullName) return "Case";
+            if (fullName.includes(" › ")) {
+              const parts = fullName.split(" › ");
+              return `<span class="muted">${escapeHtml(parts[0])}</span> <span class="case-chip-sep">›</span> <strong>${escapeHtml(parts.slice(1).join(" › "))}</strong>`;
+            }
+            return escapeHtml(fullName);
+          };
+
           // Completed cases
           const completed = p.completed_cases || [];
           completed.forEach((c) => {
@@ -1215,20 +1289,22 @@ async function pollBatteryProgress(runID, modelIDs) {
             const badgeCls = isPass ? "badge-pass" : (isFail ? "badge-fail" : "badge-human");
             const tps = c.tokens_per_sec > 0 ? `${c.tokens_per_sec.toFixed(1)} tok/s` : "";
             const time = c.response_time_ms > 0 ? fmtDuration(c.response_time_ms) : "";
+            const chipTitle = c.name || "Case";
             casesHtml += `
-              <div class="battery-stream-case-chip done">
+              <div class="battery-stream-case-chip done" title="${escapeHtml(chipTitle)}">
                 <span class="badge ${badgeCls}">${icon}</span>
-                <span class="case-chip-name">${escapeHtml(c.name || "Case")}</span>
+                <span class="case-chip-name">${formatTurnLabel(chipTitle)}</span>
                 <span class="case-chip-meta mono muted">${time}${tps ? " · " + tps : ""}</span>
               </div>
             `;
           });
           // Active case
           if (p.case_name || p.case_index) {
+            const activeTitle = p.case_name || ("Case " + p.case_index);
             casesHtml += `
-              <div class="battery-stream-case-chip active pulse">
+              <div class="battery-stream-case-chip active pulse" title="${escapeHtml(activeTitle)}">
                 <span class="badge badge-primary">⚡</span>
-                <span class="case-chip-name"><strong>${escapeHtml(p.case_name || ("Case " + p.case_index))}</strong></span>
+                <span class="case-chip-name">${formatTurnLabel(activeTitle)}</span>
                 <span class="case-chip-meta mono" style="color:var(--accent);">${t("battery.status_evaluating")}</span>
               </div>
             `;
@@ -1236,10 +1312,11 @@ async function pollBatteryProgress(runID, modelIDs) {
           // Remaining cases
           const currentIdx = p.case_index || (completed.length + 1);
           for (let rem = currentIdx + 1; rem <= p.total_cases; rem++) {
+            const remTitle = unitLabels[rem - 1] || `Case ${rem}`;
             casesHtml += `
-              <div class="battery-stream-case-chip pending">
+              <div class="battery-stream-case-chip pending" title="${escapeHtml(remTitle)}">
                 <span class="badge badge-muted">⏳</span>
-                <span class="case-chip-name muted">Case ${rem}</span>
+                <span class="case-chip-name muted">${formatTurnLabel(remTitle)}</span>
                 <span class="case-chip-meta mono muted">${t("battery.status_pending")}</span>
               </div>
             `;
@@ -1254,7 +1331,8 @@ async function pollBatteryProgress(runID, modelIDs) {
       const promptName = $("battery-stream-prompt-name");
       const promptBlock = $("battery-stream-prompt");
       if (promptName) {
-        promptName.textContent = p.case_name ? `${p.test_name} — ${p.case_name}` : p.test_name;
+        const catPrefix = catName ? `[${catName}] ` : "";
+        promptName.textContent = p.case_name ? `${catPrefix}${p.test_name} — ${p.case_name}` : `${catPrefix}${p.test_name}`;
       }
       if (promptBlock) {
         const promptText = p.active_prompt || (currentTest ? currentTest.prompt : "") || "";

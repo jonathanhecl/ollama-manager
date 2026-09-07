@@ -195,20 +195,23 @@ async function buildLeaderboardTableHtml() {
   let bodyRows = "";
   lbRows.forEach((row, idx) => {
     let cells = "";
-    const runModelAttr = `data-lb-run data-lb-run-model="${escapeHtml(row.model)}"`;
+    const installed = modelInfo.has(row.model);
+    // Uninstalled models keep their results visible but cannot be run.
+    const runModelAttr = installed ? `data-lb-run data-lb-run-model="${escapeHtml(row.model)}"` : "";
+    const hintSuffix = installed ? ` · ${escapeHtml(runHint)}` : "";
     if (row.overall == null) {
-      cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" ${runModelAttr} data-lb-run-group="" title="${escapeHtml(runHint)}"><span class="muted">—</span></td>`;
+      cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" ${runModelAttr} data-lb-run-group=""${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
     } else {
-      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${row.passed}/${row.total} · ${escapeHtml(runHint)}">${row.overall.toFixed(1)}</td>`;
+      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${row.passed}/${row.total}${hintSuffix}">${row.overall.toFixed(1)}</td>`;
     }
     for (const col of cols) {
       const c = scores[row.model][col.id];
       if (!c || c.total === 0) {
-        cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" title="${escapeHtml(runHint)}"><span class="muted">—</span></td>`;
+        cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}"${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
         continue;
       }
       const pct = (c.passed / c.total) * 100;
-      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(pct, colRange[col.id], false)}" title="${c.passed}/${c.total} · ${escapeHtml(runHint)}">${pct.toFixed(1)}</td>`;
+      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(pct, colRange[col.id], false)}" title="${c.passed}/${c.total}${hintSuffix}">${pct.toFixed(1)}</td>`;
     }
 
     let modelName = row.model;
@@ -219,7 +222,9 @@ async function buildLeaderboardTableHtml() {
 
     const info = modelInfo.get(row.model);
     let metaHtml = "";
-    if (info) {
+    if (!installed) {
+      metaHtml = `<div class="lb-model-meta mono"><span class="pill lb-uninstalled-tag">${escapeHtml(t("battery.lb_not_installed_tag"))}</span></div>`;
+    } else if (info) {
       const pills = (typeof renderCapabilityPills === "function") ? renderCapabilityPills(info.capabilities) : "";
       const parts = [];
       if (Number(info.context_length) > 0) {
@@ -239,7 +244,7 @@ async function buildLeaderboardTableHtml() {
     }
 
     bodyRows += `
-      <tr class="${idx === 0 ? "lb-row-first" : ""}">
+      <tr class="${idx === 0 ? "lb-row-first" : ""}${installed ? "" : " lb-row-uninstalled"}"${installed ? "" : ` data-lb-uninstalled="1" data-lb-model="${escapeHtml(row.model)}"`}>
         <td class="cell-lb-model">
           <div class="lb-model-top"><span class="lb-rank">${idx + 1}</span><strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong></div>
           ${metaHtml}
@@ -335,6 +340,13 @@ $("battery-leaderboard-refresh")?.addEventListener("click", () => {
 // categories for the model, category header = that category). Delegated so
 // it survives table rebuilds and works in the modal too.
 document.addEventListener("click", (e) => {
+  // Uninstalled models: results stay visible but cannot be run.
+  const lockedCell = e.target?.closest?.("tr[data-lb-uninstalled] td.cell-lb-score");
+  if (lockedCell) {
+    const row = lockedCell.closest("tr[data-lb-uninstalled]");
+    toast(t("battery.lb_not_installed", { name: row?.dataset?.lbModel || "?" }), "warn");
+    return;
+  }
   const cell = e.target?.closest?.("[data-lb-run]");
   if (!cell) return;
   const groupId = cell.dataset.lbRunGroup || null;

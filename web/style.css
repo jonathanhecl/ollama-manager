@@ -11617,6 +11617,9 @@ button.chat-send:disabled:hover {
 .battery-lb-table tbody tr:hover td.cell-lb-model {
   background: var(--panel-2);
 }
+.battery-lb-table tbody tr:hover td.cell-lb-score {
+  filter: brightness(1.12);
+}
 
 .lb-rank {
   display: inline-block;
@@ -11637,16 +11640,34 @@ button.chat-send:disabled:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 6px;
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 11px;
   white-space: normal;
+  color: var(--text-dim);
 }
 .lb-model-meta .pill {
   font-size: 10px;
   padding: 1px 7px;
+  opacity: 0.92;
 }
 .lb-meta-sep {
-  opacity: 0.4;
+  opacity: 0.35;
+}
+.lb-uninstalled-tag {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+/* Uninstalled models: identity grayed out, results stay fully visible. */
+.lb-row-uninstalled .lb-model-name {
+  color: var(--muted);
+  font-weight: 400;
+}
+.lb-row-uninstalled .lb-model-meta {
+  opacity: 0.65;
+}
+.lb-row-uninstalled .lb-rank {
+  opacity: 0.5;
 }
 
 .lb-row-first .lb-rank {
@@ -11655,6 +11676,7 @@ button.chat-send:disabled:hover {
 
 .lb-model-name {
   font-size: 13px;
+  font-weight: 600;
   color: var(--text);
 }
 

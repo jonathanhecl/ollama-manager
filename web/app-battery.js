@@ -503,9 +503,14 @@ function renderBatteryKPIs(p, stats) {
   const elModelBar = $("battery-kpi-model-bar");
   const elNextName = $("battery-kpi-next-name");
 
+  // NOTE: marquee animation restarts whenever the text node is replaced, so
+  // only touch textContent when the value actually changed. Otherwise the
+  // ping-pong (which holds still for the first 18% of each cycle) would be
+  // reset on every poll and the title would look frozen.
   if (elModelName) {
-    elModelName.textContent = currentModel || (done ? t("battery.status_done") : "--");
-    elModelName.title = currentModel || "";
+    const modelLabel = currentModel || (done ? t("battery.status_done") : "--");
+    setTextIfChanged(elModelName, modelLabel);
+    if (elModelName.title !== (currentModel || "")) elModelName.title = currentModel || "";
   }
   if (elModelStatus) {
     if (done) {
@@ -539,8 +544,9 @@ function renderBatteryKPIs(p, stats) {
   }
 
   if (elNextName) {
-    elNextName.textContent = stats.nextModel || t("battery.kpi_no_next");
-    elNextName.title = stats.nextModel || "";
+    const nextLabel = stats.nextModel || t("battery.kpi_no_next");
+    setTextIfChanged(elNextName, nextLabel);
+    if (elNextName.title !== (stats.nextModel || "")) elNextName.title = stats.nextModel || "";
   }
 
   // Global Progress Card
@@ -594,6 +600,19 @@ function renderBatteryKPIs(p, stats) {
     elTokens.textContent = `${stats.totalTokens.toLocaleString()} tokens`;
   }
 
+  // Measure KPI marquee overflow. setupMarquees is a no-op for wrappers whose
+  // content/width did not change, so running marquees keep playing.
+  requestAnimationFrame(() => {
+    const view = $("battery-progress-view");
+    if (view && !view.hidden) setupMarquees(view);
+  });
+
+}
+
+// Set textContent only when it changed: replacing the text node restarts any
+// CSS animation running on the element (e.g. .marquee-content ping-pong).
+function setTextIfChanged(el, val) {
+  if (el && el.textContent !== val) el.textContent = val;
 }
 
 function setupMarquees(container = document) {
@@ -622,28 +641,41 @@ function setupMarquees(container = document) {
   });
 }
 
-let _leaderboardFingerprint = "";
+let _leaderboardRowModels = []; // model ids in the current DOM order (marquee nodes are preserved while this matches)
+function batteryLbStatsFor(modelMap, m, currentModel) {
+  return modelMap.get(m) || { expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, completedPassRate: 0, avgSpeed: 0, isCurrent: m === currentModel, isDone: false };
+}
+// Signature of everything rendered OUTSIDE the model-name marquee node.
+function batteryLbRowSig(st) {
+  return `${st.expected}|${st.completed}|${st.passed}|${st.failed}|${(st.avgSpeed || 0).toFixed(1)}|${st.isCurrent ? 1 : 0}|${st.isDone ? 1 : 0}`;
+}
+function batteryLbStatusBadge(st) {
+  if (st.isCurrent) {
+    return `<span class="badge badge-primary pulse">⚡ ${escapeHtml(t("battery.status_running"))}</span>`;
+  } else if (st.isDone) {
+    return `<span class="badge badge-pass">✔ ${escapeHtml(t("battery.status_done"))}</span>`;
+  }
+  return `<span class="badge badge-muted">⏳ ${escapeHtml(t("battery.status_pending"))}</span>`;
+}
 function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
   const container = $("battery-leaderboard-container");
   if (!container) return;
   if (!modelIDs || !modelIDs.length) {
-    _leaderboardFingerprint = "";
+    _leaderboardRowModels = [];
     container.innerHTML = `<div class="muted">${escapeHtml(t("battery.starting"))}</div>`;
     return;
   }
 
-  // Build a lightweight fingerprint of the data to skip DOM rebuild when nothing changed
-  let fp = currentModel + "|";
-  for (const m of modelIDs) {
-    const st = modelMap.get(m);
-    if (st) {
-      fp += `${m}:${st.completed},${st.passed},${st.failed},${st.expected},${st.isCurrent},${st.isDone},${(st.avgSpeed||0).toFixed(1)};`;
-    } else {
-      fp += `${m}:0;`;
-    }
+  // Fast path: same model list/order as the DOM already shows. Update only the
+  // stat cells in place and NEVER touch the .marquee-content nodes, so running
+  // title animations survive every poll / completed test / case change.
+  const sameOrder = _leaderboardRowModels.length === modelIDs.length &&
+    _leaderboardRowModels.every((m, i) => m === modelIDs[i]);
+  const tbody = container.querySelector("table.battery-leaderboard-table tbody");
+  if (sameOrder && tbody && tbody.children.length === modelIDs.length) {
+    updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel);
+    return;
   }
-  if (fp === _leaderboardFingerprint) return; // data unchanged, skip rebuild
-  _leaderboardFingerprint = fp;
 
   let html = `
     <table class="battery-leaderboard-table">
@@ -661,19 +693,14 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
   `;
 
   for (const m of modelIDs) {
-    const st = modelMap.get(m) || { expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, completedPassRate: 0, avgSpeed: 0, isCurrent: m === currentModel, isDone: false };
+    const st = batteryLbStatsFor(modelMap, m, currentModel);
     const totalExp = st.expected > 0 ? st.expected : st.completed;
     const passPct = Math.round(st.passRate);
     const passBarWidth = totalExp > 0 ? (st.passed / totalExp) * 100 : 0;
     const failBarWidth = totalExp > 0 ? (st.failed / totalExp) * 100 : 0;
     const pendingCount = Math.max(0, totalExp - st.completed);
 
-    let statusBadge = `<span class="badge badge-muted">⏳ ${escapeHtml(t("battery.status_pending"))}</span>`;
-    if (st.isCurrent) {
-      statusBadge = `<span class="badge badge-primary pulse">⚡ ${escapeHtml(t("battery.status_running"))}</span>`;
-    } else if (st.isDone) {
-      statusBadge = `<span class="badge badge-pass">✔ ${escapeHtml(t("battery.status_done"))}</span>`;
-    }
+    const statusBadge = batteryLbStatusBadge(st);
 
     const rowClass = st.isCurrent ? "battery-leaderboard-row active-model-row" : "battery-leaderboard-row";
     const passPctColor = passPct >= 75 ? "var(--good)" : (passPct >= 50 ? "var(--warn)" : "var(--danger)");
@@ -686,7 +713,7 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
     }
 
     html += `
-      <tr class="${rowClass}">
+      <tr class="${rowClass}" data-sig="${escapeHtml(batteryLbRowSig(st))}">
         <td class="col-cell-model">
           <div class="leaderboard-model-cell">
             <div class="marquee-wrapper leaderboard-marquee">
@@ -716,7 +743,67 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
 
   html += `</tbody></table>`;
   container.innerHTML = html;
+  _leaderboardRowModels = [...modelIDs];
   requestAnimationFrame(() => setupMarquees(container));
+}
+
+// In-place stat update for leaderboard rows. The model-name marquee nodes are
+// never touched here, so their animations survive polls, completed tests and
+// case changes. Only the numeric/status cells are rewritten, and only when
+// their per-row signature changed.
+function updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel) {
+  const rows = tbody.querySelectorAll("tr.battery-leaderboard-row");
+  modelIDs.forEach((m, i) => {
+    const row = rows[i];
+    if (!row) return;
+    const st = batteryLbStatsFor(modelMap, m, currentModel);
+    const sig = batteryLbRowSig(st);
+    if (row.dataset.sig === sig) return;
+    row.dataset.sig = sig;
+    row.classList.toggle("active-model-row", !!st.isCurrent);
+
+    const totalExp = st.expected > 0 ? st.expected : st.completed;
+    const passPct = Math.round(st.passRate);
+    const pendingCount = Math.max(0, totalExp - st.completed);
+
+    const testsCell = row.querySelector(".col-cell-tests");
+    if (testsCell) {
+      testsCell.title = `${st.completed} / ${totalExp}`;
+      setTextIfChanged(testsCell.querySelector(".tests-val"), String(st.completed));
+      setTextIfChanged(testsCell.querySelector(".tests-total"), String(totalExp));
+    }
+    const ratioBar = row.querySelector(".leaderboard-ratio-bar");
+    if (ratioBar) {
+      ratioBar.title = `${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}${pendingCount > 0 ? ` · ${pendingCount} ${t("battery.status_pending")}` : ""}`;
+      const passBar = ratioBar.querySelector(".ratio-bar-pass");
+      const failBar = ratioBar.querySelector(".ratio-bar-fail");
+      if (passBar) passBar.style.width = `${totalExp > 0 ? (st.passed / totalExp) * 100 : 0}%`;
+      if (failBar) failBar.style.width = `${totalExp > 0 ? (st.failed / totalExp) * 100 : 0}%`;
+    }
+    const passCell = row.querySelector(".col-cell-pass");
+    if (passCell) {
+      const passPctColor = passPct >= 75 ? "var(--good)" : (passPct >= 50 ? "var(--warn)" : "var(--danger)");
+      passCell.style.color = st.completed > 0 ? passPctColor : "var(--muted)";
+      passCell.title = st.completed > 0 ? `${st.passed}/${totalExp} (${passPct}%)` : "";
+      setTextIfChanged(passCell, st.completed > 0 ? passPct + "%" : "—");
+    }
+    const speedCell = row.querySelector(".col-cell-speed");
+    if (speedCell) {
+      const html = st.avgSpeed > 0 ? `${st.avgSpeed.toFixed(1)} <span class="speed-unit">tok/s</span>` : "—";
+      if (speedCell.dataset.html !== html) {
+        speedCell.dataset.html = html;
+        speedCell.innerHTML = html;
+      }
+    }
+    const statusCell = row.querySelector(".col-cell-status");
+    if (statusCell) {
+      const html = batteryLbStatusBadge(st);
+      if (statusCell.dataset.html !== html) {
+        statusCell.dataset.html = html;
+        statusCell.innerHTML = html;
+      }
+    }
+  });
 }
 
 function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
@@ -820,6 +907,14 @@ function initBatteryProgressControls() {
         if (b) b.classList.toggle("active", t.id === tab.id);
         if (c) c.hidden = (t.id !== tab.id);
       });
+      // Wrappers measured while hidden have width 0 and skip the marquee
+      // setup; re-measure now that the tab is visible so marquees start.
+      // setupMarquees never touches up-to-date wrappers, so running
+      // animations on other tabs keep playing.
+      requestAnimationFrame(() => {
+        const view = $("battery-progress-view");
+        if (view && !view.hidden) setupMarquees(view);
+      });
     });
   });
 
@@ -850,6 +945,31 @@ if (typeof document !== "undefined") {
     document.addEventListener("DOMContentLoaded", initBatteryProgressControls);
   } else {
     initBatteryProgressControls();
+  }
+}
+
+// Re-measure marquee overflow when layout can change underneath it (window
+// resize, font load). setupMarquees is read-only for up-to-date wrappers, so
+// running animations are not restarted.
+if (typeof window !== "undefined" && !window.__batteryMarqueeResizeWired) {
+  window.__batteryMarqueeResizeWired = true;
+  let _marqueeResizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (_marqueeResizeTimer) clearTimeout(_marqueeResizeTimer);
+    _marqueeResizeTimer = setTimeout(() => {
+      const view = (typeof $ === "function" && $("battery-progress-view")) || null;
+      if (view && !view.hidden && typeof setupMarquees === "function") {
+        setupMarquees(view);
+      } else if (typeof setupMarquees === "function") {
+        setupMarquees(document);
+      }
+    }, 250);
+  });
+  if (document.fonts && document.fonts.ready && typeof setupMarquees === "function") {
+    document.fonts.ready.then(() => {
+      const view = (typeof $ === "function" && $("battery-progress-view")) || null;
+      if (view && !view.hidden) setupMarquees(view);
+    }).catch(() => {});
   }
 }
 
@@ -902,6 +1022,7 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryTimelineScrollKey = "";
   batteryLiveResults = [];
   batteryStartTime = Date.now();
+  _leaderboardRowModels = []; // force a full leaderboard build for the new run
 
   if (!tests || tests.length === 0 || !testsGroups || testsGroups.length === 0) {
     void api("/api/tests").then((data) => {

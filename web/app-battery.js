@@ -187,8 +187,10 @@ async function openBatteryModal(options = {}) {
 
   wireBatteryModalStepButtons();
 
-  // Data for the categories step.
-  if (!options.testId && (!Array.isArray(testsGroups) || testsGroups.length === 0)) {
+  // Data for the categories step. Note the leaderboard page loads group
+  // names without the test list, so both must be checked (otherwise every
+  // category shows "0 tests" and Continue is blocked).
+  if (!options.testId && (!Array.isArray(testsGroups) || testsGroups.length === 0 || !Array.isArray(tests) || tests.length === 0)) {
     try { await refreshTests(); } catch { }
   }
   // Pre-fetch models and usage if needed
@@ -202,7 +204,11 @@ async function openBatteryModal(options = {}) {
   if (options.testId) {
     // Single test: skip the categories step and go straight to models.
     batteryModalSingleTestId = options.testId;
-    const test = (Array.isArray(tests) ? tests : []).find((t) => t.id === options.testId);
+    let test = (Array.isArray(tests) ? tests : []).find((t) => t.id === options.testId);
+    if (!test) {
+      try { await refreshTests(); } catch { }
+      test = (Array.isArray(tests) ? tests : []).find((t) => t.id === options.testId);
+    }
     currentRunTarget = { type: "single", testId: options.testId, groupId: test?.group_id, name: test?.name || options.testId };
     const titleEl = $("battery-modal-title");
     if (titleEl) titleEl.textContent = t("battery.run_single", { name: test?.name || options.testId });

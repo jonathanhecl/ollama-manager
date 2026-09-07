@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -90,16 +91,18 @@ type Client struct {
 	ollama     *ollama.Client
 	progressMu sync.Mutex
 	progress   map[string]*Progress
-	cancelMu   sync.Mutex
-	cancels    map[string]context.CancelFunc
+	cancelMu    sync.Mutex
+	cancels     map[string]context.CancelFunc
+	testCancels map[string]context.CancelCauseFunc
 }
 
 // NewClient creates a runner client.
 func NewClient(ollamaClient *ollama.Client) *Client {
 	return &Client{
-		ollama:   ollamaClient,
-		progress: make(map[string]*Progress),
-		cancels:  make(map[string]context.CancelFunc),
+		ollama:      ollamaClient,
+		progress:    make(map[string]*Progress),
+		cancels:     make(map[string]context.CancelFunc),
+		testCancels: make(map[string]context.CancelCauseFunc),
 	}
 }
 
@@ -189,7 +192,11 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 					continue
 				}
 				idx++
-				res := c.runTest(runCtx, run.ID, model, test, idx, total)
+				testCtx, testCancel := context.WithCancelCause(runCtx)
+				c.setTestCancel(run.ID, testCancel)
+				res := c.runTest(testCtx, run.ID, model, test, idx, total)
+				testCancel(nil)
+				c.clearTestCancel(run.ID)
 				run.Results = append(run.Results, res)
 				if runCtx.Err() != nil {
 					runErr = runCtx.Err().Error()
@@ -216,9 +223,37 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 func (c *Client) CancelRun(runID string) bool {
 	c.cancelMu.Lock()
 	cancel, ok := c.cancels[runID]
+	testCancel, hasTest := c.testCancels[runID]
 	c.cancelMu.Unlock()
+	if hasTest && testCancel != nil {
+		testCancel(context.Canceled)
+	}
 	if ok && cancel != nil {
 		cancel()
+		return true
+	}
+	return false
+}
+
+func (c *Client) setTestCancel(runID string, cancel context.CancelCauseFunc) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	c.testCancels[runID] = cancel
+}
+
+func (c *Client) clearTestCancel(runID string) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	delete(c.testCancels, runID)
+}
+
+// SkipCurrentTest cancels the currently executing test of an active battery run.
+func (c *Client) SkipCurrentTest(runID string) bool {
+	c.cancelMu.Lock()
+	cancel, ok := c.testCancels[runID]
+	c.cancelMu.Unlock()
+	if ok && cancel != nil {
+		cancel(errManualSkip)
 		return true
 	}
 	return false
@@ -355,6 +390,25 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effStepOpts[i]))
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
+				falseVal := false
+				allPassed = false
+				res.SubResults = append(res.SubResults, SubResult{
+					Index:          i + 1,
+					Name:           stepLabel,
+					Prompt:         step.Prompt,
+					SystemPrompt:   effStepSys[i],
+					Options:        effStepOpts[i],
+					Passed:         &falseVal,
+					ResponseTimeMs: turn.ResponseTimeMs,
+					TokensPerSec:   turn.TokensPerSec,
+					PromptTokens:   turn.PromptTokens,
+					EvalTokens:     turn.EvalTokens,
+					TotalTokens:    turn.TotalTokens,
+					ReasoningUsed:  turn.Thinking != "",
+					ModelResponse:  turn.Content,
+					Error:          turn.Error.Error(),
+				})
+				responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
 				break
 			}
 
@@ -403,7 +457,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		if totalEvalDuration > 0 && res.EvalTokens > 0 {
 			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
 		}
-		if hasScored && res.Error == "" {
+		if isLoopOrSkip(res.Error) {
+			falseVal := false
+			res.Passed = &falseVal
+		} else if hasScored && res.Error == "" {
 			res.Passed = &allPassed
 		}
 		return res
@@ -465,6 +522,25 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			turn := c.execChatTurn(ctx, runID, model, history, optsFor(effOpts))
 			if turn.Error != nil {
 				res.Error = turn.Error.Error()
+				falseVal := false
+				allPassed = false
+				casesSummary = append(casesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", unitName, strings.TrimSpace(turn.Content), turn.Error.Error()))
+				res.SubResults = append(res.SubResults, SubResult{
+					Index:          unitIdx,
+					Name:           unitName,
+					Prompt:         prompt,
+					SystemPrompt:   sys,
+					Options:        effOpts,
+					Passed:         &falseVal,
+					ResponseTimeMs: turn.ResponseTimeMs,
+					TokensPerSec:   turn.TokensPerSec,
+					PromptTokens:   turn.PromptTokens,
+					EvalTokens:     turn.EvalTokens,
+					TotalTokens:    turn.TotalTokens,
+					ReasoningUsed:  turn.Thinking != "",
+					ModelResponse:  turn.Content,
+					Error:          turn.Error.Error(),
+				})
 				return history, false
 			}
 
@@ -572,7 +648,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		if totalEvalDuration > 0 && res.EvalTokens > 0 {
 			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
 		}
-		if hasScored && res.Error == "" {
+		if isLoopOrSkip(res.Error) {
+			falseVal := false
+			res.Passed = &falseVal
+		} else if hasScored && res.Error == "" {
 			res.Passed = &allPassed
 		}
 		return res
@@ -635,6 +714,11 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	res.ResponseTimeMs = turn.ResponseTimeMs
 	if turn.Error != nil {
 		res.Error = turn.Error.Error()
+		if isLoopOrSkip(res.Error) {
+			falseVal := false
+			res.Passed = &falseVal
+		}
+		res.ModelResponse = turn.Content
 		return res
 	}
 
@@ -671,6 +755,9 @@ func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages
 retryLoop:
 	for attempt := 0; attempt <= 3; attempt++ {
 		if attempt > 0 {
+			if errors.Is(chatErr, errRepetitionLoop) || errors.Is(chatErr, errManualSkip) || ctx.Err() != nil {
+				break retryLoop
+			}
 			if loaded, psErr := c.isModelLoaded(ctx, model); psErr == nil && !loaded {
 				select {
 				case <-time.After(2 * time.Second):
@@ -712,15 +799,28 @@ retryLoop:
 			if chunk.Done {
 				chunkMeta = &chunk
 			}
+			if isLoop, _ := detectRepetitionLoop(content); isLoop {
+				return errRepetitionLoop
+			}
+			if isLoop, _ := detectRepetitionLoop(fullThinking.String()); isLoop {
+				return errRepetitionLoop
+			}
 			return nil
 		})
 
+		if cause := context.Cause(ctx); errors.Is(cause, errManualSkip) {
+			chatErr = errManualSkip
+		}
 		if chatErr != nil {
 			break
 		}
 		if strings.TrimSpace(fullContent.String()) != "" {
 			break
 		}
+	}
+
+	if cause := context.Cause(ctx); errors.Is(cause, errManualSkip) {
+		chatErr = errManualSkip
 	}
 
 	elapsed := time.Since(start).Milliseconds()

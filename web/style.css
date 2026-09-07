@@ -1724,6 +1724,8 @@ select:focus { border-color: var(--accent); }
 .form-hint.warn { color: var(--warn); }
 .danger-text { color: var(--bad); }
 .danger-text:hover { background: #1f1212; border-color: #5a2a2a; }
+.warn-text { color: var(--warn); }
+.warn-text:hover { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35); }
 
 /* ---------- OpenCode settings section ---------- */
 .opencode-view { padding: 18px; }

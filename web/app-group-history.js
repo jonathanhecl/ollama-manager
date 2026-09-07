@@ -287,6 +287,9 @@ $("battery-history-back")?.addEventListener("click", () => {
 $("battery-progress-cancel")?.addEventListener("click", () => {
   void cancelBatteryRun();
 });
+$("battery-progress-skip")?.addEventListener("click", () => {
+  void skipCurrentBatteryTest();
+});
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && currentView === "battery-progress") {

@@ -281,6 +281,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/runner/runs/{id}", s.requireAuth(s.handleGetRun))
 	mux.Handle("GET /api/runner/runs/{id}/progress", s.requireAuth(s.handleBatteryProgress))
 	mux.Handle("POST /api/runner/runs/{id}/cancel", s.requireAuth(s.handleCancelBatteryRun))
+	mux.Handle("POST /api/runner/runs/{id}/skip", s.requireAuth(s.handleSkipBatteryTest))
 	mux.Handle("PUT /api/runner/runs/{id}/rate", s.requireAuth(s.handleRateRun))
 	mux.Handle("DELETE /api/runner/runs/{id}", s.requireAuth(s.handleDeleteRun))
 	mux.Handle("GET /api/runner/test-history/{id}", s.requireAuth(s.handleGetTestHistory))

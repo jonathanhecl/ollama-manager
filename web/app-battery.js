@@ -773,6 +773,36 @@ async function cancelBatteryRun() {
   }
 }
 
+async function skipCurrentBatteryTest() {
+  const saved = localStorage.getItem(BATTERY_KEY);
+  if (!saved) return;
+  let runID = "";
+  try {
+    const data = JSON.parse(saved);
+    runID = data.runID || "";
+  } catch { }
+  if (!runID) return;
+  const skipBtn = $("battery-progress-skip");
+  if (skipBtn) skipBtn.disabled = true;
+  try {
+    const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/skip", { method: "POST" });
+    if (res?.skipped) {
+      toast(t("toast.test_skipped") || "Current test skipped", "info");
+      if (batteryActiveRunID === runID) {
+        void pollBatteryProgress(runID, []);
+      }
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  } finally {
+    if (skipBtn) {
+      setTimeout(() => {
+        if (skipBtn) skipBtn.disabled = false;
+      }, 1000);
+    }
+  }
+}
+
 async function confirmBatteryRun() {
   if (batterySelectedModels.size === 0) {
     toast(t("battery.select_models"), "warn");
@@ -1423,15 +1453,26 @@ function renderBatteryResults(run) {
             </div>
           `;
         } else {
+          const errLower = (r.error || "").toLowerCase();
+          const isLoop = errLower.includes("loop") || errLower.includes("bucle");
+          const isSkip = errLower.includes("skip") || errLower.includes("salteo");
           const hasRealResponse = (r.tokens_per_sec || 0) > 0 && (r.model_response || "").trim().length > 0;
-          if (r.error) {
+          if (r.passed === false) {
+            if (isLoop) {
+              const reasonText = t("battery.loop_detected") || "Repetition loop";
+              resultCell = `<span class="badge badge-fail" title="${escapeHtml(r.error || reasonText)}">✖ ${t("battery.fail")} (${escapeHtml(reasonText)})</span>`;
+            } else if (isSkip) {
+              const reasonText = t("battery.skipped_manually") || "Manually skipped";
+              resultCell = `<span class="badge badge-fail" title="${escapeHtml(r.error || reasonText)}">✖ ${t("battery.fail")} (${escapeHtml(reasonText)})</span>`;
+            } else {
+              resultCell = `<span class="badge badge-fail" ${r.error ? `title="${escapeHtml(r.error)}"` : ""}>${t("battery.fail")}</span>`;
+            }
+          } else if (r.error) {
             resultCell = `<span class="badge badge-na" title="${escapeHtml(r.error)}">${t("battery.error")}</span>`;
           } else if (!hasRealResponse && r.passed === false) {
             resultCell = `<span class="badge badge-na" title="${escapeHtml(r.model_response || t("battery.no_response"))}">${t("battery.error")}</span>`;
           } else if (r.passed === true) {
             resultCell = `<span class="badge badge-pass">${t("battery.pass")}</span>`;
-          } else if (r.passed === false) {
-            resultCell = `<span class="badge badge-fail">${t("battery.fail")}</span>`;
           } else {
             resultCell = `<span class="badge badge-human">${t("battery.human_review")}</span>`;
           }
@@ -1454,6 +1495,15 @@ function renderBatteryResults(run) {
                 const badgeClass = isPass ? "badge-pass" : (isFail ? "badge-fail" : "badge-human");
                 const statusIcon = isPass ? "✔" : (isFail ? "✖" : "•");
                 const name = sub.name || `Case #${sub.index + 1 || sidx + 1}`;
+                const subErrLower = (sub.error || "").toLowerCase();
+                const isSubLoop = subErrLower.includes("loop") || subErrLower.includes("bucle");
+                const isSubSkip = subErrLower.includes("skip") || subErrLower.includes("salteo");
+                let subPillHtml = "";
+                if (isSubLoop) {
+                  subPillHtml = `<span class="badge badge-fail" style="font-size:10px; padding:1px 5px; margin-left:6px;" title="${escapeHtml(sub.error)}">🔁 ${escapeHtml(t("battery.loop_detected") || "Loop")}</span>`;
+                } else if (isSubSkip) {
+                  subPillHtml = `<span class="badge badge-warn" style="font-size:10px; padding:1px 5px; margin-left:6px;" title="${escapeHtml(sub.error)}">⏭️ ${escapeHtml(t("battery.skipped_manually") || "Skipped")}</span>`;
+                }
                 const tpsColor = (typeof getToksRecordColor === "function" && sub.tokens_per_sec > 0) ? getToksRecordColor(sub.tokens_per_sec) : "";
                 const timeStr = sub.response_time_ms > 0 ? fmtDuration(sub.response_time_ms) : "";
                 const tpsStr = sub.tokens_per_sec > 0 ? `${sub.tokens_per_sec.toFixed(1)} tok/s` : "";
@@ -1462,7 +1512,7 @@ function renderBatteryResults(run) {
                   <div class="battery-subresult-row">
                     <div class="battery-subresult-left">
                       <span class="badge ${badgeClass} battery-subresult-pill">${statusIcon}</span>
-                      <span class="battery-subresult-title">${escapeHtml(name)}</span>
+                      <span class="battery-subresult-title">${escapeHtml(name)}${subPillHtml}</span>
                     </div>
                     <div class="battery-subresult-right">
                       ${timeStr ? `<span class="battery-subresult-time mono muted">⏱️ ${timeStr}</span>` : ""}
@@ -1598,6 +1648,11 @@ function renderBatteryResults(run) {
       if (sub?.system_prompt) detail += `${t("battery.system_label")}\n${sub.system_prompt}\n\n`;
       if (sub?.prompt) detail += `${t("battery.user_label")}\n${sub.prompt}\n\n`;
       detail += `${t("battery.assistant_label")}\n${sub?.model_response || sub?.error || t("battery.no_response")}`;
+      if (sub?.error) {
+        const subErrLower = sub.error.toLowerCase();
+        const tag = subErrLower.includes("loop") ? (t("battery.loop_detected") || "Repetition loop detected") : (subErrLower.includes("skip") ? (t("battery.skipped_manually") || "Manually skipped") : sub.error);
+        detail += `\n\n[${tag}]`;
+      }
       openResponseViewModal(model, detail);
     });
   });
@@ -1610,7 +1665,13 @@ function renderBatteryResults(run) {
       const res = run.results.find((x) => x.test_id === testId && x.model === model);
       const titleEl = $("response-view-modal-title");
       if (titleEl) titleEl.textContent = `${res?.test_name || testId} (${model})`;
-      openResponseViewModal(model, res?.model_response || res?.error || t("battery.no_response"));
+      let detail = res?.model_response || res?.error || t("battery.no_response");
+      if (res?.error && res?.model_response) {
+        const errLower = res.error.toLowerCase();
+        const tag = errLower.includes("loop") ? (t("battery.loop_detected") || "Repetition loop detected") : (errLower.includes("skip") ? (t("battery.skipped_manually") || "Manually skipped") : res.error);
+        detail += `\n\n[${tag}]`;
+      }
+      openResponseViewModal(model, detail);
     });
   });
 

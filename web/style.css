@@ -6872,12 +6872,13 @@ button.chat-send:disabled:hover {
 .leaderboard-modal-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .leaderboard-modal-body .battery-lb-wrap { flex: 1; min-height: 0; overflow: auto; margin: 0; border: 1px solid var(--border); border-radius: var(--radius); }
 
-/* battery leaderboard view (dedicated page): it flows with the page — vertical
-   scrolling belongs to the window, and the table wrapper only scrolls
-   horizontally. (The modal variant keeps its own inner scroll, see above.) */
+/* battery leaderboard view (dedicated page): the table gets its own vertical
+   scroll area with a bounded height so the header row stays pinned while
+   scrolling through the models. (The modal variant keeps its own inner
+   scroll, see above.) */
 .battery-leaderboard-view { display: block; }
 .battery-leaderboard-page-body { width: 100%; }
-.battery-leaderboard-page-body .battery-lb-wrap { overflow-x: auto; overflow-y: visible; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.battery-leaderboard-page-body .battery-lb-wrap { overflow: auto; max-height: calc(100vh - 240px); max-height: calc(100dvh - 240px); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 
 /* battery progress */
 /* ==========================================================================

@@ -1787,24 +1787,6 @@ function renderTestsList() {
     }
   }
 
-  // Category main-head button
-  const mainRunBtn = $("tests-main-run-btn");
-  const mainRunText = $("tests-main-run-text");
-  if (mainRunBtn) {
-    mainRunBtn.hidden = !hasTests;
-    if (mainRunText) {
-      mainRunText.textContent = isCategorySelected
-        ? (t("tests.run_category_named", { name: currentGroupName }) || t("tests.run_category"))
-        : (t("battery.run_all") || t("battery.run"));
-    }
-    mainRunBtn.title = isCategorySelected ? t("battery.run_group", { name: currentGroupName }) : t("battery.run_all");
-    if (!mainRunBtn.dataset.wired) {
-      mainRunBtn.dataset.wired = "1";
-      mainRunBtn.addEventListener("click", () => {
-        void triggerRunBattery(selectedGroupId || "all");
-      });
-    }
-  }
   const groupHistBtn = $("tests-group-history-btn");
   if (groupHistBtn) {
     groupHistBtn.hidden = false;

@@ -5,6 +5,50 @@ let currentRunTarget = null; // { type: 'single' | 'group' | 'all', testId?: str
 let currentHistoryFilterTestId = null;
 let currentHistoryFilterModel = null;
 
+const BATTERY_SORT_KEY = "om_battery_sort";
+let batterySort = { col: "name", dir: "asc" };
+try {
+  const saved = JSON.parse(localStorage.getItem(BATTERY_SORT_KEY) || "null");
+  if (saved && saved.col && (saved.dir === "asc" || saved.dir === "desc")) {
+    batterySort = saved;
+  }
+} catch { }
+
+function updateBatterySortUI() {
+  document.querySelectorAll(".battery-sort-btn").forEach((btn) => {
+    const col = btn.dataset.batterySort;
+    const arrow = btn.querySelector(".sort-arrow");
+    const isActive = batterySort.col === col;
+    btn.classList.toggle("active", isActive);
+    if (arrow) {
+      arrow.textContent = isActive ? (batterySort.dir === "asc" ? "▲" : "▼") : "";
+    }
+  });
+}
+
+function wireBatterySortButtons() {
+  const container = document.querySelector(".battery-modal-sort-actions");
+  if (!container || container.dataset.wired) return;
+  container.dataset.wired = "1";
+
+  container.querySelectorAll(".battery-sort-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const col = btn.dataset.batterySort;
+      if (batterySort.col === col) {
+        batterySort.dir = batterySort.dir === "asc" ? "desc" : "asc";
+      } else {
+        batterySort.col = col;
+        batterySort.dir = col === "name" ? "asc" : "desc";
+      }
+      try {
+        localStorage.setItem(BATTERY_SORT_KEY, JSON.stringify(batterySort));
+      } catch { }
+      updateBatterySortUI();
+      renderBatteryModalModels();
+    });
+  });
+}
+
 async function openBatteryModal(options = {}) {
   batterySelectedModels.clear();
   const defaultModel = options.initialModel || (typeof selectedTestModel !== "undefined" ? selectedTestModel : "");
@@ -34,6 +78,8 @@ async function openBatteryModal(options = {}) {
     try { await refreshModels(); } catch { }
   }
 
+  wireBatterySortButtons();
+  updateBatterySortUI();
   renderBatteryModalModels();
   updateBatteryModalSelectionUI();
 
@@ -140,6 +186,30 @@ function renderBatteryModalModels() {
     return;
   }
 
+  items.sort((a, b) => {
+    if (a.disabled !== b.disabled) {
+      return a.disabled ? 1 : -1;
+    }
+    const dirMul = batterySort.dir === "asc" ? 1 : -1;
+    if (batterySort.col === "tps") {
+      const tpsA = Number(a.m.record_tokens_per_sec) || 0;
+      const tpsB = Number(b.m.record_tokens_per_sec) || 0;
+      if (tpsA !== tpsB) {
+        return dirMul * (tpsA - tpsB);
+      }
+    } else if (batterySort.col === "size") {
+      const sizeA = Number(a.m.size) || 0;
+      const sizeB = Number(b.m.size) || 0;
+      if (sizeA !== sizeB) {
+        return dirMul * (sizeA - sizeB);
+      }
+    }
+    const nameA = (a.m.name || "").toLowerCase();
+    const nameB = (b.m.name || "").toLowerCase();
+    const nameCmp = nameA.localeCompare(nameB);
+    return batterySort.col === "name" ? dirMul * nameCmp : nameCmp;
+  });
+
   container.innerHTML = items.map(({ m, disabled, title }) => {
     const capsHtml = (m.capabilities || [])
       .map((c) => `<span class="pill" data-cap="${escapeHtml(c)}">${escapeHtml(c)}</span>`)
@@ -147,6 +217,7 @@ function renderBatteryModalModels() {
     const tps = Number(m.record_tokens_per_sec) || 0;
     const tokColor = (typeof getToksRecordColor === "function" && tps > 0) ? getToksRecordColor(tps) : "";
     const colorStyle = tokColor ? ` style="color: ${tokColor};"` : "";
+    const sizeText = (typeof fmtBytes === "function" && m.size && m.size > 0) ? fmtBytes(m.size) : "";
     const paramsText = m.parameter_size || "";
     const quantText = (m.quantization && m.quantization !== "unknown") ? m.quantization : "";
     const coldLoadMs = m.min_cold_load_ms || 0;
@@ -173,6 +244,7 @@ function renderBatteryModalModels() {
             ${coldLoadHtml ? `<div class="battery-model-coldload-box">${coldLoadHtml}</div>` : ""}
           </div>
           <div class="battery-model-specs mono muted">
+            ${sizeText ? `<span class="battery-model-size" title="${escapeHtml(t("col.size"))}">${escapeHtml(sizeText)}</span>` : ""}
             ${paramsText ? `<span class="battery-model-param">${escapeHtml(paramsText)}</span>` : ""}
             ${quantText ? `<span class="battery-model-quant">${escapeHtml(quantText)}</span>` : ""}
           </div>

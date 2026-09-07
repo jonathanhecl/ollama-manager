@@ -2019,6 +2019,21 @@
           <button type="button" id="battery-modal-select-all" class="ghost battery-mini-btn" data-i18n="battery.select_all">Select all</button>
           <button type="button" id="battery-modal-clear" class="ghost battery-mini-btn" data-i18n="battery.clear_all">Clear</button>
         </div>
+        <div class="battery-modal-sort-actions">
+          <span class="battery-modal-sort-label muted" data-i18n="battery.sort_by">Sort:</span>
+          <button type="button" class="ghost battery-mini-btn battery-sort-btn" data-battery-sort="name">
+            <span data-i18n="col.name">Name</span>
+            <span class="sort-arrow"></span>
+          </button>
+          <button type="button" class="ghost battery-mini-btn battery-sort-btn" data-battery-sort="tps">
+            <span data-i18n="col.record_tokens_per_sec">Tok/s</span>
+            <span class="sort-arrow"></span>
+          </button>
+          <button type="button" class="ghost battery-mini-btn battery-sort-btn" data-battery-sort="size">
+            <span data-i18n="col.size">Size</span>
+            <span class="sort-arrow"></span>
+          </button>
+        </div>
         <span id="battery-modal-count" class="muted battery-modal-count"></span>
       </div>
       <div id="battery-modal-models" class="battery-modal-models"></div>

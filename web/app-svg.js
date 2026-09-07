@@ -3198,16 +3198,17 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   }
   if (isEditingUser) {
     bodyHTML = `<div class="chat-edit-box" data-msg-id="${escapeHtml(m.id)}">
+  <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}" placeholder="${escapeHtml(t("chat.input_placeholder") || "Write your message…")}">${escapeHtml(chatEditingDraft)}</textarea>
   <div class="chat-edit-attachments" id="chat-edit-attachments">
     ${renderEditAttachmentsHTML(chatEditingAttachments)}
   </div>
-  <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}" placeholder="${escapeHtml(t("chat.input_placeholder") || "Write your message…")}">${escapeHtml(chatEditingDraft)}</textarea>
   <div class="chat-edit-actions">
     <div class="chat-edit-upload-actions">
-      <button type="button" class="btn-icon chat-edit-add-file-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.add_image") || "Add file / image")}">
-        <svg class="chat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+      <button type="button" class="chat-edit-add-file-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.add_attachment") || "Add attachment")}">
+        <svg class="chat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
           <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
         </svg>
+        <span>${escapeHtml(t("chat.add_attachment") || "Add file")}</span>
       </button>
       <input type="file" class="chat-edit-add-file-input" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" multiple />
     </div>
@@ -3730,7 +3731,7 @@ async function replaceEditingAttachment(attId, file) {
 
 function renderEditAttachmentsHTML(attachments) {
   if (!attachments || !attachments.length) return "";
-  return attachments.map((a) => {
+  const items = attachments.map((a) => {
     let previewHTML = "";
     if (a.kind === "image" && a.data) {
       const src = attachmentImageSrc(a);
@@ -3754,7 +3755,7 @@ function renderEditAttachmentsHTML(attachments) {
       <div class="chat-edit-attach-meta">
         <span class="chat-edit-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
         <div class="chat-edit-attach-btns">
-          <button type="button" class="btn-icon chat-edit-replace-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.replace_attachment") || "Replace")}" aria-label="Replace">
+          <button type="button" class="btn-icon chat-edit-replace-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.replace_attachment") || "Replace")}" aria-label="${escapeHtml(t("chat.replace_attachment") || "Replace")}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
               <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
               <path d="M3 3v5h5"/>
@@ -3762,10 +3763,16 @@ function renderEditAttachmentsHTML(attachments) {
               <path d="M16 21h5v-5"/>
             </svg>
           </button>
-          <button type="button" class="btn-icon chat-edit-delete-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment") || "Delete")}" aria-label="Delete">
+          <button type="button" class="btn-icon chat-edit-delete-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment") || "Delete")}" aria-label="${escapeHtml(t("chat.remove_attachment") || "Delete")}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+          <button type="button" class="btn-icon chat-edit-attach-add-btn chat-edit-add-file-btn" title="${escapeHtml(t("chat.add_attachment") || "Add attachment")}" aria-label="${escapeHtml(t("chat.add_attachment") || "Add attachment")}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
           </button>
           <input type="file" class="chat-edit-replace-file-input" data-att-id="${escapeHtml(a.id)}" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" />
@@ -3773,6 +3780,18 @@ function renderEditAttachmentsHTML(attachments) {
       </div>
     </div>`;
   }).join("");
+
+  const addCardHTML = `<button type="button" class="chat-edit-attach-add-card chat-edit-add-file-btn" title="${escapeHtml(t("chat.add_attachment") || "Add attachment")}">
+    <div class="chat-edit-attach-add-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+    </div>
+    <span class="chat-edit-attach-add-text">${escapeHtml(t("chat.add_attachment") || "Add file")}</span>
+  </button>`;
+
+  return items + addCardHTML;
 }
 
 async function addFiles(files) {

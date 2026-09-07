@@ -79,8 +79,8 @@ func (s *Server) SetVersionInfo(v string) {
 	s.versionInfo = v
 }
 
-// New builds a Server. webRoot is the embedded "web/" directory.
-func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Server, error) {
+// New builds a Server. webRoot is the embedded "web/" directory, and testingRoot is the embedded "testing/" directory.
+func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testingRoot fs.FS) (*Server, error) {
 	tmpl, err := template.ParseFS(webRoot, "login.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse login template: %w", err)
@@ -108,6 +108,11 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS) (*Serve
 
 	testingDir := getTestingDir(cfg.Path())
 	testsStore := tests.New(testingDir)
+	if testingRoot != nil {
+		if err := testsStore.SyncEmbeddedDefaults(testingRoot); err != nil {
+			log.Printf("tests: sync embedded defaults failed: %v", err)
+		}
+	}
 	if err := testsStore.Load(); err != nil {
 		log.Printf("tests: could not load %s: %v", testingDir, err)
 	}

@@ -1532,6 +1532,13 @@ async function showTestEditorView(id) {
           steps = [];
         }
 
+        if (!sidecars.length) {
+          const rawAtt = c.attachment || (c.steps && c.steps[0] && c.steps[0].attachment);
+          if (rawAtt && typeof rawAtt === "string") {
+            sidecars = [{ id: rawAtt, name: rawAtt, kind: "image" }];
+          }
+        }
+
         return {
           name,
           prompt,
@@ -1700,21 +1707,101 @@ function renderTestsList() {
 
   let filtered = selectedGroupId !== "" ? tests.filter((t) => t.group_id === selectedGroupId) : [...tests];
   filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  let currentGroupName = "";
   if (selectedGroupId !== "") {
     const g = testsGroups.find((x) => x.id === selectedGroupId);
-    title.textContent = g ? g.name : t("tests.all_tests");
+    currentGroupName = g ? g.name : selectedGroupId;
+    title.textContent = currentGroupName;
   } else {
     title.textContent = t("tests.all_tests");
   }
 
+  const elGroupCount = $("tests-group-count");
+  if (elGroupCount) {
+    elGroupCount.textContent = `(${filtered.length})`;
+  }
+
+  async function triggerRunBattery(groupId) {
+    const targetTests = (groupId && groupId !== "all") ? tests.filter((t) => t.group_id === groupId) : tests;
+    if (!targetTests.length) {
+      toast(t("tests.empty"), "warn");
+      return;
+    }
+
+    const nonAgent = targetTests.filter((t) => t.evaluation_type !== "agent");
+    if (!nonAgent.length) {
+      toast(t("battery.no_tests_eligible") || "No tests eligible for automated battery run", "warn");
+      return;
+    }
+
+    const activeList = nonAgent.filter((t) => t.active);
+    if (activeList.length === 0) {
+      const ok = await askConfirm({
+        title: t("battery.run_group", { name: currentGroupName || t("battery.all_tests") }),
+        message: t("tests.activate_and_run"),
+        confirmLabel: t("tests.activate_and_run_btn") || "Activate & Run",
+        danger: false,
+      });
+      if (!ok) return;
+
+      try {
+        await Promise.all(
+          nonAgent.map((test) =>
+            api("/api/tests/" + encodeURIComponent(test.id), {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...test, active: true }),
+            })
+          )
+        );
+        await refreshTests();
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+        return;
+      }
+    }
+
+    openBatteryModal({ groupId: groupId || "all", initialModel: selectedTestModel || undefined });
+  }
+
+  const hasTests = filtered.length > 0;
+  const isCategorySelected = selectedGroupId !== "" && selectedGroupId !== "all";
+
+  // Top header button
   const runBtn = $("tests-run-battery-btn");
   if (runBtn) {
-    const hasActiveNonAgent = (selectedGroupId === "" ? tests : filtered).some((t) => t.active && t.evaluation_type !== "agent");
-    runBtn.hidden = !hasActiveNonAgent;
+    runBtn.hidden = !hasTests;
+    if (isCategorySelected) {
+      runBtn.textContent = `⚡ ${t("tests.run_category_named", { name: currentGroupName }) || t("tests.run_category")}`;
+      runBtn.title = t("battery.run_group", { name: currentGroupName });
+    } else {
+      runBtn.textContent = `⚡ ${t("battery.run_all") || t("battery.run")}`;
+      runBtn.title = t("battery.run_all");
+    }
     if (!runBtn.dataset.wired) {
       runBtn.dataset.wired = "1";
       runBtn.addEventListener("click", () => {
-        openBatteryModal({ groupId: selectedGroupId || "all", initialModel: selectedTestModel || undefined });
+        void triggerRunBattery(selectedGroupId || "all");
+      });
+    }
+  }
+
+  // Category main-head button
+  const mainRunBtn = $("tests-main-run-btn");
+  const mainRunText = $("tests-main-run-text");
+  if (mainRunBtn) {
+    mainRunBtn.hidden = !hasTests;
+    if (mainRunText) {
+      mainRunText.textContent = isCategorySelected
+        ? (t("tests.run_category_named", { name: currentGroupName }) || t("tests.run_category"))
+        : (t("battery.run_all") || t("battery.run"));
+    }
+    mainRunBtn.title = isCategorySelected ? t("battery.run_group", { name: currentGroupName }) : t("battery.run_all");
+    if (!mainRunBtn.dataset.wired) {
+      mainRunBtn.dataset.wired = "1";
+      mainRunBtn.addEventListener("click", () => {
+        void triggerRunBattery(selectedGroupId || "all");
       });
     }
   }

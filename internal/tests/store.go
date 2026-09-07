@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1190,6 +1191,66 @@ func (s *Store) saveCategoryLocked(g *Group) error {
 		return err
 	}
 	return os.Rename(tmp, targetPath)
+}
+
+// SyncEmbeddedDefaults ensures the testing directory contains all default categories,
+// tests, and attachment assets from the embedded filesystem.
+// It creates missing files and upgrades any outdated scaffold placeholders.
+func (s *Store) SyncEmbeddedDefaults(efs fs.FS) error {
+	if s.dir == "" || efs == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return fs.WalkDir(efs, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == "." {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		targetPath := filepath.Join(s.dir, path)
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0o755)
+		}
+
+		info, err := os.Stat(targetPath)
+		if err == nil && info.Size() > 0 {
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+				return nil
+			}
+			data, readErr := os.ReadFile(targetPath)
+			if readErr == nil {
+				content := string(data)
+				// Only overwrite if this file on disk is an unedited scaffold placeholder
+				if !strings.Contains(content, "(SCAFFOLD)") &&
+					!strings.Contains(content, "TODO-") &&
+					!strings.Contains(content, "TODO_") {
+					return nil
+				}
+			}
+		}
+
+		srcData, readErr := fs.ReadFile(efs, path)
+		if readErr != nil {
+			return readErr
+		}
+
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return err
+		}
+
+		return os.WriteFile(targetPath, srcData, 0o644)
+	})
 }
 
 // PopulateSeed creates the initial 3 example tests in YAML format in testing/examples if testing dir is empty.

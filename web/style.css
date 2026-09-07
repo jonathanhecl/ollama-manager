@@ -5895,11 +5895,38 @@ button.chat-send:disabled:hover {
   gap: 16px;
   flex-wrap: wrap;
 }
+.tests-main-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .tests-main-head h2 {
   font-size: 16px;
   font-weight: 600;
   color: var(--text);
   margin: 0;
+}
+.tests-group-count-badge {
+  font-size: 13px;
+}
+.tests-main-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.15s ease;
+}
+.tests-main-run-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+}
+.tests-main-run-btn:active {
+  transform: translateY(0);
 }
 .tests-main-filters {
   display: flex;

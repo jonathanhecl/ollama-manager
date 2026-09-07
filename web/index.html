@@ -401,7 +401,10 @@
       <section class="tests-main">
         <div class="tests-main-container">
           <header class="tests-main-head">
-            <h2 id="tests-group-title" data-i18n="tests.all_tests">All Tests</h2>
+            <div class="tests-main-title-wrap">
+              <h2 id="tests-group-title" data-i18n="tests.all_tests">All Tests</h2>
+              <span id="tests-group-count" class="tests-group-count-badge muted mono"></span>
+            </div>
             <div class="tests-main-filters">
               <div class="tests-filter-control">
                 <span class="tests-filter-icon">🤖</span>
@@ -409,6 +412,10 @@
                   <option value="" data-i18n="tests.all_models">All models</option>
                 </select>
               </div>
+              <button type="button" id="tests-main-run-btn" class="primary tests-main-run-btn">
+                <span>⚡</span>
+                <span id="tests-main-run-text" data-i18n="tests.run_category">Run Category</span>
+              </button>
             </div>
           </header>
           <div id="tests-list" class="tests-list"></div>

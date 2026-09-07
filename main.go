@@ -30,6 +30,9 @@ import (
 //go:embed all:web
 var webFS embed.FS
 
+//go:embed all:testing
+var testingFS embed.FS
+
 var (
 	// appVersion se inyecta en compilación vía:
 	//   go build -ldflags "-X 'main.appVersion=v1.2.3'"
@@ -122,8 +125,13 @@ func main() {
 		log.Fatalf("embed: %v", err)
 	}
 
+	testingSubFS, err := fs.Sub(testingFS, "testing")
+	if err != nil {
+		log.Fatalf("embed testing: %v", err)
+	}
+
 	client := ollama.New(cfg.OllamaURL)
-	srv, err := server.New(cfg, client, subFS)
+	srv, err := server.New(cfg, client, subFS, testingSubFS)
 	if err != nil {
 		log.Fatalf("server: %v", err)
 	}

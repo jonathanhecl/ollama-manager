@@ -181,25 +181,27 @@ async function buildLeaderboardTableHtml() {
 
   let headerCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
   for (const col of cols) {
-    headerCols += `<th class="cell-lb-group-head" title="${escapeHtml(col.name)}">${escapeHtml(col.name)}</th>`;
+    headerCols += `<th class="cell-lb-group-head" data-lb-run data-lb-run-group="${escapeHtml(col.id)}" data-lb-run-model="" title="${escapeHtml(col.name)} · ${escapeHtml(t("battery.lb_run_hint"))}">${escapeHtml(col.name)}</th>`;
   }
 
+  const runHint = t("battery.lb_run_hint");
   let bodyRows = "";
   lbRows.forEach((row, idx) => {
     let cells = "";
+    const runModelAttr = `data-lb-run data-lb-run-model="${escapeHtml(row.model)}"`;
     if (row.overall == null) {
-      cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty"><span class="muted">—</span></td>`;
+      cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" ${runModelAttr} data-lb-run-group="" title="${escapeHtml(runHint)}"><span class="muted">—</span></td>`;
     } else {
-      cells += `<td class="cell-lb-score cell-lb-overall mono" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${row.passed}/${row.total}">${row.overall.toFixed(1)}</td>`;
+      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${row.passed}/${row.total} · ${escapeHtml(runHint)}">${row.overall.toFixed(1)}</td>`;
     }
     for (const col of cols) {
       const c = scores[row.model][col.id];
       if (!c || c.total === 0) {
-        cells += `<td class="cell-lb-score cell-lb-empty"><span class="muted">—</span></td>`;
+        cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" title="${escapeHtml(runHint)}"><span class="muted">—</span></td>`;
         continue;
       }
       const pct = (c.passed / c.total) * 100;
-      cells += `<td class="cell-lb-score mono" style="${batteryLbHeatStyle(pct, colRange[col.id], false)}" title="${c.passed}/${c.total}">${pct.toFixed(1)}</td>`;
+      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(pct, colRange[col.id], false)}" title="${c.passed}/${c.total} · ${escapeHtml(runHint)}">${pct.toFixed(1)}</td>`;
     }
 
     let modelName = row.model;
@@ -298,6 +300,22 @@ $("battery-leaderboard-back")?.addEventListener("click", () => {
 });
 $("battery-leaderboard-refresh")?.addEventListener("click", () => {
   void renderLeaderboardPage();
+});
+
+// Click a leaderboard cell to run it: a score/empty cell opens the battery
+// modal with that category + model preselected (overall column = all
+// categories for the model, category header = that category). Delegated so
+// it survives table rebuilds and works in the modal too.
+document.addEventListener("click", (e) => {
+  const cell = e.target?.closest?.("[data-lb-run]");
+  if (!cell) return;
+  const groupId = cell.dataset.lbRunGroup || null;
+  const model = cell.dataset.lbRunModel || null;
+  if (!groupId && !model) return;
+  if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) {
+    closeLeaderboardModal();
+  }
+  void openBatteryModal({ groupId: groupId || "all", initialModel: model || undefined });
 });
 
 $("human-review-modal")?.addEventListener("click", (e) => {

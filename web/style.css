@@ -6523,6 +6523,11 @@ button.chat-send:disabled:hover {
   font-size: 10.5px;
   padding: 2px 8px;
 }
+.battery-model-coverage {
+  font-size: 11px;
+  margin-top: 3px;
+  min-height: 14px;
+}
 .battery-model-right-cols {
   display: flex;
   align-items: center;
@@ -11652,6 +11657,17 @@ button.chat-send:disabled:hover {
 .cell-lb-empty {
   text-align: center;
   color: var(--muted);
+}
+
+/* Clickable leaderboard cells/headers: run that group × model. */
+.battery-lb-table td[data-lb-run],
+.battery-lb-table th[data-lb-run] {
+  cursor: pointer;
+}
+.battery-lb-table tbody td[data-lb-run]:hover,
+.battery-lb-table thead th[data-lb-run]:hover {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* ==========================================================================

@@ -52,6 +52,9 @@ function wireBatterySortButtons() {
 let batterySelectedGroups = new Set(); // group ids picked in the categories step
 let batteryModalStep = "models"; // "groups" | "models"
 let batteryModalSingleTestId = null;
+let batteryCoverageByModel = new Map(); // model name -> Set of group ids with history
+let batteryCoverageLoaded = false;
+let batteryCoverageSeq = 0;
 
 function batteryModalAllGroupIds() {
   return (Array.isArray(testsGroups) ? testsGroups : []).map((g) => g.id);
@@ -91,6 +94,89 @@ function batteryModalRequiredCaps() {
   return caps;
 }
 
+// Group ids the coverage badges refer to (the current modal target).
+function batteryCoverageTargetIds() {
+  if (currentRunTarget?.type === "single") {
+    return currentRunTarget.groupId ? [currentRunTarget.groupId] : batteryModalAllGroupIds();
+  }
+  if (currentRunTarget?.type === "multi" && Array.isArray(currentRunTarget.groupIds)) {
+    return [...currentRunTarget.groupIds];
+  }
+  if (currentRunTarget?.type === "group" && currentRunTarget.groupId) {
+    return [currentRunTarget.groupId];
+  }
+  return batteryModalAllGroupIds();
+}
+
+function batteryCoverageInfo(modelName, targetIds) {
+  if (!targetIds || targetIds.length === 0) return { text: "", cls: "muted", title: "" };
+  if (!batteryCoverageLoaded) {
+    return { text: "…", cls: "muted", title: t("battery.coverage_loading") };
+  }
+  const cov = batteryCoverageByModel.get(modelName) || new Set();
+  const nameOf = (id) => batteryModalGroupById(id)?.name || id;
+  const done = targetIds.filter((id) => cov.has(id));
+  const pending = targetIds.filter((id) => !cov.has(id));
+  if (targetIds.length === 1) {
+    if (done.length > 0) {
+      return { text: `✓ ${t("battery.coverage_done")}`, cls: "text-good", title: `${t("battery.coverage_evaluated")}: ${nameOf(targetIds[0])}` };
+    }
+    return { text: `○ ${t("battery.coverage_new")}`, cls: "muted", title: `${t("battery.coverage_pending")}: ${nameOf(targetIds[0])}` };
+  }
+  const title = `${t("battery.coverage_evaluated")}: ${done.map(nameOf).join(", ") || "—"} · ${t("battery.coverage_pending")}: ${pending.map(nameOf).join(", ") || "—"}`;
+  if (pending.length === 0) return { text: `✓ ${done.length}/${targetIds.length}`, cls: "text-good", title };
+  if (done.length === 0) return { text: `○ 0/${targetIds.length}`, cls: "muted", title };
+  return { text: `◐ ${done.length}/${targetIds.length}`, cls: "", warn: true, title };
+}
+
+// In-place badge refresh: never rebuilds rows (checkbox state and scroll
+// position are preserved).
+function paintBatteryCoverage() {
+  const container = $("battery-modal-models");
+  if (!container) return;
+  const targetIds = batteryCoverageTargetIds();
+  container.querySelectorAll(".battery-model-item").forEach((label) => {
+    const cb = label.querySelector('input[type="checkbox"]');
+    const el = label.querySelector("[data-coverage]");
+    if (!cb || !el) return;
+    const info = batteryCoverageInfo(cb.value, targetIds);
+    el.textContent = info.text;
+    el.title = info.title || "";
+    el.classList.toggle("text-good", info.cls === "text-good");
+    el.classList.toggle("muted", info.cls === "muted");
+    el.style.color = info.warn ? "var(--warn)" : "";
+  });
+}
+
+// Loads per-model evaluation history for the targeted categories so the
+// models step shows what was already evaluated (and what is still pending).
+async function refreshBatteryCoverage() {
+  const token = ++batteryCoverageSeq;
+  const targetIds = batteryCoverageTargetIds();
+  batteryCoverageByModel = new Map();
+  batteryCoverageLoaded = false;
+  paintBatteryCoverage();
+  const ids = targetIds.length > 0 ? targetIds : batteryModalAllGroupIds();
+  const results = await Promise.all(ids.map((gid) =>
+    api("/api/runner/group-history/" + encodeURIComponent(gid))
+      .then((d) => ({ gid, summary: (d && d.summary) || [] }))
+      .catch(() => ({ gid, summary: [] }))
+  ));
+  if (token !== batteryCoverageSeq) return; // superseded (Back / reopen / new target)
+  const map = new Map();
+  for (const { gid, summary } of results) {
+    for (const s of summary) {
+      if (s && s.model && (s.total_tests || 0) > 0) {
+        if (!map.has(s.model)) map.set(s.model, new Set());
+        map.get(s.model).add(gid);
+      }
+    }
+  }
+  batteryCoverageByModel = map;
+  batteryCoverageLoaded = true;
+  paintBatteryCoverage();
+}
+
 async function openBatteryModal(options = {}) {
   batterySelectedModels.clear();
   const defaultModel = options.initialModel || (typeof selectedTestModel !== "undefined" ? selectedTestModel : "");
@@ -122,6 +208,7 @@ async function openBatteryModal(options = {}) {
     if (titleEl) titleEl.textContent = t("battery.run_single", { name: test?.name || options.testId });
     batteryModalShowStep("models");
     renderBatteryModalModels();
+    void refreshBatteryCoverage();
   } else {
     // Group/all runs: pick categories first so several can run together.
     batteryModalSingleTestId = null;
@@ -337,6 +424,7 @@ function batteryModalGoModels() {
   batteryModalShowStep("models");
   renderBatteryModalModels();
   updateBatteryModalSelectionUI();
+  void refreshBatteryCoverage();
 }
 
 function batteryModalConfirm() {
@@ -427,6 +515,7 @@ function renderBatteryModalModels() {
         <div class="battery-model-main">
           <div class="battery-model-name">${escapeHtml(m.name)}</div>
           ${capsHtml ? `<div class="battery-model-caps cap-list model-cap-list">${capsHtml}</div>` : ""}
+          <div class="battery-model-coverage mono muted" data-coverage>…</div>
         </div>
         <div class="battery-model-right-cols">
           <div class="battery-model-tps-wrap">
@@ -463,6 +552,7 @@ function renderBatteryModalModels() {
   });
 
   updateBatteryModalSelectionUI();
+  paintBatteryCoverage();
 }
 
 let batteryPollTimer = null;

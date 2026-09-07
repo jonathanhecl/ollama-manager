@@ -285,6 +285,11 @@ function stopBatteryPolling() {
     batteryElapsedInterval = null;
   }
   batteryActiveRunID = null;
+  batteryActiveTurnKey = "";
+  batteryTurnStartTime = 0;
+  batteryThinkingStartTime = 0;
+  batteryResponseStartTime = 0;
+  updateBatteryCurrentTurnTimer();
 }
 let batteryCompletedTests = [];
 let batteryLastTestSnapshot = null;
@@ -298,6 +303,10 @@ let batteryLiveResults = [];
 let batteryStartTime = 0;
 let batteryElapsedInterval = null;
 let batteryActiveTab = "models";
+let batteryActiveTurnKey = "";
+let batteryTurnStartTime = 0;
+let batteryThinkingStartTime = 0;
+let batteryResponseStartTime = 0;
 const testHistoryResponses = new Map(); // respKey -> full response string
 
 function formatTimeDisplay(totalSeconds) {
@@ -310,6 +319,73 @@ function formatTimeDisplay(totalSeconds) {
     return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function updateBatteryCurrentTurnTimer() {
+  const elStreamTurn = $("battery-stream-turn-timer");
+  const elStreamTime = $("battery-stream-turn-time");
+  const elHeadTurn = $("battery-head-turn-timer");
+  const elHeadTime = $("battery-head-turn-time");
+  const elThinkingTimer = $("battery-stream-thinking-timer");
+  const elResponseTimer = $("battery-stream-response-timer");
+
+  if (!batteryTurnStartTime || !batteryActiveTurnKey) {
+    if (elStreamTurn) elStreamTurn.style.display = "none";
+    if (elHeadTurn) elHeadTurn.hidden = true;
+    if (elThinkingTimer) elThinkingTimer.hidden = true;
+    if (elResponseTimer) elResponseTimer.hidden = true;
+    return;
+  }
+
+  const turnSec = Math.floor((Date.now() - batteryTurnStartTime) / 1000);
+  const timeStr = formatTimeDisplay(turnSec);
+
+  if (elStreamTurn) {
+    elStreamTurn.style.display = "inline-flex";
+    if (elStreamTime) elStreamTime.textContent = timeStr;
+
+    elStreamTurn.classList.remove("timer-warn", "timer-danger");
+    if (turnSec >= 60) {
+      elStreamTurn.classList.add("timer-danger");
+      elStreamTurn.title = `${t("battery.timer_long_desc") || "Posible bloqueo o bucle (>60s). Puedes usar Skip Test para continuar."} (${timeStr})`;
+    } else if (turnSec >= 30) {
+      elStreamTurn.classList.add("timer-warn");
+      elStreamTurn.title = `${t("battery.timer_warn_desc") || "Generación tomando más de 30 segundos"} (${timeStr})`;
+    } else {
+      elStreamTurn.title = `${t("battery.timer_turn_desc") || "Tiempo de respuesta en curso"} (${timeStr})`;
+    }
+  }
+
+  if (elHeadTurn) {
+    elHeadTurn.hidden = false;
+    if (elHeadTime) elHeadTime.textContent = timeStr;
+    elHeadTurn.classList.remove("timer-warn", "timer-danger");
+    if (turnSec >= 60) {
+      elHeadTurn.classList.add("timer-danger");
+    } else if (turnSec >= 30) {
+      elHeadTurn.classList.add("timer-warn");
+    }
+  }
+
+  if (elThinkingTimer) {
+    if (batteryThinkingStartTime) {
+      const thinkingSec = Math.floor((Date.now() - batteryThinkingStartTime) / 1000);
+      elThinkingTimer.hidden = false;
+      elThinkingTimer.textContent = `⏱️ ${formatTimeDisplay(thinkingSec)}`;
+    } else {
+      elThinkingTimer.hidden = true;
+    }
+  }
+
+  if (elResponseTimer) {
+    if (batteryResponseStartTime) {
+      const respSec = Math.floor((Date.now() - batteryResponseStartTime) / 1000);
+      elResponseTimer.hidden = false;
+      elResponseTimer.textContent = `⏱️ ${formatTimeDisplay(respSec)}`;
+    } else {
+      elResponseTimer.hidden = true;
+    }
+  }
 }
 
 function updateBatteryElapsedDisplay() {
@@ -333,6 +409,8 @@ function updateBatteryElapsedDisplay() {
       elEta.textContent = t("battery.kpi_eta_calc");
     }
   }
+
+  updateBatteryCurrentTurnTimer();
 }
 
 function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, totalTests) {
@@ -1076,6 +1154,23 @@ async function pollBatteryProgress(runID, modelIDs) {
     if (streamPanel && p.test_name && !p.done) {
       streamPanel.hidden = false;
 
+      // Track active turn for the live duration counter
+      const turnKey = `${p.model || ""}::${p.test_id || ""}::${p.case_index || 0}::${p.case_name || ""}`;
+      if (turnKey !== batteryActiveTurnKey) {
+        batteryActiveTurnKey = turnKey;
+        batteryTurnStartTime = Date.now();
+        batteryThinkingStartTime = p.is_thinking ? Date.now() : 0;
+        batteryResponseStartTime = p.partial_response ? Date.now() : 0;
+      } else {
+        if (p.is_thinking && !batteryThinkingStartTime) {
+          batteryThinkingStartTime = Date.now();
+        }
+        if (p.partial_response && !batteryResponseStartTime) {
+          batteryResponseStartTime = Date.now();
+        }
+      }
+      updateBatteryCurrentTurnTimer();
+
       // Topbar elements
       const testTitleEl = $("battery-stream-test-title");
       const casePillEl = $("battery-stream-case-pill");
@@ -1283,6 +1378,11 @@ async function skipCurrentBatteryTest() {
     const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/skip", { method: "POST" });
     if (res?.skipped) {
       toast(t("toast.test_skipped") || "Current test skipped", "info");
+      batteryActiveTurnKey = "";
+      batteryTurnStartTime = 0;
+      batteryThinkingStartTime = 0;
+      batteryResponseStartTime = 0;
+      updateBatteryCurrentTurnTimer();
       if (batteryActiveRunID === runID) {
         void pollBatteryProgress(runID, []);
       }

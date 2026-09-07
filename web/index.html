@@ -2068,6 +2068,7 @@
         </div>
       </div>
       <div class="battery-head-actions">
+        <span id="battery-head-turn-timer" class="battery-head-timer mono" hidden title="Tiempo de la respuesta en curso">⏱️ <span id="battery-head-turn-time">00:00</span></span>
         <button id="battery-progress-skip" class="ghost warn-text" data-i18n="battery.skip_test">Skip Test</button>
         <button id="battery-progress-cancel" class="ghost danger-text" data-i18n="action.cancel">Cancel</button>
       </div>
@@ -2171,6 +2172,11 @@
                   <span id="battery-stream-case-pill" class="battery-stream-case-pill" hidden></span>
                 </div>
                 <div class="battery-stream-top-right">
+                  <div id="battery-stream-turn-timer" class="battery-turn-timer mono" style="display: none;" title="Tiempo de la respuesta en curso">
+                    <span class="turn-timer-pulse"></span>
+                    <span class="turn-timer-icon">⏱️</span>
+                    <span id="battery-stream-turn-time">00:00</span>
+                  </div>
                   <span id="battery-stream-status-badge" class="battery-stream-status-badge"></span>
                 </div>
               </div>
@@ -2206,6 +2212,7 @@
                       <span data-i18n="battery.stream_thinking">Thinking</span>
                       <span class="thinking-live-dot pulse"></span>
                     </div>
+                    <span id="battery-stream-thinking-timer" class="box-header-timer mono muted" hidden>⏱️ 00:00</span>
                   </summary>
                   <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
                 </details>
@@ -2218,7 +2225,10 @@
                     <span class="console-box-icon">⚡</span>
                     <span data-i18n="battery.stream_response">Response</span>
                   </div>
-                  <span id="battery-stream-live-tag" class="battery-stream-live-tag">LIVE</span>
+                  <div class="console-box-header-right">
+                    <span id="battery-stream-response-timer" class="box-header-timer mono muted" hidden>⏱️ 00:00</span>
+                    <span id="battery-stream-live-tag" class="battery-stream-live-tag">LIVE</span>
+                  </div>
                 </div>
                 <div class="battery-stream-block response" id="battery-stream-response"></div>
               </div>

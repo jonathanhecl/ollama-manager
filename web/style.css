@@ -11710,6 +11710,106 @@ button.chat-send:disabled:hover {
   border-left: 3px solid var(--accent);
 }
 
+/* Live Turn Timer (Thinking / Responding duration) */
+.battery-stream-top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.battery-turn-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+}
+
+.battery-turn-timer .turn-timer-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #38bdf8;
+  animation: streamPulse 1.2s infinite ease-in-out;
+}
+
+.battery-turn-timer .turn-timer-icon {
+  font-size: 13px;
+}
+
+/* Warn state (>30s) */
+.battery-turn-timer.timer-warn {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #f59e0b;
+}
+.battery-turn-timer.timer-warn .turn-timer-pulse {
+  background: #f59e0b;
+}
+
+/* Danger state (>60s - likely stuck/looping) */
+.battery-turn-timer.timer-danger {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #ef4444;
+  animation: dangerThrob 1.4s infinite ease-in-out;
+}
+.battery-turn-timer.timer-danger .turn-timer-pulse {
+  background: #ef4444;
+}
+
+@keyframes dangerThrob {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.25); }
+}
+
+/* Head Actions Turn Timer */
+.battery-head-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: all 0.3s ease;
+}
+.battery-head-timer.timer-warn {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.1);
+}
+.battery-head-timer.timer-danger {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.console-box-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.box-header-timer {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  letter-spacing: 0.3px;
+}
+
 /* Test Cases Editor */
 .te-cases-section {
   display: flex;

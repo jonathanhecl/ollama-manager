@@ -210,3 +210,74 @@ group_id: examples
 		t.Fatalf("unexpected runs loaded: %+v", runs)
 	}
 }
+
+func TestGetGroupHistoryCrossCategoryAndAll(t *testing.T) {
+	store := NewResultStore("")
+	store.exerciseMap = map[string]exerciseLocation{
+		"code-1":   {GroupID: "coding", Base: "code-1"},
+		"reason-1": {GroupID: "reasoning", Base: "reason-1"},
+	}
+
+	passed := true
+	failed := false
+
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
+
+	// An "all" run with tests across coding and reasoning
+	run1 := BatteryRun{
+		ID:        "run-all",
+		Timestamp: t1,
+		GroupID:   "all",
+		GroupName: "All Tests",
+		Models:    []string{"model-alpha"},
+		Results: []TestResult{
+			{TestID: "code-1", TestName: "Coding Test 1", Model: "model-alpha", Passed: &failed, ResponseTimeMs: 100},
+			{TestID: "reason-1", TestName: "Reasoning Test 1", Model: "model-alpha", Passed: &passed, ResponseTimeMs: 200},
+		},
+	}
+
+	// Later run updates code-1 to pass
+	run2 := BatteryRun{
+		ID:        "run-coding",
+		Timestamp: t2,
+		GroupID:   "coding",
+		GroupName: "Coding",
+		Models:    []string{"model-alpha"},
+		Results: []TestResult{
+			{TestID: "code-1", TestName: "Coding Test 1", Model: "model-alpha", Passed: &passed, ResponseTimeMs: 80},
+		},
+	}
+
+	store.runs = []BatteryRun{run1, run2}
+
+	// Coding should resolve code-1 from both runs, newest first (run2 passed)
+	codingSummary := store.GetGroupHistory("coding")
+	if len(codingSummary) != 1 {
+		t.Fatalf("expected 1 model in coding summary, got %d", len(codingSummary))
+	}
+	if codingSummary[0].Passed != 1 || codingSummary[0].Failed != 0 || codingSummary[0].TotalTests != 1 {
+		t.Fatalf("unexpected coding stats: %+v", codingSummary[0])
+	}
+	if codingSummary[0].AvgResponseMs != 80 {
+		t.Fatalf("expected AvgResponseMs 80 from newest run, got %d", codingSummary[0].AvgResponseMs)
+	}
+
+	// Reasoning should resolve reason-1 from run1 (passed)
+	reasonSummary := store.GetGroupHistory("reasoning")
+	if len(reasonSummary) != 1 {
+		t.Fatalf("expected 1 model in reasoning summary, got %d", len(reasonSummary))
+	}
+	if reasonSummary[0].Passed != 1 || reasonSummary[0].TotalTests != 1 {
+		t.Fatalf("unexpected reasoning stats: %+v", reasonSummary[0])
+	}
+
+	// "all" should aggregate both code-1 (passed from run2) and reason-1 (passed from run1)
+	allSummary := store.GetGroupHistory("all")
+	if len(allSummary) != 1 {
+		t.Fatalf("expected 1 model in all summary, got %d", len(allSummary))
+	}
+	if allSummary[0].TotalTests != 2 || allSummary[0].Passed != 2 {
+		t.Fatalf("unexpected all stats: %+v", allSummary[0])
+	}
+}

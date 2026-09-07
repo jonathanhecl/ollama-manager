@@ -127,13 +127,14 @@ func (s *ResultStore) resolveExerciseLocked(testID, fallbackGroup string) (strin
 				gid = fallbackGroup
 			}
 			base := strings.TrimSuffix(t.Filename, filepath.Ext(t.Filename))
-			if base != "" {
-				if s.exerciseMap == nil {
-					s.exerciseMap = make(map[string]exerciseLocation)
-				}
-				s.exerciseMap[testID] = exerciseLocation{GroupID: gid, Base: base}
-				return gid, base
+			if base == "" {
+				base = testID
 			}
+			if s.exerciseMap == nil {
+				s.exerciseMap = make(map[string]exerciseLocation)
+			}
+			s.exerciseMap[testID] = exerciseLocation{GroupID: gid, Base: base}
+			return gid, base
 		}
 	}
 	if s.exerciseMap != nil {
@@ -514,6 +515,9 @@ type GroupModelSummary struct {
 }
 
 // GetGroupHistory returns per-model summaries for all runs of a given group.
+// If groupID is "all", it aggregates results across all categories.
+// Runs can be individual category runs or "all" battery runs; results are matched by each test's resolved groupID.
+// For each model and test, the newest run's result is used to avoid duplicate counts and reflect the latest benchmark state.
 func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -534,11 +538,41 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 		sysInfo          SysInfo
 	}
 	m := make(map[string]*acc)
-	for _, run := range s.runs {
-		if run.GroupID != groupID {
-			continue
-		}
+	seen := make(map[string]map[string]bool)
+
+	// Sort runs newest first so latest results take precedence per test
+	runs := make([]BatteryRun, len(s.runs))
+	copy(runs, s.runs)
+	sort.Slice(runs, func(i, j int) bool {
+		return runs[i].Timestamp.After(runs[j].Timestamp)
+	})
+
+	for _, run := range runs {
 		for _, res := range run.Results {
+			resGID, _ := s.resolveExerciseLocked(res.TestID, run.GroupID)
+			if resGID == "" {
+				resGID = run.GroupID
+			}
+			if groupID != "all" && resGID != groupID {
+				continue
+			}
+
+			modelSeen := seen[res.Model]
+			if modelSeen == nil {
+				modelSeen = make(map[string]bool)
+				seen[res.Model] = modelSeen
+			}
+			testKey := res.TestID
+			if testKey == "" {
+				testKey = res.TestName
+			}
+			if testKey != "" && modelSeen[testKey] {
+				continue
+			}
+			if testKey != "" {
+				modelSeen[testKey] = true
+			}
+
 			a, ok := m[res.Model]
 			if !ok {
 				a = &acc{}
@@ -563,7 +597,7 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 				a.failed++
 				a.failedTests = append(a.failedTests, res.TestName)
 			}
-			if run.Timestamp.After(a.lastRun) {
+			if a.lastRun.IsZero() || run.Timestamp.After(a.lastRun) {
 				a.lastRun = run.Timestamp
 				a.sysInfo = run.SysInfo
 			}

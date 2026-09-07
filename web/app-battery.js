@@ -280,51 +280,439 @@ function stopBatteryPolling() {
     clearTimeout(batteryPollTimer);
     batteryPollTimer = null;
   }
+  if (batteryElapsedInterval) {
+    clearInterval(batteryElapsedInterval);
+    batteryElapsedInterval = null;
+  }
   batteryActiveRunID = null;
 }
 let batteryCompletedTests = [];
 let batteryLastTestSnapshot = null;
 let batteryTimelineTotal = 0;
-let batteryTimelineCompleted = []; // {index, name, model}
+let batteryTimelineCompleted = []; // {index, name, model, testId}
 let batteryTimelineCurrent = null; // {index, name, model, isThinking}
 let batteryTimelineQueue = []; // {index, testId, testName, model}
 let batteryTimelineScrollKey = "";
 let batteryProgressModelIDs = [];
+let batteryLiveResults = [];
+let batteryStartTime = 0;
+let batteryElapsedInterval = null;
+let batteryActiveTab = "models";
 const testHistoryResponses = new Map(); // respKey -> full response string
 
+function formatTimeDisplay(totalSeconds) {
+  if (isNaN(totalSeconds) || totalSeconds < 0) return "00:00";
+  const s = Math.floor(totalSeconds);
+  const hrs = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  if (hrs > 0) {
+    return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function updateBatteryElapsedDisplay() {
+  if (!batteryStartTime) return;
+  const elapsedSec = Math.floor((Date.now() - batteryStartTime) / 1000);
+  const elElapsed = $("battery-timer-elapsed");
+  if (elElapsed) elElapsed.textContent = formatTimeDisplay(elapsedSec);
+
+  // Dynamic empirical ETA calculation
+  const elEta = $("battery-timer-eta");
+  if (elEta) {
+    const completedCount = batteryLiveResults.length;
+    if (completedCount >= 1 && batteryTimelineTotal > completedCount && elapsedSec > 2) {
+      const avgSecPerTest = elapsedSec / completedCount;
+      const remainingTests = batteryTimelineTotal - completedCount;
+      const estSec = Math.round(remainingTests * avgSecPerTest);
+      elEta.textContent = "~" + formatTimeDisplay(estSec);
+    } else if (completedCount >= batteryTimelineTotal && batteryTimelineTotal > 0) {
+      elEta.textContent = "00:00";
+    } else {
+      elEta.textContent = t("battery.kpi_eta_calc");
+    }
+  }
+}
+
+function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, totalTests) {
+  const modelMap = new Map();
+  const queue = batteryTimelineQueue || [];
+
+  for (const m of modelIDs) {
+    const expected = queue.filter((q) => q.model === m).length || 0;
+    const modelResults = results.filter((r) => r.model === m);
+    const completed = modelResults.length;
+    const passed = modelResults.filter((r) => r.passed === true).length;
+    const failed = modelResults.filter((r) => r.passed === false).length;
+    const passRate = completed > 0 ? (passed / completed) * 100 : 0;
+    const totalSpeed = modelResults.reduce((sum, r) => sum + (r.tokens_per_sec || 0), 0);
+    const avgSpeed = completed > 0 ? totalSpeed / completed : 0;
+    const totalDuration = modelResults.reduce((sum, r) => sum + (r.response_time_ms || 0), 0);
+    const avgLatency = completed > 0 ? (totalDuration / completed) / 1000 : 0;
+    const isCurrent = m === currentModel;
+    const isDone = completed > 0 && (expected === 0 || completed >= expected);
+
+    modelMap.set(m, {
+      model: m,
+      expected: expected || completed,
+      completed,
+      passed,
+      failed,
+      passRate,
+      avgSpeed,
+      avgLatency,
+      isCurrent,
+      isDone,
+    });
+  }
+
+  // Next model in queue
+  let nextModel = "";
+  if (currentModel) {
+    const curIdx = modelIDs.indexOf(currentModel);
+    for (let i = curIdx + 1; i < modelIDs.length; i++) {
+      const cand = modelIDs[i];
+      const st = modelMap.get(cand);
+      if (!st || !st.isDone) {
+        nextModel = cand;
+        break;
+      }
+    }
+  } else if (modelIDs.length > 0) {
+    nextModel = modelIDs[0];
+  }
+
+  // Global aggregates
+  const totalCompleted = results.length;
+  const totalPassed = results.filter((r) => r.passed === true).length;
+  const totalFailed = results.filter((r) => r.passed === false).length;
+  const globalPassRate = totalCompleted > 0 ? (totalPassed / totalCompleted) * 100 : 0;
+  const totalSpeedAll = results.reduce((sum, r) => sum + (r.tokens_per_sec || 0), 0);
+  const globalAvgSpeed = totalCompleted > 0 ? totalSpeedAll / totalCompleted : 0;
+  const totalDurationAll = results.reduce((sum, r) => sum + (r.response_time_ms || 0), 0);
+  const globalAvgLatency = totalCompleted > 0 ? (totalDurationAll / totalCompleted) / 1000 : 0;
+  const totalTokens = results.reduce((sum, r) => sum + (r.total_tokens || 0), 0);
+
+  return {
+    modelMap,
+    nextModel,
+    totalCompleted,
+    totalPassed,
+    totalFailed,
+    globalPassRate,
+    globalAvgSpeed,
+    globalAvgLatency,
+    totalTokens,
+  };
+}
+
+function renderBatteryKPIs(p, stats) {
+  const currentModel = p.model || "";
+  const total = p.total_tests || batteryTimelineTotal || 0;
+  const idx = p.test_index || 0;
+  const done = p.done || false;
+
+  // Active Model Card
+  const elModelName = $("battery-kpi-model-name");
+  const elModelStatus = $("battery-kpi-model-status");
+  const elModelSub = $("battery-kpi-model-sub");
+  const elModelPct = $("battery-kpi-model-pct");
+  const elModelBar = $("battery-kpi-model-bar");
+  const elNextName = $("battery-kpi-next-name");
+
+  if (elModelName) {
+    elModelName.textContent = currentModel || (done ? t("battery.status_done") : "--");
+    elModelName.title = currentModel || "";
+  }
+  if (elModelStatus) {
+    if (done) {
+      elModelStatus.className = "badge badge-pass";
+      elModelStatus.textContent = t("battery.status_done");
+    } else if (p.is_thinking) {
+      elModelStatus.className = "badge badge-warn pulse";
+      elModelStatus.innerHTML = `🧠 ${t("battery.status_thinking")}`;
+    } else if (p.partial_response) {
+      elModelStatus.className = "badge badge-pass pulse";
+      elModelStatus.innerHTML = `⚡ ${t("battery.status_generating")}`;
+    } else {
+      elModelStatus.className = "badge badge-primary pulse";
+      elModelStatus.innerHTML = `⏳ ${t("battery.status_evaluating")}`;
+    }
+  }
+
+  const curStats = stats.modelMap.get(currentModel);
+  if (curStats) {
+    const curModelRunningIdx = Math.min(curStats.expected, curStats.completed + (done ? 0 : 1));
+    if (elModelSub) {
+      elModelSub.textContent = t("battery.kpi_model_tests", { current: String(curModelRunningIdx), total: String(curStats.expected) });
+    }
+    const modelPct = curStats.expected > 0 ? Math.round((curStats.completed / curStats.expected) * 100) : 0;
+    if (elModelPct) elModelPct.textContent = `${modelPct}%`;
+    if (elModelBar) elModelBar.style.width = `${modelPct}%`;
+  } else {
+    if (elModelSub) elModelSub.textContent = "--";
+    if (elModelPct) elModelPct.textContent = "0%";
+    if (elModelBar) elModelBar.style.width = "0%";
+  }
+
+  if (elNextName) {
+    elNextName.textContent = stats.nextModel || t("battery.kpi_no_next");
+    elNextName.title = stats.nextModel || "";
+  }
+
+  // Global Progress Card
+  const elGlobalCount = $("battery-kpi-global-count");
+  const elGlobalPct = $("battery-kpi-global-pct");
+  const elRemaining = $("battery-kpi-remaining-text");
+  const elFill = $("battery-progress-fill");
+
+  const displayIdx = done ? total : Math.max(0, idx - 1);
+  const globalPct = total > 0 ? (done ? 100 : Math.max(0, Math.min(100, Math.round((displayIdx / total) * 100)))) : 0;
+  const remainingCount = Math.max(0, total - displayIdx);
+
+  if (elGlobalCount) elGlobalCount.textContent = `${displayIdx} / ${total}`;
+  if (elGlobalPct) elGlobalPct.textContent = `${globalPct}%`;
+  if (elRemaining) elRemaining.textContent = t("battery.kpi_remaining", { count: String(remainingCount) });
+  if (elFill) elFill.style.width = `${globalPct}%`;
+
+  // Global Pass Rate Card
+  const elDonutVal = $("battery-kpi-donut-val");
+  const elDonutPct = $("battery-kpi-pass-pct-inner");
+  const elPassCount = $("battery-kpi-pass-count-text");
+  const elFailCount = $("battery-kpi-fail-count-text");
+
+  const passPctRound = Math.round(stats.globalPassRate);
+  if (elDonutVal) {
+    elDonutVal.setAttribute("stroke-dasharray", `${passPctRound}, 100`);
+    if (passPctRound < 50 && stats.totalCompleted > 0) {
+      elDonutVal.style.stroke = "var(--danger)";
+    } else if (passPctRound < 75 && stats.totalCompleted > 0) {
+      elDonutVal.style.stroke = "var(--warn)";
+    } else {
+      elDonutVal.style.stroke = "var(--good)";
+    }
+  }
+  if (elDonutPct) elDonutPct.textContent = `${passPctRound}%`;
+  if (elPassCount) elPassCount.textContent = `✔ ${stats.totalPassed} ${t("battery.pass")}`;
+  if (elFailCount) elFailCount.textContent = `✖ ${stats.totalFailed} ${t("battery.fail")}`;
+
+  // Performance Card
+  const elSpeed = $("battery-kpi-avg-speed");
+  const elLatency = $("battery-kpi-avg-latency");
+  const elTokens = $("battery-kpi-tokens-val");
+
+  if (elSpeed) {
+    elSpeed.innerHTML = stats.globalAvgSpeed > 0 ? `${stats.globalAvgSpeed.toFixed(1)} <span class="kpi-unit">tok/s</span>` : `-- <span class="kpi-unit">tok/s</span>`;
+  }
+  if (elLatency) {
+    elLatency.textContent = stats.globalAvgLatency > 0 ? `${stats.globalAvgLatency.toFixed(1)}s ${t("battery.response_time").toLowerCase()}` : `-- s`;
+  }
+  if (elTokens) {
+    elTokens.textContent = `${stats.totalTokens.toLocaleString()} tokens`;
+  }
+}
+
+function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
+  const container = $("battery-leaderboard-container");
+  if (!container) return;
+  if (!modelIDs || !modelIDs.length) {
+    container.innerHTML = `<div class="muted">${escapeHtml(t("battery.starting"))}</div>`;
+    return;
+  }
+
+  let html = `
+    <table class="battery-leaderboard-table">
+      <thead>
+        <tr>
+          <th>${escapeHtml(t("battery.col_model"))}</th>
+          <th>${escapeHtml(t("battery.col_tests"))}</th>
+          <th>${escapeHtml(t("battery.col_ratio"))}</th>
+          <th>${escapeHtml(t("battery.col_pass_pct"))}</th>
+          <th>${escapeHtml(t("battery.col_speed"))}</th>
+          <th>${escapeHtml(t("battery.col_status"))}</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  for (const m of modelIDs) {
+    const st = modelMap.get(m) || { expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, avgSpeed: 0, isCurrent: m === currentModel, isDone: false };
+    const passPct = Math.round(st.passRate);
+    const passBarWidth = st.completed > 0 ? (st.passed / st.completed) * 100 : 0;
+    const failBarWidth = st.completed > 0 ? (st.failed / st.completed) * 100 : 0;
+
+    let statusBadge = `<span class="badge badge-muted">⏳ ${escapeHtml(t("battery.status_pending"))}</span>`;
+    if (st.isCurrent) {
+      statusBadge = `<span class="badge badge-primary pulse">⚡ ${escapeHtml(t("battery.status_running"))}</span>`;
+    } else if (st.isDone) {
+      statusBadge = `<span class="badge badge-pass">✔ ${escapeHtml(t("battery.status_done"))}</span>`;
+    }
+
+    const rowClass = st.isCurrent ? "battery-leaderboard-row active-model-row" : "battery-leaderboard-row";
+    const passPctColor = passPct >= 75 ? "var(--good)" : (passPct >= 50 ? "var(--warn)" : "var(--danger)");
+
+    html += `
+      <tr class="${rowClass}">
+        <td>
+          <div class="leaderboard-model-cell">
+            <span class="leaderboard-model-name mono" title="${escapeHtml(m)}">${escapeHtml(m)}</span>
+          </div>
+        </td>
+        <td class="mono">${st.completed} / ${st.expected}</td>
+        <td>
+          <div class="leaderboard-ratio-bar" title="${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}">
+            <div class="ratio-bar-pass" style="width: ${passBarWidth}%"></div>
+            <div class="ratio-bar-fail" style="width: ${failBarWidth}%"></div>
+          </div>
+        </td>
+        <td class="mono font-bold" style="color:${st.completed > 0 ? passPctColor : 'var(--muted)'};">
+          ${st.completed > 0 ? passPct + "%" : "--"}
+        </td>
+        <td class="mono muted">
+          ${st.avgSpeed > 0 ? st.avgSpeed.toFixed(1) + " tok/s" : "--"}
+        </td>
+        <td>${statusBadge}</td>
+      </tr>
+    `;
+  }
+
+  html += `</tbody></table>`;
+  container.innerHTML = html;
+}
+
+function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
+  const container = $("battery-analytics-charts-container");
+  if (!container) return;
+
+  const testedModels = modelIDs
+    .map((m) => modelMap.get(m))
+    .filter((st) => st && st.completed > 0);
+
+  if (!testedModels.length) {
+    container.innerHTML = `<div class="muted" style="padding: 24px; text-align: center;">${escapeHtml(t("battery.charts_no_data"))}</div>`;
+    return;
+  }
+
+  const maxSpeed = Math.max(...testedModels.map((s) => s.avgSpeed || 0), 10);
+  const rowHeight = 36;
+  const chartHeight = Math.max(80, testedModels.length * rowHeight + 20);
+
+  // SVG for Pass Rates
+  let passBars = "";
+  testedModels.forEach((st, idx) => {
+    const y = idx * rowHeight + 10;
+    const barWidth = Math.max(2, Math.round(st.passRate * 2.8)); // 0-100 mapped to 0-280px
+    const passColor = st.passRate >= 75 ? "#10b981" : (st.passRate >= 50 ? "#f59e0b" : "#ef4444");
+    const shortName = st.model.length > 24 ? st.model.slice(0, 22) + "…" : st.model;
+
+    passBars += `
+      <text x="10" y="${y + 14}" class="chart-label">${escapeHtml(shortName)}</text>
+      <rect x="180" y="${y}" width="280" height="18" class="chart-bar-bg" />
+      <rect x="180" y="${y}" width="${barWidth}" height="18" fill="${passColor}" rx="3" />
+      <text x="${180 + barWidth + 8}" y="${y + 14}" class="chart-val">${Math.round(st.passRate)}% (${st.passed}/${st.completed})</text>
+    `;
+  });
+
+  // SVG for Speeds
+  let speedBars = "";
+  testedModels.forEach((st, idx) => {
+    const y = idx * rowHeight + 10;
+    const speedRatio = maxSpeed > 0 ? (st.avgSpeed / maxSpeed) : 0;
+    const barWidth = Math.max(2, Math.round(speedRatio * 280));
+    const shortName = st.model.length > 24 ? st.model.slice(0, 22) + "…" : st.model;
+
+    speedBars += `
+      <text x="10" y="${y + 14}" class="chart-label">${escapeHtml(shortName)}</text>
+      <rect x="180" y="${y}" width="280" height="18" class="chart-bar-bg" />
+      <rect x="180" y="${y}" width="${barWidth}" height="18" fill="#38bdf8" rx="3" />
+      <text x="${180 + barWidth + 8}" y="${y + 14}" class="chart-val">${st.avgSpeed.toFixed(1)} tok/s</text>
+    `;
+  });
+
+  container.innerHTML = `
+    <div class="analytics-card-section">
+      <div class="analytics-section-title">
+        <span>🎯</span> ${escapeHtml(t("battery.charts_overall"))}
+      </div>
+      <svg class="analytics-svg-chart" viewBox="0 0 550 ${chartHeight}" height="${chartHeight}">
+        ${passBars}
+      </svg>
+    </div>
+
+    <div class="analytics-card-section">
+      <div class="analytics-section-title">
+        <span>⚡</span> ${escapeHtml(t("battery.charts_speed"))}
+      </div>
+      <svg class="analytics-svg-chart" viewBox="0 0 550 ${chartHeight}" height="${chartHeight}">
+        ${speedBars}
+      </svg>
+    </div>
+  `;
+}
+
+function initBatteryProgressControls() {
+  const tabs = [
+    { btn: "battery-tab-btn-models", content: "battery-tab-content-models", id: "models" },
+    { btn: "battery-tab-btn-charts", content: "battery-tab-content-charts", id: "charts" },
+    { btn: "battery-tab-btn-queue", content: "battery-tab-content-queue", id: "queue" },
+  ];
+
+  tabs.forEach((tab) => {
+    const btn = $(tab.btn);
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      batteryActiveTab = tab.id;
+      tabs.forEach((t) => {
+        const b = $(t.btn);
+        const c = $(t.content);
+        if (b) b.classList.toggle("active", t.id === tab.id);
+        if (c) c.hidden = (t.id !== tab.id);
+      });
+    });
+  });
+
+  const copyBtn = $("battery-copy-prompt-btn");
+  if (copyBtn && !copyBtn.dataset.bound) {
+    copyBtn.dataset.bound = "1";
+    copyBtn.addEventListener("click", async () => {
+      const promptEl = $("battery-stream-prompt");
+      if (!promptEl) return;
+      const text = promptEl.textContent || "";
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        const orig = copyBtn.textContent;
+        copyBtn.textContent = t("battery.copied");
+        setTimeout(() => {
+          copyBtn.textContent = orig;
+        }, 1500);
+      } catch {
+        toast(t("toast.copy_error") || "Failed to copy", "warn");
+      }
+    });
+  }
+}
+
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initBatteryProgressControls);
+  } else {
+    initBatteryProgressControls();
+  }
+}
+
 function renderBatteryProgressModels(modelIDs, currentModel, isThinking) {
+  // Kept for backward compatibility
   const container = $("battery-progress-models");
   if (!container) return;
-  const currentIdx = currentModel ? modelIDs.indexOf(currentModel) : -1;
-  const startIdx = Math.max(0, currentIdx);
-  const visibleModels = [];
-  for (let i = startIdx; i < Math.min(startIdx + 3, modelIDs.length); i++) {
-    visibleModels.push(modelIDs[i]);
-  }
-  container.innerHTML = visibleModels.map((m) => {
-    const modelIndex = modelIDs.indexOf(m);
-    const isRunning = m === currentModel;
-    const isDone = currentIdx !== -1 && modelIndex < currentIdx;
-    let status = t("battery.status_pending");
-    if (isRunning) {
-      status = t(isThinking ? "battery.status_thinking" : "battery.status_running");
-    } else if (isDone) {
-      status = t("battery.status_done");
-    }
-    const cls = isRunning ? "battery-progress-model running" : (isDone ? "battery-progress-model done" : "battery-progress-model");
-    return `
-      <div class="${cls}" data-model="${escapeHtml(m)}">
-        <span class="battery-progress-dot"></span>
-        <span class="battery-progress-name">${escapeHtml(m)}</span>
-        <span class="battery-progress-status">${escapeHtml(status)}</span>
-      </div>
-    `;
-  }).join("");
+  container.innerHTML = "";
 }
 
 function buildBatteryTimelineQueue(groupId, modelIDs) {
   const activeTests = tests
-    .filter((t) => t.group_id === groupId && t.active && t.evaluation_type !== "agent")
+    .filter((t) => (groupId === "all" || !groupId || t.group_id === groupId) && t.active && t.evaluation_type !== "agent")
     .sort((a, b) => (a.order || 0) - (b.order || 0));
   const queue = [];
   let idx = 0;
@@ -348,30 +736,54 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryTimelineTotal = 0;
   batteryTimelineCompleted = [];
   batteryTimelineCurrent = null;
-  batteryTimelineQueue = groupId ? buildBatteryTimelineQueue(groupId, modelIDs) : [];
+  batteryTimelineQueue = buildBatteryTimelineQueue(groupId, modelIDs);
   batteryTimelineScrollKey = "";
+  batteryLiveResults = [];
+  batteryStartTime = Date.now();
+
+  if (batteryElapsedInterval) {
+    clearInterval(batteryElapsedInterval);
+    batteryElapsedInterval = null;
+  }
+  batteryElapsedInterval = setInterval(updateBatteryElapsedDisplay, 1000);
+  updateBatteryElapsedDisplay();
+
+  const groupBadge = $("battery-progress-group-badge");
+  if (groupBadge) {
+    if (groupId && groupId !== "all") {
+      const g = (typeof groups !== "undefined" && Array.isArray(groups)) ? groups.find((grp) => grp.id === groupId) : null;
+      groupBadge.hidden = false;
+      groupBadge.textContent = g ? g.name : groupId;
+    } else {
+      groupBadge.hidden = true;
+    }
+  }
+
+  initBatteryProgressControls();
 
   const completedEl = $("battery-completed-tests");
   const headingEl = $("battery-completed-tests-heading");
   if (completedEl) { completedEl.innerHTML = ""; completedEl.hidden = true; }
   if (headingEl) headingEl.hidden = true;
 
-  // Reset new UI elements
+  // Reset UI elements
   const fill = $("battery-progress-fill");
   const count = $("battery-progress-count");
   const timeline = $("battery-timeline");
-  const sub = $("battery-progress-sub");
   if (fill) fill.style.width = "0%";
   if (count) count.textContent = "0 / 0";
   if (timeline) timeline.innerHTML = `<div class="battery-timeline-empty">${escapeHtml(t("battery.starting"))}</div>`;
-  if (sub) sub.textContent = t("battery.progress_sub", { count: String(modelIDs.length) });
 
   hideAllMainViews();
   currentView = "battery-progress";
   $("battery-progress-view").hidden = false;
 
   batteryProgressModelIDs = modelIDs;
-  renderBatteryProgressModels(modelIDs, "", false);
+  const initialStats = computeBatteryStats(modelIDs, [], modelIDs[0] || "", 0, batteryTimelineQueue.length);
+  renderBatteryKPIs({ model: modelIDs[0] || "", total_tests: batteryTimelineQueue.length, test_index: 1 }, initialStats);
+  renderBatteryLeaderboard(modelIDs, initialStats.modelMap, modelIDs[0] || "");
+  renderBatteryAnalyticsCharts(modelIDs, initialStats.modelMap);
+
   localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs, groupId }));
   batteryActiveRunID = runID;
   const progressPath = "/tests/battery/progress/" + runID;
@@ -381,7 +793,7 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   void pollBatteryProgress(runID, modelIDs);
 }
 
-function renderBatteryTimeline() {
+function renderBatteryTimeline(liveResults = []) {
   const container = $("battery-timeline");
   if (!container) return;
   if (batteryTimelineTotal === 0) {
@@ -392,15 +804,35 @@ function renderBatteryTimeline() {
   let html = "";
   // Completed items
   for (const item of batteryTimelineCompleted) {
+    const res = (liveResults || []).find((r) => r.test_id === item.testId && r.model === item.model);
+    let dotIcon = "&#10003;";
+    let itemClass = "battery-timeline-item completed";
+    let metaDetails = "";
+
+    if (res) {
+      if (res.passed === true) {
+        dotIcon = "&#10003;";
+        itemClass = "battery-timeline-item completed";
+      } else if (res.passed === false) {
+        dotIcon = "&#10005;";
+        itemClass = "battery-timeline-item failed";
+      }
+      const dur = res.response_time_ms > 0 ? (res.response_time_ms / 1000).toFixed(1) + "s" : "";
+      const spd = res.tokens_per_sec > 0 ? res.tokens_per_sec.toFixed(1) + " tok/s" : "";
+      if (dur || spd) {
+        metaDetails = ` &middot; ${dur}${spd ? " (" + spd + ")" : ""}`;
+      }
+    }
+
     html += `
-      <div class="battery-timeline-item completed">
+      <div class="${itemClass}">
         <div class="battery-timeline-left">
-          <div class="battery-timeline-dot">&#10003;</div>
+          <div class="battery-timeline-dot">${dotIcon}</div>
           <div class="battery-timeline-line"></div>
         </div>
         <div class="battery-timeline-body">
           <div class="battery-timeline-name">${escapeHtml(item.name || "Test")}</div>
-          <div class="battery-timeline-meta">${escapeHtml(item.model || "")}</div>
+          <div class="battery-timeline-meta">${escapeHtml(item.model || "")}${metaDetails}</div>
         </div>
       </div>
     `;
@@ -471,7 +903,7 @@ function scrollBatteryTimelineToActive() {
   });
 }
 
-function updateBatteryProgressUI(p) {
+function updateBatteryProgressUI(p, liveResults = []) {
   const total = p.total_tests || 0;
   const idx = p.test_index || 0;
   const done = p.done || false;
@@ -526,7 +958,7 @@ function updateBatteryProgressUI(p) {
     batteryTimelineCurrent = null;
   }
 
-  renderBatteryTimeline();
+  renderBatteryTimeline(liveResults);
 }
 
 function renderBatteryCompletedTests() {
@@ -567,13 +999,29 @@ async function pollBatteryProgress(runID, modelIDs) {
   }
   try {
     const p = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/progress");
+    // Update live results and models from server if provided
+    if (p.results && Array.isArray(p.results)) {
+      batteryLiveResults = p.results;
+    }
+    if (p.models && Array.isArray(p.models) && p.models.length > 0) {
+      batteryProgressModelIDs = p.models;
+    }
+
     // Detect test change: archive previous snapshot.
     if (batteryLastTestSnapshot && batteryLastTestSnapshot.testId && p.test_id && batteryLastTestSnapshot.testId !== p.test_id) {
       batteryCompletedTests.push(batteryLastTestSnapshot);
       renderBatteryCompletedTests();
     }
     // Update timeline, bar, and count.
-    updateBatteryProgressUI(p);
+    updateBatteryProgressUI(p, batteryLiveResults);
+
+    // Compute live stats and render KPIs, Leaderboard and Analytics charts
+    const currentModel = p.model || "";
+    const stats = computeBatteryStats(batteryProgressModelIDs, batteryLiveResults, currentModel, p.test_index, p.total_tests);
+    renderBatteryKPIs(p, stats);
+    renderBatteryLeaderboard(batteryProgressModelIDs, stats.modelMap, currentModel);
+    renderBatteryAnalyticsCharts(batteryProgressModelIDs, stats.modelMap);
+    updateBatteryElapsedDisplay();
 
     // Update streaming panel.
     const streamPanel = $("battery-stream-panel");

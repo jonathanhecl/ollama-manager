@@ -2051,83 +2051,218 @@
       <div class="battery-head-left">
         <h2>
           <span class="gear">⚡</span>
-          <span data-i18n="battery.running">Running Battery…</span>
+          <span id="battery-progress-title" data-i18n="battery.running">Running Battery…</span>
         </h2>
+        <span id="battery-progress-group-badge" class="battery-group-badge muted mono" hidden></span>
+      </div>
+      <div class="battery-head-timers">
+        <div class="battery-timer-pill">
+          <span class="battery-timer-icon">⏱</span>
+          <span class="muted" data-i18n="battery.kpi_elapsed">Elapsed:</span>
+          <strong id="battery-timer-elapsed" class="mono">00:00</strong>
+        </div>
+        <div class="battery-timer-pill">
+          <span class="battery-timer-icon">⏳</span>
+          <span class="muted" data-i18n="battery.kpi_eta">ETA:</span>
+          <strong id="battery-timer-eta" class="mono" data-i18n="battery.kpi_eta_calc">Calculating…</strong>
+        </div>
       </div>
       <div class="battery-head-actions">
         <button id="battery-progress-skip" class="ghost warn-text" data-i18n="battery.skip_test">Skip Test</button>
         <button id="battery-progress-cancel" class="ghost danger-text" data-i18n="action.cancel">Cancel</button>
       </div>
     </header>
+
     <div class="battery-body">
-      <div class="battery-progress-layout">
-        <!-- Left: Timeline & progress -->
-        <div class="battery-progress-left">
-          <div class="battery-progress-header">
-            <div class="battery-progress-spinner"></div>
-            <h3 data-i18n="battery.running_sub">Executing tests…</h3>
-            <div class="battery-progress-meta" id="battery-progress-sub"></div>
-          </div>
-
-          <div class="battery-progress-bar-wrap">
-            <div class="battery-progress-track">
-              <div class="battery-progress-fill" id="battery-progress-fill"></div>
+      <div class="battery-progress-container">
+        <!-- KPI Cards Row -->
+        <div class="battery-kpi-row">
+          <!-- Active Model Card -->
+          <div class="battery-kpi-card kpi-card-model">
+            <div class="kpi-card-head">
+              <span class="kpi-icon">⚡</span>
+              <span class="kpi-label" data-i18n="battery.kpi_active_model">Active Model</span>
+              <span id="battery-kpi-model-status" class="badge badge-primary pulse">Evaluating</span>
             </div>
-            <div class="battery-progress-count" id="battery-progress-count">0 / 0</div>
+            <div id="battery-kpi-model-name" class="kpi-main-val kpi-model-title mono" title="">--</div>
+            <div class="kpi-model-progress-wrap">
+              <div class="kpi-model-progress-info">
+                <span id="battery-kpi-model-sub" class="muted mono">--</span>
+                <span id="battery-kpi-model-pct" class="mono muted">0%</span>
+              </div>
+              <div class="kpi-mini-track">
+                <div id="battery-kpi-model-bar" class="kpi-mini-fill" style="width: 0%"></div>
+              </div>
+            </div>
+            <div class="kpi-next-row">
+              <span class="kpi-next-tag" data-i18n="battery.kpi_up_next">Next</span>
+              <span id="battery-kpi-next-name" class="kpi-next-val mono muted">--</span>
+            </div>
           </div>
 
-          <div class="battery-timeline" id="battery-timeline"></div>
+          <!-- Global Progress Card -->
+          <div class="battery-kpi-card kpi-card-progress">
+            <div class="kpi-card-head">
+              <span class="kpi-icon">🌐</span>
+              <span class="kpi-label" data-i18n="battery.kpi_global_progress">Global Progress</span>
+              <span id="battery-kpi-global-pct" class="kpi-pct-badge mono">0%</span>
+            </div>
+            <div class="kpi-main-val-row">
+              <span id="battery-kpi-global-count" class="kpi-main-val mono">0 / 0</span>
+              <span id="battery-progress-count" class="muted mono" hidden>0 / 0</span>
+            </div>
+            <div id="battery-kpi-remaining-text" class="kpi-sub-text muted">0 remaining</div>
+            <div class="battery-progress-bar-wrap">
+              <div class="battery-progress-track">
+                <div class="battery-progress-fill" id="battery-progress-fill" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Global Pass Rate Card -->
+          <div class="battery-kpi-card kpi-card-passrate">
+            <div class="kpi-card-head">
+              <span class="kpi-icon">🎯</span>
+              <span class="kpi-label" data-i18n="battery.kpi_pass_rate">Global Pass Rate</span>
+            </div>
+            <div class="kpi-pass-row">
+              <div class="kpi-donut-wrap">
+                <svg class="kpi-donut" viewBox="0 0 36 36">
+                  <path class="donut-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  <path id="battery-kpi-donut-val" class="donut-val" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                </svg>
+                <span id="battery-kpi-pass-pct-inner" class="donut-pct mono">0%</span>
+              </div>
+              <div class="kpi-pass-details">
+                <div id="battery-kpi-pass-count-text" class="kpi-pass-stat text-good mono">✔ 0 Passed</div>
+                <div id="battery-kpi-fail-count-text" class="kpi-fail-stat text-danger mono">✖ 0 Failed</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Performance Card -->
+          <div class="battery-kpi-card kpi-card-perf">
+            <div class="kpi-card-head">
+              <span class="kpi-icon">⚡</span>
+              <span class="kpi-label" data-i18n="battery.kpi_performance">Performance</span>
+            </div>
+            <div id="battery-kpi-avg-speed" class="kpi-main-val mono">-- <span class="kpi-unit">tok/s</span></div>
+            <div id="battery-kpi-avg-latency" class="kpi-sub-text muted mono">-- s avg latency</div>
+            <div class="kpi-next-row muted mono">
+              <span class="kpi-token-icon">🔤</span>
+              <span id="battery-kpi-tokens-val">0 tokens</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Right: Models & streaming -->
-        <div class="battery-progress-right">
-          <div id="battery-progress-models" class="battery-progress-models"></div>
-          <div id="battery-stream-panel" class="battery-stream-panel" hidden>
-            <div class="battery-stream-topbar">
-              <div class="battery-stream-top-left">
-                <span class="battery-stream-indicator pulse"></span>
-                <span id="battery-stream-test-title" class="battery-stream-test-title"></span>
-                <span id="battery-stream-case-pill" class="battery-stream-case-pill" hidden></span>
+        <!-- Main Dashboard Split Grid -->
+        <div class="battery-main-grid">
+          <!-- Left Column: Live Test Execution Console -->
+          <div class="battery-console-column">
+            <div id="battery-stream-panel" class="battery-console-card">
+              <div class="battery-stream-topbar">
+                <div class="battery-stream-top-left">
+                  <span class="battery-stream-indicator pulse"></span>
+                  <span id="battery-stream-test-title" class="battery-stream-test-title"></span>
+                  <span id="battery-stream-case-pill" class="battery-stream-case-pill" hidden></span>
+                </div>
+                <div class="battery-stream-top-right">
+                  <span id="battery-stream-status-badge" class="battery-stream-status-badge"></span>
+                </div>
               </div>
-              <div class="battery-stream-top-right">
-                <span id="battery-stream-status-badge" class="battery-stream-status-badge"></span>
-              </div>
-            </div>
 
-            <!-- Live Sub-cases / Steps Progress Tracker -->
-            <div id="battery-stream-cases-container" class="battery-stream-cases-container" hidden>
-              <div class="battery-stream-cases-header">
-                <span data-i18n="battery.cases_progress">Sub-Cases Progress</span>
-                <span id="battery-stream-cases-count" class="muted mono"></span>
+              <!-- Live Sub-cases / Steps Progress Tracker -->
+              <div id="battery-stream-cases-container" class="battery-stream-cases-container" hidden>
+                <div class="battery-stream-cases-header">
+                  <span data-i18n="battery.cases_progress">Sub-Cases Progress</span>
+                  <span id="battery-stream-cases-count" class="muted mono"></span>
+                </div>
+                <div id="battery-stream-cases-list" class="battery-stream-cases-list"></div>
               </div>
-              <div id="battery-stream-cases-list" class="battery-stream-cases-list"></div>
-            </div>
 
-            <div class="battery-stream-header">
-              <span data-i18n="battery.stream_prompt">Prompt</span>
-              <span class="muted" id="battery-stream-prompt-name"></span>
-            </div>
-            <div class="battery-stream-block prompt-block" id="battery-stream-prompt"></div>
-
-            <div id="battery-stream-thinking-wrap" hidden>
-              <div class="battery-stream-header">
-                <span data-i18n="battery.stream_thinking">Thinking</span>
-                <span class="pulse-icon">🧠</span>
+              <!-- Live Prompt Box -->
+              <div class="console-box-wrap">
+                <div class="console-box-header">
+                  <div class="console-box-title">
+                    <span class="console-box-icon">💬</span>
+                    <span data-i18n="battery.stream_prompt">Prompt</span>
+                    <span class="muted mono" id="battery-stream-prompt-name"></span>
+                  </div>
+                  <button type="button" id="battery-copy-prompt-btn" class="ghost btn-copy-prompt" data-i18n="battery.copy_prompt">Copy</button>
+                </div>
+                <div class="battery-stream-block prompt-block" id="battery-stream-prompt"></div>
               </div>
-              <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
-            </div>
 
-            <div id="battery-stream-response-wrap">
-              <div class="battery-stream-header">
-                <span data-i18n="battery.stream_response">Response</span>
-                <span id="battery-stream-live-tag" class="battery-stream-live-tag">LIVE</span>
+              <!-- Live Thinking Box -->
+              <div id="battery-stream-thinking-wrap" class="console-box-wrap" hidden>
+                <details class="console-thinking-details" open>
+                  <summary class="console-box-header">
+                    <div class="console-box-title">
+                      <span class="pulse-icon">🧠</span>
+                      <span data-i18n="battery.stream_thinking">Thinking</span>
+                      <span class="thinking-live-dot pulse"></span>
+                    </div>
+                  </summary>
+                  <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
+                </details>
               </div>
-              <div class="battery-stream-block response" id="battery-stream-response"></div>
+
+              <!-- Live Response Box -->
+              <div id="battery-stream-response-wrap" class="console-box-wrap">
+                <div class="console-box-header">
+                  <div class="console-box-title">
+                    <span class="console-box-icon">⚡</span>
+                    <span data-i18n="battery.stream_response">Response</span>
+                  </div>
+                  <span id="battery-stream-live-tag" class="battery-stream-live-tag">LIVE</span>
+                </div>
+                <div class="battery-stream-block response" id="battery-stream-response"></div>
+              </div>
             </div>
           </div>
-          <h3 id="battery-completed-tests-heading" class="battery-completed-tests-heading" data-i18n="battery.completed_tests_title" hidden>Completed tests in this run</h3>
-          <div id="battery-completed-tests" class="battery-completed-tests" hidden></div>
+
+          <!-- Right Column: Dashboard & Leaderboard Panel -->
+          <div class="battery-dashboard-column">
+            <div class="battery-dashboard-card">
+              <!-- Tabs Header -->
+              <div class="battery-tabs-bar">
+                <button type="button" id="battery-tab-btn-models" class="battery-tab-btn active" data-tab="models">
+                  <span class="tab-icon">🏆</span>
+                  <span data-i18n="battery.tab_models">Models & Scores</span>
+                </button>
+                <button type="button" id="battery-tab-btn-charts" class="battery-tab-btn" data-tab="charts">
+                  <span class="tab-icon">📊</span>
+                  <span data-i18n="battery.tab_charts">Live Analytics</span>
+                </button>
+                <button type="button" id="battery-tab-btn-queue" class="battery-tab-btn" data-tab="queue">
+                  <span class="tab-icon">📋</span>
+                  <span data-i18n="battery.tab_queue">Test Queue</span>
+                </button>
+              </div>
+
+              <!-- Tab 1: Leaderboard Table -->
+              <div id="battery-tab-content-models" class="battery-tab-content active">
+                <div id="battery-leaderboard-container" class="battery-leaderboard-wrap"></div>
+              </div>
+
+              <!-- Tab 2: Live Analytics Charts -->
+              <div id="battery-tab-content-charts" class="battery-tab-content" hidden>
+                <div id="battery-analytics-charts-container" class="battery-analytics-wrap"></div>
+              </div>
+
+              <!-- Tab 3: Timeline & Queue -->
+              <div id="battery-tab-content-queue" class="battery-tab-content" hidden>
+                <div class="battery-timeline" id="battery-timeline"></div>
+                <h3 id="battery-completed-tests-heading" class="battery-completed-tests-heading" data-i18n="battery.completed_tests_title" hidden>Completed tests in this run</h3>
+                <div id="battery-completed-tests" class="battery-completed-tests" hidden></div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- Hidden legacy container for compatibility -->
+        <div id="battery-progress-models" class="battery-progress-models" hidden></div>
+        <div id="battery-progress-sub" hidden></div>
       </div>
     </div>
   </main>

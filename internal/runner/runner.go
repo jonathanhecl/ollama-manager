@@ -68,29 +68,31 @@ type TestResult struct {
 
 // Progress tracks the current state of a battery run.
 type Progress struct {
-	RunID           string      `json:"run_id"`
-	Model           string      `json:"model"`
-	TestID          string      `json:"test_id"`
-	TestName        string      `json:"test_name"`
-	TestIndex       int         `json:"test_index"`
-	TotalTests      int         `json:"total_tests"`
-	CaseName        string      `json:"case_name,omitempty"`
-	CaseIndex       int         `json:"case_index,omitempty"`
-	TotalCases      int         `json:"total_cases,omitempty"`
-	ActivePrompt    string      `json:"active_prompt,omitempty"`
-	CompletedCases  []SubResult `json:"completed_cases,omitempty"`
-	IsThinking      bool        `json:"is_thinking"`
-	PartialResponse string      `json:"partial_response,omitempty"`
-	PartialThinking string      `json:"partial_thinking,omitempty"`
-	Done            bool        `json:"done"`
-	Error           string      `json:"error,omitempty"`
+	RunID           string       `json:"run_id"`
+	Model           string       `json:"model"`
+	Models          []string     `json:"models,omitempty"`
+	TestID          string       `json:"test_id"`
+	TestName        string       `json:"test_name"`
+	TestIndex       int          `json:"test_index"`
+	TotalTests      int          `json:"total_tests"`
+	CaseName        string       `json:"case_name,omitempty"`
+	CaseIndex       int          `json:"case_index,omitempty"`
+	TotalCases      int          `json:"total_cases,omitempty"`
+	ActivePrompt    string       `json:"active_prompt,omitempty"`
+	CompletedCases  []SubResult  `json:"completed_cases,omitempty"`
+	IsThinking      bool         `json:"is_thinking"`
+	PartialResponse string       `json:"partial_response,omitempty"`
+	PartialThinking string       `json:"partial_thinking,omitempty"`
+	Done            bool         `json:"done"`
+	Error           string       `json:"error,omitempty"`
+	Results         []TestResult `json:"results,omitempty"`
 }
 
 // Client wraps an Ollama client and executes tests.
 type Client struct {
-	ollama     *ollama.Client
-	progressMu sync.Mutex
-	progress   map[string]*Progress
+	ollama      *ollama.Client
+	progressMu  sync.Mutex
+	progress    map[string]*Progress
 	cancelMu    sync.Mutex
 	cancels     map[string]context.CancelFunc
 	testCancels map[string]context.CancelCauseFunc
@@ -109,7 +111,23 @@ func NewClient(ollamaClient *ollama.Client) *Client {
 func (c *Client) setProgress(p Progress) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
+	if existing, ok := c.progress[p.RunID]; ok && existing != nil {
+		if p.Results == nil && len(existing.Results) > 0 {
+			p.Results = existing.Results
+		}
+		if p.Models == nil && len(existing.Models) > 0 {
+			p.Models = existing.Models
+		}
+	}
 	c.progress[p.RunID] = &p
+}
+
+func (c *Client) updateProgressResults(runID string, results []TestResult) {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	if p, ok := c.progress[runID]; ok && p != nil {
+		p.Results = append([]TestResult(nil), results...)
+	}
 }
 
 // GetProgress returns the current progress for a run.
@@ -167,7 +185,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 		}
 	}
 
-	c.setProgress(Progress{RunID: run.ID, TotalTests: total})
+	c.setProgress(Progress{RunID: run.ID, TotalTests: total, Models: append([]string(nil), run.Models...)})
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	c.cancelMu.Lock()
@@ -198,6 +216,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 				testCancel(nil)
 				c.clearTestCancel(run.ID)
 				run.Results = append(run.Results, res)
+				c.updateProgressResults(run.ID, run.Results)
 				if runCtx.Err() != nil {
 					runErr = runCtx.Err().Error()
 					break
@@ -210,9 +229,9 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 			}
 		}
 		if runErr != "" {
-			c.setProgress(Progress{RunID: run.ID, Done: true, Error: runErr, TotalTests: total})
+			c.setProgress(Progress{RunID: run.ID, Done: true, Error: runErr, TotalTests: total, Results: run.Results, Models: run.Models})
 		} else {
-			c.setProgress(Progress{RunID: run.ID, Done: true, TotalTests: total})
+			c.setProgress(Progress{RunID: run.ID, Done: true, TotalTests: total, Results: run.Results, Models: run.Models})
 		}
 	}()
 

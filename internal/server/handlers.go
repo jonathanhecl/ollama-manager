@@ -873,7 +873,9 @@ type modelMetaCache struct {
 
 // fetchModelMeta returns digest-keyed model metadata for list rendering,
 // using an in-memory cache. Cache misses are resolved in parallel via
-// /api/show. Errors are silently ignored (values stay zero/empty).
+// /api/show. Failed lookups are NOT cached (values stay zero/empty for that
+// call only) so they are retried on the next refresh instead of sticking
+// as permanently blank capabilities.
 func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[string]modelMetaCache {
 	result := make(map[string]modelMetaCache, len(models))
 
@@ -907,6 +909,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 	// Second pass: bounded parallel /api/show.
 	type item struct {
 		digest         string
+		ok             bool // false when /api/show failed; never cached, retried next time
 		contextLen     int64
 		capabilities   []string
 		parameterCount int64
@@ -938,16 +941,17 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 					_ = s.customModels.Register(m.Name, from)
 				}
 			}
-			out <- item{
-				digest:         m.Digest,
-				contextLen:     extractContextLength(show),
-				capabilities:   append([]string(nil), show.Capabilities...),
-				parameterCount: extractParameterCount(show),
-				architecture:   extractArchitecture(show),
-				fileType:       extractFileType(show),
-				sizeLabel:      extractSizeLabel(show),
-				isMOE:          extractIsMOE(show),
-			}
+		out <- item{
+			digest:         m.Digest,
+			ok:             true,
+			contextLen:     extractContextLength(show),
+			capabilities:   append([]string(nil), show.Capabilities...),
+			parameterCount: extractParameterCount(show),
+			architecture:   extractArchitecture(show),
+			fileType:       extractFileType(show),
+			sizeLabel:      extractSizeLabel(show),
+			isMOE:          extractIsMOE(show),
+		}
 		}(m)
 	}
 	wg.Wait()
@@ -964,14 +968,19 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 		s.metaCache = make(map[string]modelMetaCache)
 	}
 	for it := range out {
-		s.ctxCache[it.digest] = it.contextLen
-		s.capsCache[it.digest] = append([]string(nil), it.capabilities...)
-		s.metaCache[it.digest] = modelMetaCache{
-			ParameterCount: it.parameterCount,
-			Architecture:   it.architecture,
-			FileType:       it.fileType,
-			SizeLabel:      it.sizeLabel,
-			IsMOE:          it.isMOE,
+		// Never cache a failed /api/show: an error (timeout, Ollama busy,
+		// restart mid-flight) must not poison the entry as "no
+		// capabilities" forever. It is retried on the next list refresh.
+		if it.ok {
+			s.ctxCache[it.digest] = it.contextLen
+			s.capsCache[it.digest] = append([]string(nil), it.capabilities...)
+			s.metaCache[it.digest] = modelMetaCache{
+				ParameterCount: it.parameterCount,
+				Architecture:   it.architecture,
+				FileType:       it.fileType,
+				SizeLabel:      it.sizeLabel,
+				IsMOE:          it.isMOE,
+			}
 		}
 		result[it.digest] = modelMetaCache{
 			ContextLength:  it.contextLen,

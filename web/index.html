@@ -2207,6 +2207,10 @@
                   <span id="battery-stream-case-pill" class="battery-stream-case-pill" hidden></span>
                 </div>
                 <div class="battery-stream-top-right">
+                  <button type="button" id="battery-stream-toggle-details" class="ghost battery-stream-toggle-btn" data-i18n-attr="title" data-i18n="battery.toggle_stream_details_hint" title="Toggle stream details (prompt, thinking, response)">
+                    <span class="stream-toggle-icon">👁️</span>
+                    <span class="stream-toggle-text" data-i18n="battery.stream_details">Details</span>
+                  </button>
                   <div id="battery-stream-turn-timer" class="battery-turn-timer mono" style="display: none;" title="Tiempo de la respuesta en curso">
                     <span class="turn-timer-pulse"></span>
                     <span class="turn-timer-icon">⏱️</span>
@@ -2226,28 +2230,36 @@
               </div>
 
               <!-- Live Prompt Box -->
-              <div class="console-box-wrap">
-                <div class="console-box-header">
-                  <div class="console-box-title">
-                    <span class="console-box-icon">💬</span>
-                    <span data-i18n="battery.stream_prompt">Prompt</span>
-                    <span class="muted mono" id="battery-stream-prompt-name"></span>
-                  </div>
-                  <button type="button" id="battery-copy-prompt-btn" class="ghost btn-copy-prompt" data-i18n="battery.copy_prompt">Copy</button>
-                </div>
-                <div class="battery-stream-block prompt-block" id="battery-stream-prompt"></div>
+              <div id="battery-stream-prompt-wrap" class="console-box-wrap">
+                <details id="battery-stream-prompt-details" class="console-box-details console-prompt-details" open>
+                  <summary class="console-box-header">
+                    <div class="console-box-title">
+                      <span class="console-box-icon">💬</span>
+                      <span data-i18n="battery.stream_prompt">Prompt</span>
+                      <span class="muted mono" id="battery-stream-prompt-name"></span>
+                    </div>
+                    <div class="console-box-header-right">
+                      <button type="button" id="battery-copy-prompt-btn" class="ghost btn-copy-prompt" data-i18n="battery.copy_prompt">Copy</button>
+                      <span class="console-collapse-arrow" aria-hidden="true">▾</span>
+                    </div>
+                  </summary>
+                  <div class="battery-stream-block prompt-block" id="battery-stream-prompt"></div>
+                </details>
               </div>
 
               <!-- Live Thinking Box -->
               <div id="battery-stream-thinking-wrap" class="console-box-wrap" hidden>
-                <details class="console-thinking-details" open>
+                <details id="battery-stream-thinking-details" class="console-box-details console-thinking-details" open>
                   <summary class="console-box-header">
                     <div class="console-box-title">
                       <span class="pulse-icon">🧠</span>
                       <span data-i18n="battery.stream_thinking">Thinking</span>
                       <span class="thinking-live-dot pulse"></span>
                     </div>
-                    <span id="battery-stream-thinking-timer" class="box-header-timer mono muted" hidden>⏱️ 00:00</span>
+                    <div class="console-box-header-right">
+                      <span id="battery-stream-thinking-timer" class="box-header-timer mono muted" hidden>⏱️ 00:00</span>
+                      <span class="console-collapse-arrow" aria-hidden="true">▾</span>
+                    </div>
                   </summary>
                   <div class="battery-stream-block thinking" id="battery-stream-thinking"></div>
                 </details>
@@ -2255,17 +2267,20 @@
 
               <!-- Live Response Box -->
               <div id="battery-stream-response-wrap" class="console-box-wrap">
-                <div class="console-box-header">
-                  <div class="console-box-title">
-                    <span class="console-box-icon">⚡</span>
-                    <span data-i18n="battery.stream_response">Response</span>
-                  </div>
-                  <div class="console-box-header-right">
-                    <span id="battery-stream-response-timer" class="box-header-timer mono muted" hidden>⏱️ 00:00</span>
-                    <span id="battery-stream-live-tag" class="battery-stream-live-tag">LIVE</span>
-                  </div>
-                </div>
-                <div class="battery-stream-block response" id="battery-stream-response"></div>
+                <details id="battery-stream-response-details" class="console-box-details console-response-details" open>
+                  <summary class="console-box-header">
+                    <div class="console-box-title">
+                      <span class="console-box-icon">⚡</span>
+                      <span data-i18n="battery.stream_response">Response</span>
+                    </div>
+                    <div class="console-box-header-right">
+                      <span id="battery-stream-response-timer" class="box-header-timer mono muted" hidden>⏱️ 00:00</span>
+                      <span id="battery-stream-live-tag" class="battery-stream-live-tag">LIVE</span>
+                      <span class="console-collapse-arrow" aria-hidden="true">▾</span>
+                    </div>
+                  </summary>
+                  <div class="battery-stream-block response" id="battery-stream-response"></div>
+                </details>
               </div>
             </div>
           </div>

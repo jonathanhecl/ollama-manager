@@ -1225,7 +1225,9 @@ function initBatteryProgressControls() {
   const copyBtn = $("battery-copy-prompt-btn");
   if (copyBtn && !copyBtn.dataset.bound) {
     copyBtn.dataset.bound = "1";
-    copyBtn.addEventListener("click", async () => {
+    copyBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
       const promptEl = $("battery-stream-prompt");
       if (!promptEl) return;
       const text = promptEl.textContent || "";
@@ -1240,6 +1242,23 @@ function initBatteryProgressControls() {
       } catch {
         toast(t("toast.copy_error") || "Failed to copy", "warn");
       }
+    });
+  }
+
+  const toggleDetailsBtn = $("battery-stream-toggle-details");
+  if (toggleDetailsBtn && !toggleDetailsBtn.dataset.bound) {
+    toggleDetailsBtn.dataset.bound = "1";
+    toggleDetailsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const promptD = $("battery-stream-prompt-details");
+      const thinkD = $("battery-stream-thinking-details");
+      const respD = $("battery-stream-response-details");
+      const detailsList = [promptD, thinkD, respD].filter(Boolean);
+      const anyOpen = detailsList.some((d) => d.open);
+      detailsList.forEach((d) => {
+        d.open = !anyOpen;
+      });
+      toggleDetailsBtn.classList.toggle("all-collapsed", anyOpen);
     });
   }
 }
@@ -1326,8 +1345,12 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryTimelineQueue = buildBatteryTimelineQueue(groupId, modelIDs);
   batteryTimelineScrollKey = "";
   batteryLiveResults = [];
-  batteryStartTime = Date.now();
   _leaderboardRowModels = []; // force a full leaderboard build for the new run
+
+  const promptDetails = $("battery-stream-prompt-details");
+  if (promptDetails && typeof window !== "undefined" && window.innerWidth <= 900) {
+    promptDetails.open = false;
+  }
 
   if (!tests || tests.length === 0 || !testsGroups || testsGroups.length === 0) {
     void api("/api/tests").then((data) => {

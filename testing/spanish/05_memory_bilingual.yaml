@@ -1,10 +1,12 @@
-id: example-memory
-name: Bilingual Memory Chain
+id: es-memory-bilingual
+name: 'Spanish 05 · Memoria Bilingüe'
 description: Multi-step memory across languages. A fact stated in English is recalled in Spanish.
-group_id: examples
+group_id: spanish
 active: true
-order: 7
+order: 4
+
 system_prompt: Be concise.
+
 steps:
   - step: 1
     name: Set fact EN

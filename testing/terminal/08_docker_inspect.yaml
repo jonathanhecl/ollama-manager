@@ -1,0 +1,36 @@
+id: term-docker-inspect
+name: 'Terminal 08 · Docker Container Diagnostics'
+description: 'Inspect a stopped container and identify exit code 137 as an out-of-memory kill.'
+group_id: terminal
+active: true
+order: 7
+
+system_prompt: |
+  You are an expert DevOps and container engineer.
+  When asked to run commands, reply with:
+  $ <command>
+  Do not invent outputs. You will receive simulated terminal outputs:
+  [terminal: stdout]
+  <output>
+  [terminal: stderr]
+  <errors>
+  [exit_code: 0 or 1]
+  When the diagnosis is finished, reply with:
+  FINAL: <cause and solution>
+
+cases:
+  - name: Inspect stopped container
+    prompt: The production container "api_service" suddenly stopped working. Run a command to inspect all containers including stopped ones.
+    evaluation:
+      type: regex
+      pattern: '(?i)(docker\s+ps\s+-a|docker\s+container\s+ls\s+-a)'
+    steps:
+      - name: Interpret exit code 137 OOMKilled
+        prompt: |
+          [terminal: stdout]
+          CONTAINER ID   IMAGE          COMMAND                  CREATED         STATUS                        PORTS     NAMES
+          c891af23e412   backend:v2.1   "gunicorn app:app"       2 hours ago     Exited (137) 5 minutes ago              api_service
+          [exit_code: 0]
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*(137|oom|memory|out of memory)'

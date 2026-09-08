@@ -25,16 +25,24 @@ async function renderGroupHistoryModal(groupId) {
   if (!body) return;
   body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
   try {
-    const data = await api("/api/runner/group-history/" + encodeURIComponent(groupId));
+    const [data, testsData] = await Promise.all([
+      api("/api/runner/group-history/" + encodeURIComponent(groupId)),
+      api("/api/tests").catch(() => null)
+    ]);
     const summary = data.summary || [];
     if (summary.length === 0) {
       body.innerHTML = `<div class="battery-empty">${t("battery.no_history")}</div>`;
       return;
     }
+    const allTests = (testsData && testsData.tests) || [];
+    const activeTotal = allTests.filter((tst) => tst.group_id === groupId && tst.active).length;
+
     let rows = "";
     for (const s of summary) {
-      const passRate = s.total_tests > 0 ? Math.round((s.passed / s.total_tests) * 100) : 0;
-      const failRate = s.total_tests > 0 ? Math.round((s.failed / s.total_tests) * 100) : 0;
+      const denom = activeTotal > 0 ? activeTotal : (s.total_tests || 0);
+      const passRate = denom > 0 ? Math.round((s.passed / denom) * 100) : 0;
+      const unrun = Math.max(0, denom - (s.total_tests || 0));
+      const unrunBadge = unrun > 0 ? `<span class="badge badge-na" style="margin-left:4px;font-size:10px;" title="${unrun} tests added since this model ran">+${unrun} ${t("battery.pending_tests") || "unrun"}</span>` : "";
       const tps = s.avg_tokens_per_sec ? `${s.avg_tokens_per_sec.toFixed(1)} tok/s` : "";
       const date = s.last_run_at ? fmtDateTimeFull(s.last_run_at) : "—";
       const sys = s.sys_info || {};
@@ -52,7 +60,7 @@ async function renderGroupHistoryModal(groupId) {
       rows += `
         <tr>
           <td class="cell-model">${escapeHtml(s.model)}</td>
-          <td class="cell-time">${s.total_tests}</td>
+          <td class="cell-time">${denom > 0 ? `${s.total_tests} / ${denom}${unrunBadge}` : s.total_tests}</td>
           <td>
             <span class="badge badge-pass" title="${passTooltip}">${s.passed}</span>
             <span class="badge badge-fail" title="${failTooltip}">${s.failed}</span>
@@ -108,11 +116,19 @@ function closeLeaderboardModal() {
 }
 
 async function buildLeaderboardTableHtml() {
-  if (!testsGroups || testsGroups.length === 0) {
-    const data = await api("/api/tests");
-    testsGroups = data.groups || [];
+  const testsData = await api("/api/tests").catch(() => null);
+  if (testsData && testsData.groups) {
+    testsGroups = testsData.groups;
   }
-  const groups = testsGroups.slice().sort((a, b) => {
+  const allTests = (testsData && testsData.tests) || [];
+  const activeCountByGroup = new Map();
+  for (const tst of allTests) {
+    if (tst.active) {
+      activeCountByGroup.set(tst.group_id, (activeCountByGroup.get(tst.group_id) || 0) + 1);
+    }
+  }
+
+  const groups = (testsGroups || []).slice().sort((a, b) => {
     const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
     const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
     if (oa !== ob) return oa - ob;
@@ -137,33 +153,44 @@ async function buildLeaderboardTableHtml() {
   // Keep only groups that have data, as columns.
   const cols = [];
   groups.forEach((g, i) => {
-    if (summaries[i].length > 0) cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] });
+    if (summaries[i].length > 0) {
+      const activeTotal = activeCountByGroup.get(g.id) || 0;
+      cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i], activeTotal });
+    }
   });
   if (cols.length === 0) {
     return `<div class="battery-empty">${t("battery.no_history")}</div>`;
   }
 
-  // Per model per group: { passed, total }.
+  // Per model per group: { passed, tested, activeTotal, unrun, score }.
   const modelSet = new Set();
   const scores = {};
   for (const col of cols) {
     for (const s of col.summary) {
       modelSet.add(s.model);
-      (scores[s.model] ||= {})[col.id] = { passed: s.passed || 0, total: s.total_tests || 0 };
+      const passed = s.passed || 0;
+      const tested = s.total_tests || 0;
+      const activeTotal = col.activeTotal > 0 ? col.activeTotal : tested;
+      const unrun = Math.max(0, activeTotal - tested);
+      const score = activeTotal > 0 ? (passed / activeTotal) * 100 : null;
+      (scores[s.model] ||= {})[col.id] = { passed, tested, activeTotal, unrun, score };
     }
   }
 
   const lbRows = Array.from(modelSet).map((m) => {
-    let passed = 0;
-    let total = 0;
+    let totalPassed = 0;
+    let totalActive = 0;
     for (const col of cols) {
       const c = scores[m][col.id];
-      if (c && c.total > 0) {
-        passed += c.passed;
-        total += c.total;
+      if (c && c.activeTotal > 0) {
+        totalPassed += c.passed;
+        totalActive += c.activeTotal;
+      } else if (col.activeTotal > 0) {
+        totalActive += col.activeTotal;
       }
     }
-    return { model: m, passed, total, overall: total > 0 ? (passed / total) * 100 : null };
+    const overall = totalActive > 0 ? (totalPassed / totalActive) * 100 : null;
+    return { model: m, passed: totalPassed, total: totalActive, overall };
   });
   lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || b.total - a.total);
 
@@ -172,7 +199,7 @@ async function buildLeaderboardTableHtml() {
     const vals = lbRows
       .map((row) => {
         const c = scores[row.model][col.id];
-        return c && c.total > 0 ? (c.passed / c.total) * 100 : null;
+        return c && c.activeTotal > 0 ? c.score : null;
       })
       .filter((v) => v != null);
     colRange[col.id] = {
@@ -202,16 +229,19 @@ async function buildLeaderboardTableHtml() {
     if (row.overall == null) {
       cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" ${runModelAttr} data-lb-run-group=""${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
     } else {
-      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${row.passed}/${row.total}${hintSuffix}">${row.overall.toFixed(1)}</td>`;
+      const overallTooltip = `${row.passed}/${row.total} ${t("battery.dynamic_score_tooltip") || "passed"}${hintSuffix}`;
+      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${escapeHtml(overallTooltip)}">${row.overall.toFixed(1)}</td>`;
     }
     for (const col of cols) {
       const c = scores[row.model][col.id];
-      if (!c || c.total === 0) {
+      if (!c || c.activeTotal === 0) {
         cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}"${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
         continue;
       }
-      const pct = (c.passed / c.total) * 100;
-      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(pct, colRange[col.id], false)}" title="${c.passed}/${c.total}${hintSuffix}">${pct.toFixed(1)}</td>`;
+      const score = c.score ?? 0;
+      const pendingText = c.unrun > 0 ? ` (${c.unrun} ${t("battery.pending_tests") || "unrun"})` : "";
+      const scoreTooltip = `${c.passed}/${c.activeTotal} ${t("battery.dynamic_score_tooltip") || "passed"}${pendingText}${hintSuffix}`;
+      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(score, colRange[col.id], false)}" title="${escapeHtml(scoreTooltip)}">${score.toFixed(1)}</td>`;
     }
 
     let modelName = row.model;

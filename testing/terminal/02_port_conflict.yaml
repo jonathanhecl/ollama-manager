@@ -1,0 +1,36 @@
+id: term-port-conflict
+name: 'Terminal 02 · Port Conflict Troubleshooting'
+description: 'Identify the conflicting process occupying port 8080 and terminate it.'
+group_id: terminal
+active: true
+order: 1
+
+system_prompt: |
+  You are an expert Linux terminal administrator.
+  When asked to perform terminal tasks, respond with ONLY the command to run:
+  $ <command>
+  Do not invent outputs. You will receive simulated terminal outputs:
+  [terminal: stdout]
+  <output>
+  [terminal: stderr]
+  <errors>
+  [exit_code: 0 or 1]
+  When the conflict is resolved, reply with:
+  FINAL: <summary of the PID terminated or resolved>
+
+cases:
+  - name: Identify and kill conflicting port process
+    prompt: The backend service failed to start because port 8080 is already in use. Run a command to find out which process is listening on port 8080.
+    evaluation:
+      type: regex
+      pattern: '(?i)(lsof\s+-i\s*:?8080|ss\s+-[^\n]*8080|netstat\s+-[^\n]*8080|fuser\s+8080)'
+    steps:
+      - name: Kill conflicting process PID 9124
+        prompt: |
+          [terminal: stdout]
+          COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+          python3  9124 root    3u  IPv4  45120      0t0  TCP *:8080 (LISTEN)
+          [exit_code: 0]
+        evaluation:
+          type: regex
+          pattern: '(?i)(kill\s+(-9\s+)?9124|fuser\s+-k\s+8080)'

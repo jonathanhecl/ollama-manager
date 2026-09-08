@@ -1,0 +1,39 @@
+id: term-git-conflict
+name: 'Terminal 03 · Git Merge Conflict Workflow'
+description: 'Inspect a git merge conflict and stage the resolved file.'
+group_id: terminal
+active: true
+order: 2
+
+system_prompt: |
+  You are an expert developer working in a Git terminal.
+  When asked to run terminal commands, emit ONLY:
+  $ <command>
+  Do not invent outputs. You will receive simulated terminal outputs:
+  [terminal: stdout]
+  <output>
+  [terminal: stderr]
+  <errors>
+  [exit_code: 0 or 1]
+
+cases:
+  - name: Inspect conflict and stage resolved file
+    prompt: You just ran "git pull" and Git reports automatic merge failed due to conflicts. Run a command to see which files are conflicted.
+    evaluation:
+      type: regex
+      pattern: '(?i)(git\s+status|git\s+diff)'
+    steps:
+      - name: Stage the resolved configuration
+        prompt: |
+          [terminal: stdout]
+          On branch main
+          You have unmerged paths.
+            (fix conflicts and run "git commit")
+          
+          Unmerged paths:
+            (use "git add <file>..." to mark resolution)
+              both modified:   config.json
+          [exit_code: 0]
+        evaluation:
+          type: regex
+          pattern: '(?i)(git\s+add\s+config\.json|git\s+add\s+\.)'

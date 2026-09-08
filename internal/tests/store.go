@@ -666,8 +666,7 @@ func (s *Store) backfillSeedsLocked() {
 			continue
 		}
 		if _, ok := s.groups[t.GroupID]; !ok {
-			s.groups[t.GroupID] = &Group{ID: t.GroupID, Name: humanizeName(t.GroupID), Order: len(s.groups)}
-			_ = s.saveCategoryLocked(s.groups[t.GroupID])
+			continue
 		}
 		// Don't clobber an unrelated file with the same name.
 		if _, err := os.Stat(filepath.Join(s.dir, t.GroupID, t.Filename)); err == nil {
@@ -1203,6 +1202,11 @@ func (s *Store) SyncEmbeddedDefaults(efs fs.FS) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// If examples directory exists on disk but was removed from embedded defaults, clean it up.
+	if _, err := fs.Stat(efs, "examples"); err != nil {
+		_ = os.RemoveAll(filepath.Join(s.dir, "examples"))
+	}
+
 	return fs.WalkDir(efs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -1258,8 +1262,10 @@ func (s *Store) PopulateSeed() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Idempotent: only write the original seeds that are missing (the newer
-	// catalog is backfilled by Load, which may run first and create the group).
+	// If the store already contains categories/tests, do not inject seed examples.
+	if len(s.groups) > 0 {
+		return nil
+	}
 	missing := false
 	for _, id := range []string{"example-arithmetic", "example-weather-tool", "example-multi-turn"} {
 		if _, ok := s.tests[id]; !ok {

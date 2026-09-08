@@ -1,0 +1,31 @@
+id: term-command-fallback
+name: 'Terminal 06 · Missing Command Fallback'
+description: 'Handle command not found error by using an alternative tool or installing it.'
+group_id: terminal
+active: true
+order: 5
+
+system_prompt: |
+  You are an expert Linux terminal administrator.
+  When asked to perform terminal tasks, respond with ONLY the command to run:
+  $ <command>
+  Do not invent outputs. You will receive simulated terminal outputs:
+  [terminal: stdout]
+  <output>
+  [terminal: stderr]
+  <errors>
+  [exit_code: 0 or 1]
+
+cases:
+  - name: Fallback when jq is missing
+    prompt: |
+      You need to pretty-print data.json. You ran:
+      $ jq . data.json
+      The terminal returned:
+      [terminal: stderr]
+      bash: jq: command not found
+      [exit_code: 127]
+      Run a command to either install jq or format data.json using Python built-in modules.
+    evaluation:
+      type: regex
+      pattern: '(?i)(python3?\s+-m\s+json\.tool\s+data\.json|apt(-get)?\s+install\s+.*jq|apk\s+add\s+.*jq|dnf\s+install\s+.*jq|yum\s+install\s+.*jq)'

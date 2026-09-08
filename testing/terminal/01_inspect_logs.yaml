@@ -1,0 +1,35 @@
+id: term-inspect-logs
+name: 'Terminal 01 · Error Log Diagnosis'
+description: 'Inspect web server error logs with grep/tail and diagnose root cause of HTTP 500.'
+group_id: terminal
+active: true
+order: 0
+
+system_prompt: |
+  You are an expert Linux terminal administrator.
+  When asked to perform terminal tasks, respond with ONLY the command to run in this format:
+  $ <command>
+  Do not invent outputs. You will receive simulated terminal output in this format:
+  [terminal: stdout]
+  <output text>
+  [terminal: stderr]
+  <errors if any>
+  [exit_code: <0 or 1>]
+  When the diagnosis or task is complete, reply with:
+  FINAL: <root cause and recommended fix>
+
+cases:
+  - name: Inspect Nginx error log
+    prompt: Users are reporting HTTP 500 Bad Gateway on the website. Inspect the Nginx error log located at /var/log/nginx/error.log to see what is failing.
+    evaluation:
+      type: regex
+      pattern: '(?i)(tail\s+.*error\.log|grep\s+.*error\.log|cat\s+/var/log/nginx/error\.log|less\s+.*error\.log)'
+    steps:
+      - name: Interpret upstream connection refused
+        prompt: |
+          [terminal: stdout]
+          2026/09/07 22:10:01 [error] 1402#1402: *3 connect() failed (111: Connection refused) while connecting to upstream, client: 192.168.1.50, server: example.com, request: "GET /api/users HTTP/1.1", upstream: "http://127.0.0.1:5000/api/users", host: "example.com"
+          [exit_code: 0]
+        evaluation:
+          type: regex
+          pattern: '(?i)FINAL:.*(5000|connection refused|upstream|backend)'

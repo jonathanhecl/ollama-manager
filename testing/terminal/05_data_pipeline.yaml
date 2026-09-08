@@ -1,0 +1,21 @@
+id: term-data-pipeline
+name: 'Terminal 05 · Log Parsing Pipeline'
+description: 'Build a shell pipeline with awk, sort, uniq to extract top IP addresses from access.log.'
+group_id: terminal
+active: true
+order: 4
+
+system_prompt: |
+  You are an expert Linux terminal command designer.
+  Respond with ONLY the single-line shell command pipeline, without markdown formatting or commentary:
+  $ <pipeline>
+
+cases:
+  - name: Top 5 requesting IPs
+    prompt: |
+      Given a standard web access log at access.log where the first column is the client IP address,
+      write a single pipeline that extracts the IP column, counts occurrences of each unique IP,
+      sorts by highest count first, and outputs the top 5 IPs.
+    evaluation:
+      type: regex
+      pattern: '(?i)(awk|cut).*sort.*uniq\s+-c.*sort\s+-[^\n]*n.*head\s+-n?\s*5'

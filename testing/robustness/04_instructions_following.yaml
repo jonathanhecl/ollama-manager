@@ -1,7 +1,7 @@
-id: example-instructions
-name: Instruction Following (Per-Case Config)
+id: rob-instructions-following
+name: 'Robustness 04 · Complex Instruction Following'
 description: Demonstrates per-case system prompts, per-case options and chained multi-turn steps within a case.
-group_id: examples
+group_id: robustness
 active: true
 order: 3
 

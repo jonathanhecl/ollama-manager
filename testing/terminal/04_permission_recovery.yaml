@@ -1,0 +1,29 @@
+id: term-permission-recovery
+name: 'Terminal 04 · Script Permission Recovery'
+description: 'Diagnose and fix permission denied errors on shell scripts.'
+group_id: terminal
+active: true
+order: 3
+
+system_prompt: |
+  You are an expert Linux terminal administrator.
+  When asked to perform terminal tasks, respond with ONLY the command to run:
+  $ <command>
+  Do not invent outputs. You will receive simulated terminal outputs:
+  [terminal: stdout]
+  <output>
+  [terminal: stderr]
+  <errors>
+  [exit_code: 0 or 1]
+
+cases:
+  - name: Fix script permission denied
+    prompt: |
+      You tried running ./deploy.sh but the terminal returned:
+      [terminal: stderr]
+      bash: ./deploy.sh: Permission denied
+      [exit_code: 126]
+      Run a command to fix the permissions so ./deploy.sh can be executed.
+    evaluation:
+      type: regex
+      pattern: '(?i)(chmod\s+(\+x|[0-7]{3,4})\s+deploy\.sh|chmod\s+\+x\s+\./deploy\.sh)'

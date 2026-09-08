@@ -1,0 +1,4 @@
+id: terminal
+name: Terminal
+description: 'Model capabilities in CLI and shell environments: system diagnosis, error recovery, git workflows, pipelines, and safe command execution with simulated terminal outputs.'
+order: 2

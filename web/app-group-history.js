@@ -296,6 +296,20 @@ async function buildLeaderboardTableHtml() {
 
   const runHint = t("battery.lb_run_hint");
   let bodyRows = "";
+  // Missing categories per model: no result (—) or 0.0 score, limited to
+  // groups with active tests. Cached globally so the row-action button can
+  // open the battery modal with exactly those categories preselected.
+  const missingByModel = {};
+  for (const row of lbRows) {
+    missingByModel[row.model] = cols
+      .filter((col) => {
+        if ((col.activeTotal || 0) <= 0) return false;
+        const c = scores[row.model]?.[col.id];
+        return !c || c.score == null || c.score <= 0.0001;
+      })
+      .map((col) => col.id);
+  }
+  window._lbMissingByModel = missingByModel;
   lbRows.forEach((row, idx) => {
     let cells = "";
     const installed = modelInfo.has(row.model);
@@ -355,7 +369,7 @@ async function buildLeaderboardTableHtml() {
       <tr class="${idx === 0 ? "lb-row-first" : ""}${installed ? "" : " lb-row-uninstalled"}"${installed ? "" : ` data-lb-uninstalled="1" data-lb-model="${escapeHtml(row.model)}"`}>
         <td class="cell-lb-model">
           <div class="lb-model-top"><span class="lb-rank">${idx + 1}</span><strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong>
-            <span class="lb-row-actions">${installed ? `<button type="button" class="ghost lb-row-btn" data-lb-chat="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_chat"))}">💬</button>` : ""}${row.total > 0 ? `<button type="button" class="ghost lb-row-btn danger-text" data-lb-reset-model="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_reset_model"))}">🧹</button>` : ""}</span>
+            <span class="lb-row-actions">${installed ? `<button type="button" class="ghost lb-row-btn" data-lb-chat="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_chat"))}">💬</button>` : ""}${installed && (missingByModel[row.model] || []).length > 0 ? `<button type="button" class="ghost lb-row-btn" data-lb-bench-missing="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_bench_missing"))}">🧪</button>` : ""}${row.total > 0 ? `<button type="button" class="ghost lb-row-btn danger-text" data-lb-reset-model="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_reset_model"))}">🧹</button>` : ""}</span>
           </div>
           ${metaHtml}
         </td>
@@ -654,6 +668,23 @@ document.addEventListener("click", (e) => {
   const resetBtn = e.target?.closest?.("[data-lb-reset-model]");
   if (resetBtn) {
     void resetLeaderboardModelHistory(resetBtn.dataset.lbResetModel);
+    return;
+  }
+  // Bench pending categories: opens the battery modal with only the
+  // categories this model is missing (— or 0.0) preselected, and only this
+  // model selected on the next step (via initialModel).
+  const benchBtn = e.target?.closest?.("[data-lb-bench-missing]");
+  if (benchBtn) {
+    const name = benchBtn.dataset.lbBenchMissing;
+    const missing = (window._lbMissingByModel && window._lbMissingByModel[name]) || [];
+    if (!missing || missing.length === 0) {
+      toast(t("battery.lb_no_missing"), "info");
+      return;
+    }
+    if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) {
+      closeLeaderboardModal();
+    }
+    void openBatteryModal({ groupIds: missing, initialModel: name });
     return;
   }
   // Uninstalled models: results stay visible but cannot be run.

@@ -220,7 +220,13 @@ async function openBatteryModal(options = {}) {
     batteryModalSingleTestId = null;
     batterySelectedGroups.clear();
     const allIds = batteryModalAllGroupIds();
-    const pre = options.groupId && options.groupId !== "" && options.groupId !== "all" ? [options.groupId] : allIds;
+    let pre;
+    if (Array.isArray(options.groupIds) && options.groupIds.length > 0) {
+      pre = options.groupIds.filter((id) => allIds.includes(id));
+      if (pre.length === 0) pre = allIds;
+    } else {
+      pre = options.groupId && options.groupId !== "" && options.groupId !== "all" ? [options.groupId] : allIds;
+    }
     for (const id of pre) {
       if (allIds.includes(id)) batterySelectedGroups.add(id);
     }

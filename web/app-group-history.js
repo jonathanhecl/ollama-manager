@@ -35,13 +35,24 @@ async function renderGroupHistoryModal(groupId) {
       return;
     }
     const allTests = (testsData && testsData.tests) || [];
-    const activeTotal = allTests.filter((tst) => tst.group_id === groupId && tst.active).length;
+    const groupActiveTests = allTests.filter((tst) => tst.group_id === groupId && tst.active);
+    const activeTotal = groupActiveTests.length;
+    let activeMaxPoints = 0;
+    let activeCases = 0;
+    for (const tst of groupActiveTests) {
+      const cCount = (tst.cases && tst.cases.length > 0) ? tst.cases.length : 1;
+      activeCases += cCount;
+      activeMaxPoints += (cCount + 1);
+    }
 
     let rows = "";
     for (const s of summary) {
-      const denom = activeTotal > 0 ? activeTotal : (s.total_tests || 0);
-      const passRate = denom > 0 ? Math.round((s.passed / denom) * 100) : 0;
-      const unrun = Math.max(0, denom - (s.total_tests || 0));
+      const pts = s.score_points != null ? s.score_points : (s.passed * 2);
+      const passedCases = s.passed_cases != null ? s.passed_cases : s.passed;
+      const totalCases = s.total_cases != null ? s.total_cases : s.total_tests;
+      const denom = Math.max(activeMaxPoints, s.max_points || (s.total_tests ? s.total_tests * 2 : 0));
+      const scorePct = denom > 0 ? Math.min(100.0, Math.max(0.0, (pts / denom) * 100)) : 0;
+      const unrun = Math.max(0, activeTotal - (s.total_tests || 0));
       const unrunBadge = unrun > 0 ? `<span class="badge badge-na" style="margin-left:4px;font-size:10px;" title="${unrun} tests added since this model ran">+${unrun} ${t("battery.pending_tests") || "unrun"}</span>` : "";
       const tps = s.avg_tokens_per_sec ? `${s.avg_tokens_per_sec.toFixed(1)} tok/s` : "";
       const date = s.last_run_at ? fmtDateTimeFull(s.last_run_at) : "—";
@@ -60,13 +71,16 @@ async function renderGroupHistoryModal(groupId) {
       rows += `
         <tr>
           <td class="cell-model">${escapeHtml(s.model)}</td>
-          <td class="cell-time">${denom > 0 ? `${s.total_tests} / ${denom}${unrunBadge}` : s.total_tests}</td>
+          <td class="cell-time">
+            ${activeTotal > 0 ? `${s.total_tests} / ${activeTotal}${unrunBadge}` : s.total_tests}
+            <div class="muted" style="font-size:11px">${passedCases} / ${activeCases || totalCases} ${t("battery.cases") || "cases"}</div>
+          </td>
           <td>
             <span class="badge badge-pass" title="${passTooltip}">${s.passed}</span>
             <span class="badge badge-fail" title="${failTooltip}">${s.failed}</span>
             ${s.human_review > 0 ? `<span class="badge badge-human" title="${humanTooltip}">${s.human_review}</span>` : ""}
             ${s.errors > 0 ? `<span class="badge badge-na" title="${errorTooltip || t("battery.error_count")}">${s.errors}</span>` : ""}
-            <span class="muted" style="font-size:11px; margin-left:4px">${passRate}%</span>
+            <span class="mono" style="font-weight:700; font-size:12px; margin-left:6px; color:var(--primary);">${scorePct.toFixed(1)}%</span>
           </td>
           <td class="cell-time">${fmtDuration(s.avg_response_ms)}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
           <td class="cell-time">${escapeHtml(date)}</td>
@@ -122,9 +136,14 @@ async function buildLeaderboardTableHtml() {
   }
   const allTests = (testsData && testsData.tests) || [];
   const activeCountByGroup = new Map();
+  const activeMaxPointsByGroup = new Map();
+  const activeCasesByGroup = new Map();
   for (const tst of allTests) {
     if (tst.active) {
       activeCountByGroup.set(tst.group_id, (activeCountByGroup.get(tst.group_id) || 0) + 1);
+      const cCount = (tst.cases && tst.cases.length > 0) ? tst.cases.length : 1;
+      activeCasesByGroup.set(tst.group_id, (activeCasesByGroup.get(tst.group_id) || 0) + cCount);
+      activeMaxPointsByGroup.set(tst.group_id, (activeMaxPointsByGroup.get(tst.group_id) || 0) + (cCount + 1));
     }
   }
 
@@ -155,14 +174,16 @@ async function buildLeaderboardTableHtml() {
   groups.forEach((g, i) => {
     if (summaries[i].length > 0) {
       const activeTotal = activeCountByGroup.get(g.id) || 0;
-      cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i], activeTotal });
+      const activeMaxPoints = activeMaxPointsByGroup.get(g.id) || 0;
+      const activeCases = activeCasesByGroup.get(g.id) || 0;
+      cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i], activeTotal, activeMaxPoints, activeCases });
     }
   });
   if (cols.length === 0) {
     return `<div class="battery-empty">${t("battery.no_history")}</div>`;
   }
 
-  // Per model per group: { passed, tested, activeTotal, unrun, score }.
+  // Per model per group: { passed, tested, passedCases, totalCases, pts, activeTotal, activeCases, activeMaxPoints, unrun, score }.
   const modelSet = new Set();
   const scores = {};
   for (const col of cols) {
@@ -170,36 +191,82 @@ async function buildLeaderboardTableHtml() {
       modelSet.add(s.model);
       const passed = s.passed || 0;
       const tested = s.total_tests || 0;
-      const activeTotal = col.activeTotal > 0 ? col.activeTotal : tested;
-      const unrun = Math.max(0, activeTotal - tested);
-      const score = activeTotal > 0 ? (passed / activeTotal) * 100 : null;
-      (scores[s.model] ||= {})[col.id] = { passed, tested, activeTotal, unrun, score };
+      const passedCases = s.passed_cases != null ? s.passed_cases : passed;
+      const totalCases = s.total_cases != null ? s.total_cases : tested;
+      const pts = s.score_points != null ? s.score_points : (passed * 2);
+      const activeTotal = Math.max(col.activeTotal, tested);
+      const activeCases = Math.max(col.activeCases, totalCases);
+      const activeMaxPoints = Math.max(col.activeMaxPoints, s.max_points || (activeTotal * 2));
+      const unrun = Math.max(0, col.activeTotal - tested);
+      const score = activeMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (pts / activeMaxPoints) * 100)) : (activeTotal > 0 ? (passed / activeTotal) * 100 : null);
+      (scores[s.model] ||= {})[col.id] = {
+        passed,
+        tested,
+        passedCases,
+        totalCases,
+        pts,
+        activeTotal,
+        activeCases,
+        activeMaxPoints,
+        unrun,
+        score,
+      };
     }
   }
 
   const lbRows = Array.from(modelSet).map((m) => {
     let totalPassed = 0;
     let totalActive = 0;
+    let totalPassedCases = 0;
+    let totalActiveCases = 0;
+    let totalPoints = 0;
+    let totalMaxPoints = 0;
     for (const col of cols) {
       const c = scores[m][col.id];
-      if (c && c.activeTotal > 0) {
+      if (c && c.activeMaxPoints > 0) {
         totalPassed += c.passed;
         totalActive += c.activeTotal;
+        totalPassedCases += c.passedCases;
+        totalActiveCases += c.activeCases;
+        totalPoints += c.pts;
+        totalMaxPoints += c.activeMaxPoints;
+      } else if (col.activeMaxPoints > 0) {
+        totalActive += col.activeTotal;
+        totalActiveCases += col.activeCases;
+        totalMaxPoints += col.activeMaxPoints;
+      } else if (c && c.activeTotal > 0) {
+        totalPassed += c.passed;
+        totalActive += c.activeTotal;
+        totalPassedCases += c.passedCases;
+        totalActiveCases += c.totalCases;
+        totalPoints += c.pts;
+        totalMaxPoints += (c.activeTotal * 2);
       } else if (col.activeTotal > 0) {
         totalActive += col.activeTotal;
+        totalActiveCases += (col.activeCases || col.activeTotal);
+        totalMaxPoints += (col.activeMaxPoints || (col.activeTotal * 2));
       }
     }
-    const overall = totalActive > 0 ? (totalPassed / totalActive) * 100 : null;
-    return { model: m, passed: totalPassed, total: totalActive, overall };
+    const overall = totalMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (totalPoints / totalMaxPoints) * 100)) : null;
+    return {
+      model: m,
+      passed: totalPassed,
+      total: totalActive,
+      passedCases: totalPassedCases,
+      totalCases: totalActiveCases,
+      points: totalPoints,
+      maxPoints: totalMaxPoints,
+      overall,
+    };
   });
-  lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || b.total - a.total);
+  lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || (b.points ?? 0) - (a.points ?? 0) || b.total - a.total);
 
   const colRange = {};
   for (const col of cols) {
     const vals = lbRows
       .map((row) => {
         const c = scores[row.model][col.id];
-        return c && c.activeTotal > 0 ? c.score : null;
+        return c && c.activeMaxPoints > 0 ? c.score : null;
       })
       .filter((v) => v != null);
     colRange[col.id] = {
@@ -229,19 +296,21 @@ async function buildLeaderboardTableHtml() {
     if (row.overall == null) {
       cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" ${runModelAttr} data-lb-run-group=""${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
     } else {
-      const overallTooltip = `${row.passed}/${row.total} ${t("battery.dynamic_score_tooltip") || "passed"}${hintSuffix}`;
-      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${escapeHtml(overallTooltip)}">${row.overall.toFixed(1)}</td>`;
+      const overallScoreFormatted = row.overall.toFixed(1);
+      const overallTooltip = `${row.passed}/${row.total} tests (${row.passedCases}/${row.totalCases} ${t("battery.cases") || "cases"}, ${row.points.toFixed(1)}/${row.maxPoints.toFixed(1)} ${t("battery.points") || "pts"}) · ${overallScoreFormatted}%${hintSuffix}`;
+      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${escapeHtml(overallTooltip)}">${overallScoreFormatted}</td>`;
     }
     for (const col of cols) {
       const c = scores[row.model][col.id];
-      if (!c || c.activeTotal === 0) {
+      if (!c || (c.activeMaxPoints === 0 && c.activeTotal === 0)) {
         cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}"${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
         continue;
       }
       const score = c.score ?? 0;
+      const scoreFormatted = score.toFixed(1);
       const pendingText = c.unrun > 0 ? ` (${c.unrun} ${t("battery.pending_tests") || "unrun"})` : "";
-      const scoreTooltip = `${c.passed}/${c.activeTotal} ${t("battery.dynamic_score_tooltip") || "passed"}${pendingText}${hintSuffix}`;
-      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(score, colRange[col.id], false)}" title="${escapeHtml(scoreTooltip)}">${score.toFixed(1)}</td>`;
+      const scoreTooltip = `${c.passed}/${c.activeTotal} tests (${c.passedCases}/${c.activeCases} ${t("battery.cases") || "cases"}, ${c.pts.toFixed(1)}/${c.activeMaxPoints.toFixed(1)} ${t("battery.points") || "pts"})${pendingText} · ${scoreFormatted}%${hintSuffix}`;
+      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(score, colRange[col.id], false)}" title="${escapeHtml(scoreTooltip)}">${scoreFormatted}</td>`;
     }
 
     let modelName = row.model;

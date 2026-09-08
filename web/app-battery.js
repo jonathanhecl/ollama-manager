@@ -2203,10 +2203,13 @@ function showBatteryHistoryView(filterTestId = null, filterModel = null) {
 
 let batteryResultsViewMode = "matrix";
 
-// Fractional score for leaderboard: sub-cases count partially, errors and
-// pending human reviews are not countable.
+// Fractional score for leaderboard: sub-cases count partially, bonus for all OK,
+// errors and pending human reviews are not countable.
 function batteryResultScore(r) {
   if (r.error) return null;
+  if (r.max_points != null && r.max_points > 0) {
+    return { earned: r.points || 0, total: r.max_points };
+  }
   if (r.sub_results && r.sub_results.length > 0) {
     let earned = 0;
     let total = 0;
@@ -2218,10 +2221,17 @@ function batteryResultScore(r) {
         total++;
       }
     }
-    return total > 0 ? { earned, total } : null;
+    if (total > 0) {
+      if (earned === total) {
+        earned += 1; // bonus for all cases passing
+      }
+      total += 1; // max points includes bonus
+      return { earned, total };
+    }
+    return null;
   }
-  if (r.passed === true) return { earned: 1, total: 1 };
-  if (r.passed === false) return { earned: 0, total: 1 };
+  if (r.passed === true) return { earned: 2, total: 2 };
+  if (r.passed === false) return { earned: 0, total: 2 };
   return null;
 }
 
@@ -2676,7 +2686,7 @@ function renderBatteryResults(run) {
       if (row.overall == null) {
         cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty"><span class="muted">—</span></td>`;
       } else {
-        cells += `<td class="cell-lb-score cell-lb-overall mono" style="${heatStyle(row.overall, overallRange, true)}" title="${row.earned}/${row.total}">${row.overall.toFixed(1)}</td>`;
+        cells += `<td class="cell-lb-score cell-lb-overall mono" style="${heatStyle(row.overall, overallRange, true)}" title="${row.earned.toFixed(1)}/${row.total.toFixed(1)} pts">${row.overall.toFixed(1)}</td>`;
       }
       for (const gid of groupIdsPresent) {
         const c = scores[row.model][gid];
@@ -2684,8 +2694,8 @@ function renderBatteryResults(run) {
           cells += `<td class="cell-lb-score cell-lb-empty"><span class="muted">—</span></td>`;
           continue;
         }
-        const pct = (c.earned / c.total) * 100;
-        cells += `<td class="cell-lb-score mono" style="${heatStyle(pct, colRange[gid], false)}" title="${c.earned}/${c.total}">${pct.toFixed(1)}</td>`;
+        const pct = Math.min(100.0, Math.max(0.0, (c.earned / c.total) * 100));
+        cells += `<td class="cell-lb-score mono" style="${heatStyle(pct, colRange[gid], false)}" title="${c.earned.toFixed(1)}/${c.total.toFixed(1)} pts">${pct.toFixed(1)}</td>`;
       }
       lbBodyRows += `
         <tr class="${idx === 0 ? "lb-row-first" : ""}">

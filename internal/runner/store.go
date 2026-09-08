@@ -4,6 +4,7 @@ package runner
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -504,6 +505,11 @@ type GroupModelSummary struct {
 	Failed           int       `json:"failed"`
 	HumanReview      int       `json:"human_review"`
 	Errors           int       `json:"errors"`
+	TotalCases       int       `json:"total_cases"`
+	PassedCases      int       `json:"passed_cases"`
+	ScorePoints      float64   `json:"score_points"`
+	MaxPoints        float64   `json:"max_points"`
+	Score            float64   `json:"score"`
 	PassedTests      []string  `json:"passed_tests,omitempty"`
 	FailedTests      []string  `json:"failed_tests,omitempty"`
 	HumanReviewTests []string  `json:"human_review_tests,omitempty"`
@@ -527,6 +533,10 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 		failed           int
 		human            int
 		errors           int
+		totalCases       int
+		passedCases      int
+		scorePoints      float64
+		maxPoints        float64
 		passedTests      []string
 		failedTests      []string
 		humanReviewTests []string
@@ -584,6 +594,45 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 				a.tokCount++
 				a.tokSum += res.TokensPerSec
 			}
+
+			cTotal := res.CasesTotal
+			cPassed := res.CasesPassed
+			pts := res.Points
+			mPts := res.MaxPoints
+			if mPts == 0 {
+				if len(res.SubResults) > 0 {
+					cTotal = len(res.SubResults)
+					cPassed = 0
+					for _, sub := range res.SubResults {
+						if sub.Passed != nil && *sub.Passed {
+							cPassed++
+						}
+					}
+					bonus := 0.0
+					if cPassed == cTotal && cTotal > 0 {
+						bonus = 1.0
+					}
+					pts = float64(cPassed) + bonus
+					mPts = float64(cTotal) + 1.0
+				} else {
+					cTotal = 1
+					cPassed = 0
+					if res.Passed != nil && *res.Passed {
+						cPassed = 1
+					}
+					bonus := 0.0
+					if cPassed == 1 {
+						bonus = 1.0
+					}
+					pts = float64(cPassed) + bonus
+					mPts = 2.0
+				}
+			}
+			a.totalCases += cTotal
+			a.passedCases += cPassed
+			a.scorePoints += pts
+			a.maxPoints += mPts
+
 			if res.Error != "" {
 				a.errors++
 				a.errorTests = append(a.errorTests, res.TestName)
@@ -605,6 +654,10 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 	}
 	out := make([]GroupModelSummary, 0, len(m))
 	for model, a := range m {
+		var score float64
+		if a.maxPoints > 0 {
+			score = math.Min(100.0, math.Max(0.0, (a.scorePoints/a.maxPoints)*100.0))
+		}
 		summary := GroupModelSummary{
 			Model:            model,
 			TotalTests:       a.count,
@@ -612,6 +665,11 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 			Failed:           a.failed,
 			HumanReview:      a.human,
 			Errors:           a.errors,
+			TotalCases:       a.totalCases,
+			PassedCases:      a.passedCases,
+			ScorePoints:      a.scorePoints,
+			MaxPoints:        a.maxPoints,
+			Score:            score,
 			PassedTests:      a.passedTests,
 			FailedTests:      a.failedTests,
 			HumanReviewTests: a.humanReviewTests,

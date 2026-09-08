@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"sync"
@@ -63,6 +64,11 @@ type TestResult struct {
 	HumanRating    string      `json:"human_rating,omitempty"` // "bad", "regular", "good"
 	ModelResponse  string      `json:"model_response,omitempty"`
 	Error          string      `json:"error,omitempty"`
+	CasesTotal     int         `json:"cases_total"`
+	CasesPassed    int         `json:"cases_passed"`
+	Points         float64     `json:"points"`
+	MaxPoints      float64     `json:"max_points"`
+	Score          float64     `json:"score"`
 	SubResults     []SubResult `json:"sub_results,omitempty"`
 }
 
@@ -689,6 +695,16 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		} else if hasScored && res.Error == "" {
 			res.Passed = &allPassed
 		}
+		res.CasesTotal = 1
+		if res.Passed != nil && *res.Passed {
+			res.CasesPassed = 1
+			res.Points = 2.0 // 1 case + 1 bonus
+		} else {
+			res.CasesPassed = 0
+			res.Points = 0.0
+		}
+		res.MaxPoints = 2.0
+		res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
 		return res
 	}
 
@@ -821,6 +837,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			return history, true
 		}
 
+		casePassedFlags := make([]bool, len(test.Cases))
 		for i, tc := range test.Cases {
 			if ctx.Err() != nil {
 				res.Error = ctx.Err().Error()
@@ -849,10 +866,12 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			snapAllPassed := allPassed
 			snapSkippedOrLoop := anySkippedOrLoop
 			snapResError := res.Error
+			snapCasePassed := casePassedFlags[i]
 
 			// runAttempt executes the case once. It reports whether the run
 			// must advance (true = next case, false = abort the test).
 			runAttempt := func(caseCtx context.Context, caseCancel context.CancelCauseFunc) bool {
+				subStart := len(res.SubResults)
 				var history []ollama.ChatMessage
 				if caseSys != "" {
 					history = append(history, ollama.ChatMessage{Role: "system", Content: caseSys})
@@ -943,8 +962,17 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						res.Error = ctx.Err().Error()
 						return false
 					}
-					return true
 				}
+				subEnd := len(res.SubResults)
+				thisCaseOK := subEnd > subStart
+				for sIdx := subStart; sIdx < subEnd; sIdx++ {
+					sub := res.SubResults[sIdx]
+					if sub.Error != "" || sub.Passed == nil || !*sub.Passed {
+						thisCaseOK = false
+						break
+					}
+				}
+				casePassedFlags[i] = thisCaseOK
 				return true
 			}
 
@@ -970,6 +998,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					allPassed = snapAllPassed
 					anySkippedOrLoop = snapSkippedOrLoop
 					res.Error = snapResError
+					casePassedFlags[i] = snapCasePassed
 					continue
 				}
 				aborted = !advance
@@ -993,6 +1022,24 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			res.Passed = &falseVal
 		} else if hasScored && res.Error == "" {
 			res.Passed = &allPassed
+		}
+		casesTotal := len(test.Cases)
+		casesPassed := 0
+		for _, ok := range casePassedFlags {
+			if ok {
+				casesPassed++
+			}
+		}
+		res.CasesTotal = casesTotal
+		res.CasesPassed = casesPassed
+		bonus := 0.0
+		if allPassed && hasScored && res.Error == "" && !anySkippedOrLoop && casesPassed == casesTotal {
+			bonus = 1.0
+		}
+		res.Points = float64(casesPassed) + bonus
+		res.MaxPoints = float64(casesTotal) + 1.0
+		if res.MaxPoints > 0 {
+			res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
 		}
 		return res
 	}
@@ -1075,6 +1122,16 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	if passed != nil {
 		res.Passed = passed
 	}
+	res.CasesTotal = 1
+	if res.Passed != nil && *res.Passed && res.Error == "" {
+		res.CasesPassed = 1
+		res.Points = 2.0 // 1 case + 1 bonus
+	} else {
+		res.CasesPassed = 0
+		res.Points = 0.0
+	}
+	res.MaxPoints = 2.0
+	res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
 
 	return res
 }

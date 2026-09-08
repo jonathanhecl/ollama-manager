@@ -18,7 +18,17 @@ cases:
       type: exact_match
       expected: "para"
   - name: Subjuntivo
-    prompt: 'Completa con la forma correcta, responde SOLO con la palabra: "Espero que (venir) ___ mañana."'
+    prompt: 'Completa con la forma correcta para la tercera persona singular (él), responde SOLO con la palabra: "Espero que él (venir) ___ mañana."'
     evaluation:
       type: exact_match
       expected: "venga"
+  - name: Concordancia género (a tónica)
+    prompt: 'Elige entre "frío" o "fría", responde SOLO con la palabra: "El agua de la piscina está muy ___."'
+    evaluation:
+      type: exact_match
+      expected: "fría"
+  - name: Ser o estar
+    prompt: 'Completa con "es" o "está", responde SOLO con la palabra: "La fruta no se puede comer todavía porque ___ verde."'
+    evaluation:
+      type: exact_match
+      expected: "está"

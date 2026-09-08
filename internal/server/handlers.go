@@ -309,25 +309,27 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"port":           s.cfg.Port,
-		"expose_network": s.cfg.ExposeNetwork,
-		"language":       s.cfg.Language,
-		"ollama_url":     s.cfg.OllamaURL,
-		"has_password":   s.cfg.HasPassword(),
-		"bind_address":   s.cfg.BindAddress(),
-		"chat_defaults":  s.cfg.ChatDefaults,
-		"version":        s.versionInfo,
+		"port":                    s.cfg.Port,
+		"expose_network":          s.cfg.ExposeNetwork,
+		"language":                s.cfg.Language,
+		"ollama_url":              s.cfg.OllamaURL,
+		"has_password":            s.cfg.HasPassword(),
+		"bind_address":            s.cfg.BindAddress(),
+		"chat_defaults":           s.cfg.ChatDefaults,
+		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
+		"version":                 s.versionInfo,
 	})
 }
 
 // patchConfigBody uses pointers so callers can update only the fields they
 // care about (PATCH semantics).
 type patchConfigBody struct {
-	Port          *int                 `json:"port"`
-	ExposeNetwork *bool                `json:"expose_network"`
-	Language      *string              `json:"language"`
-	OllamaURL     *string              `json:"ollama_url"`
-	ChatDefaults  *config.ChatDefaults `json:"chat_defaults"`
+	Port                  *int                 `json:"port"`
+	ExposeNetwork         *bool                `json:"expose_network"`
+	Language              *string              `json:"language"`
+	OllamaURL             *string              `json:"ollama_url"`
+	ChatDefaults          *config.ChatDefaults `json:"chat_defaults"`
+	LeaderboardGroupOrder *[]string            `json:"leaderboard_group_order"`
 }
 
 func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
@@ -379,19 +381,23 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		s.cfg.ChatDefaults = *body.ChatDefaults
 	}
+	if body.LeaderboardGroupOrder != nil {
+		s.cfg.LeaderboardGroupOrder = *body.LeaderboardGroupOrder
+	}
 
 	if err := s.cfg.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":             true,
-		"needs_restart":  needsRestart,
-		"port":           s.cfg.Port,
-		"expose_network": s.cfg.ExposeNetwork,
-		"language":       s.cfg.Language,
-		"ollama_url":     s.cfg.OllamaURL,
-		"chat_defaults":  s.cfg.ChatDefaults,
+		"ok":                      true,
+		"needs_restart":           needsRestart,
+		"port":                    s.cfg.Port,
+		"expose_network":          s.cfg.ExposeNetwork,
+		"language":                s.cfg.Language,
+		"ollama_url":              s.cfg.OllamaURL,
+		"chat_defaults":           s.cfg.ChatDefaults,
+		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
 	})
 }
 

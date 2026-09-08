@@ -1948,8 +1948,33 @@
       </div>
       <div id="leaderboard-modal-body" class="leaderboard-modal-body"></div>
       <div class="modal-actions" style="justify-content:space-between;">
-        <button type="button" id="leaderboard-modal-open-page" class="ghost">⤢ Open as Page</button>
+        <div style="display:flex;gap:8px;">
+          <button type="button" id="leaderboard-modal-open-page" class="ghost">⤢ Open as Page</button>
+          <button type="button" id="leaderboard-modal-order-btn" class="ghost" data-i18n="battery.reorder_categories" title="Reorder categories">↕️ Categorías</button>
+        </div>
         <button type="button" id="leaderboard-modal-done" class="primary" data-i18n="action.done">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reorder Leaderboard Categories Modal -->
+  <div id="leaderboard-order-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card" style="width: min(520px, 94vw); max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="group-history-modal-header">
+        <h3 data-i18n="battery.reorder_modal_title">Ordenar Categorías del Leaderboard</h3>
+        <button type="button" id="leaderboard-order-modal-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <p class="muted" style="font-size: 12px; margin: 0 0 12px 0;" data-i18n="battery.reorder_modal_hint">
+        Overall se mantiene siempre primero. Usa las flechas para cambiar el orden de las columnas.
+      </p>
+      <div id="leaderboard-order-list" class="leaderboard-order-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 2px;">
+      </div>
+      <div class="modal-actions" style="margin-top: 14px; justify-content: space-between;">
+        <button type="button" id="leaderboard-order-reset" class="ghost" data-i18n="action.reset">Restablecer</button>
+        <div style="display:flex; gap: 8px;">
+          <button type="button" id="leaderboard-order-cancel" class="ghost" data-i18n="action.cancel">Cancelar</button>
+          <button type="button" id="leaderboard-order-save" class="primary" data-i18n="action.save">Guardar</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2392,6 +2417,7 @@
         </h2>
       </div>
       <div class="battery-head-actions">
+        <button type="button" id="battery-leaderboard-order-btn" class="ghost" data-i18n="battery.reorder_categories" title="Reorder categories">↕️ Categorías</button>
         <button type="button" id="battery-leaderboard-refresh" class="ghost" title="Refresh">🔄 Refresh</button>
       </div>
     </header>

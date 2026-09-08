@@ -35,8 +35,9 @@ type Config struct {
 	PasswordHash  string       `json:"password_hash"`
 	SessionSecret string       `json:"session_secret"`
 	OllamaURL     string       `json:"ollama_url"`
-	Language      string       `json:"language"`
-	ChatDefaults  ChatDefaults `json:"chat_defaults"`
+	Language               string       `json:"language"`
+	ChatDefaults           ChatDefaults `json:"chat_defaults"`
+	LeaderboardGroupOrder  []string     `json:"leaderboard_group_order,omitempty"`
 
 	path string `json:"-"`
 }

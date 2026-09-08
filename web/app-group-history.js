@@ -147,7 +147,30 @@ async function buildLeaderboardTableHtml() {
     }
   }
 
+  // Load custom category order from localStorage or config
+  let customOrder = null;
+  try {
+    const rawLocal = localStorage.getItem("leaderboard_group_order");
+    if (rawLocal) customOrder = JSON.parse(rawLocal);
+  } catch (_) {}
+  if (!customOrder || !Array.isArray(customOrder) || customOrder.length === 0) {
+    const cfg = await api("/api/config").catch(() => null);
+    if (cfg && Array.isArray(cfg.leaderboard_group_order) && cfg.leaderboard_group_order.length > 0) {
+      customOrder = cfg.leaderboard_group_order;
+      try { localStorage.setItem("leaderboard_group_order", JSON.stringify(customOrder)); } catch (_) {}
+    }
+  }
+  const orderMap = new Map();
+  if (Array.isArray(customOrder)) {
+    customOrder.forEach((id, idx) => orderMap.set(id, idx));
+  }
+
   const groups = (testsGroups || []).slice().sort((a, b) => {
+    if (orderMap.size > 0) {
+      const idxA = orderMap.has(a.id) ? orderMap.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : Number.MAX_SAFE_INTEGER;
+      if (idxA !== idxB) return idxA - idxB;
+    }
     const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
     const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
     if (oa !== ob) return oa - ob;
@@ -169,19 +192,14 @@ async function buildLeaderboardTableHtml() {
     ((modelsData && modelsData.models) || []).map((m) => [m.name, m])
   );
 
-  // Keep only groups that have data, as columns.
+  // Keep ALL groups as columns (even if no models evaluated yet).
   const cols = [];
   groups.forEach((g, i) => {
-    if (summaries[i].length > 0) {
-      const activeTotal = activeCountByGroup.get(g.id) || 0;
-      const activeMaxPoints = activeMaxPointsByGroup.get(g.id) || 0;
-      const activeCases = activeCasesByGroup.get(g.id) || 0;
-      cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i], activeTotal, activeMaxPoints, activeCases });
-    }
+    const activeTotal = activeCountByGroup.get(g.id) || 0;
+    const activeMaxPoints = activeMaxPointsByGroup.get(g.id) || 0;
+    const activeCases = activeCasesByGroup.get(g.id) || 0;
+    cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases });
   });
-  if (cols.length === 0) {
-    return `<div class="battery-empty">${t("battery.no_history")}</div>`;
-  }
 
   // Per model per group: { passed, tested, passedCases, totalCases, pts, activeTotal, activeCases, activeMaxPoints, unrun, score }.
   const modelSet = new Set();
@@ -214,6 +232,10 @@ async function buildLeaderboardTableHtml() {
     }
   }
 
+  if (cols.length === 0 || modelSet.size === 0) {
+    return `<div class="battery-empty">${t("battery.no_history")}</div>`;
+  }
+
   const lbRows = Array.from(modelSet).map((m) => {
     let totalPassed = 0;
     let totalActive = 0;
@@ -222,7 +244,7 @@ async function buildLeaderboardTableHtml() {
     let totalPoints = 0;
     let totalMaxPoints = 0;
     for (const col of cols) {
-      const c = scores[m][col.id];
+      const c = scores[m]?.[col.id];
       if (c && c.activeMaxPoints > 0) {
         totalPassed += c.passed;
         totalActive += c.activeTotal;
@@ -230,21 +252,6 @@ async function buildLeaderboardTableHtml() {
         totalActiveCases += c.activeCases;
         totalPoints += c.pts;
         totalMaxPoints += c.activeMaxPoints;
-      } else if (col.activeMaxPoints > 0) {
-        totalActive += col.activeTotal;
-        totalActiveCases += col.activeCases;
-        totalMaxPoints += col.activeMaxPoints;
-      } else if (c && c.activeTotal > 0) {
-        totalPassed += c.passed;
-        totalActive += c.activeTotal;
-        totalPassedCases += c.passedCases;
-        totalActiveCases += c.totalCases;
-        totalPoints += c.pts;
-        totalMaxPoints += (c.activeTotal * 2);
-      } else if (col.activeTotal > 0) {
-        totalActive += col.activeTotal;
-        totalActiveCases += (col.activeCases || col.activeTotal);
-        totalMaxPoints += (col.activeMaxPoints || (col.activeTotal * 2));
       }
     }
     const overall = totalMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (totalPoints / totalMaxPoints) * 100)) : null;
@@ -265,19 +272,21 @@ async function buildLeaderboardTableHtml() {
   for (const col of cols) {
     const vals = lbRows
       .map((row) => {
-        const c = scores[row.model][col.id];
-        return c && c.activeMaxPoints > 0 ? c.score : null;
+        const c = scores[row.model]?.[col.id];
+        return c && typeof c.score === "number" ? c.score : null;
       })
       .filter((v) => v != null);
     colRange[col.id] = {
       min: vals.length ? Math.min(...vals) : 0,
       max: vals.length ? Math.max(...vals) : 0,
+      count: vals.length,
     };
   }
   const overallVals = lbRows.map((r) => r.overall).filter((v) => v != null);
   const overallRange = {
     min: overallVals.length ? Math.min(...overallVals) : 0,
     max: overallVals.length ? Math.max(...overallVals) : 0,
+    count: overallVals.length,
   };
 
   let headerCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
@@ -301,12 +310,12 @@ async function buildLeaderboardTableHtml() {
       cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${escapeHtml(overallTooltip)}">${overallScoreFormatted}</td>`;
     }
     for (const col of cols) {
-      const c = scores[row.model][col.id];
-      if (!c || (c.activeMaxPoints === 0 && c.activeTotal === 0)) {
+      const c = scores[row.model]?.[col.id];
+      if (!c || c.score == null) {
         cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}"${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
         continue;
       }
-      const score = c.score ?? 0;
+      const score = c.score;
       const scoreFormatted = score.toFixed(1);
       const pendingText = c.unrun > 0 ? ` (${c.unrun} ${t("battery.pending_tests") || "unrun"})` : "";
       const scoreTooltip = `${c.passed}/${c.activeTotal} tests (${c.passedCases}/${c.activeCases} ${t("battery.cases") || "cases"}, ${c.pts.toFixed(1)}/${c.activeMaxPoints.toFixed(1)} ${t("battery.points") || "pts"})${pendingText} · ${scoreFormatted}%${hintSuffix}`;
@@ -434,6 +443,171 @@ $("battery-leaderboard-back")?.addEventListener("click", () => {
 });
 $("battery-leaderboard-refresh")?.addEventListener("click", () => {
   void renderLeaderboardPage();
+});
+
+// Category reorder modal for Leaderboard
+async function openLeaderboardOrderModal() {
+  const modal = $("leaderboard-order-modal");
+  const listEl = $("leaderboard-order-list");
+  if (!modal || !listEl) return;
+
+  if (!testsGroups || testsGroups.length === 0) {
+    const testsData = await api("/api/tests").catch(() => null);
+    if (testsData && testsData.groups) {
+      testsGroups = testsData.groups;
+    }
+  }
+
+  let customOrder = null;
+  try {
+    const rawLocal = localStorage.getItem("leaderboard_group_order");
+    if (rawLocal) customOrder = JSON.parse(rawLocal);
+  } catch (_) {}
+  if (!customOrder || !Array.isArray(customOrder) || customOrder.length === 0) {
+    const cfg = await api("/api/config").catch(() => null);
+    if (cfg && Array.isArray(cfg.leaderboard_group_order) && cfg.leaderboard_group_order.length > 0) {
+      customOrder = cfg.leaderboard_group_order;
+      try { localStorage.setItem("leaderboard_group_order", JSON.stringify(customOrder)); } catch (_) {}
+    }
+  }
+
+  const orderMap = new Map();
+  if (Array.isArray(customOrder)) {
+    customOrder.forEach((id, idx) => orderMap.set(id, idx));
+  }
+
+  const sortedGroups = (testsGroups || []).slice().sort((a, b) => {
+    if (orderMap.size > 0) {
+      const idxA = orderMap.has(a.id) ? orderMap.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : Number.MAX_SAFE_INTEGER;
+      if (idxA !== idxB) return idxA - idxB;
+    }
+    const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
+    const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
+    if (oa !== ob) return oa - ob;
+    return String(a.name || a.id).localeCompare(String(b.name || b.id));
+  });
+
+  renderLeaderboardOrderItems(sortedGroups);
+  modal.hidden = false;
+}
+
+function renderLeaderboardOrderItems(groups) {
+  const listEl = $("leaderboard-order-list");
+  if (!listEl) return;
+
+  const lockedTxt = t("battery.reorder_overall_locked") || "Always first";
+  let html = `
+    <div class="lb-order-item lb-order-fixed">
+      <span class="lb-order-badge">1</span>
+      <span class="lb-order-name mono" style="font-weight:700; color:var(--accent);">🔒 ${t("battery.leaderboard_overall") || "Overall"}</span>
+      <span class="muted" style="font-size:11px; margin-left:auto;">(${escapeHtml(lockedTxt)})</span>
+    </div>
+  `;
+
+  groups.forEach((g, idx) => {
+    const isFirst = idx === 0;
+    const isLast = idx === groups.length - 1;
+    html += `
+      <div class="lb-order-item" data-group-id="${escapeHtml(g.id)}">
+        <span class="lb-order-badge">${idx + 2}</span>
+        <span class="lb-order-name mono">${escapeHtml(g.name || g.id)}</span>
+        <div class="lb-order-arrows">
+          <button type="button" class="btn-icon lb-order-btn-up" title="Move Up" ${isFirst ? "disabled" : ""}>▲</button>
+          <button type="button" class="btn-icon lb-order-btn-down" title="Move Down" ${isLast ? "disabled" : ""}>▼</button>
+        </div>
+      </div>
+    `;
+  });
+
+  listEl.innerHTML = html;
+}
+
+function closeLeaderboardOrderModal() {
+  const modal = $("leaderboard-order-modal");
+  if (modal) modal.hidden = true;
+}
+
+function updateLeaderboardOrderBadgesAndButtons() {
+  const listEl = $("leaderboard-order-list");
+  if (!listEl) return;
+  const items = Array.from(listEl.querySelectorAll(".lb-order-item[data-group-id]"));
+  items.forEach((item, idx) => {
+    const badge = item.querySelector(".lb-order-badge");
+    if (badge) badge.textContent = String(idx + 2);
+    const upBtn = item.querySelector(".lb-order-btn-up");
+    if (upBtn) upBtn.disabled = idx === 0;
+    const downBtn = item.querySelector(".lb-order-btn-down");
+    if (downBtn) downBtn.disabled = idx === items.length - 1;
+  });
+}
+
+$("leaderboard-order-modal")?.addEventListener("click", (e) => {
+  if (e.target === $("leaderboard-order-modal")) closeLeaderboardOrderModal();
+});
+$("leaderboard-order-modal-close")?.addEventListener("click", closeLeaderboardOrderModal);
+$("leaderboard-order-cancel")?.addEventListener("click", closeLeaderboardOrderModal);
+
+$("leaderboard-order-reset")?.addEventListener("click", () => {
+  const defaultSorted = (testsGroups || []).slice().sort((a, b) => {
+    const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
+    const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
+    if (oa !== ob) return oa - ob;
+    return String(a.name || a.id).localeCompare(String(b.name || b.id));
+  });
+  renderLeaderboardOrderItems(defaultSorted);
+});
+
+$("leaderboard-order-save")?.addEventListener("click", async () => {
+  const listEl = $("leaderboard-order-list");
+  if (!listEl) return;
+  const items = Array.from(listEl.querySelectorAll(".lb-order-item[data-group-id]"));
+  const newOrder = items.map((el) => el.dataset.groupId);
+  try {
+    localStorage.setItem("leaderboard_group_order", JSON.stringify(newOrder));
+    await api("/api/config", {
+      method: "PATCH",
+      body: JSON.stringify({ leaderboard_group_order: newOrder })
+    }).catch(console.error);
+    toast(t("toast.categories_order_saved") || "Category order saved", "success");
+    closeLeaderboardOrderModal();
+    if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) {
+      await renderLeaderboardModal();
+    }
+    if ($("battery-leaderboard-view") && !$("battery-leaderboard-view").hidden) {
+      await renderLeaderboardPage();
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+});
+
+$("leaderboard-order-list")?.addEventListener("click", (e) => {
+  const upBtn = e.target.closest(".lb-order-btn-up");
+  if (upBtn) {
+    const item = upBtn.closest(".lb-order-item[data-group-id]");
+    if (item && item.previousElementSibling && item.previousElementSibling.dataset.groupId) {
+      item.parentNode.insertBefore(item, item.previousElementSibling);
+      updateLeaderboardOrderBadgesAndButtons();
+    }
+    return;
+  }
+  const downBtn = e.target.closest(".lb-order-btn-down");
+  if (downBtn) {
+    const item = downBtn.closest(".lb-order-item[data-group-id]");
+    if (item && item.nextElementSibling) {
+      item.parentNode.insertBefore(item.nextElementSibling, item);
+      updateLeaderboardOrderBadgesAndButtons();
+    }
+    return;
+  }
+});
+
+$("battery-leaderboard-order-btn")?.addEventListener("click", () => {
+  void openLeaderboardOrderModal();
+});
+$("leaderboard-modal-order-btn")?.addEventListener("click", () => {
+  void openLeaderboardOrderModal();
 });
 
 // Reset all battery results for one model (the model itself is kept).

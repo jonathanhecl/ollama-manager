@@ -91,3 +91,15 @@ func TestLoadDefaultsNumCtxNil(t *testing.T) {
 		t.Errorf("NumCtx = %v, want nil (model default)", cfg.ChatDefaults.NumCtx)
 	}
 }
+
+func TestLoadKeepsLeaderboardGroupOrder(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860, "leaderboard_group_order": ["coding", "terminal", "judge"]}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.LeaderboardGroupOrder) != 3 || cfg.LeaderboardGroupOrder[0] != "coding" {
+		t.Errorf("unexpected LeaderboardGroupOrder: %v", cfg.LeaderboardGroupOrder)
+	}
+}
+

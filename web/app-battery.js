@@ -2235,13 +2235,25 @@ function batteryResultScore(r) {
   return null;
 }
 
-// Column-relative heatmap background for leaderboard cells.
+// Column-relative heatmap background and text color for leaderboard cells (green to red palette).
 function batteryLbHeatStyle(v, range, strong) {
   if (v == null) return "";
-  const rel = range.max > range.min ? (v - range.min) / (range.max - range.min) : 0.5;
-  const base = strong ? 16 : 4;
-  const span = strong ? 44 : 34;
-  return `background: color-mix(in srgb, var(--accent) ${(base + rel * span).toFixed(0)}%, transparent);`;
+  let rel = 1.0;
+  if (range && typeof range.max === "number" && typeof range.min === "number") {
+    if (range.max > range.min) {
+      rel = Math.max(0, Math.min(1, (v - range.min) / (range.max - range.min)));
+    } else if (range.max === 0) {
+      rel = 0.0;
+    } else {
+      rel = 1.0;
+    }
+  }
+  const hue = Math.round(rel * 120); // 120 = green, 60 = yellow, 0 = red
+  const base = strong ? 18 : 10;
+  const span = strong ? 38 : 30;
+  const bgPct = (base + rel * span).toFixed(0);
+  const textL = (58 + rel * 18).toFixed(0);
+  return `background: color-mix(in srgb, hsl(${hue}, 75%, 42%) ${bgPct}%, transparent); color: hsl(${hue}, 88%, ${textL}%); font-weight: ${rel >= 0.95 ? "700" : "600"};`;
 }
 
 // Short display name for a model ("owner/name" -> "name").

@@ -198,7 +198,8 @@ async function buildLeaderboardTableHtml() {
     const activeTotal = activeCountByGroup.get(g.id) || 0;
     const activeMaxPoints = activeMaxPointsByGroup.get(g.id) || 0;
     const activeCases = activeCasesByGroup.get(g.id) || 0;
-    cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases });
+    const requiredCaps = (g.required_caps || []).map((c) => String(c).toLowerCase());
+    cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases, requiredCaps });
   });
 
   // Per model per group: { passed, tested, passedCases, totalCases, pts, activeTotal, activeCases, activeMaxPoints, unrun, score }.
@@ -291,19 +292,38 @@ async function buildLeaderboardTableHtml() {
 
   let headerCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
   for (const col of cols) {
-    headerCols += `<th class="cell-lb-group-head" data-lb-run data-lb-run-group="${escapeHtml(col.id)}" data-lb-run-model="" title="${escapeHtml(col.name)} · ${escapeHtml(t("battery.lb_run_hint"))}">${escapeHtml(col.name)}</th>`;
+    const capSet = new Set(col.requiredCaps || []);
+    const capBadges = `${capSet.has("vision") ? " 👁️" : ""}${capSet.has("audio") ? " 🔊" : ""}`;
+    const capSuffix = (col.requiredCaps && col.requiredCaps.length > 0)
+      ? ` (${t("tests.required_caps")}: ${col.requiredCaps.join(", ")})`
+      : "";
+    headerCols += `<th class="cell-lb-group-head" data-lb-run data-lb-run-group="${escapeHtml(col.id)}" data-lb-run-model="" title="${escapeHtml(col.name)}${escapeHtml(capSuffix)} · ${escapeHtml(t("battery.lb_run_hint"))}">${escapeHtml(col.name)}${capBadges}</th>`;
   }
 
   const runHint = t("battery.lb_run_hint");
+  // Model capabilities (lowercased) for the ✕-vs-— decision below.
+  const lbModelCaps = new Map();
+  for (const [name, info] of modelInfo) {
+    lbModelCaps.set(name, new Set((info?.capabilities || []).map((c) => String(c).toLowerCase())));
+  }
+  const lbLacksCaps = (model, col) => {
+    const req = col.requiredCaps || [];
+    if (req.length === 0) return [];
+    const caps = lbModelCaps.get(model) || new Set();
+    return req.filter((c) => !caps.has(c));
+  };
   let bodyRows = "";
-  // Missing categories per model: no result (—) or 0.0 score, limited to
-  // groups with active tests. Cached globally so the row-action button can
-  // open the battery modal with exactly those categories preselected.
+  // Missing categories per model: no result (—/✕) or 0.0 score, limited to
+  // groups with active tests AND compatible with the model (incompatible
+  // ones show ✕ and are skipped by the runner, so bench-missing excludes
+  // them). Cached globally so the row-action button can open the battery
+  // modal with exactly those categories preselected.
   const missingByModel = {};
   for (const row of lbRows) {
     missingByModel[row.model] = cols
       .filter((col) => {
         if ((col.activeTotal || 0) <= 0) return false;
+        if (lbLacksCaps(row.model, col).length > 0) return false;
         const c = scores[row.model]?.[col.id];
         return !c || c.score == null || c.score <= 0.0001;
       })
@@ -326,6 +346,12 @@ async function buildLeaderboardTableHtml() {
     for (const col of cols) {
       const c = scores[row.model]?.[col.id];
       if (!c || c.score == null) {
+        const lacking = installed ? lbLacksCaps(row.model, col) : [];
+        if (lacking.length > 0) {
+          const missTip = `${t("battery.lb_missing_cap", { caps: lacking.join(", ") })}${hintSuffix}`;
+          cells += `<td class="cell-lb-score cell-lb-empty" data-lb-incompatible="${escapeHtml(row.model)}" data-lb-incompatible-caps="${escapeHtml(lacking.join(", "))}" title="${escapeHtml(missTip)}"><span class="muted">✕</span></td>`;
+          continue;
+        }
         cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}"${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
         continue;
       }
@@ -671,8 +697,8 @@ document.addEventListener("click", (e) => {
     return;
   }
   // Bench pending categories: opens the battery modal with only the
-  // categories this model is missing (— or 0.0) preselected, and only this
-  // model selected on the next step (via initialModel).
+  // runnable categories this model is missing (— or 0.0) preselected, and
+  // only this model selected on the next step (via initialModel).
   const benchBtn = e.target?.closest?.("[data-lb-bench-missing]");
   if (benchBtn) {
     const name = benchBtn.dataset.lbBenchMissing;
@@ -685,6 +711,13 @@ document.addEventListener("click", (e) => {
       closeLeaderboardModal();
     }
     void openBatteryModal({ groupIds: missing, initialModel: name });
+    return;
+  }
+  // Incompatible (✕) cells: the model lacks a capability the category
+  // requires, so running it would skip every test. Explain instead.
+  const incompatCell = e.target?.closest?.("[data-lb-incompatible]");
+  if (incompatCell) {
+    toast(t("battery.lb_missing_cap", { caps: incompatCell.dataset.lbIncompatibleCaps || "?" }), "warn");
     return;
   }
   // Uninstalled models: results stay visible but cannot be run.

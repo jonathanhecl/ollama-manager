@@ -384,7 +384,7 @@
         </h2>
       </div>
       <div class="tests-head-actions">
-        <button id="tests-leaderboard-btn" class="ghost" data-i18n="battery.view_leaderboard" hidden>Leaderboard</button>
+        <button id="tests-leaderboard-btn" class="ghost" hidden>🏆 <span data-i18n="battery.view_leaderboard">Leaderboard</span></button>
         <button id="tests-group-history-btn" class="ghost" data-i18n="battery.group_history" hidden>Group History</button>
         <button id="tests-run-battery-btn" class="primary" data-i18n="battery.run" hidden>Run Tests</button>
         <button id="tests-new-test-btn" class="primary" data-i18n="tests.new_test">New Test</button>
@@ -1908,6 +1908,24 @@
         <div class="field" style="display: flex; flex-direction: column; gap: 6px;">
           <label for="manage-group-name-input" data-i18n="tests.group_name_label" style="font-size: 13px; font-weight: 600;">Group Name</label>
           <input type="text" id="manage-group-name-input" autocomplete="off" style="width: 100%;">
+        </div>
+        <div class="field" style="display: flex; flex-direction: column; gap: 8px;">
+          <label style="font-size: 13px; font-weight: 600;" data-i18n="tests.group_required_caps_label">Required capabilities for the whole category</label>
+          <small class="muted" data-i18n="tests.group_required_caps_hint">Models lacking them show ✕ in the leaderboard and are skipped in battery runs.</small>
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <label class="battery-model-item" style="flex: 1; min-width: 140px; cursor: pointer;">
+              <input type="checkbox" id="manage-group-cap-vision" value="vision" />
+              <div class="battery-model-main">
+                <div class="battery-model-name">👁️ <span data-i18n="tests.group_required_vision">Vision</span></div>
+              </div>
+            </label>
+            <label class="battery-model-item" style="flex: 1; min-width: 140px; cursor: pointer;">
+              <input type="checkbox" id="manage-group-cap-audio" value="audio" />
+              <div class="battery-model-main">
+                <div class="battery-model-name">🔊 <span data-i18n="tests.group_required_audio">Audio</span></div>
+              </div>
+            </label>
+          </div>
         </div>
         <div class="field" style="border-top: 1px solid var(--border); padding-top: 14px;">
           <label style="font-size: 13px; font-weight: 600; color: var(--warn); display: block; margin-bottom: 4px;" data-i18n="tests.danger_zone">Danger Zone</label>

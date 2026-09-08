@@ -88,10 +88,24 @@ function batteryModalTargetTests() {
 
 function batteryModalRequiredCaps() {
   const caps = new Set();
+  const groupCapsById = new Map(
+    (Array.isArray(testsGroups) ? testsGroups : []).map((g) => [g.id, g.required_caps || []])
+  );
   for (const x of batteryModalTargetTests()) {
     for (const c of x.required_caps || []) caps.add(c);
+    for (const c of groupCapsById.get(x.group_id) || []) caps.add(String(c).toLowerCase());
   }
   return caps;
+}
+
+// Effective caps for one test: union of its own required_caps and its
+// category-level required_caps.
+function batteryTestEffectiveCaps(test) {
+  const out = new Set();
+  for (const c of test?.required_caps || []) out.add(String(c).toLowerCase());
+  const g = batteryModalGroupById(test?.group_id);
+  for (const c of g?.required_caps || []) out.add(String(c).toLowerCase());
+  return out;
 }
 
 // Group ids the coverage badges refer to (the current modal target).
@@ -373,11 +387,13 @@ function renderBatteryModalGroups() {
   container.innerHTML = groups.map((g) => {
     const n = batteryModalRunnableTests([g.id]).length;
     const isChecked = batterySelectedGroups.has(g.id);
+    const gcaps = new Set((g.required_caps || []).map((c) => String(c).toLowerCase()));
+    const capBadges = `${gcaps.has("vision") ? `<span title="${escapeHtml(t("tests.group_required_vision"))}">👁️</span>` : ""}${gcaps.has("audio") ? `<span title="${escapeHtml(t("tests.group_required_audio"))}">🔊</span>` : ""}`;
     return `
       <label class="battery-model-item ${isChecked ? "selected" : ""}">
         <input type="checkbox" value="${escapeHtml(g.id)}" ${isChecked ? "checked" : ""} />
         <div class="battery-model-main">
-          <div class="battery-model-name">${escapeHtml(g.name || g.id)}</div>
+          <div class="battery-model-name">${escapeHtml(g.name || g.id)}${capBadges ? `<span style="margin-left:6px;">${capBadges}</span>` : ""}</div>
         </div>
         <div class="battery-model-right-cols">
           <div class="battery-model-specs mono muted">
@@ -1331,7 +1347,7 @@ function buildBatteryTimelineQueue(groupFilter, modelIDs) {
   for (const model of modelIDs) {
     const caps = modelCaps(model);
     for (const test of activeTests) {
-      const required = (test.required_caps || []).map((c) => String(c).toLowerCase());
+      const required = [...batteryTestEffectiveCaps(test)];
       if (required.every((c) => caps.has(c))) {
         idx++;
         queue.push({ index: idx, testId: test.id, testName: test.name, model, groupId: test.group_id });
@@ -2133,7 +2149,7 @@ async function confirmBatteryRun() {
       ...((x.cases || []).flatMap((c) => c.attachments || [])),
       ...((x.steps || []).flatMap((s) => s.attachments || [])),
       ...(x.sidecars || []),
-    ].some((a) => a.kind === "image");
+    ].some((a) => a.kind === "image") || batteryTestEffectiveCaps(x).has("vision");
     const withImages = targetTests.filter(hasImages).map((x) => x.name);
     const noVision = modelIDs.filter((m) => !modelCaps(m).has("vision"));
     if (withImages.length > 0 && noVision.length > 0) {

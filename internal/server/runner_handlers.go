@@ -104,6 +104,44 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Effective caps: union of test-level and category-level required_caps,
+	// so a category marked vision/audio skips models lacking it even when
+	// individual tests don't declare it.
+	_, allGroups := s.testsStore.List()
+	groupCaps := make(map[string][]string, len(allGroups))
+	for _, g := range allGroups {
+		if len(g.RequiredCaps) > 0 {
+			groupCaps[g.ID] = g.RequiredCaps
+		}
+	}
+	if len(groupCaps) > 0 {
+		for i, tst := range testsList {
+			gc := groupCaps[tst.GroupID]
+			if len(gc) == 0 {
+				continue
+			}
+			seen := make(map[string]bool, len(tst.RequiredCaps)+len(gc))
+			merged := make([]string, 0, len(tst.RequiredCaps)+len(gc))
+			for _, c := range tst.RequiredCaps {
+				k := strings.ToLower(strings.TrimSpace(c))
+				if k == "" || seen[k] {
+					continue
+				}
+				seen[k] = true
+				merged = append(merged, c)
+			}
+			for _, c := range gc {
+				k := strings.ToLower(strings.TrimSpace(c))
+				if k == "" || seen[k] {
+					continue
+				}
+				seen[k] = true
+				merged = append(merged, strings.ToLower(c))
+			}
+			testsList[i].RequiredCaps = merged
+		}
+	}
+
 	// Fetch capabilities for selected models.
 	ctx := r.Context()
 	models, err := s.ollama.List(ctx)

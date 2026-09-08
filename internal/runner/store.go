@@ -517,6 +517,10 @@ func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
 }
 
 // GroupModelSummary aggregates all results for a single model within a group.
+// Score/TotalTests/etc merge the newest result per test across runs.
+// LastRun* describes only the newest run that touched this model+group,
+// so the leaderboard can show the last obtained % without penalizing
+// tests added afterwards.
 type GroupModelSummary struct {
 	Model            string    `json:"model"`
 	TotalTests       int       `json:"total_tests"`
@@ -536,7 +540,57 @@ type GroupModelSummary struct {
 	AvgResponseMs    int64     `json:"avg_response_ms"`
 	AvgTokensPerSec  float64   `json:"avg_tokens_per_sec,omitempty"`
 	LastRunAt        time.Time `json:"last_run_at"`
+	LastRunID        string    `json:"last_run_id,omitempty"`
+	LastRunTotal     int       `json:"last_run_total_tests,omitempty"`
+	LastRunPassed    int       `json:"last_run_passed,omitempty"`
+	LastRunFailed    int       `json:"last_run_failed,omitempty"`
+	LastRunHuman     int       `json:"last_run_human_review,omitempty"`
+	LastRunErrors    int       `json:"last_run_errors,omitempty"`
+	LastRunCases     int       `json:"last_run_total_cases,omitempty"`
+	LastRunPassedCs  int       `json:"last_run_passed_cases,omitempty"`
+	LastRunPoints    float64   `json:"last_run_points,omitempty"`
+	LastRunMax       float64   `json:"last_run_max_points,omitempty"`
+	LastRunScore     float64   `json:"last_run_score,omitempty"`
 	SysInfo          SysInfo   `json:"sys_info,omitempty"`
+}
+
+// resultScore normalizes a stored TestResult into (casesTotal, casesPassed, points, maxPoints),
+// applying the same legacy fallback used by the runner (single test = 1 case + 1 bonus).
+func resultScore(res TestResult) (int, int, float64, float64) {
+	cTotal := res.CasesTotal
+	cPassed := res.CasesPassed
+	pts := res.Points
+	mPts := res.MaxPoints
+	if mPts == 0 {
+		if len(res.SubResults) > 0 {
+			cTotal = len(res.SubResults)
+			cPassed = 0
+			for _, sub := range res.SubResults {
+				if sub.Passed != nil && *sub.Passed {
+					cPassed++
+				}
+			}
+			bonus := 0.0
+			if cPassed == cTotal && cTotal > 0 {
+				bonus = 1.0
+			}
+			pts = float64(cPassed) + bonus
+			mPts = float64(cTotal) + 1.0
+		} else {
+			cTotal = 1
+			cPassed = 0
+			if res.Passed != nil && *res.Passed {
+				cPassed = 1
+			}
+			bonus := 0.0
+			if cPassed == 1 {
+				bonus = 1.0
+			}
+			pts = float64(cPassed) + bonus
+			mPts = 2.0
+		}
+	}
+	return cTotal, cPassed, pts, mPts
 }
 
 // GetGroupHistory returns per-model summaries for all runs of a given group.
@@ -614,39 +668,7 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 				a.tokSum += res.TokensPerSec
 			}
 
-			cTotal := res.CasesTotal
-			cPassed := res.CasesPassed
-			pts := res.Points
-			mPts := res.MaxPoints
-			if mPts == 0 {
-				if len(res.SubResults) > 0 {
-					cTotal = len(res.SubResults)
-					cPassed = 0
-					for _, sub := range res.SubResults {
-						if sub.Passed != nil && *sub.Passed {
-							cPassed++
-						}
-					}
-					bonus := 0.0
-					if cPassed == cTotal && cTotal > 0 {
-						bonus = 1.0
-					}
-					pts = float64(cPassed) + bonus
-					mPts = float64(cTotal) + 1.0
-				} else {
-					cTotal = 1
-					cPassed = 0
-					if res.Passed != nil && *res.Passed {
-						cPassed = 1
-					}
-					bonus := 0.0
-					if cPassed == 1 {
-						bonus = 1.0
-					}
-					pts = float64(cPassed) + bonus
-					mPts = 2.0
-				}
-			}
+			cTotal, cPassed, pts, mPts := resultScore(res)
 			a.totalCases += cTotal
 			a.passedCases += cPassed
 			a.scorePoints += pts
@@ -669,6 +691,63 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 				a.lastRun = run.Timestamp
 				a.sysInfo = run.SysInfo
 			}
+		}
+	}
+	// Last run per model: newest run (runs already sorted newest-first) that
+	// touched this model+group. Only that run's results count, so the score
+	// is exactly the last obtained % with that run's own denominator.
+	type lastAcc struct {
+		id       string
+		count    int
+		passed   int
+		failed   int
+		human    int
+		errors   int
+		tCases   int
+		pCases   int
+		pts      float64
+		max      float64
+		at       time.Time
+		sys      SysInfo
+		assigned bool
+	}
+	lastByModel := make(map[string]*lastAcc)
+	for _, run := range runs {
+		// Group results of this run by model (only those belonging to groupID).
+		perModel := make(map[string][]TestResult)
+		for _, res := range run.Results {
+			resGID, _ := s.resolveExerciseLocked(res.TestID, run.GroupID)
+			if resGID == "" {
+				resGID = run.GroupID
+			}
+			if groupID != "all" && resGID != groupID {
+				continue
+			}
+			perModel[res.Model] = append(perModel[res.Model], res)
+		}
+		for model, list := range perModel {
+			if la, ok := lastByModel[model]; ok && la.assigned {
+				continue
+			}
+			la := &lastAcc{id: run.ID, at: run.Timestamp, sys: run.SysInfo, assigned: true}
+			for _, res := range list {
+				cT, cP, p, mp := resultScore(res)
+				la.count++
+				la.tCases += cT
+				la.pCases += cP
+				la.pts += p
+				la.max += mp
+				if res.Error != "" {
+					la.errors++
+				} else if res.Passed == nil {
+					la.human++
+				} else if *res.Passed {
+					la.passed++
+				} else {
+					la.failed++
+				}
+			}
+			lastByModel[model] = la
 		}
 	}
 	out := make([]GroupModelSummary, 0, len(m))
@@ -695,6 +774,23 @@ func (s *ResultStore) GetGroupHistory(groupID string) []GroupModelSummary {
 			ErrorTests:       a.errorTests,
 			LastRunAt:        a.lastRun,
 			SysInfo:          a.sysInfo,
+		}
+		if la, ok := lastByModel[model]; ok && la.assigned {
+			summary.LastRunID = la.id
+			summary.LastRunAt = la.at
+			summary.SysInfo = la.sys
+			summary.LastRunTotal = la.count
+			summary.LastRunPassed = la.passed
+			summary.LastRunFailed = la.failed
+			summary.LastRunHuman = la.human
+			summary.LastRunErrors = la.errors
+			summary.LastRunCases = la.tCases
+			summary.LastRunPassedCs = la.pCases
+			summary.LastRunPoints = la.pts
+			summary.LastRunMax = la.max
+			if la.max > 0 {
+				summary.LastRunScore = math.Min(100.0, math.Max(0.0, (la.pts/la.max)*100.0))
+			}
 		}
 		if a.count > 0 {
 			summary.AvgResponseMs = a.respSum / int64(a.count)

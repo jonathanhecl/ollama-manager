@@ -47,12 +47,19 @@ async function renderGroupHistoryModal(groupId) {
 
     let rows = "";
     for (const s of summary) {
-      const pts = s.score_points != null ? s.score_points : (s.passed * 2);
-      const passedCases = s.passed_cases != null ? s.passed_cases : s.passed;
-      const totalCases = s.total_cases != null ? s.total_cases : s.total_tests;
-      const denom = Math.max(activeMaxPoints, s.max_points || (s.total_tests ? s.total_tests * 2 : 0));
-      const scorePct = denom > 0 ? Math.min(100.0, Math.max(0.0, (pts / denom) * 100)) : 0;
-      const unrun = Math.max(0, activeTotal - (s.total_tests || 0));
+      // Last-run %: use only the newest run's own denominator so tests
+      // added afterwards don't drag the score down.
+      const hasLast = (s.last_run_max_points || 0) > 0 || (s.last_run_total_tests || 0) > 0;
+      const pts = hasLast ? (s.last_run_points || 0) : (s.score_points != null ? s.score_points : (s.passed * 2));
+      const passedCases = hasLast ? (s.last_run_passed_cases || 0) : (s.passed_cases != null ? s.passed_cases : s.passed);
+      const totalCases = hasLast ? (s.last_run_total_cases || 0) : (s.total_cases != null ? s.total_cases : s.total_tests);
+      const runTotal = hasLast ? (s.last_run_total_tests || 0) : (s.total_tests || 0);
+      const runMax = hasLast ? (s.last_run_max_points || 0) : (s.max_points || (s.total_tests ? s.total_tests * 2 : 0));
+      const scorePct = hasLast
+        ? ((s.last_run_score != null ? s.last_run_score : (runMax > 0 ? (pts / runMax) * 100 : 0)))
+        : (() => { const denom = Math.max(activeMaxPoints, s.max_points || (s.total_tests ? s.total_tests * 2 : 0)); return denom > 0 ? Math.min(100.0, Math.max(0.0, (pts / denom) * 100)) : 0; })();
+      const denomShown = hasLast ? runMax : Math.max(activeMaxPoints, s.max_points || (s.total_tests ? s.total_tests * 2 : 0));
+      const unrun = hasLast ? 0 : Math.max(0, activeTotal - (s.total_tests || 0));
       const unrunBadge = unrun > 0 ? `<span class="badge badge-na" style="margin-left:4px;font-size:10px;" title="${unrun} tests added since this model ran">+${unrun} ${t("battery.pending_tests") || "unrun"}</span>` : "";
       const tps = s.avg_tokens_per_sec ? `${s.avg_tokens_per_sec.toFixed(1)} tok/s` : "";
       const date = s.last_run_at ? fmtDateTimeFull(s.last_run_at) : "—";
@@ -68,18 +75,24 @@ async function renderGroupHistoryModal(groupId) {
       const failTooltip = fmtTestTooltip(t("battery.legend_fail"), s.failed_tests);
       const humanTooltip = fmtTestTooltip(t("battery.legend_human"), s.human_review_tests);
       const errorTooltip = fmtTestTooltip(t("battery.legend_error"), s.error_tests);
+      const passCount = hasLast ? (s.last_run_passed || 0) : s.passed;
+      const failCount = hasLast ? (s.last_run_failed || 0) : s.failed;
+      const humanCount = hasLast ? (s.last_run_human_review || 0) : s.human_review;
+      const errCount = hasLast ? (s.last_run_errors || 0) : s.errors;
+      const testsCell = hasLast ? `${runTotal}` : (activeTotal > 0 ? `${s.total_tests} / ${activeTotal}${unrunBadge}` : s.total_tests);
+      const casesCell = hasLast ? `${passedCases} / ${totalCases}` : `${passedCases} / ${activeCases || totalCases}`;
       rows += `
         <tr>
           <td class="cell-model">${escapeHtml(s.model)}</td>
           <td class="cell-time">
-            ${activeTotal > 0 ? `${s.total_tests} / ${activeTotal}${unrunBadge}` : s.total_tests}
-            <div class="muted" style="font-size:11px">${passedCases} / ${activeCases || totalCases} ${t("battery.cases") || "cases"}</div>
+            ${testsCell}
+            <div class="muted" style="font-size:11px">${casesCell} ${t("battery.cases") || "cases"}</div>
           </td>
           <td>
-            <span class="badge badge-pass" title="${passTooltip}">${s.passed}</span>
-            <span class="badge badge-fail" title="${failTooltip}">${s.failed}</span>
-            ${s.human_review > 0 ? `<span class="badge badge-human" title="${humanTooltip}">${s.human_review}</span>` : ""}
-            ${s.errors > 0 ? `<span class="badge badge-na" title="${errorTooltip || t("battery.error_count")}">${s.errors}</span>` : ""}
+            <span class="badge badge-pass" title="${passTooltip}">${passCount}</span>
+            <span class="badge badge-fail" title="${failTooltip}">${failCount}</span>
+            ${humanCount > 0 ? `<span class="badge badge-human" title="${humanTooltip}">${humanCount}</span>` : ""}
+            ${errCount > 0 ? `<span class="badge badge-na" title="${errorTooltip || t("battery.error_count")}">${errCount}</span>` : ""}
             <span class="mono" style="font-weight:700; font-size:12px; margin-left:6px; color:var(--primary);">${scorePct.toFixed(1)}%</span>
           </td>
           <td class="cell-time">${fmtDuration(s.avg_response_ms)}<br><span class="muted" style="font-size:11px">${escapeHtml(tps)}</span></td>
@@ -202,31 +215,57 @@ async function buildLeaderboardTableHtml() {
     cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases, requiredCaps });
   });
 
-  // Per model per group: { passed, tested, passedCases, totalCases, pts, activeTotal, activeCases, activeMaxPoints, unrun, score }.
+  // Per model per group: last-run % (own denominator, no active penalty).
   const modelSet = new Set();
   const scores = {};
   for (const col of cols) {
     for (const s of col.summary) {
       modelSet.add(s.model);
-      const passed = s.passed || 0;
-      const tested = s.total_tests || 0;
-      const passedCases = s.passed_cases != null ? s.passed_cases : passed;
-      const totalCases = s.total_cases != null ? s.total_cases : tested;
-      const pts = s.score_points != null ? s.score_points : (passed * 2);
-      const activeTotal = Math.max(col.activeTotal, tested);
-      const activeCases = Math.max(col.activeCases, totalCases);
-      const activeMaxPoints = Math.max(col.activeMaxPoints, s.max_points || (activeTotal * 2));
-      const unrun = Math.max(0, col.activeTotal - tested);
-      const score = activeMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (pts / activeMaxPoints) * 100)) : (activeTotal > 0 ? (passed / activeTotal) * 100 : null);
+      const hasLast = (s.last_run_max_points || 0) > 0 || (s.last_run_total_tests || 0) > 0;
+      let passed, tested, passedCases, totalCases, pts, maxPts, score, unrun;
+      if (hasLast) {
+        passed = s.last_run_passed || 0;
+        tested = s.last_run_total_tests || 0;
+        passedCases = s.last_run_passed_cases || 0;
+        totalCases = s.last_run_total_cases || 0;
+        pts = s.last_run_points || 0;
+        maxPts = s.last_run_max_points || 0;
+        score = s.last_run_score != null ? s.last_run_score : (maxPts > 0 ? Math.min(100, Math.max(0, (pts / maxPts) * 100)) : null);
+        unrun = 0;
+      } else {
+        passed = s.passed || 0;
+        tested = s.total_tests || 0;
+        passedCases = s.passed_cases != null ? s.passed_cases : passed;
+        totalCases = s.total_cases != null ? s.total_cases : tested;
+        pts = s.score_points != null ? s.score_points : (passed * 2);
+        const activeTotal = Math.max(col.activeTotal, tested);
+        const activeCases = Math.max(col.activeCases, totalCases);
+        const activeMaxPoints = Math.max(col.activeMaxPoints, s.max_points || (activeTotal * 2));
+        unrun = Math.max(0, col.activeTotal - tested);
+        score = activeMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (pts / activeMaxPoints) * 100)) : (activeTotal > 0 ? (passed / activeTotal) * 100 : null);
+        (scores[s.model] ||= {})[col.id] = {
+          passed,
+          tested,
+          passedCases,
+          totalCases,
+          pts,
+          activeTotal,
+          activeCases,
+          activeMaxPoints,
+          unrun,
+          score,
+        };
+        continue;
+      }
       (scores[s.model] ||= {})[col.id] = {
         passed,
         tested,
         passedCases,
         totalCases,
         pts,
-        activeTotal,
-        activeCases,
-        activeMaxPoints,
+        activeTotal: tested,
+        activeCases: totalCases,
+        activeMaxPoints: maxPts,
         unrun,
         score,
       };

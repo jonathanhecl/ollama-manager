@@ -772,6 +772,34 @@ $("battery-results-history")?.addEventListener("click", () => {
 $("battery-history-back")?.addEventListener("click", () => {
   showTestsView();
 });
+$("battery-review-back")?.addEventListener("click", () => {
+  showTestsView();
+});
+$("battery-review-later")?.addEventListener("click", () => {
+  if (!blindReviewRunId) {
+    showTestsView();
+    return;
+  }
+  // Ratings so far are already saved server-side; force a refetch so the
+  // results reflect the recomputed scores.
+  currentBatteryRun = null;
+  showBatteryResultsView(blindReviewRunId);
+});
+// Blind triage shortcuts: ← fail, → pass. Ratings can be changed later in
+// the results view, so a stray keypress is harmless.
+document.addEventListener("keydown", (e) => {
+  if (typeof currentView === "undefined" || currentView !== "battery-review") return;
+  if ($("battery-review-view")?.hidden) return;
+  const tag = e.target?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.key === "ArrowLeft") {
+    e.preventDefault();
+    void rateBlindReview(false);
+  } else if (e.key === "ArrowRight") {
+    e.preventDefault();
+    void rateBlindReview(true);
+  }
+});
 $("battery-progress-abort")?.addEventListener("click", () => {
   openBatteryAbortModal();
 });

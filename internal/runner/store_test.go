@@ -360,3 +360,61 @@ func TestGetGroupHistoryCrossCategoryAndAll(t *testing.T) {
 		t.Fatalf("unexpected all stats: %+v", allSummary[0])
 	}
 }
+
+func TestUpdateResultPassedRecomputesScore(t *testing.T) {
+	dir := t.TempDir()
+	store := NewResultStore(dir)
+	store.runs = []BatteryRun{
+		{
+			ID:        "run-1",
+			Timestamp: time.Now().UTC(),
+			GroupID:   "core",
+			GroupName: "Core",
+			Results: []TestResult{
+				// Pending human review: unscored, zero points.
+				{TestID: "t1", TestName: "A", Model: "m1", CasesTotal: 1, Points: 0, MaxPoints: 2, Score: 0, ModelResponse: "hi", Thinking: "hmm"},
+			},
+		},
+	}
+
+	if err := store.UpdateResultPassed("run-1", "t1", "m1", true); err != nil {
+		t.Fatalf("UpdateResultPassed pass: %v", err)
+	}
+	res := store.runs[0].Results[0]
+	if res.Passed == nil || !*res.Passed {
+		t.Fatalf("expected passed=true, got %+v", res.Passed)
+	}
+	if res.Points != 2 || res.Score != 100 || res.CasesPassed != 1 {
+		t.Fatalf("expected full score after pass, got points=%v score=%v cases=%d", res.Points, res.Score, res.CasesPassed)
+	}
+	if res.Thinking != "hmm" {
+		t.Fatalf("rating must preserve thinking, got %q", res.Thinking)
+	}
+
+	if err := store.UpdateResultPassed("run-1", "t1", "m1", false); err != nil {
+		t.Fatalf("UpdateResultPassed fail: %v", err)
+	}
+	res = store.runs[0].Results[0]
+	if res.Passed == nil || *res.Passed {
+		t.Fatalf("expected passed=false, got %+v", res.Passed)
+	}
+	if res.Points != 0 || res.Score != 0 || res.CasesPassed != 0 {
+		t.Fatalf("expected zero score after fail, got points=%v score=%v cases=%d", res.Points, res.Score, res.CasesPassed)
+	}
+
+	if err := store.UpdateHumanRating("run-1", "t1", "m1", "good"); err != nil {
+		t.Fatalf("UpdateHumanRating good: %v", err)
+	}
+	res = store.runs[0].Results[0]
+	if res.HumanRating != "good" || res.Passed == nil || !*res.Passed || res.Points != 2 {
+		t.Fatalf("expected good rating to pass with full points, got %+v", res)
+	}
+
+	if err := store.UpdateHumanRating("run-1", "t1", "m1", "bad"); err != nil {
+		t.Fatalf("UpdateHumanRating bad: %v", err)
+	}
+	res = store.runs[0].Results[0]
+	if res.Passed == nil || *res.Passed || res.Points != 0 {
+		t.Fatalf("expected bad rating to fail with zero points, got %+v", res)
+	}
+}

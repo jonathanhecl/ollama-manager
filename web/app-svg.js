@@ -2503,6 +2503,9 @@ async function handleRouting() {
   } else if (path.startsWith("/tests/battery/results/")) {
     const id = path.substring(23);
     void showBatteryResultsView(id);
+  } else if (path.startsWith("/tests/battery/review/")) {
+    const id = path.substring(22);
+    void showBlindReviewView(id);
   } else if (path === "/tests/battery/history" || path.startsWith("/tests/history/")) {
     const filterTestId = path.startsWith("/tests/history/") ? decodeURIComponent(path.substring(15)) : null;
     const urlParams = new URLSearchParams(window.location.search);

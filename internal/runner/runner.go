@@ -46,6 +46,7 @@ type SubResult struct {
 	TotalTokens    int                `json:"total_tokens,omitempty"`
 	ReasoningUsed  bool               `json:"reasoning_used"`
 	ModelResponse  string             `json:"model_response,omitempty"`
+	Thinking       string             `json:"thinking,omitempty"`
 	Error          string             `json:"error,omitempty"`
 }
 
@@ -63,6 +64,7 @@ type TestResult struct {
 	ReasoningUsed  bool        `json:"reasoning_used"`
 	HumanRating    string      `json:"human_rating,omitempty"` // "bad", "regular", "good"
 	ModelResponse  string      `json:"model_response,omitempty"`
+	Thinking       string      `json:"thinking,omitempty"`
 	Error          string      `json:"error,omitempty"`
 	CasesTotal     int         `json:"cases_total"`
 	CasesPassed    int         `json:"cases_passed"`
@@ -632,6 +634,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						TotalTokens:    turn.TotalTokens,
 						ReasoningUsed:  turn.Thinking != "",
 						ModelResponse:  turn.Content,
+						Thinking:       turn.Thinking,
 						Error:          turn.Error.Error(),
 					})
 					responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
@@ -676,6 +679,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					TotalTokens:    turn.TotalTokens,
 					ReasoningUsed:  turn.Thinking != "",
 					ModelResponse:  turn.Content,
+					Thinking:       turn.Thinking,
 				})
 				break
 			}
@@ -791,6 +795,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					TotalTokens:    turn.TotalTokens,
 					ReasoningUsed:  turn.Thinking != "",
 					ModelResponse:  turn.Content,
+					Thinking:       turn.Thinking,
 					Error:          turn.Error.Error(),
 				})
 				return history, false
@@ -833,6 +838,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				TotalTokens:    turn.TotalTokens,
 				ReasoningUsed:  turn.Thinking != "",
 				ModelResponse:  turn.Content,
+				Thinking:       turn.Thinking,
 			})
 			return history, true
 		}
@@ -1112,6 +1118,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	}
 
 	res.ModelResponse = turn.Content
+	res.Thinking = turn.Thinking
 	res.ReasoningUsed = turn.Thinking != ""
 	res.TokensPerSec = turn.TokensPerSec
 	res.PromptTokens = turn.PromptTokens

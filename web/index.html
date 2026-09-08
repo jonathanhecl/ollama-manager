@@ -2396,6 +2396,30 @@
     </div>
   </main>
 
+  <!-- Battery blind human-review triage view -->
+  <main id="battery-review-view" class="battery-review-view" hidden>
+    <header class="battery-head">
+      <div class="battery-head-left">
+        <button id="battery-review-back" class="ghost header-breadcrumb-back" data-i18n="tests.title">Tests</button>
+        <span class="breadcrumb-separator">/</span>
+        <h2>
+          <span class="gear">🙈</span>
+          <span data-i18n="battery.review_title">Human review</span>
+        </h2>
+      </div>
+      <div class="battery-head-actions">
+        <span id="battery-review-counter" class="battery-review-counter mono"></span>
+        <button type="button" id="battery-review-later" class="ghost" data-i18n="battery.review_later">Review later</button>
+      </div>
+    </header>
+    <div class="battery-body">
+      <div class="battery-container battery-review-container">
+        <div id="battery-review-progress" class="battery-review-progress"><div id="battery-review-progress-bar" class="battery-review-progress-bar"></div></div>
+        <div id="battery-review-body" class="battery-review-body"></div>
+      </div>
+    </div>
+  </main>
+
   <!-- Battery history view -->
   <main id="battery-history-view" class="battery-history-view" hidden>
     <header class="battery-head">

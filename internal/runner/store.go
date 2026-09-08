@@ -400,6 +400,24 @@ func (s *ResultStore) GetRun(id string) (BatteryRun, bool) {
 	return BatteryRun{}, false
 }
 
+// applyManualVerdict records a human pass/fail on a whole result and keeps
+// the derived score fields consistent with it, so rated results count in
+// leaderboards and summaries. Fractional per-case detail is left untouched.
+func applyManualVerdict(res *TestResult, passed bool) {
+	res.Passed = &passed
+	if res.MaxPoints <= 0 {
+		res.MaxPoints = 2.0
+	}
+	if passed {
+		res.CasesPassed = res.CasesTotal
+		res.Points = res.MaxPoints
+	} else {
+		res.CasesPassed = 0
+		res.Points = 0
+	}
+	res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
+}
+
 // UpdateHumanRating updates the human rating for a specific test result within a run.
 func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) error {
 	s.mu.Lock()
@@ -412,8 +430,7 @@ func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) err
 			res := &s.runs[i].Results[j]
 			if res.TestID == testID && res.Model == model {
 				res.HumanRating = rating
-				passed := rating == "good"
-				res.Passed = &passed
+				applyManualVerdict(res, rating == "good")
 				gid, base := s.resolveExerciseLocked(testID, s.runs[i].GroupID)
 				return s.saveExerciseLocked(gid, base)
 			}
@@ -433,7 +450,7 @@ func (s *ResultStore) UpdateResultPassed(runID, testID, model string, passed boo
 		for j := range s.runs[i].Results {
 			res := &s.runs[i].Results[j]
 			if res.TestID == testID && res.Model == model {
-				res.Passed = &passed
+				applyManualVerdict(res, passed)
 				gid, base := s.resolveExerciseLocked(testID, s.runs[i].GroupID)
 				return s.saveExerciseLocked(gid, base)
 			}
@@ -457,6 +474,7 @@ type TestHistoryItem struct {
 	ReasoningUsed  bool        `json:"reasoning_used"`
 	HumanRating    string      `json:"human_rating,omitempty"`
 	ModelResponse  string      `json:"model_response,omitempty"`
+	Thinking       string      `json:"thinking,omitempty"`
 	Error          string      `json:"error,omitempty"`
 	SubResults     []SubResult `json:"sub_results,omitempty"`
 	SysInfo        SysInfo     `json:"sys_info,omitempty"`
@@ -484,6 +502,7 @@ func (s *ResultStore) GetTestHistory(testID string) []TestHistoryItem {
 					ReasoningUsed:  res.ReasoningUsed,
 					HumanRating:    res.HumanRating,
 					ModelResponse:  res.ModelResponse,
+					Thinking:       res.Thinking,
 					Error:          res.Error,
 					SubResults:     res.SubResults,
 					SysInfo:        run.SysInfo,

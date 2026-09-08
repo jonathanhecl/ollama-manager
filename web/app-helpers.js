@@ -342,6 +342,7 @@ function hideAllMainViews() {
     "agent-session-view",
     "battery-progress-view",
     "battery-results-view",
+    "battery-review-view",
     "battery-history-view",
     "battery-leaderboard-view",
     "analytics-view",

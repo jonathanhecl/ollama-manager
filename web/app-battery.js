@@ -1893,15 +1893,20 @@ async function pollBatteryProgress(runID, modelIDs) {
       stopBatteryPolling();
       // Let the user read the last response for a moment.
       await new Promise((r) => setTimeout(r, 1500));
-      // Fetch full run and show results.
+      // Fetch full run: pending human reviews go to the blind triage
+      // first, everything else straight to the final results.
       try {
         const run = await api("/api/runner/runs/" + encodeURIComponent(runID));
         currentBatteryRun = run;
-        hideAllMainViews();
-        currentView = "battery-results";
-        $("battery-results-view").hidden = false;
-        history.pushState(null, "", "/tests/battery/results/" + run.id);
-        renderBatteryResults(run);
+        if (blindPendingResults(run).length > 0) {
+          openBlindReviewWithRun(run);
+        } else {
+          hideAllMainViews();
+          currentView = "battery-results";
+          $("battery-results-view").hidden = false;
+          history.pushState(null, "", "/tests/battery/results/" + run.id);
+          renderBatteryResults(run);
+        }
       } catch (err) {
         toast(t("toast.error", { msg: err.message }), "error");
         showTestsView();
@@ -2204,6 +2209,213 @@ function showBatteryResultsView(runId) {
   })();
 }
 
+// ---------- Blind human-review triage ----------
+// Results with no automatic verdict (passed == null, no error) are judged
+// here one by one BEFORE the final results, without revealing the model
+// (or the test) so ratings stay unbiased. The queue is shuffled on entry.
+
+let blindReviewRunId = null;
+let blindReviewQueue = [];
+let blindReviewIndex = 0;
+let blindReviewBusy = false;
+
+function blindPendingResults(run) {
+  if (!run || !Array.isArray(run.results)) return [];
+  return run.results.filter((r) => r.passed == null && !r.error);
+}
+
+function blindShuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function openBlindReviewWithRun(run) {
+  blindReviewRunId = run.id;
+  blindReviewQueue = blindShuffle(blindPendingResults(run));
+  blindReviewIndex = 0;
+  blindReviewBusy = false;
+  currentBatteryRun = run;
+  if (blindReviewQueue.length === 0) {
+    showBatteryResultsView(run.id);
+    return;
+  }
+  hideAllMainViews();
+  currentView = "battery-review";
+  $("battery-review-view").hidden = false;
+  if (window.location.pathname !== "/tests/battery/review/" + run.id) {
+    history.pushState(null, "", "/tests/battery/review/" + run.id);
+  }
+  renderBlindReviewCard();
+}
+
+async function showBlindReviewView(runId) {
+  blindReviewRunId = runId;
+  blindReviewIndex = 0;
+  blindReviewBusy = false;
+  hideAllMainViews();
+  currentView = "battery-review";
+  $("battery-review-view").hidden = false;
+  if (window.location.pathname !== "/tests/battery/review/" + runId) {
+    history.pushState(null, "", "/tests/battery/review/" + runId);
+  }
+  const body = $("battery-review-body");
+  if (body) body.innerHTML = `<div class="muted" style="padding:32px;text-align:center;">${t("status.loading")}</div>`;
+  try {
+    if (!Array.isArray(tests) || tests.length === 0) {
+      try {
+        const data = await api("/api/tests");
+        testsGroups = data.groups || [];
+        tests = data.tests || [];
+      } catch { /* prompt lookup is best-effort */ }
+    }
+    const run = await api("/api/runner/runs/" + encodeURIComponent(runId));
+    openBlindReviewWithRun(run);
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+    showTestsView();
+  }
+}
+
+function blindReviewAttachmentsHtml(test) {
+  if (!test) return "";
+  const allAtts = [
+    ...((test.cases || []).flatMap((c) => c.attachments || [])),
+    ...((test.steps || []).flatMap((s) => s.attachments || [])),
+    ...(test.sidecars || []),
+  ];
+  if (allAtts.length === 0) return "";
+  return allAtts.map((att) => {
+    if (att.kind === "image") {
+      const src = `data:${att.mime || "image/jpeg"};base64,${att.data}`;
+      return `<div class="br-attach-item"><img src="${src}" alt="" class="br-attach-img" loading="lazy" /></div>`;
+    }
+    if (att.kind === "audio") {
+      const src = `data:${att.mime || "audio/webm"};base64,${att.data}`;
+      return `<div class="br-attach-item"><audio controls src="${src}" class="br-attach-audio"></audio></div>`;
+    }
+    return `<div class="br-attach-item"><span class="pill">txt</span><span class="br-attach-name">${escapeHtml(att.name || "")}</span></div>`;
+  }).join("");
+}
+
+// Split one pending result into blindable blocks: one per case/step when
+// the result carries sub-results, otherwise a single prompt → response.
+function blindReviewBlocks(result) {
+  const test = (Array.isArray(tests) ? tests : []).find((x) => x.id === result.test_id) || null;
+  const attachments = blindReviewAttachmentsHtml(test);
+  const subs = Array.isArray(result.sub_results) ? result.sub_results : [];
+  if (subs.length > 0) {
+    return {
+      prompt: "",
+      attachments,
+      items: subs.map((s) => ({
+        prompt: s.prompt || "",
+        thinking: s.thinking || "",
+        response: s.model_response || "",
+      })),
+    };
+  }
+  let prompt = "";
+  if (test) {
+    if (test.prompt) {
+      prompt = test.prompt;
+    } else if (Array.isArray(test.messages) && test.messages.length > 0) {
+      prompt = test.messages.map((m) => `${m.role || "user"}: ${m.content || ""}`).join("\n\n");
+    }
+  }
+  return {
+    prompt,
+    attachments,
+    items: [{ prompt: "", thinking: result.thinking || "", response: result.model_response || "" }],
+  };
+}
+
+function renderBlindReviewCard() {
+  const body = $("battery-review-body");
+  if (!body) return;
+  const total = blindReviewQueue.length;
+  const item = blindReviewQueue[blindReviewIndex];
+  if (!item) {
+    void finishBlindReview();
+    return;
+  }
+  const counterEl = $("battery-review-counter");
+  if (counterEl) counterEl.textContent = `${blindReviewIndex + 1}/${total}`;
+  const bar = $("battery-review-progress-bar");
+  if (bar) bar.style.width = `${total > 0 ? (blindReviewIndex / total) * 100 : 0}%`;
+
+  const blocks = blindReviewBlocks(item);
+  const noThinking = `<div class="muted" style="font-size:12px;">${escapeHtml(t("battery.review_no_thinking"))}</div>`;
+  let mainHtml = "";
+  if (blocks.prompt) {
+    mainHtml += `<div class="br-section"><div class="br-label">${escapeHtml(t("battery.prompt"))}</div><div class="br-block br-prompt">${escapeHtml(blocks.prompt)}</div></div>`;
+  }
+  if (blocks.attachments) {
+    mainHtml += `<div class="br-section"><div class="br-label">${escapeHtml(t("battery.review_input"))}</div><div class="br-attachments">${blocks.attachments}</div></div>`;
+  }
+  blocks.items.forEach((it, i) => {
+    if (it.prompt) {
+      mainHtml += `<div class="br-section"><div class="br-label">${escapeHtml(t("battery.prompt"))}${blocks.items.length > 1 ? ` · ${i + 1}` : ""}</div><div class="br-block br-prompt">${escapeHtml(it.prompt)}</div></div>`;
+    }
+    mainHtml += `<div class="br-section"><div class="br-label">🧠 ${escapeHtml(t("battery.review_thinking"))}</div>${it.thinking ? `<div class="br-block br-thinking">${escapeHtml(it.thinking)}</div>` : noThinking}</div>`;
+    mainHtml += `<div class="br-section"><div class="br-label">💬 ${escapeHtml(t("battery.review_output"))}</div><div class="br-block br-response">${escapeHtml(it.response) || `<span class="muted">${escapeHtml(t("battery.no_response"))}</span>`}</div></div>`;
+  });
+
+  body.innerHTML = `
+    <div class="br-card">
+      ${mainHtml}
+      <div class="br-actions">
+        <button type="button" class="ghost danger-text br-vote-btn" id="br-vote-fail">❌ ${escapeHtml(t("battery.review_fail"))} <kbd>←</kbd></button>
+        <button type="button" class="primary br-vote-btn" id="br-vote-pass">✅ ${escapeHtml(t("battery.review_pass"))} <kbd>→</kbd></button>
+      </div>
+    </div>
+  `;
+  $("br-vote-fail")?.addEventListener("click", () => { void rateBlindReview(false); });
+  $("br-vote-pass")?.addEventListener("click", () => { void rateBlindReview(true); });
+}
+
+async function rateBlindReview(passed) {
+  if (blindReviewBusy) return;
+  const item = blindReviewQueue[blindReviewIndex];
+  if (!item || !blindReviewRunId) return;
+  blindReviewBusy = true;
+  const failBtn = $("br-vote-fail");
+  const passBtn = $("br-vote-pass");
+  if (failBtn) failBtn.disabled = true;
+  if (passBtn) passBtn.disabled = true;
+  try {
+    await api("/api/runner/runs/" + encodeURIComponent(blindReviewRunId) + "/rate", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ test_id: item.test_id, model: item.model, passed }),
+    });
+    item.passed = passed;
+    blindReviewIndex++;
+    if (blindReviewIndex >= blindReviewQueue.length) {
+      await finishBlindReview();
+    } else {
+      renderBlindReviewCard();
+    }
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  } finally {
+    blindReviewBusy = false;
+  }
+}
+
+async function finishBlindReview() {
+  const runId = blindReviewRunId;
+  blindReviewRunId = null;
+  blindReviewQueue = [];
+  blindReviewIndex = 0;
+  // Refetch: Points/Score are recomputed server-side on rating.
+  currentBatteryRun = null;
+  toast(t("battery.review_done"), "success");
+  showBatteryResultsView(runId);
+}
+
 function showBatteryHistoryView(filterTestId = null, filterModel = null) {
   hideAllMainViews();
   currentView = "battery-history";
@@ -2415,7 +2627,7 @@ function renderBatteryResults(run) {
   // Pending human-review banner: unrated results are easy to miss.
   const pendingReview = run.results.filter((r) => r.passed == null && !r.error);
   if (pendingReview.length > 0) {
-    summaryHtml += `<div class="battery-pending-review">⏳ <strong>${escapeHtml(t("battery.pending_review", { n: pendingReview.length }))}</strong> <span class="muted">${escapeHtml(t("battery.pending_review_hint"))}</span></div>`;
+    summaryHtml += `<div class="battery-pending-review">⏳ <strong>${escapeHtml(t("battery.pending_review", { n: pendingReview.length }))}</strong> <span class="muted">${escapeHtml(t("battery.pending_review_hint"))}</span> <button type="button" class="primary battery-mini-btn" id="battery-start-review-btn">🙈 ${escapeHtml(t("battery.start_review"))}</button></div>`;
   }
 
   // Detect podium leaders if multiple models
@@ -2925,6 +3137,12 @@ function renderBatteryResults(run) {
     btnMatrix.addEventListener("click", () => {
       batteryResultsViewMode = "matrix";
       renderBatteryResults(run);
+    });
+  }
+  const btnStartReview = body.querySelector("#battery-start-review-btn");
+  if (btnStartReview) {
+    btnStartReview.addEventListener("click", () => {
+      openBlindReviewWithRun(run);
     });
   }
   const btnLeaderboard = body.querySelector("#btn-view-leaderboard");

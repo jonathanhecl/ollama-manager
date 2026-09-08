@@ -1044,7 +1044,14 @@ function teSidecarKindForFile(name, mime) {
   const ext = String(name || "").split(".").pop().toLowerCase();
   const images = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
   const audios = { wav: "audio/wav", mp3: "audio/mpeg", ogg: "audio/ogg" };
-  const texts = { txt: "text/plain", md: "text/markdown" };
+  const texts = {
+    txt: "text/plain", md: "text/markdown", log: "text/plain",
+    py: "text/x-python", js: "text/javascript", ts: "text/typescript",
+    go: "text/x-go", rs: "text/rust", c: "text/x-c", cpp: "text/x-c++",
+    java: "text/x-java-source", json: "application/json", csv: "text/csv",
+    yaml: "text/yaml", yml: "text/yaml", sql: "text/x-sql", sh: "text/x-shellscript",
+    html: "text/html", css: "text/css"
+  };
   if (images[ext]) return { kind: "image", mime: mime && mime.startsWith("image/") ? mime : images[ext], ext: "." + ext };
   if (audios[ext]) return { kind: "audio", mime: mime && mime.startsWith("audio/") ? mime : audios[ext], ext: "." + ext };
   if (texts[ext]) return { kind: "text", mime: mime && mime.startsWith("text/") ? mime : texts[ext], ext: "." + ext };
@@ -1061,7 +1068,8 @@ function teSidecarThumb(att) {
     const src = `data:${att.mime || "audio/wav"};base64,${att.data}`;
     return `<audio controls preload="metadata" src="${src}" class="te-attach-audio"></audio>`;
   }
-  return `<span class="pill">txt</span>`;
+  const ext = String(att.name || "").split(".").pop().toLowerCase() || "txt";
+  return `<span class="pill">${escapeHtml(ext)}</span>`;
 }
 
 function newEditorCase(name) {

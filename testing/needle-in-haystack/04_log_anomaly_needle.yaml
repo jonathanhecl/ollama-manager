@@ -1,0 +1,14 @@
+id: 04_log_anomaly_needle
+name: Log Anomaly & Leak Detection
+description: Inspects high-volume web server access logs to isolate an unauthorized external administrative request and retrieve the exposed session token.
+group_id: needle-in-haystack
+active: true
+order: 4
+cases:
+  - name: Identify malicious external IP and leaked admin token
+    prompt: "Analyze the attached server access logs. Identify the anomalous administrative request made by an external public IP address, state the client IP, and extract the exact session token that was leaked."
+    evaluation:
+      type: contains
+      all:
+        - "LEAKED_SESSION_TOKEN_99412_ALPHA"
+        - "198.51.100.72"

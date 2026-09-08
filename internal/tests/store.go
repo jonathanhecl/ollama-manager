@@ -226,10 +226,40 @@ func SidecarKindForExt(ext string) (kind, mime string, ok bool) {
 		return "audio", "audio/mpeg", true
 	case "ogg":
 		return "audio", "audio/ogg", true
-	case "txt":
+	case "txt", "log":
 		return "text", "text/plain", true
 	case "md":
 		return "text", "text/markdown", true
+	case "py":
+		return "text", "text/x-python", true
+	case "js":
+		return "text", "text/javascript", true
+	case "ts":
+		return "text", "text/typescript", true
+	case "go":
+		return "text", "text/x-go", true
+	case "rs":
+		return "text", "text/rust", true
+	case "c":
+		return "text", "text/x-c", true
+	case "cpp":
+		return "text", "text/x-c++", true
+	case "java":
+		return "text", "text/x-java-source", true
+	case "json":
+		return "text", "application/json", true
+	case "csv":
+		return "text", "text/csv", true
+	case "yaml", "yml":
+		return "text", "text/yaml", true
+	case "sql":
+		return "text", "text/x-sql", true
+	case "sh":
+		return "text", "text/x-shellscript", true
+	case "html":
+		return "text", "text/html", true
+	case "css":
+		return "text", "text/css", true
 	}
 	return "", "", false
 }

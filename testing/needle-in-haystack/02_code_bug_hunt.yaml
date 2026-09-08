@@ -1,0 +1,14 @@
+id: 02_code_bug_hunt
+name: Code Bug Hunt (Security Flaw Detection)
+description: Identifies a subtle cryptographic vulnerability (timing side-channel attack via standard equality comparison) inside a multi-component asynchronous Python codebase.
+group_id: needle-in-haystack
+active: true
+order: 2
+cases:
+  - name: Identify timing attack flaw in verify_webhook_signature
+    prompt: "Review the attached Python code. Specifically examine `verify_webhook_signature`: what security vulnerability exists in the way `computed` and `signature` are compared, why is standard equality flawed here, and what function from Python's standard library should be used instead?"
+    evaluation:
+      type: contains
+      all:
+        - "compare_digest"
+        - "timing"

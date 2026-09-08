@@ -1,0 +1,14 @@
+id: 01_needle_in_document
+name: Needle in Document (Passphrase Retrieval)
+description: Evaluates retrieval of a specific passkey and contingency directive buried in an extensive technical runbook document.
+group_id: needle-in-haystack
+active: true
+order: 1
+cases:
+  - name: Retrieve emergency override code and protocol
+    prompt: "Based on the attached enterprise technical manual, what is the exact emergency override passphrase for Project Orion, and what disaster recovery protocol must the operator immediately engage when invoking it? Be direct and specific."
+    evaluation:
+      type: contains
+      all:
+        - "COBALT-ORION-7719"
+        - "Tier-3"

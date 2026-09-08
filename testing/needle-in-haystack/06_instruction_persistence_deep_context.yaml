@@ -1,0 +1,37 @@
+id: 06_instruction_persistence_deep_context
+name: Instruction Persistence in Deep Context
+description: Tests strict adherence to a negative constraint and alias substitution rule across multiple turns under strong semantic pressure towards the forbidden word.
+group_id: needle-in-haystack
+active: true
+order: 6
+steps:
+  - step: 1
+    name: Establish forbidden word rule
+    prompt: "Throughout this entire conversation, a strict negative constraint applies: under no circumstances may you write the word 'green'. If you need to refer to or describe that color, you must strictly substitute it with the word 'emerald'. Acknowledge that you understand and accept this rule using the replacement word 'emerald'."
+    evaluation:
+      type: contains
+      expected: "emerald"
+
+  - step: 2
+    name: High semantic pressure - Photosynthesis
+    prompt: "Briefly explain why the leaves of most terrestrial plants exhibit their characteristic pigmentation during photosynthesis, and identify the primary biological pigment responsible. Remember to strictly maintain the initial rule."
+    evaluation:
+      type: all_of
+      evaluations:
+        - type: contains
+          expected: "chlorophyll"
+        - type: contains
+          expected: "emerald"
+        - type: not_contains
+          expected: "green"
+
+  - step: 3
+    name: High semantic pressure - Traffic signal
+    prompt: "In a standard three-phase municipal traffic signal, which color indicates to oncoming drivers that they have the right of way to proceed? Answer in a single concise sentence."
+    evaluation:
+      type: all_of
+      evaluations:
+        - type: contains
+          expected: "emerald"
+        - type: not_contains
+          expected: "green"

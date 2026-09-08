@@ -1,0 +1,40 @@
+id: 03_multiturn_long_retrieval
+name: Multi-Turn Long Context Retrieval
+description: Tests retention and exact recall of an arbitrary credential token across a multi-turn conversation with substantial intermediate technical distractors.
+group_id: needle-in-haystack
+active: true
+order: 3
+steps:
+  - step: 1
+    name: Seed credential token
+    prompt: "I am preparing the infrastructure deployment credentials for our multi-region migration. Please record this configuration key: server node `eu-west-db-04` has maintenance credential token `VALKYRIE-9021-OMEGA`. Acknowledge that you have recorded this server name and token."
+    evaluation:
+      type: contains
+      all:
+        - "VALKYRIE-9021-OMEGA"
+
+  - step: 2
+    name: Distractor - Distributed locking explanation
+    prompt: "Now explain in detail the architectural differences between optimistic concurrency control (OCC) and pessimistic locking in relational databases, including trade-offs regarding throughput and contention."
+    evaluation:
+      type: contains
+      all:
+        - "optimistic"
+        - "pessimistic"
+
+  - step: 3
+    name: Distractor - Python retry implementation
+    prompt: "Write a short Python decorator function named `retry_backoff` that retries an operation up to 3 times with exponential backoff."
+    evaluation:
+      type: contains
+      all:
+        - "def"
+        - "retry"
+
+  - step: 4
+    name: Recall original credential needle
+    prompt: "Going back to the initial configuration provided at the very beginning of our conversation: what was the exact maintenance credential token assigned to server node `eu-west-db-04`? Answer with only the token."
+    evaluation:
+      type: contains
+      all:
+        - "VALKYRIE-9021-OMEGA"

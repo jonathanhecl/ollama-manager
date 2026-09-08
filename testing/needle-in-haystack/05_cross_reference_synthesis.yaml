@@ -1,0 +1,14 @@
+id: 05_cross_reference_synthesis
+name: Cross-Reference Multi-Section Synthesis
+description: Synthesizes two discrete facts separated across distant sections of an airport dispatch document (passenger to flight assignment in Section 2, and flight to departure gate in Section 9).
+group_id: needle-in-haystack
+active: true
+order: 5
+cases:
+  - name: Synthesize passenger gate assignment across sections
+    prompt: "Review the attached airport dispatch report. Which specific flight is passenger Dr. Elena Ruiz Montero assigned to, and at which departure gate must she board according to the departure matrix? Provide both specific details directly."
+    evaluation:
+      type: contains
+      all:
+        - "UX-7724"
+        - "C-28"

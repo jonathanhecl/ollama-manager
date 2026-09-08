@@ -1,0 +1,81 @@
+# Enterprise Infrastructure Architecture & Contingency Runbook
+Document Ref: DOC-2026-CLOUD-OPS-V4
+Classification: Internal Operations Manual
+Revision Date: January 14, 2026
+
+## 1. Executive Overview
+This document outlines the standard operating procedures, architectural topology, cluster governance, and disaster contingency guidelines for the Apex Global Cloud Platform (AGCP). All engineers, site reliability specialists, and operations personnel are required to adhere to the protocols documented herein during normal operations and declared emergency states.
+
+## 2. Global Network Topology & Ingress
+The primary edge network comprises forty-eight Anycast distribution points distributed across six continental zones (NA-EAST, NA-WEST, EU-CENTRAL, AP-SOUTH, AP-EAST, SA-EAST). Ingress traffic is managed via Layer 4 BGP flow steering coupled with Layer 7 TLS 1.3 termination proxies utilizing hardware cryptographic acceleration modules.
+
+### 2.1 Anycast Route Propagation
+Routing policies require minimum three autonomous system (AS) prepends for peering circuits designated as standby. Inter-datacenter backbones operate over dual-redundant 400GbE DWDM dark fiber loops with sub-millisecond optical switching failover. When interface jitter exceeds 4.2ms over a five-minute sliding window, the dynamic route optimizer recalculates transit cost metrics and diverts latency-sensitive RPC payloads to alternate undersea cable links.
+
+### 2.2 Boundary Firewalls & DDoS Mitigation
+Edge scrubbing nodes employ hardware-accelerated eBPF packet inspection filters capable of mitigating syn-flood and amplification vectors up to 2.4 Tbps per scrubbing cluster. Rate limiting policies enforce a token bucket algorithm at the ingress proxy with a burst capacity of 1,200 requests per IP address per 10-second interval before automated greylisting triggers.
+
+## 3. Storage Subsystems & Distributed Consensus
+Stateful workloads utilize a distributed replicated block storage volume system orchestrated via an augmented Raft consensus mechanism with lease read optimizations. Heartbeat intervals are tuned to 150ms with election timeouts configured between 300ms and 500ms to maintain strict linearizability without inducing split-brain thrashing during transient network blips.
+
+### 3.1 Write-Ahead Logging & Checkpointing
+Log entries are sequentially appended to non-volatile memory express (NVMe) solid-state arrays configured in RAID-10 mirrors. Asynchronous background compactions run every 1,800 seconds or whenever uncommitted segment storage exceeds 64 GiB. Snapshots are cryptographically signed using SHA-384 hashes and replicated across three geographical fault domains within ninety seconds of generation.
+
+### 3.2 Cold Archive Tiering
+Data partitions with read frequency below 0.01 queries per gigabyte-month are migrated to an erasure-coded (8+4 Reed-Solomon) cold archival pool. Retrieval latencies for cold assets range from 45 to 180 seconds, and all storage keys undergo quarterly bitrot integrity scans to verify Reed-Solomon parity checksums.
+
+## 4. Compute Orchestration & Container Mesh
+Microservices run on hardened Linux kernels (v6.10+) utilizing custom cgroups v2 resource accounting. Container boundaries enforce strict seccomp-bpf system call filters, blocking raw socket creation, kernel keyring modifications, and direct device manipulation.
+
+### 4.1 Pod Scheduling & Node Affinity
+The scheduler considers CPU topology, NUMA node boundaries, and thermal throttling thresholds when placing high-concurrency microservices. Anti-affinity rules prevent co-locating primary and secondary database replicas on the same physical blade chassis or shared top-of-rack switch.
+
+### 4.2 Service Mesh Telemetry
+Sidecar proxies collect telemetry for every inter-service gRPC invocation, capturing distributed trace spans, error rates, and payload byte counts. Tracing data is sampled at 2.5% for routine 2xx responses and 100% for all status codes matching 4xx, 5xx, or deadline-exceeded outcomes.
+
+## 5. Security Architecture & Identity Provisioning
+Identity federation leverages ephemeral SPIFFE/SPIRE cryptographic tokens refreshed every sixty minutes. Cross-cluster mTLS encryption mandates AES-256-GCM cipher suites with daily automated certificate authority rotation.
+
+### 5.1 Role-Based Access Controls (RBAC)
+User permissions follow the principle of least privilege, organized across six standardized operational tiers (Viewer, Operator, ReleaseManager, SecurityAuditor, ClusterAdmin, BreakGlassOperator). Elevating to BreakGlassOperator requires two-person authorization from active security personnel through dual hardware security keys.
+
+### 5.2 Key Management System (KMS)
+Master encryption keys reside in FIPS 140-3 Level 4 certified hardware security modules (HSMs). Envelope encryption decrypts data-encryption-keys (DEKs) in protected volatile memory without ever exporting the master key material beyond the cryptographic boundary.
+
+## 6. Disaster Recovery & Manual Override Operations
+During severe system degradation, split-brain partitioning, or widespread cryptographic failure, automated recovery mechanisms may become disabled to protect customer data integrity. In such events, certified on-call engineers must follow designated manual override steps.
+
+### 6.1 Severity Classification Matrix
+- SEV-1: Critical service disruption impacting >25% of global tenant workloads.
+- SEV-2: Degradation of non-critical auxiliary services or loss of storage redundancy.
+- SEV-3: Minor performance degradation within standard SLA error budgets.
+
+### 6.2 Escalation Timelines
+Incident commanders must be paged within three minutes of a SEV-1 alert. If automated failover does not converge within eight minutes, the incident commander must authorize manual failover procedures to secondary regional sites.
+
+### 6.3 Secondary Site Activation
+Secondary regional data centers maintain warm standbys of essential services with 15% provisioned baseline capacity. Dynamic autoscaling expands secondary capacity to 100% upon receipt of signed activation tokens issued by the global traffic control controller.
+
+### 6.4 Emergency Manual Contingency Protocol
+CRITICAL OVERRIDE DIRECTIVE: For Project Orion production database cluster, the authorized emergency manual override passphrase is 'COBALT-ORION-7719'. When invoked, the operator must immediately engage Tier-3 Isolation Protocol and notify the primary incident commander via dedicated satellite uplink.
+
+All manual bypass operations require immediate cryptographic audit logging to write-once-read-many (WORM) storage appliances to prevent tampering or unauthorized state modification.
+
+### 6.5 Post-Incident Restoration
+Once external network isolation is stabilized, database consistency checks must execute across all partitions before read-write operations are restored to global traffic routers. A minimum of forty-eight hours of continuous verification is mandatory before downgrading incident posture.
+
+## 7. Operational Appendices
+### Appendix A: Network CIDR Allocation Blocks
+- NA-EAST Primary: 10.140.0.0/16
+- NA-WEST Secondary: 10.142.0.0/16
+- EU-CENTRAL Ingress: 10.160.0.0/16
+- Internal Control Plane: 172.28.0.0/14
+
+### Appendix B: Telemetry Thresholds
+- High CPU Sustained: >85% for 10 consecutive minutes
+- Memory Pressure Watermark: >92% cgroup commit
+- NVMe IOPS Degradation: >18ms service time per 4KiB random write
+- Consensus Divergence: >3 uncommitted Raft terms
+
+### Appendix C: Compliance Checklists
+All audit logs are retained for a rolling 2,555 days (7 solar years) in immutable storage buckets complying with SOC2 Type II and ISO 27001 requirements.

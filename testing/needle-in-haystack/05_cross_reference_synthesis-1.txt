@@ -1,0 +1,42 @@
+# Airport Operations Control Center (AOCC) - Daily Dispatch Log
+Operational Date: January 15, 2026
+Shift: T2 - Afternoon (14:00 - 22:00 UTC)
+Central International Airport
+
+## Section 1: Weather Conditions & Active Runways
+METAR LEMD 151400Z 04008KT 9999 FEW030 11/02 Q1024 NOSIG.
+Preferred operational runways: Runway 32R for wide-body departures and 32L for ILS CAT III instrument approaches. Runway 18L is under scheduled nocturnal lighting maintenance between 20:00 and 23:30. Main runway friction coefficient: 0.82 (dry/optimal).
+
+## Section 2: Special Passenger Manifest & Priority Connections
+- Passenger: Mr. Carlos Santillana (TKT-91024-A). Flight: AF-1044 bound for Paris Charles de Gaulle. Checked baggage: 2 pieces. Note: Tight connection to JFK (65 minutes).
+- Passenger: Dr. Elena Ruiz Montero (TKT-88401-E). Assigned Flight: UX-7724 bound for Frankfurt Main. Special service: VIP Lounge and Fast-Track boarding. Carry-on baggage cleared.
+- Passenger: Eng. Liam O'Connor (TKT-33412-K). Flight: BA-458 bound for London Heathrow. International connection Terminal 4S.
+- Passenger: Ms. Akiko Tanaka (TKT-77091-M). Flight: JL-042 bound for Tokyo Haneda via Munich. Vegetarian meal confirmed.
+
+## Section 3: Ramp Handling & Catering Allocation
+Ramp crews Alpha and Beta will service transatlantic flights between 15:00 and 18:30. Jet A-1 refueling coordinated via underground hydrant stations at stands 40 through 58. Fuel tanker truck 09 remains on technical reserve for pressure valve servicing. SkyGourmet catering will supply 420 hot meals for flight IB-6403 and 180 cold meal boxes for regional service UX-2019.
+
+## Section 4: Weight & Balance Telemetry
+All MAC% center-of-gravity calculations for Airbus A350-900 and Boeing 787-9 aircraft must be submitted via ACARS prior to TOBT -10 minutes. Pushback clearance will be denied for any aircraft whose telemetric cargo manifest displays discrepancies exceeding 150 kg in bulk cargo compartments.
+
+## Section 5: Security Architecture & Border Verification
+Automated Border Control (ABC) biometric e-gates are operating at 94% availability in Terminal 1 and Terminal 4. Border police report an average passenger wait time of 3.2 minutes at non-Schengen passport inspection desks. Level 1 emergency egress drill concluded successfully in South Concourse at 11:20 without disruption.
+
+## Section 6: Ground Support Equipment Maintenance
+Telescopic boarding bridges P-12 and P-14 are temporarily decommissioned for electrohydraulic actuator replacement. Aircraft assigned to those stands will deplane passengers using mobile airstairs and aprons buses transiting to low concourse gate G-04.
+
+## Section 7: Flight Crew Rotations
+Captains and first officers for cross-border routes must complete flight briefings in room C-OPS 30 minutes prior to scheduled block time. Standby reserve flight crew composed of Captain Javier Vidal and First Officer Sofia Morales is activated for Boeing 737-800 fleet contingencies.
+
+## Section 8: Acoustic Monitoring & Environmental Compliance
+The environmental noise committee reminds flight crews that after 23:00 UTC, reverse thrust settings exceeding idle reverse are strictly restricted to mitigate the acoustic footprint across residential zones north of departure corridors.
+
+## Section 9: Gate Assignment Matrix & Departure Radar
+- Flight AF-1044 (Paris CDG): Gate A-08, Terminal 1. Scheduled departure: 16:30.
+- Flight BA-458 (London LHR): Gate A-19, Terminal 1. Scheduled departure: 17:15.
+- Flight IB-6403 (Mexico City): Gate D-02, Terminal 4S. Scheduled departure: 18:00.
+- Flight UX-7724 (Frankfurt Main): Assigned Departure Gate C-28, Terminal 2 Satellite. Estimated boarding: 18:45.
+- Flight JL-042 (Tokyo Haneda): Gate D-14, Terminal 4S. Scheduled departure: 19:30.
+- Flight UX-2019 (Lisbon): Gate B-06, Terminal 2. Scheduled departure: 19:50.
+
+End of daily dispatch log.

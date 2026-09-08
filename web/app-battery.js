@@ -2332,6 +2332,20 @@ function blindReviewBlocks(result) {
   };
 }
 
+// Approximate token count for a visible text (~4 chars/token). The backend
+// only reports turn-level totals, so per-section counts are estimates
+// marked with ~, just as a size reference while reviewing.
+function brApproxTokens(text) {
+  const n = Math.round(String(text || "").length / 4);
+  if (n < 1000) return `~${n} tok`;
+  return `~${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k tok`;
+}
+
+function brTokCount(text) {
+  if (!text) return "";
+  return `<span class="br-tokcount">${escapeHtml(brApproxTokens(text))}</span>`;
+}
+
 function renderBlindReviewCard() {
   const body = $("battery-review-body");
   if (!body) return;
@@ -2359,8 +2373,8 @@ function renderBlindReviewCard() {
     if (it.prompt) {
       mainHtml += `<div class="br-section"><div class="br-label">${escapeHtml(t("battery.prompt"))}${blocks.items.length > 1 ? ` · ${i + 1}` : ""}</div><div class="br-block br-prompt">${escapeHtml(it.prompt)}</div></div>`;
     }
-    mainHtml += `<div class="br-section"><div class="br-label">🧠 ${escapeHtml(t("battery.review_thinking"))}</div>${it.thinking ? `<div class="br-block br-thinking">${escapeHtml(it.thinking)}</div>` : noThinking}</div>`;
-    mainHtml += `<div class="br-section"><div class="br-label">💬 ${escapeHtml(t("battery.review_output"))}</div><div class="br-block br-response">${escapeHtml(it.response) || `<span class="muted">${escapeHtml(t("battery.no_response"))}</span>`}</div></div>`;
+    mainHtml += `<div class="br-section"><div class="br-label"><span>🧠 ${escapeHtml(t("battery.review_thinking"))}</span>${brTokCount(it.thinking)}</div>${it.thinking ? `<div class="br-block br-thinking">${escapeHtml(it.thinking)}</div>` : noThinking}</div>`;
+    mainHtml += `<div class="br-section"><div class="br-label"><span>💬 ${escapeHtml(t("battery.review_output"))}</span>${brTokCount(it.response)}</div><div class="br-block br-response">${escapeHtml(it.response) || `<span class="muted">${escapeHtml(t("battery.no_response"))}</span>`}</div></div>`;
   });
 
   body.innerHTML = `

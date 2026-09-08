@@ -6953,6 +6953,18 @@ button.chat-send:disabled:hover {
   letter-spacing: .5px;
   color: var(--muted);
   font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.br-tokcount {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 .br-block {
   background: var(--panel-2);

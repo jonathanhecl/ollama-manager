@@ -2709,6 +2709,7 @@ function renderBatteryResults(run) {
       max: overallVals.length ? Math.max(...overallVals) : 0,
     };
     const heatStyle = batteryLbHeatStyle;
+    const lbOverallLabel = escapeHtml(t("battery.leaderboard_overall"));
     let lbHeaderCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
     for (const gid of groupIdsPresent) {
       lbHeaderCols += `<th class="cell-lb-group-head" title="${escapeHtml(groupName(gid))}">${escapeHtml(groupName(gid))}</th>`;
@@ -2718,18 +2719,19 @@ function renderBatteryResults(run) {
     lbRows.forEach((row, idx) => {
       let cells = "";
       if (row.overall == null) {
-        cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty"><span class="muted">—</span></td>`;
+        cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" data-lb-col="${lbOverallLabel}"><span class="muted">—</span></td>`;
       } else {
-        cells += `<td class="cell-lb-score cell-lb-overall mono" style="${heatStyle(row.overall, overallRange, true)}" title="${row.earned.toFixed(1)}/${row.total.toFixed(1)} pts">${row.overall.toFixed(1)}</td>`;
+        cells += `<td class="cell-lb-score cell-lb-overall mono" data-lb-col="${lbOverallLabel}" style="${heatStyle(row.overall, overallRange, true)}" title="${row.earned.toFixed(1)}/${row.total.toFixed(1)} pts">${row.overall.toFixed(1)}</td>`;
       }
       for (const gid of groupIdsPresent) {
         const c = scores[row.model][gid];
+        const lbColLabel = escapeHtml(groupName(gid));
         if (!c || c.total === 0) {
-          cells += `<td class="cell-lb-score cell-lb-empty"><span class="muted">—</span></td>`;
+          cells += `<td class="cell-lb-score cell-lb-empty" data-lb-col="${lbColLabel}"><span class="muted">—</span></td>`;
           continue;
         }
         const pct = Math.min(100.0, Math.max(0.0, (c.earned / c.total) * 100));
-        cells += `<td class="cell-lb-score mono" style="${heatStyle(pct, colRange[gid], false)}" title="${c.earned.toFixed(1)}/${c.total.toFixed(1)} pts">${pct.toFixed(1)}</td>`;
+        cells += `<td class="cell-lb-score mono" data-lb-col="${lbColLabel}" style="${heatStyle(pct, colRange[gid], false)}" title="${c.earned.toFixed(1)}/${c.total.toFixed(1)} pts">${pct.toFixed(1)}</td>`;
       }
       lbBodyRows += `
         <tr class="${idx === 0 ? "lb-row-first" : ""}">

@@ -301,6 +301,8 @@ async function buildLeaderboardTableHtml() {
   }
 
   const runHint = t("battery.lb_run_hint");
+  // Short labels reused as card row labels on mobile (see CSS attr(data-lb-col)).
+  const overallColLabel = escapeHtml(t("battery.leaderboard_overall"));
   // Model capabilities (lowercased) for the ✕-vs-— decision below.
   const lbModelCaps = new Map();
   for (const [name, info] of modelInfo) {
@@ -337,29 +339,30 @@ async function buildLeaderboardTableHtml() {
     const runModelAttr = installed ? `data-lb-run data-lb-run-model="${escapeHtml(row.model)}"` : "";
     const hintSuffix = installed ? ` · ${escapeHtml(runHint)}` : "";
     if (row.overall == null) {
-      cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" ${runModelAttr} data-lb-run-group=""${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
+      cells += `<td class="cell-lb-score cell-lb-overall cell-lb-empty" data-lb-col="${overallColLabel}" ${runModelAttr} data-lb-run-group=""${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
     } else {
       const overallScoreFormatted = row.overall.toFixed(1);
       const overallTooltip = `${row.passed}/${row.total} tests (${row.passedCases}/${row.totalCases} ${t("battery.cases") || "cases"}, ${row.points.toFixed(1)}/${row.maxPoints.toFixed(1)} ${t("battery.points") || "pts"}) · ${overallScoreFormatted}%${hintSuffix}`;
-      cells += `<td class="cell-lb-score cell-lb-overall mono" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${escapeHtml(overallTooltip)}">${overallScoreFormatted}</td>`;
+      cells += `<td class="cell-lb-score cell-lb-overall mono" data-lb-col="${overallColLabel}" ${runModelAttr} data-lb-run-group="" style="${batteryLbHeatStyle(row.overall, overallRange, true)}" title="${escapeHtml(overallTooltip)}">${overallScoreFormatted}</td>`;
     }
     for (const col of cols) {
       const c = scores[row.model]?.[col.id];
+      const colLabel = escapeHtml(col.name);
       if (!c || c.score == null) {
         const lacking = installed ? lbLacksCaps(row.model, col) : [];
         if (lacking.length > 0) {
           const missTip = `${t("battery.lb_missing_cap", { caps: lacking.join(", ") })}${hintSuffix}`;
-          cells += `<td class="cell-lb-score cell-lb-empty" data-lb-incompatible="${escapeHtml(row.model)}" data-lb-incompatible-caps="${escapeHtml(lacking.join(", "))}" title="${escapeHtml(missTip)}"><span class="muted">✕</span></td>`;
+          cells += `<td class="cell-lb-score cell-lb-empty" data-lb-col="${colLabel}" data-lb-incompatible="${escapeHtml(row.model)}" data-lb-incompatible-caps="${escapeHtml(lacking.join(", "))}" title="${escapeHtml(missTip)}"><span class="muted">✕</span></td>`;
           continue;
         }
-        cells += `<td class="cell-lb-score cell-lb-empty" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}"${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
+        cells += `<td class="cell-lb-score cell-lb-empty" data-lb-col="${colLabel}" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}"${installed ? ` title="${escapeHtml(runHint)}"` : ""}><span class="muted">—</span></td>`;
         continue;
       }
       const score = c.score;
       const scoreFormatted = score.toFixed(1);
       const pendingText = c.unrun > 0 ? ` (${c.unrun} ${t("battery.pending_tests") || "unrun"})` : "";
       const scoreTooltip = `${c.passed}/${c.activeTotal} tests (${c.passedCases}/${c.activeCases} ${t("battery.cases") || "cases"}, ${c.pts.toFixed(1)}/${c.activeMaxPoints.toFixed(1)} ${t("battery.points") || "pts"})${pendingText} · ${scoreFormatted}%${hintSuffix}`;
-      cells += `<td class="cell-lb-score mono" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(score, colRange[col.id], false)}" title="${escapeHtml(scoreTooltip)}">${scoreFormatted}</td>`;
+      cells += `<td class="cell-lb-score mono" data-lb-col="${colLabel}" ${runModelAttr} data-lb-run-group="${escapeHtml(col.id)}" style="${batteryLbHeatStyle(score, colRange[col.id], false)}" title="${escapeHtml(scoreTooltip)}">${scoreFormatted}</td>`;
     }
 
     let modelName = row.model;

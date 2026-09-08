@@ -327,3 +327,33 @@ function findModelByUrlKey(key) {
          null;
 }
 
+function hideAllMainViews() {
+  if (typeof stopBatteryPolling === "function") stopBatteryPolling();
+  if (typeof currentView !== "undefined" && currentView === "chat") {
+    if (typeof resetChatState === "function") {
+      resetChatState();
+    }
+  }
+  const viewIds = [
+    "models-view",
+    "chat-view",
+    "tests-view",
+    "test-editor-view",
+    "agent-session-view",
+    "battery-progress-view",
+    "battery-results-view",
+    "battery-history-view",
+    "battery-leaderboard-view",
+    "analytics-view",
+    "settings-view",
+    "modelfile-view",
+    "hf-view",
+    "detail-panel"
+  ];
+  for (const id of viewIds) {
+    const el = $(id);
+    if (el) el.hidden = true;
+  }
+  document.querySelectorAll(".topbar-actions button").forEach((b) => b.classList.remove("active"));
+}
+

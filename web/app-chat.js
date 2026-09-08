@@ -253,25 +253,14 @@ function updateChatContextMeter() {
 }
 
 function showModelsView() {
+  hideAllMainViews();
   const chatView = $("chat-view");
   const modelsView = $("models-view");
   chatView?.classList.remove("chat-options-open");
   syncChatPanels(chatView);
   stopSpeechPlayback();
-  if (typeof resetChatState === "function") {
-    resetChatState();
-  }
   currentView = "models";
   if (modelsView) modelsView.hidden = false;
-  if (chatView) chatView.hidden = true;
-  $("tests-view") && ($("tests-view").hidden = true);
-  $("test-editor-view") && ($("test-editor-view").hidden = true);
-  $("opencode-view") && ($("opencode-view").hidden = true);
-  $("analytics-view") && ($("analytics-view").hidden = true);
-  $("settings-view") && ($("settings-view").hidden = true);
-  $("modelfile-view") && ($("modelfile-view").hidden = true);
-  $("hf-view") && ($("hf-view").hidden = true);
-  document.querySelectorAll(".topbar-actions button").forEach((b) => b.classList.remove("active"));
   if (window.location.pathname !== "/") {
     history.pushState(null, "", "/");
   }
@@ -394,27 +383,17 @@ function showChatView() {
   if (currentView !== "chat" && !chatMessages.length && !$("chat-input")?.value?.trim()) {
     resetChatState();
   }
+  hideAllMainViews();
   currentView = "chat";
   chatView.classList.remove("chat-options-open");
-  modelsView.hidden = true;
-  $("tests-view") && ($("tests-view").hidden = true);
-  $("test-editor-view") && ($("test-editor-view").hidden = true);
-  $("opencode-view") && ($("opencode-view").hidden = true);
-  $("analytics-view") && ($("analytics-view").hidden = true);
-  $("settings-view") && ($("settings-view").hidden = true);
-  $("modelfile-view") && ($("modelfile-view").hidden = true);
-  $("hf-view") && ($("hf-view").hidden = true);
-  $("settings-btn")?.classList.remove("active");
-  $("hf-topbar-btn")?.classList.remove("active");
   chatView.hidden = false;
   syncChatPanels(chatView);
   $("chat-btn")?.classList.add("active");
-  if ($("detail-panel") && !$("detail-panel").hidden) {
-    $("detail-panel").hidden = true;
+  if (activeName) {
     activeName = null;
     document.querySelectorAll("tbody tr.row.active").forEach((tr) => tr.classList.remove("active"));
   }
-  if (window.location.pathname.startsWith("/settings") || window.location.pathname.startsWith("/hf") || window.location.pathname.startsWith("/modelfile") || window.location.pathname.startsWith("/tests") || window.location.pathname.startsWith("/analytics")) {
+  if (window.location.pathname.startsWith("/settings") || window.location.pathname.startsWith("/hf") || window.location.pathname.startsWith("/modelfile") || window.location.pathname.startsWith("/tests") || window.location.pathname.startsWith("/analytics") || window.location.pathname.startsWith("/leaderboard")) {
     history.pushState(null, "", "/");
   }
   syncChatModelOptions();

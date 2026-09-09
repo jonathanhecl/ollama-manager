@@ -53,6 +53,7 @@ async function showSettingsView() {
   }
   bindExternalModelsEvents();
   bindSystemPromptsEvents();
+  bindGatewayEvents();
   bindSettingsNavEvents();
   bindDefaultSystemPromptFileEvents();
   bindSystemPromptsModalEvents();
@@ -71,6 +72,7 @@ async function showSettingsView() {
   else if (path === "/settings/network") targetSecId = "sec-network";
   else if (path === "/settings/external") targetSecId = "sec-ext-models";
   else if (path === "/settings/archived" || path === "/archived") targetSecId = "sec-archived";
+  else if (path === "/settings/gateway") targetSecId = "sec-gateway";
   else if (path === "/settings/opencode" || path === "/opencode") targetSecId = "sec-opencode";
   else if (path === "/settings/general") targetSecId = "sec-general";
   else if (path === "/settings" || path === "/settings/") {
@@ -309,6 +311,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
     else if (sectionId === "sec-network") subRoute = "/settings/network";
     else if (sectionId === "sec-ext-models") subRoute = "/settings/external";
     else if (sectionId === "sec-archived") subRoute = "/settings/archived";
+    else if (sectionId === "sec-gateway") subRoute = "/settings/gateway";
     else if (sectionId === "sec-opencode") subRoute = "/settings/opencode";
     if (window.location.pathname !== subRoute) {
       history.pushState(null, "", subRoute);
@@ -1385,6 +1388,259 @@ function bindExternalModelsEvents() {
   }
 }
 
+// ---------- Gateway (exposed models tunnel) ----------
+
+// Must match config.DefaultGatewayPort in internal/config/config.go.
+const GATEWAY_DEFAULT_PORT = 7861;
+
+let gatewayModelsCache = [];
+let gatewaySelectedModels = new Set();
+
+async function loadGatewaySection(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const gw = (currentConfig && currentConfig.gateway) || {};
+  if ($("gw-enable")) $("gw-enable").checked = !!gw.enabled;
+  if ($("gw-port")) $("gw-port").value = gw.port > 0 ? String(gw.port) : "";
+  if ($("gw-expose")) $("gw-expose").checked = !!gw.expose_network;
+  if ($("gw-require-auth")) $("gw-require-auth").checked = !!gw.require_auth;
+  gatewaySelectedModels = new Set(gw.models || []);
+  updateGatewayWarning(targetLang);
+  updateGatewayStatus(targetLang);
+  await Promise.all([
+    renderGatewayModels(targetLang).catch(() => {}),
+    loadGatewayKeys(targetLang).catch(() => {}),
+  ]);
+}
+
+function gatewayEffectivePort() {
+  const raw = parseInt($("gw-port")?.value, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : GATEWAY_DEFAULT_PORT;
+}
+
+function updateGatewayWarning(lang = null) {
+  const warn = $("gw-expose-warning");
+  if (!warn) return;
+  const exposed = $("gw-expose")?.checked;
+  const authed = $("gw-require-auth")?.checked;
+  warn.hidden = !(exposed && !authed);
+}
+
+function updateGatewayStatus(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const enabled = !!$("gw-enable")?.checked;
+  const badge = $("gateway-status-badge");
+  const navBadge = $("gateway-nav-badge");
+  const port = gatewayEffectivePort();
+  const host = $("gw-expose")?.checked ? "0.0.0.0" : "127.0.0.1";
+  if (badge) {
+    if (enabled) {
+      badge.textContent = `${host}:${port}`;
+      badge.className = "badge badge-good";
+    } else {
+      badge.textContent = t("settings.gateway_off", null, targetLang);
+      badge.className = "badge badge-muted";
+    }
+  }
+  if (navBadge) {
+    const n = gatewaySelectedModels.size > 0 ? gatewaySelectedModels.size : gatewayModelsCache.length;
+    navBadge.textContent = enabled ? String(n) : "0";
+  }
+}
+
+async function renderGatewayModels(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const listEl = $("gw-models-list");
+  if (!listEl) return;
+  let list = [];
+  try {
+    const data = await api("/api/models");
+    list = (data.models || []).filter((m) => !m.archived && !m.disabled && !m.is_ghost);
+  } catch (e) {
+    listEl.innerHTML = `<div class="muted small">${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  gatewayModelsCache = list.map((m) => m.name);
+  if (gatewaySelectedModels.size === 0) {
+    // Empty allowlist = everything exposed: reflect as all checked.
+    gatewaySelectedModels = new Set(gatewayModelsCache);
+  } else {
+    // Drop names that no longer exist.
+    gatewaySelectedModels = new Set([...gatewaySelectedModels].filter((n) => gatewayModelsCache.includes(n)));
+  }
+  if (list.length === 0) {
+    listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.gateway_models_none", null, targetLang))}</div>`;
+  } else {
+    listEl.innerHTML = list.map((m) => {
+      const checked = gatewaySelectedModels.has(m.name);
+      const extTag = m.is_external ? ` <span class="model-external-tag">${escapeHtml(t("models.external_badge", null, targetLang))}</span>` : "";
+      return `
+        <label class="gw-model-item${checked ? " selected" : ""}">
+          <input type="checkbox" value="${escapeHtml(m.name)}"${checked ? " checked" : ""} />
+          <span class="gw-model-name mono">${escapeHtml(m.name)}${extTag}</span>
+        </label>
+      `;
+    }).join("");
+  }
+  listEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      if (cb.checked) gatewaySelectedModels.add(cb.value);
+      else gatewaySelectedModels.delete(cb.value);
+      cb.closest(".gw-model-item")?.classList.toggle("selected", cb.checked);
+      updateGatewayStatus(targetLang);
+    });
+  });
+  updateGatewayStatus(targetLang);
+}
+
+// Selection sent on save: all checked (or none visible) means "expose
+// everything", encoded as an empty allowlist like the backend expects.
+function getGatewayModelsSelection() {
+  if (gatewayModelsCache.length === 0) return [];
+  if (gatewaySelectedModels.size >= gatewayModelsCache.length) return [];
+  return [...gatewaySelectedModels];
+}
+
+async function loadGatewayKeys(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const listEl = $("gw-keys-list");
+  if (!listEl) return;
+  try {
+    const data = await api("/api/gateway/keys");
+    const list = data.keys || [];
+    if (list.length === 0) {
+      listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.gateway_keys_none", null, targetLang))}</div>`;
+      return;
+    }
+    listEl.innerHTML = list.map((k) => `
+      <div class="ext-model-card" data-id="${escapeHtml(k.id)}">
+        <div class="ext-model-card-info">
+          <div class="ext-model-card-name">${escapeHtml(k.name)}</div>
+          <div class="ext-model-card-url mono">${escapeHtml(k.prefix || "")}</div>
+        </div>
+        <div class="ext-model-card-actions">
+          <button type="button" class="btn-icon danger-text gw-key-del-btn" data-id="${escapeHtml(k.id)}" title="${escapeHtml(t("action.delete", null, targetLang))}">🗑️</button>
+        </div>
+      </div>
+    `).join("");
+    listEl.querySelectorAll(".gw-key-del-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await api("/api/gateway/keys/" + encodeURIComponent(btn.dataset.id), { method: "DELETE" });
+          toast(t("toast.deleted", null, targetLang), "success");
+          loadGatewayKeys(targetLang);
+        } catch (e) {
+          toast(t("toast.error", { msg: e.message }, targetLang), "error");
+        }
+      });
+    });
+  } catch (e) {
+    listEl.innerHTML = `<div class="muted small">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function createGatewayKey() {
+  const input = $("gw-key-name");
+  const name = input?.value?.trim() || "";
+  if (!name) {
+    input?.focus();
+    return;
+  }
+  try {
+    const res = await api("/api/gateway/keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const box = $("gw-key-secret");
+    const val = $("gw-key-secret-value");
+    if (box && val) {
+      val.textContent = res.key || "";
+      box.hidden = false;
+    }
+    if (input) input.value = "";
+    toast(t("settings.gateway_key_created"), "success");
+    loadGatewayKeys();
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+function bindGatewayEvents() {
+  const enableEl = $("gw-enable");
+  if (enableEl && !enableEl._bound) {
+    enableEl._bound = true;
+    enableEl.addEventListener("change", () => updateGatewayStatus());
+  }
+  const exposeEl = $("gw-expose");
+  if (exposeEl && !exposeEl._bound) {
+    exposeEl._bound = true;
+    exposeEl.addEventListener("change", () => {
+      updateGatewayWarning();
+      updateGatewayStatus();
+    });
+  }
+  const authEl = $("gw-require-auth");
+  if (authEl && !authEl._bound) {
+    authEl._bound = true;
+    authEl.addEventListener("change", () => updateGatewayWarning());
+  }
+  const portEl = $("gw-port");
+  if (portEl && !portEl._bound) {
+    portEl._bound = true;
+    portEl.addEventListener("input", () => updateGatewayStatus());
+  }
+  const selectAll = $("gw-models-select-all");
+  if (selectAll && !selectAll._bound) {
+    selectAll._bound = true;
+    selectAll.addEventListener("click", () => {
+      gatewaySelectedModels = new Set(gatewayModelsCache);
+      renderGatewayModels();
+    });
+  }
+  const clearBtn = $("gw-models-clear");
+  if (clearBtn && !clearBtn._bound) {
+    clearBtn._bound = true;
+    clearBtn.addEventListener("click", () => {
+      gatewaySelectedModels = new Set();
+      renderGatewayModels();
+    });
+  }
+  const createBtn = $("gw-key-create-btn");
+  if (createBtn && !createBtn._bound) {
+    createBtn._bound = true;
+    createBtn.addEventListener("click", () => { void createGatewayKey(); });
+  }
+  const nameInput = $("gw-key-name");
+  if (nameInput && !nameInput._bound) {
+    nameInput._bound = true;
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void createGatewayKey();
+      }
+    });
+  }
+  const copyBtn = $("gw-key-copy-btn");
+  if (copyBtn && !copyBtn._bound) {
+    copyBtn._bound = true;
+    copyBtn.addEventListener("click", async () => {
+      const val = $("gw-key-secret-value")?.textContent || "";
+      if (!val) return;
+      try {
+        await navigator.clipboard.writeText(val);
+        toast(t("settings.gateway_key_copied"), "success");
+      } catch {
+        const tmp = document.createElement("textarea");
+        tmp.value = val;
+        document.body.appendChild(tmp);
+        tmp.select();
+        try { document.execCommand("copy"); } catch { }
+        tmp.remove();
+      }
+    });
+  }
+}
+
 function renderSettingsTranslations(lang = null) {
   const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
   const settingsView = $("settings-view");
@@ -1396,6 +1652,7 @@ function renderSettingsTranslations(lang = null) {
   loadExternalModels(targetLang);
   loadSystemPrompts(targetLang);
   loadArchivedModelsInSettings(targetLang);
+  loadGatewaySection(targetLang);
   if (typeof refreshOpenCodeUI === "function") {
     refreshOpenCodeUI();
   }

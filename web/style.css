@@ -10422,6 +10422,71 @@ button.chat-send:disabled:hover {
   text-overflow: ellipsis;
 }
 
+/* Gateway (exposed models tunnel) */
+.gw-models-actions {
+  display: flex;
+  gap: 6px;
+}
+.gw-models-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.gw-model-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--bg-subtle, #141419);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.gw-model-item:hover {
+  border-color: var(--border-strong);
+}
+.gw-model-item.selected {
+  border-color: var(--accent);
+}
+.gw-model-item input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.gw-model-name {
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gw-key-secret {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-subtle, #141419);
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+}
+.gw-key-secret code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  user-select: all;
+}
+
 .input-masked {
   -webkit-text-security: disc;
   text-security: disc;

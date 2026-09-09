@@ -419,11 +419,24 @@ $("settings-save").addEventListener("click", async () => {
     web_tools: $("set-default-web-tools")?.checked ?? false,
     artifacts: $("set-default-artifacts")?.checked ?? false,
   };
+  const gwPortRaw = ($("gw-port")?.value ?? "").trim();
+  const gwPort = gwPortRaw === "" ? 0 : parseInt(gwPortRaw, 10);
+  if (!Number.isFinite(gwPort) || gwPort < 0 || gwPort > 65535) {
+    toast(t("toast.error", { msg: "gateway port 0..65535" }), "error");
+    return;
+  }
   const body = {
     language: $("set-language").value,
     port,
     expose_network: $("set-expose").checked,
     chat_defaults: chatDefaults,
+    gateway: {
+      enabled: $("gw-enable")?.checked ?? false,
+      port: gwPort,
+      expose_network: $("gw-expose")?.checked ?? false,
+      models: typeof getGatewayModelsSelection === "function" ? getGatewayModelsSelection() : [],
+      require_auth: $("gw-require-auth")?.checked ?? false,
+    },
   };
   try {
     const res = await api("/api/config", {

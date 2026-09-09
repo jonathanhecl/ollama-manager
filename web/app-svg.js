@@ -2528,6 +2528,7 @@ async function handleRouting() {
         else if (path === "/settings/network") showSettingsSection("sec-network", false);
         else if (path === "/settings/external") showSettingsSection("sec-ext-models", false);
         else if (path === "/settings/archived") showSettingsSection("sec-archived", false);
+        else if (path === "/settings/gateway") showSettingsSection("sec-gateway", false);
         else if (path === "/settings/opencode") showSettingsSection("sec-opencode", false);
         else if ((path === "/settings" || path === "/settings/") && window.innerWidth <= 900 && typeof showSettingsMobileMenu === "function") {
           showSettingsMobileMenu();

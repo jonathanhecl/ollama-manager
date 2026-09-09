@@ -723,6 +723,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 
 		allPassed := true
 		hasScored := false
+		anySkippedOrLoop := false
 		var responsesSummary []string
 		var totalEvalDuration int64
 		stepOverrides := make([]string, len(test.Steps))
@@ -762,6 +763,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			snapReasoning := res.ReasoningUsed
 			snapHasScored := hasScored
 			snapAllPassed := allPassed
+			snapSkippedOrLoop := anySkippedOrLoop
 			snapResError := res.Error
 
 			stepFailed := false
@@ -793,40 +795,90 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				if len(stepMedia) > 0 {
 					stepMsg.Images = stepMedia
 				}
-			history = append(history, stepMsg)
-			stepCtx, stepCancel := context.WithCancelCause(ctx)
-			c.setTestCancel(runID, stepCancel)
-			turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]), thinkFor(effStepOpts[i]))
-			retry := errors.Is(context.Cause(stepCtx), errManualRetry)
-			// A stage-limit auto-skip behaves like a manual case skip:
-			// record the step as skipped and continue with the next
-			// step instead of aborting the whole test.
-			skipCase := errors.Is(context.Cause(stepCtx), errManualSkip) || errors.Is(turn.Error, errAutoSkipStage)
-			stepCancel(nil)
-			if retry {
-				// Manual retry: drop the cancelled attempt and run
-				// the same step again from its snapshot.
-				history = history[:snapHistLen]
-				res.SubResults = res.SubResults[:snapSubLen]
-				responsesSummary = responsesSummary[:snapSummaryLen]
-				totalEvalDuration = snapEvalDuration
-				res.PromptTokens = snapPromptTokens
-				res.EvalTokens = snapEvalTokens
-				res.TotalTokens = snapTotalTokens
-				res.ReasoningUsed = snapReasoning
-				hasScored = snapHasScored
-				allPassed = snapAllPassed
-				res.Error = snapResError
-				continue
-			}
-			if turn.Error != nil {
-				if skipCase {
-					// Skip Case: record this step as skipped and
-					// continue with the next step instead of
-					// aborting the whole test.
+				history = append(history, stepMsg)
+				stepCtx, stepCancel := context.WithCancelCause(ctx)
+				c.setTestCancel(runID, stepCancel)
+				turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]), thinkFor(effStepOpts[i]))
+				retry := errors.Is(context.Cause(stepCtx), errManualRetry)
+				// A stage-limit auto-skip behaves like a manual case skip:
+				// record the step as skipped and continue with the next
+				// step instead of aborting the whole test.
+				skipCase := errors.Is(context.Cause(stepCtx), errManualSkip) || errors.Is(turn.Error, errAutoSkipStage)
+				skipModel := errors.Is(context.Cause(stepCtx), errManualSkipModel)
+				stepCancel(nil)
+				c.clearTestCancel(runID)
+				if retry {
+					// Manual retry: drop the cancelled attempt and run
+					// the same step again from its snapshot.
+					history = history[:snapHistLen]
+					res.SubResults = res.SubResults[:snapSubLen]
+					responsesSummary = responsesSummary[:snapSummaryLen]
+					totalEvalDuration = snapEvalDuration
+					res.PromptTokens = snapPromptTokens
+					res.EvalTokens = snapEvalTokens
+					res.TotalTokens = snapTotalTokens
+					res.ReasoningUsed = snapReasoning
+					hasScored = snapHasScored
+					allPassed = snapAllPassed
+					anySkippedOrLoop = snapSkippedOrLoop
+					res.Error = snapResError
+					continue
+				}
+				if skipModel {
+					history = history[:snapHistLen]
+					falseVal := false
+					allPassed = false
+					anySkippedOrLoop = true
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:  i + 1,
+						Name:   stepLabel,
+						Prompt: step.Prompt,
+						Passed: &falseVal,
+						Error:  "manually skipped",
+					})
+					responsesSummary = append(responsesSummary, fmt.Sprintf("[SKIP] %s: (Error: manually skipped)", stepLabel))
+					stepFailed = true
+					break
+				}
+				if turn.Error != nil {
+					history = history[:snapHistLen]
+					if skipCase {
+						// Skip Case: record this step as skipped and
+						// continue with the next step instead of
+						// aborting the whole test.
+						falseVal := false
+						allPassed = false
+						anySkippedOrLoop = true
+						errStr := "manually skipped"
+						if errors.Is(turn.Error, errAutoSkipStage) {
+							errStr = turn.Error.Error()
+						}
+						res.SubResults = append(res.SubResults, SubResult{
+							Index:          i + 1,
+							Name:           stepLabel,
+							Prompt:         step.Prompt,
+							SystemPrompt:   effStepSys[i],
+							Options:        effStepOpts[i],
+							Passed:         &falseVal,
+							ResponseTimeMs: turn.ResponseTimeMs,
+							TokensPerSec:   turn.TokensPerSec,
+							PromptTokens:   turn.PromptTokens,
+							EvalTokens:     turn.EvalTokens,
+							TotalTokens:    turn.TotalTokens,
+							ReasoningUsed:  turn.Thinking != "",
+							ModelResponse:  turn.Content,
+							Thinking:       turn.Thinking,
+							Error:          errStr,
+						})
+						responsesSummary = append(responsesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", stepLabel, errStr))
+						break
+					}
 					res.Error = turn.Error.Error()
 					falseVal := false
 					allPassed = false
+					if isLoopOrSkip(turn.Error.Error()) {
+						anySkippedOrLoop = true
+					}
 					res.SubResults = append(res.SubResults, SubResult{
 						Index:          i + 1,
 						Name:           stepLabel,
@@ -844,33 +896,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						Thinking:       turn.Thinking,
 						Error:          turn.Error.Error(),
 					})
-					responsesSummary = append(responsesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", stepLabel, turn.Error.Error()))
+					responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
+					stepFailed = true
 					break
 				}
-				res.Error = turn.Error.Error()
-				falseVal := false
-				allPassed = false
-				res.SubResults = append(res.SubResults, SubResult{
-					Index:          i + 1,
-					Name:           stepLabel,
-					Prompt:         step.Prompt,
-					SystemPrompt:   effStepSys[i],
-					Options:        effStepOpts[i],
-					Passed:         &falseVal,
-					ResponseTimeMs: turn.ResponseTimeMs,
-					TokensPerSec:   turn.TokensPerSec,
-					PromptTokens:   turn.PromptTokens,
-					EvalTokens:     turn.EvalTokens,
-					TotalTokens:    turn.TotalTokens,
-					ReasoningUsed:  turn.Thinking != "",
-					ModelResponse:  turn.Content,
-					Thinking:       turn.Thinking,
-					Error:          turn.Error.Error(),
-				})
-				responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
-				stepFailed = true
-				break
-			}
 
 				if turn.Thinking != "" {
 					res.ReasoningUsed = true
@@ -923,7 +952,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		if totalEvalDuration > 0 && res.EvalTokens > 0 {
 			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
 		}
-		if isLoopOrSkip(res.Error) {
+		if isLoopOrSkip(res.Error) || anySkippedOrLoop {
 			falseVal := false
 			res.Passed = &falseVal
 		} else if hasScored && res.Error == "" {
@@ -968,56 +997,206 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		}
 		unitIdx := 0
 
+		type caseTurnOutcome int
+		const (
+			caseTurnPass caseTurnOutcome = iota
+			caseTurnSkip
+			caseTurnFail
+			caseTurnAbort
+		)
+
 		// runCaseTurn executes one user turn inside the given history, scores it
-		// and records the sub-result. It returns false when execution must stop.
-		runCaseTurn := func(caseCtx context.Context, history []ollama.ChatMessage, unitName, prompt string, attachments []tests.Attachment, sys string, eval *tests.Evaluation, effOpts *tests.TestOptions) ([]ollama.ChatMessage, bool) {
-			if caseCtx.Err() != nil {
-				if ctx.Err() != nil {
-					res.Error = ctx.Err().Error()
-				}
-				return history, false
+		// and records the sub-result. It handles retry and skip specifically for
+		// this subcase without rolling back or aborting prior/subsequent subcases.
+		runCaseTurn := func(history []ollama.ChatMessage, unitName, prompt string, attachments []tests.Attachment, sys string, eval *tests.Evaluation, effOpts *tests.TestOptions) ([]ollama.ChatMessage, caseTurnOutcome) {
+			if ctx.Err() != nil {
+				res.Error = ctx.Err().Error()
+				return history, caseTurnAbort
 			}
 			unitIdx++
-			c.setProgress(Progress{
-				RunID:          runID,
-				Model:          model,
-				GroupID:        test.GroupID,
-				GroupName:      test.GroupID,
-				TestID:         test.ID,
-				TestName:       test.Name,
-				TestIndex:      idx,
-				TotalTests:     total,
-				CaseName:       unitName,
-				CaseIndex:      unitIdx,
-				TotalCases:     totalUnits,
-				ActivePrompt:   prompt,
-				CompletedCases: append([]SubResult(nil), res.SubResults...),
-			})
+			snapHistLen := len(history)
+			snapSubLen := len(res.SubResults)
+			snapSummaryLen := len(casesSummary)
+			snapEvalDuration := totalEvalDuration
+			snapPromptTokens := res.PromptTokens
+			snapEvalTokens := res.EvalTokens
+			snapTotalTokens := res.TotalTokens
+			snapReasoning := res.ReasoningUsed
+			snapHasScored := hasScored
+			snapAllPassed := allPassed
+			snapSkippedOrLoop := anySkippedOrLoop
+			snapResError := res.Error
 
-			casePrompt, caseMedia := applyCaseMedia(prompt, attachments)
-			caseMsg := ollama.ChatMessage{Role: "user", Content: casePrompt}
-			if len(caseMedia) > 0 {
-				caseMsg.Images = caseMedia
-			}
-			history = append(history, caseMsg)
-			turn := c.execChatTurn(caseCtx, runID, model, history, optsFor(effOpts), thinkFor(effOpts))
-			if turn.Error != nil {
+			for {
 				if ctx.Err() != nil {
 					res.Error = ctx.Err().Error()
+					return history, caseTurnAbort
 				}
-				falseVal := false
-				allPassed = false
-				if isLoopOrSkip(turn.Error.Error()) {
+				c.setProgress(Progress{
+					RunID:          runID,
+					Model:          model,
+					GroupID:        test.GroupID,
+					GroupName:      test.GroupID,
+					TestID:         test.ID,
+					TestName:       test.Name,
+					TestIndex:      idx,
+					TotalTests:     total,
+					CaseName:       unitName,
+					CaseIndex:      unitIdx,
+					TotalCases:     totalUnits,
+					ActivePrompt:   prompt,
+					CompletedCases: append([]SubResult(nil), res.SubResults...),
+				})
+
+				casePrompt, caseMedia := applyCaseMedia(prompt, attachments)
+				caseMsg := ollama.ChatMessage{Role: "user", Content: casePrompt}
+				if len(caseMedia) > 0 {
+					caseMsg.Images = caseMedia
+				}
+				history = append(history, caseMsg)
+				turnCtx, turnCancel := context.WithCancelCause(ctx)
+				c.setTestCancel(runID, turnCancel)
+				turn := c.execChatTurn(turnCtx, runID, model, history, optsFor(effOpts), thinkFor(effOpts))
+				retry := errors.Is(context.Cause(turnCtx), errManualRetry)
+				skipCase := errors.Is(context.Cause(turnCtx), errManualSkip) || errors.Is(turn.Error, errAutoSkipStage)
+				skipModel := errors.Is(context.Cause(turnCtx), errManualSkipModel)
+				turnCancel(nil)
+				c.clearTestCancel(runID)
+
+				if retry {
+					// Manual retry: drop this turn attempt and run THIS subcase again.
+					history = history[:snapHistLen]
+					res.SubResults = res.SubResults[:snapSubLen]
+					casesSummary = casesSummary[:snapSummaryLen]
+					totalEvalDuration = snapEvalDuration
+					res.PromptTokens = snapPromptTokens
+					res.EvalTokens = snapEvalTokens
+					res.TotalTokens = snapTotalTokens
+					res.ReasoningUsed = snapReasoning
+					hasScored = snapHasScored
+					allPassed = snapAllPassed
+					anySkippedOrLoop = snapSkippedOrLoop
+					res.Error = snapResError
+					continue
+				}
+
+				if skipModel {
+					history = history[:snapHistLen]
+					falseVal := false
+					allPassed = false
 					anySkippedOrLoop = true
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:          unitIdx,
+						Name:           unitName,
+						Prompt:         prompt,
+						SystemPrompt:   sys,
+						Options:        effOpts,
+						Passed:         &falseVal,
+						ResponseTimeMs: turn.ResponseTimeMs,
+						TokensPerSec:   turn.TokensPerSec,
+						PromptTokens:   turn.PromptTokens,
+						EvalTokens:     turn.EvalTokens,
+						TotalTokens:    turn.TotalTokens,
+						ReasoningUsed:  turn.Thinking != "",
+						ModelResponse:  turn.Content,
+						Thinking:       turn.Thinking,
+						Error:          "manually skipped",
+					})
+					casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: manually skipped)", unitName))
+					return history, caseTurnAbort
 				}
-				casesSummary = append(casesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", unitName, strings.TrimSpace(turn.Content), turn.Error.Error()))
+
+				if turn.Error != nil {
+					history = history[:snapHistLen]
+					if ctx.Err() != nil {
+						res.Error = ctx.Err().Error()
+						return history, caseTurnAbort
+					}
+					if skipCase {
+						falseVal := false
+						allPassed = false
+						anySkippedOrLoop = true
+						errStr := "manually skipped"
+						if errors.Is(turn.Error, errAutoSkipStage) {
+							errStr = turn.Error.Error()
+						}
+						res.SubResults = append(res.SubResults, SubResult{
+							Index:          unitIdx,
+							Name:           unitName,
+							Prompt:         prompt,
+							SystemPrompt:   sys,
+							Options:        effOpts,
+							Passed:         &falseVal,
+							ResponseTimeMs: turn.ResponseTimeMs,
+							TokensPerSec:   turn.TokensPerSec,
+							PromptTokens:   turn.PromptTokens,
+							EvalTokens:     turn.EvalTokens,
+							TotalTokens:    turn.TotalTokens,
+							ReasoningUsed:  turn.Thinking != "",
+							ModelResponse:  turn.Content,
+							Thinking:       turn.Thinking,
+							Error:          errStr,
+						})
+						casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", unitName, errStr))
+						return history, caseTurnSkip
+					}
+
+					falseVal := false
+					allPassed = false
+					if isLoopOrSkip(turn.Error.Error()) {
+						anySkippedOrLoop = true
+					}
+					casesSummary = append(casesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", unitName, strings.TrimSpace(turn.Content), turn.Error.Error()))
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:          unitIdx,
+						Name:           unitName,
+						Prompt:         prompt,
+						SystemPrompt:   sys,
+						Options:        effOpts,
+						Passed:         &falseVal,
+						ResponseTimeMs: turn.ResponseTimeMs,
+						TokensPerSec:   turn.TokensPerSec,
+						PromptTokens:   turn.PromptTokens,
+						EvalTokens:     turn.EvalTokens,
+						TotalTokens:    turn.TotalTokens,
+						ReasoningUsed:  turn.Thinking != "",
+						ModelResponse:  turn.Content,
+						Thinking:       turn.Thinking,
+						Error:          turn.Error.Error(),
+					})
+					return history, caseTurnFail
+				}
+
+				if turn.Thinking != "" {
+					res.ReasoningUsed = true
+				}
+				res.PromptTokens += turn.PromptTokens
+				res.EvalTokens += turn.EvalTokens
+				res.TotalTokens += turn.TotalTokens
+				totalEvalDuration += turn.EvalDuration
+
+				history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
+
+				passed := scoreEval(eval, test.EvaluationType, test.EvaluationConfig, turn.Content)
+				status := "PASS"
+				if passed != nil {
+					hasScored = true
+					if !*passed {
+						allPassed = false
+						status = "FAIL"
+					}
+				} else {
+					status = "REVIEW"
+				}
+				casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, unitName, strings.TrimSpace(turn.Content)))
+
 				res.SubResults = append(res.SubResults, SubResult{
 					Index:          unitIdx,
 					Name:           unitName,
 					Prompt:         prompt,
 					SystemPrompt:   sys,
 					Options:        effOpts,
-					Passed:         &falseVal,
+					Passed:         passed,
 					ResponseTimeMs: turn.ResponseTimeMs,
 					TokensPerSec:   turn.TokensPerSec,
 					PromptTokens:   turn.PromptTokens,
@@ -1026,51 +1205,9 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					ReasoningUsed:  turn.Thinking != "",
 					ModelResponse:  turn.Content,
 					Thinking:       turn.Thinking,
-					Error:          turn.Error.Error(),
 				})
-				return history, false
+				return history, caseTurnPass
 			}
-
-			if turn.Thinking != "" {
-				res.ReasoningUsed = true
-			}
-			res.PromptTokens += turn.PromptTokens
-			res.EvalTokens += turn.EvalTokens
-			res.TotalTokens += turn.TotalTokens
-			totalEvalDuration += turn.EvalDuration
-
-			history = append(history, ollama.ChatMessage{Role: "assistant", Content: turn.Content})
-
-			passed := scoreEval(eval, test.EvaluationType, test.EvaluationConfig, turn.Content)
-			status := "PASS"
-			if passed != nil {
-				hasScored = true
-				if !*passed {
-					allPassed = false
-					status = "FAIL"
-				}
-			} else {
-				status = "REVIEW"
-			}
-			casesSummary = append(casesSummary, fmt.Sprintf("[%s] %s: %s", status, unitName, strings.TrimSpace(turn.Content)))
-
-			res.SubResults = append(res.SubResults, SubResult{
-				Index:          unitIdx,
-				Name:           unitName,
-				Prompt:         prompt,
-				SystemPrompt:   sys,
-				Options:        effOpts,
-				Passed:         passed,
-				ResponseTimeMs: turn.ResponseTimeMs,
-				TokensPerSec:   turn.TokensPerSec,
-				PromptTokens:   turn.PromptTokens,
-				EvalTokens:     turn.EvalTokens,
-				TotalTokens:    turn.TotalTokens,
-				ReasoningUsed:  turn.Thinking != "",
-				ModelResponse:  turn.Content,
-				Thinking:       turn.Thinking,
-			})
-			return history, true
 		}
 
 		casePassedFlags := make([]bool, len(test.Cases))
@@ -1087,127 +1224,16 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			caseSys := tests.EffectiveSystemPrompt(test.SystemPrompt, tc.SystemPrompt)
 			caseOptsMerged := tests.MergeOptions(test.Options, tc.Options)
 
-			// Snapshot everything a case attempt may mutate, so a manual
-			// retry restarts this same case from scratch as if the
-			// cancelled attempt never ran.
-			snapUnitIdx := unitIdx
-			snapSubLen := len(res.SubResults)
-			snapSummaryLen := len(casesSummary)
-			snapEvalDuration := totalEvalDuration
-			snapPromptTokens := res.PromptTokens
-			snapEvalTokens := res.EvalTokens
-			snapTotalTokens := res.TotalTokens
-			snapReasoning := res.ReasoningUsed
-			snapHasScored := hasScored
-			snapAllPassed := allPassed
-			snapSkippedOrLoop := anySkippedOrLoop
-			snapResError := res.Error
-			snapCasePassed := casePassedFlags[i]
+			subStart := len(res.SubResults)
+			var history []ollama.ChatMessage
+			if caseSys != "" {
+				history = append(history, ollama.ChatMessage{Role: "system", Content: caseSys})
+			}
 
-			// runAttempt executes the case once. It reports whether the run
-			// must advance (true = next case, false = abort the test).
-			runAttempt := func(caseCtx context.Context, caseCancel context.CancelCauseFunc) bool {
-				subStart := len(res.SubResults)
-				var history []ollama.ChatMessage
-				if caseSys != "" {
-					history = append(history, ollama.ChatMessage{Role: "system", Content: caseSys})
-				}
-
-				if len(tc.Steps) == 0 {
-					_, _ = runCaseTurn(caseCtx, history, caseLabel, tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
-					caseCancel(nil)
-					if ctx.Err() != nil {
-						res.Error = ctx.Err().Error()
-						return false
-					}
-					subEnd := len(res.SubResults)
-					thisCaseOK := subEnd > subStart
-					for sIdx := subStart; sIdx < subEnd; sIdx++ {
-						sub := res.SubResults[sIdx]
-						if sub.Error != "" || sub.Passed == nil || !*sub.Passed {
-							thisCaseOK = false
-							break
-						}
-					}
-					casePassedFlags[i] = thisCaseOK
-					return true
-				}
-
-				// Multi-turn case: chained steps sharing one case-scoped history.
-				// An optional case-level prompt is sent first as the opening turn
-				// (scored with the case-level evaluation when set).
-				stopped := false
-				var lastStepIdx int = -1
-				if tc.Prompt != "" {
-					var ok bool
-					history, ok = runCaseTurn(caseCtx, history, caseLabel+" › context", tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
-					if !ok {
-						stopped = true
-					}
-				}
-				if !stopped {
-					stepOverrides := make([]string, len(tc.Steps))
-					stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
-					for j, st := range tc.Steps {
-						stepOverrides[j] = st.SystemPrompt
-						stepOptOverrides[j] = st.Options
-					}
-					effStepSys := effectiveChainSystems(caseSys, stepOverrides)
-					effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
-					for j, st := range tc.Steps {
-						lastStepIdx = j
-						stepLabel := st.Name
-						if stepLabel == "" {
-							stepLabel = fmt.Sprintf("Step %d", j+1)
-						}
-						turnLabel := caseLabel + " › " + stepLabel
-						if len(tc.Steps) == 1 && tc.Prompt == "" && (st.Name == "" || st.Name == fmt.Sprintf("Step %d", j+1)) {
-							turnLabel = caseLabel
-						}
-						if st.SystemPrompt != "" {
-							history = setSystemPrompt(history, st.SystemPrompt)
-						}
-						var ok bool
-						history, ok = runCaseTurn(caseCtx, history, turnLabel, st.Prompt, st.Attachments, effStepSys[j], st.Evaluation, effStepOpts[j])
-						if !ok {
-							stopped = true
-							break
-						}
-					}
-				}
-
-				caseCancel(nil)
-
-				if stopped {
-					cause := context.Cause(caseCtx)
-					isSkip := errors.Is(cause, errManualSkip) || errors.Is(cause, errManualSkipModel)
-					remainingErr := "skipped due to case failure"
-					if isSkip {
-						remainingErr = "manually skipped"
-					}
-					for nextJ := lastStepIdx + 1; nextJ < len(tc.Steps); nextJ++ {
-						st := tc.Steps[nextJ]
-						stepLabel := st.Name
-						if stepLabel == "" {
-							stepLabel = fmt.Sprintf("Step %d", nextJ+1)
-						}
-						turnLabel := caseLabel + " › " + stepLabel
-						unitIdx++
-						falseVal := false
-						res.SubResults = append(res.SubResults, SubResult{
-							Index:  unitIdx,
-							Name:   turnLabel,
-							Prompt: st.Prompt,
-							Passed: &falseVal,
-							Error:  remainingErr,
-						})
-						casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", turnLabel, remainingErr))
-					}
-
-					if ctx.Err() != nil {
-						res.Error = ctx.Err().Error()
-						return false
-					}
+			if len(tc.Steps) == 0 {
+				_, outcome := runCaseTurn(history, caseLabel, tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
+				if outcome == caseTurnAbort {
+					break
 				}
 				subEnd := len(res.SubResults)
 				thisCaseOK := subEnd > subStart
@@ -1219,40 +1245,99 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					}
 				}
 				casePassedFlags[i] = thisCaseOK
-				return true
+				continue
 			}
 
-			aborted := false
-			for {
-				caseCtx, caseCancel := context.WithCancelCause(ctx)
-				c.setTestCancel(runID, caseCancel)
-				advance := runAttempt(caseCtx, caseCancel)
-				retry := errors.Is(context.Cause(caseCtx), errManualRetry)
-				caseCancel(nil)
-				if retry {
-					// Manual retry: roll back this attempt and run the
-					// same case again from scratch.
-					unitIdx = snapUnitIdx
-					res.SubResults = res.SubResults[:snapSubLen]
-					casesSummary = casesSummary[:snapSummaryLen]
-					totalEvalDuration = snapEvalDuration
-					res.PromptTokens = snapPromptTokens
-					res.EvalTokens = snapEvalTokens
-					res.TotalTokens = snapTotalTokens
-					res.ReasoningUsed = snapReasoning
-					hasScored = snapHasScored
-					allPassed = snapAllPassed
-					anySkippedOrLoop = snapSkippedOrLoop
-					res.Error = snapResError
-					casePassedFlags[i] = snapCasePassed
-					continue
+			// Multi-turn case: chained steps sharing one case-scoped history.
+			// An optional case-level prompt is sent first as the opening turn
+			// (scored with the case-level evaluation when set).
+			stopped := false
+			var lastStepIdx int = -1
+			if tc.Prompt != "" {
+				var outcome caseTurnOutcome
+				history, outcome = runCaseTurn(history, caseLabel+" › context", tc.Prompt, tc.Attachments, caseSys, tc.Evaluation, caseOptsMerged)
+				if outcome == caseTurnAbort {
+					break
 				}
-				aborted = !advance
+				if outcome == caseTurnFail {
+					stopped = true
+				}
+			}
+
+			if !stopped {
+				stepOverrides := make([]string, len(tc.Steps))
+				stepOptOverrides := make([]*tests.TestOptions, len(tc.Steps))
+				for j, st := range tc.Steps {
+					stepOverrides[j] = st.SystemPrompt
+					stepOptOverrides[j] = st.Options
+				}
+				effStepSys := effectiveChainSystems(caseSys, stepOverrides)
+				effStepOpts := effectiveChainOptions(caseOptsMerged, stepOptOverrides)
+				for j, st := range tc.Steps {
+					lastStepIdx = j
+					stepLabel := st.Name
+					if stepLabel == "" {
+						stepLabel = fmt.Sprintf("Step %d", j+1)
+					}
+					turnLabel := caseLabel + " › " + stepLabel
+					if len(tc.Steps) == 1 && tc.Prompt == "" && (st.Name == "" || st.Name == fmt.Sprintf("Step %d", j+1)) {
+						turnLabel = caseLabel
+					}
+					if st.SystemPrompt != "" {
+						history = setSystemPrompt(history, st.SystemPrompt)
+					}
+					var outcome caseTurnOutcome
+					history, outcome = runCaseTurn(history, turnLabel, st.Prompt, st.Attachments, effStepSys[j], st.Evaluation, effStepOpts[j])
+					if outcome == caseTurnAbort {
+						stopped = true
+						break
+					}
+					if outcome == caseTurnFail {
+						stopped = true
+						break
+					}
+					// If outcome == caseTurnSkip: this step was skipped, but we DO NOT stop the case!
+					// We continue with the next step!
+				}
+			}
+
+			if ctx.Err() != nil {
+				res.Error = ctx.Err().Error()
 				break
 			}
-			if aborted {
-				break
+
+			if stopped && lastStepIdx >= 0 && lastStepIdx < len(tc.Steps) {
+				remainingErr := "skipped due to case failure"
+				for nextJ := lastStepIdx + 1; nextJ < len(tc.Steps); nextJ++ {
+					st := tc.Steps[nextJ]
+					stepLabel := st.Name
+					if stepLabel == "" {
+						stepLabel = fmt.Sprintf("Step %d", nextJ+1)
+					}
+					turnLabel := caseLabel + " › " + stepLabel
+					unitIdx++
+					falseVal := false
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:  unitIdx,
+						Name:   turnLabel,
+						Prompt: st.Prompt,
+						Passed: &falseVal,
+						Error:  remainingErr,
+					})
+					casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", turnLabel, remainingErr))
+				}
 			}
+
+			subEnd := len(res.SubResults)
+			thisCaseOK := subEnd > subStart
+			for sIdx := subStart; sIdx < subEnd; sIdx++ {
+				sub := res.SubResults[sIdx]
+				if sub.Error != "" || sub.Passed == nil || !*sub.Passed {
+					thisCaseOK = false
+					break
+				}
+			}
+			casePassedFlags[i] = thisCaseOK
 		}
 
 		res.ResponseTimeMs = time.Since(start).Milliseconds()

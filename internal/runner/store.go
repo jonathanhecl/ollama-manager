@@ -400,6 +400,25 @@ func (s *ResultStore) GetRun(id string) (BatteryRun, bool) {
 	return BatteryRun{}, false
 }
 
+// GetLatestRunPendingReview checks if the most recent run has tests pending human review.
+func (s *ResultStore) GetLatestRunPendingReview() (BatteryRun, int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.runs) - 1; i >= 0; i-- {
+		run := s.runs[i]
+		pending := 0
+		for _, res := range run.Results {
+			if res.Passed == nil && res.Error == "" {
+				pending++
+			}
+		}
+		if pending > 0 {
+			return run, pending, true
+		}
+	}
+	return BatteryRun{}, 0, false
+}
+
 // applyManualVerdict records a human pass/fail on a whole result and keeps
 // the derived score fields consistent with it, so rated results count in
 // leaderboards and summaries. Fractional per-case detail is left untouched.

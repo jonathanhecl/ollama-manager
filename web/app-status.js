@@ -60,14 +60,30 @@ function updateBatteryGlobalStatus(s) {
       models: s.battery_models || [],
       model: s.battery_model || "",
       testName: s.battery_test_name || "",
+      waitingReview: !!s.battery_waiting_review,
+      pendingReviews: s.battery_pending_reviews || 0,
     };
     if (testsBtn) {
       testsBtn.classList.add("battery-running");
       testsBtn.hidden = false;
-      testsBtn.setAttribute("title", t("battery.tests_nav_running_hint") || "Tests · ⚡ Battery in progress");
+      const titleHint = s.battery_waiting_review
+        ? (t("battery.human_review_pending_title") || "Tests · ⚡ Human Review Pending")
+        : (t("battery.tests_nav_running_hint") || "Tests · ⚡ Battery in progress");
+      testsBtn.setAttribute("title", titleHint);
+    }
+
+    // Auto-prompt / auto-navigate to human review when entering from another device or tab:
+    if (s.battery_waiting_review && s.battery_run_id && window._autoReviewPromptedRunId !== s.battery_run_id) {
+      if (typeof currentView !== "undefined" && currentView !== "battery-review") {
+        window._autoReviewPromptedRunId = s.battery_run_id;
+        if (typeof showBlindReviewView === "function") {
+          showBlindReviewView(s.battery_run_id);
+        }
+      }
     }
   } else {
     window._activeBatteryRun = null;
+    window._autoReviewPromptedRunId = null;
     if (testsBtn) {
       testsBtn.classList.remove("battery-running");
       testsBtn.setAttribute("title", t("tests.button") || "Tests");

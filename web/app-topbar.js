@@ -14,9 +14,15 @@ $("models-reload-btn")?.addEventListener("click", () => { refreshStatus(); refre
 $("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 
 $("tests-btn")?.addEventListener("click", () => {
-  if (window._activeBatteryRun && window._activeBatteryRun.runID && typeof showBatteryProgressView === "function" && currentView !== "battery-progress") {
-    showBatteryProgressView(window._activeBatteryRun.models || [], window._activeBatteryRun.runID, window._activeBatteryRun.groupId || "all");
-    return;
+  if (window._activeBatteryRun && window._activeBatteryRun.runID) {
+    if (window._activeBatteryRun.waitingReview && typeof showBlindReviewView === "function") {
+      showBlindReviewView(window._activeBatteryRun.runID);
+      return;
+    }
+    if (typeof showBatteryProgressView === "function" && currentView !== "battery-progress") {
+      showBatteryProgressView(window._activeBatteryRun.models || [], window._activeBatteryRun.runID, window._activeBatteryRun.groupId || "all");
+      return;
+    }
   }
   showTestsView();
 });

@@ -287,6 +287,22 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			resp["battery_models"] = activeProg.Models
 			resp["battery_model"] = activeProg.Model
 			resp["battery_test_name"] = activeProg.TestName
+			resp["battery_waiting_review"] = activeProg.WaitingReview
+			resp["battery_pending_reviews"] = activeProg.PendingReviews
+		} else if s.runnerStore != nil {
+			if run, pending, hasPending := s.runnerStore.GetLatestRunPendingReview(); hasPending {
+				resp["battery_active"] = true
+				resp["battery_run_id"] = run.ID
+				resp["battery_group_name"] = run.GroupName
+				resp["battery_group_id"] = run.GroupID
+				resp["battery_test_index"] = len(run.Results)
+				resp["battery_total_tests"] = len(run.Results)
+				resp["battery_models"] = run.Models
+				resp["battery_waiting_review"] = true
+				resp["battery_pending_reviews"] = pending
+			} else {
+				resp["battery_active"] = false
+			}
 		} else {
 			resp["battery_active"] = false
 		}

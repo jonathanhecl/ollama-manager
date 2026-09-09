@@ -101,6 +101,8 @@ type Progress struct {
 	ThinkingChars int `json:"thinking_chars,omitempty"`
 	ResponseChars int `json:"response_chars,omitempty"`
 	Done            bool         `json:"done"`
+	WaitingReview   bool         `json:"waiting_review,omitempty"`
+	PendingReviews  int          `json:"pending_reviews,omitempty"`
 	Error           string       `json:"error,omitempty"`
 	Results         []TestResult `json:"results,omitempty"`
 }
@@ -275,23 +277,50 @@ func (c *Client) GetActiveProgress() (Progress, bool) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
 	for _, p := range c.progress {
-		if p != nil && !p.Done {
+		if p != nil && (!p.Done || p.WaitingReview) {
 			return *p, true
 		}
 	}
 	return Progress{}, false
 }
 
-// HasActiveRun returns true if there is a battery run currently in progress.
+// HasActiveRun returns true if there is a battery run currently in progress or awaiting human review.
 func (c *Client) HasActiveRun() bool {
+	_, ok := c.GetActiveProgress()
+	return ok
+}
+
+// RateReviewResult records a rating or verdict for a test in progress and updates
+// the pending reviews count. If no pending reviews remain, it marks the run Done: true
+// and WaitingReview: false.
+func (c *Client) RateReviewResult(runID, testID, model string, passed bool) (remaining int, wasWaiting bool) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
-	for _, p := range c.progress {
-		if p != nil && !p.Done {
-			return true
+	p, ok := c.progress[runID]
+	if !ok || p == nil {
+		return 0, false
+	}
+	wasWaiting = p.WaitingReview
+	pending := 0
+	for i := range p.Results {
+		if p.Results[i].TestID == testID && p.Results[i].Model == model {
+			p.Results[i].Passed = &passed
+			if passed {
+				p.Results[i].HumanRating = "good"
+			} else {
+				p.Results[i].HumanRating = "bad"
+			}
+		}
+		if p.Results[i].Passed == nil && p.Results[i].Error == "" {
+			pending++
 		}
 	}
-	return false
+	p.PendingReviews = pending
+	if pending == 0 && p.WaitingReview {
+		p.WaitingReview = false
+		p.Done = true
+	}
+	return pending, wasWaiting
 }
 
 // ExecuteBatteryAsync starts the battery run in a goroutine and returns the run ID immediately.
@@ -404,10 +433,47 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 				break runModels
 			}
 		}
+		pendingReviews := 0
+		for _, res := range run.Results {
+			if res.Passed == nil && res.Error == "" {
+				pendingReviews++
+			}
+		}
+
 		if runErr != "" {
-			c.setProgress(Progress{RunID: run.ID, Done: true, Error: runErr, TotalTests: total, Results: run.Results, Models: run.Models})
+			c.setProgress(Progress{
+				RunID:      run.ID,
+				Done:       true,
+				Error:      runErr,
+				TotalTests: total,
+				Results:    run.Results,
+				Models:     run.Models,
+				GroupID:    run.GroupID,
+				GroupName:  run.GroupName,
+			})
+		} else if pendingReviews > 0 {
+			c.setProgress(Progress{
+				RunID:          run.ID,
+				Done:           false,
+				WaitingReview:  true,
+				PendingReviews: pendingReviews,
+				TotalTests:     total,
+				TestIndex:      total,
+				Results:        run.Results,
+				Models:         run.Models,
+				GroupID:        run.GroupID,
+				GroupName:      run.GroupName,
+			})
 		} else {
-			c.setProgress(Progress{RunID: run.ID, Done: true, TotalTests: total, Results: run.Results, Models: run.Models})
+			c.setProgress(Progress{
+				RunID:      run.ID,
+				Done:       true,
+				TotalTests: total,
+				Results:    run.Results,
+				Models:     run.Models,
+				GroupID:    run.GroupID,
+				GroupName:  run.GroupName,
+			})
 		}
 	}()
 
@@ -416,6 +482,15 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 
 // CancelRun cancels an active battery run by its ID.
 func (c *Client) CancelRun(runID string) bool {
+	c.progressMu.Lock()
+	if p, ok := c.progress[runID]; ok && p != nil && p.WaitingReview {
+		p.WaitingReview = false
+		p.Done = true
+		c.progressMu.Unlock()
+		return true
+	}
+	c.progressMu.Unlock()
+
 	c.cancelMu.Lock()
 	cancel, ok := c.cancels[runID]
 	testCancel, hasTest := c.testCancels[runID]

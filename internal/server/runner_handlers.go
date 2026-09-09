@@ -30,8 +30,18 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if activeProg, ok := s.runner.GetActiveProgress(); ok {
-		writeError(w, http.StatusConflict, errors.New("a battery run is already in progress: "+activeProg.RunID))
+		if activeProg.WaitingReview {
+			writeError(w, http.StatusConflict, errors.New("a battery run is awaiting human review: "+activeProg.RunID))
+		} else {
+			writeError(w, http.StatusConflict, errors.New("a battery run is already in progress: "+activeProg.RunID))
+		}
 		return
+	}
+	if s.runnerStore != nil {
+		if run, _, ok := s.runnerStore.GetLatestRunPendingReview(); ok {
+			writeError(w, http.StatusConflict, errors.New("a battery run is awaiting human review: "+run.ID))
+			return
+		}
 	}
 
 	var group tests.Group
@@ -290,14 +300,33 @@ func (s *Server) handleRateRun(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, err)
 			return
 		}
+		if s.runner != nil {
+			s.runner.RateReviewResult(id, body.TestID, body.Model, *body.Passed)
+		}
 	} else if body.Rating != "" {
 		if err := s.runnerStore.UpdateHumanRating(id, body.TestID, body.Model, body.Rating); err != nil {
 			writeError(w, http.StatusNotFound, err)
 			return
 		}
+		if s.runner != nil {
+			s.runner.RateReviewResult(id, body.TestID, body.Model, body.Rating == "good")
+		}
 	} else {
 		writeError(w, http.StatusBadRequest, errors.New("rating or passed is required"))
 		return
+	}
+	if s.runnerStore != nil {
+		if run, ok := s.runnerStore.GetRun(id); ok {
+			pending := 0
+			for _, res := range run.Results {
+				if res.Passed == nil && res.Error == "" {
+					pending++
+				}
+			}
+			if pending == 0 && s.runner != nil {
+				s.runner.ClearProgress(id)
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -405,14 +434,32 @@ func (s *Server) handleBatteryProgress(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleActiveBatteryRun(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.runner.GetActiveProgress()
+	if !ok && s.runnerStore != nil {
+		if run, pending, hasPending := s.runnerStore.GetLatestRunPendingReview(); hasPending {
+			p = runner.Progress{
+				RunID:          run.ID,
+				GroupName:      run.GroupName,
+				GroupID:        run.GroupID,
+				Models:         run.Models,
+				TotalTests:     len(run.Results),
+				TestIndex:      len(run.Results),
+				WaitingReview:  true,
+				PendingReviews: pending,
+				Results:        run.Results,
+			}
+			ok = true
+		}
+	}
 	if !ok {
 		writeJSON(w, http.StatusOK, map[string]any{"active": false})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"active":   true,
-		"run_id":   p.RunID,
-		"progress": p,
+		"active":          true,
+		"run_id":          p.RunID,
+		"waiting_review":  p.WaitingReview,
+		"pending_reviews": p.PendingReviews,
+		"progress":        p,
 	})
 }
 

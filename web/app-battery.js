@@ -194,7 +194,8 @@ async function refreshBatteryCoverage() {
 
 async function openBatteryModal(options = {}) {
   if (window._activeBatteryRun && window._activeBatteryRun.runID) {
-    toast(t("battery.already_running_toast"), "warn");
+    const msg = window._activeBatteryRun.waitingReview ? t("battery.human_review_block_toast") : t("battery.already_running_toast");
+    toast(msg, "warn");
     return;
   }
   try {
@@ -203,7 +204,8 @@ async function openBatteryModal(options = {}) {
       if (typeof updateBatteryGlobalStatus === "function") {
         updateBatteryGlobalStatus({ battery_active: true, battery_run_id: check.run_id, ...(check.progress || {}) });
       }
-      toast(t("battery.already_running_toast"), "warn");
+      const msg = check.waiting_review ? t("battery.human_review_block_toast") : t("battery.already_running_toast");
+      toast(msg, "warn");
       return;
     }
   } catch { }
@@ -1532,11 +1534,36 @@ function updateActiveBatteryBanner(activeRun) {
   banner.hidden = false;
 
   const badge = $("active-battery-badge");
-  if (badge) {
-    badge.textContent = activeRun.groupName || activeRun.groupId || t("battery.running") || "Running";
+  const meta = $("active-battery-meta");
+  const viewBtn = $("active-battery-view-btn");
+  const titleStrong = banner.querySelector("strong");
+
+  if (activeRun.waitingReview) {
+    if (titleStrong) titleStrong.textContent = t("battery.human_review_pending_title");
+    if (badge) {
+      badge.textContent = t("battery.human_review_pending_badge");
+      badge.className = "pill pill-warning";
+    }
+    if (meta) {
+      meta.textContent = t("battery.human_review_pending_meta", { count: activeRun.pendingReviews || "—" });
+    }
+    if (viewBtn) {
+      viewBtn.textContent = t("battery.human_review_start_btn");
+      viewBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showBlindReviewView(activeRun.runID);
+      };
+    }
+    return;
   }
 
-  const meta = $("active-battery-meta");
+  if (titleStrong) titleStrong.textContent = t("battery.active_banner_title");
+  if (badge) {
+    badge.textContent = activeRun.groupName || activeRun.groupId || t("battery.running") || "Running";
+    badge.className = "pill pill-warning";
+  }
+
   if (meta) {
     const parts = [];
     if (activeRun.totalTests > 0) {
@@ -1559,8 +1586,8 @@ function updateActiveBatteryBanner(activeRun) {
     meta.textContent = parts.join(" · ");
   }
 
-  const viewBtn = $("active-battery-view-btn");
   if (viewBtn) {
+    viewBtn.textContent = t("battery.active_banner_view");
     viewBtn.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2180,16 +2207,24 @@ async function pollBatteryProgress(runID, modelIDs) {
 
     // Update model cards (show current + next 2).
     renderBatteryProgressModels(batteryProgressModelIDs, p.model || "", p.is_thinking || false);
+
+    if (p.waiting_review) {
+      if (batteryLastTestSnapshot) {
+        batteryCompletedTests.push(batteryLastTestSnapshot);
+        renderBatteryCompletedTests();
+      }
+      if (runID !== batteryActiveRunID) return;
+      stopBatteryPolling();
+      await new Promise((r) => setTimeout(r, 1000));
+      showBlindReviewView(runID);
+      return;
+    }
+
     if (p.done) {
       // Archive final snapshot before finishing.
       if (batteryLastTestSnapshot) {
         batteryCompletedTests.push(batteryLastTestSnapshot);
         renderBatteryCompletedTests();
-      }
-      localStorage.removeItem(BATTERY_KEY);
-      window._activeBatteryRun = null;
-      if (typeof updateBatteryGlobalStatus === "function") {
-        updateBatteryGlobalStatus(null);
       }
       // The user may have navigated away while the run finished: only take
       // over the view when this run is still the followed one.
@@ -2205,6 +2240,11 @@ async function pollBatteryProgress(runID, modelIDs) {
         if (blindPendingResults(run).length > 0) {
           openBlindReviewWithRun(run);
         } else {
+          localStorage.removeItem(BATTERY_KEY);
+          window._activeBatteryRun = null;
+          if (typeof updateBatteryGlobalStatus === "function") {
+            updateBatteryGlobalStatus(null);
+          }
           hideAllMainViews();
           currentView = "battery-results";
           $("battery-results-view").hidden = false;
@@ -2422,7 +2462,8 @@ async function skipCurrentBatteryTest() {
 
 async function confirmBatteryRun() {
   if (window._activeBatteryRun && window._activeBatteryRun.runID) {
-    toast(t("battery.already_running_toast"), "warn");
+    const msg = window._activeBatteryRun.waitingReview ? t("battery.human_review_block_toast") : t("battery.already_running_toast");
+    toast(msg, "warn");
     return;
   }
   if (batterySelectedModels.size === 0) {
@@ -2737,6 +2778,11 @@ async function finishBlindReview() {
   blindReviewRunId = null;
   blindReviewQueue = [];
   blindReviewIndex = 0;
+  localStorage.removeItem(BATTERY_KEY);
+  window._activeBatteryRun = null;
+  if (typeof updateBatteryGlobalStatus === "function") {
+    updateBatteryGlobalStatus(null);
+  }
   // Refetch: Points/Score are recomputed server-side on rating.
   currentBatteryRun = null;
   toast(t("battery.review_done"), "success");

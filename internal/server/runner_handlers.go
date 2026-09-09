@@ -209,7 +209,18 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		s.runner.ClearProgress(run.ID)
+		hasPendingReviews := false
+		if run != nil {
+			for _, r := range run.Results {
+				if r.Passed == nil && r.Error == "" {
+					hasPendingReviews = true
+					break
+				}
+			}
+		}
+		if !hasPendingReviews && run != nil {
+			s.runner.ClearProgress(run.ID)
+		}
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
 }

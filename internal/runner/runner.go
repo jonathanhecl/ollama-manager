@@ -110,9 +110,16 @@ type Progress struct {
 	Results         []TestResult `json:"results,omitempty"`
 }
 
+// ChatFunc sends a chat request and streams back chunks. It defaults to
+// the Ollama client but can be overridden (e.g. to route external
+// OpenAI-compatible models through a different backend).
+type ChatFunc func(ctx context.Context, req ollama.ChatRequest, onChunk func(ollama.ChatChunk) error) error
+
 // Client wraps an Ollama client and executes tests.
 type Client struct {
 	ollama      *ollama.Client
+	chatFunc    ChatFunc
+	isExternal  func(string) bool
 	progressMu  sync.Mutex
 	progress    map[string]*Progress
 	cancelMu    sync.Mutex
@@ -198,6 +205,47 @@ func NewClient(ollamaClient *ollama.Client) *Client {
 		abortMode:    make(map[string]string),
 		runExpected:  make(map[string]map[string]int),
 	}
+}
+
+// SetChatFunc overrides the chat backend used for turns. When nil, the
+// Ollama client is used. The server sets this to a dispatcher that routes
+// external (OpenAI-compatible) models to their own endpoint.
+func (c *Client) SetChatFunc(fn ChatFunc) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	c.chatFunc = fn
+}
+
+// SetIsExternal registers a predicate reporting whether a model name is
+// an external model. Used to skip Ollama-only operations (unload,
+// is-loaded checks).
+func (c *Client) SetIsExternal(fn func(string) bool) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	c.isExternal = fn
+}
+
+func (c *Client) isExt(model string) bool {
+	c.cancelMu.Lock()
+	fn := c.isExternal
+	c.cancelMu.Unlock()
+	if fn == nil {
+		return false
+	}
+	return fn(model)
+}
+
+func (c *Client) chat(ctx context.Context, req ollama.ChatRequest, onChunk func(ollama.ChatChunk) error) error {
+	c.cancelMu.Lock()
+	fn := c.chatFunc
+	c.cancelMu.Unlock()
+	if fn != nil {
+		return fn(ctx, req, onChunk)
+	}
+	if c.ollama == nil {
+		return fmt.Errorf("no chat backend configured")
+	}
+	return c.ollama.Chat(ctx, req, onChunk)
 }
 
 // SetStageLimits replaces the per-stage auto-skip limits used by future
@@ -455,7 +503,10 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 				}
 			}
 			// Unload model from memory only after ALL tests for this model have completed.
-			_ = c.ollama.Unload(runCtx, model)
+			// External models have no Ollama VRAM slot to release.
+			if !c.isExt(model) && c.ollama != nil {
+				_ = c.ollama.Unload(runCtx, model)
+			}
 			if runCtx.Err() != nil {
 				break runModels
 			}
@@ -1582,7 +1633,7 @@ retryLoop:
 		respChars := 0
 		var thinkMs, respMs int64
 		lastT := time.Now()
-		chatErr = c.ollama.Chat(ctx, req, func(chunk ollama.ChatChunk) error {
+		chatErr = c.chat(ctx, req, func(chunk ollama.ChatChunk) error {
 			now := time.Now()
 			deltaMs := now.Sub(lastT).Milliseconds()
 			if deltaMs < 0 {
@@ -1678,10 +1729,29 @@ retryLoop:
 		}
 	}
 
+	// Fallback for backends without usage/duration stats (e.g. external
+	// OpenAI-compatible servers): estimate tok/s from content length so
+	// bench still reports a meaningful speed instead of 0.
+	if res.TokensPerSec == 0 && res.Error == nil && elapsed > 0 {
+		if n := len([]rune(fullContent.String())) + len([]rune(fullThinking.String())); n >= 4 {
+			res.TokensPerSec = float64(n/4) / (float64(elapsed) / 1000.0)
+			if res.EvalTokens == 0 {
+				res.EvalTokens = n / 4
+				res.TotalTokens = res.PromptTokens + res.EvalTokens
+			}
+		}
+	}
+
 	return res
 }
 
 func (c *Client) isModelLoaded(ctx context.Context, model string) (bool, error) {
+	if c.isExt(model) {
+		return true, nil
+	}
+	if c.ollama == nil {
+		return true, nil
+	}
 	running, err := c.ollama.PS(ctx)
 	if err != nil {
 		return false, err

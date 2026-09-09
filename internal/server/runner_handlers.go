@@ -174,6 +174,24 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// External (OpenAI-compatible) models are not in Ollama's list,
+	// so fill their capabilities from the external store. Without this
+	// they get empty caps and either get wrongly skipped or run without
+	// their vision/tools/thinking flags.
+	if s.externalModels != nil {
+		for _, sel := range body.ModelIDs {
+			if _, ok := modelCaps[sel]; ok {
+				continue
+			}
+			if rec, ok := s.externalModels.Get(sel); ok {
+				caps := append([]string(nil), rec.Capabilities...)
+				if len(caps) == 0 {
+					caps = []string{"completion", "tools", "thinking", "vision"}
+				}
+				modelCaps[sel] = caps
+			}
+		}
+	}
 
 	// Detect system info for this run.
 	sysInfo := runner.DetectSysInfo()

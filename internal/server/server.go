@@ -192,6 +192,13 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		projectorCache:       make(map[string]string),
 		testsCacheETag:       fmt.Sprintf("\"%d\"", time.Now().UnixNano()),
 	}
+	// Route battery turns through chatWithModel so external
+	// (OpenAI-compatible) models work in bench, not just Ollama.
+	// chatWithModel already dispatches external vs Ollama.
+	srv.runner.SetChatFunc(srv.chatWithModel)
+	srv.runner.SetIsExternal(func(name string) bool {
+		return srv.externalModels != nil && srv.externalModels.IsExternal(name)
+	})
 	return srv, nil
 }
 

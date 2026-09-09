@@ -786,32 +786,58 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 	}
 
 	httpClient := &http.Client{}
-	resp, err := httpClient.Do(httpReq)
+	doPost := func(url string, body []byte) (*http.Response, error) {
+		r, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Accept", "text/event-stream")
+		if ext.APIKey != "" {
+			r.Header.Set("Authorization", "Bearer "+ext.APIKey)
+		}
+		return httpClient.Do(r)
+	}
+	resp, err := doPost(endpoint, bodyBytes)
 	if err != nil {
 		// Try without /v1/ fallback
 		if strings.HasSuffix(endpoint, "/v1/chat/completions") {
 			altEndpoint := strings.TrimSuffix(endpoint, "/v1/chat/completions") + "/chat/completions"
-			req2, err2 := http.NewRequestWithContext(ctx, http.MethodPost, altEndpoint, bytes.NewReader(bodyBytes))
-			if err2 == nil {
-				req2.Header.Set("Content-Type", "application/json")
-				req2.Header.Set("Accept", "text/event-stream")
-				if ext.APIKey != "" {
-					req2.Header.Set("Authorization", "Bearer "+ext.APIKey)
-				}
-				if resp2, err3 := httpClient.Do(req2); err3 == nil {
-					resp = resp2
-					err = nil
-				}
+			if resp2, err3 := doPost(altEndpoint, bodyBytes); err3 == nil {
+				resp = resp2
+				endpoint = altEndpoint
+				err = nil
 			}
 		}
 		if err != nil {
 			return fmt.Errorf("error al conectar con modelo externo (%s): %w", ext.URL, err)
 		}
 	}
-	defer resp.Body.Close()
-
+	// Some OpenAI-compatible servers (oMLX, LM Studio, older vLLM) reject
+	// extended thinking/reasoning params with 400. Retry once with a minimal
+	// payload so bench works against strict servers.
+	if resp.StatusCode >= 400 && (payload.EnableThinking != nil || payload.ReasoningEffort != "" || payload.Thinking != nil || payload.ChatTemplateKwargs != nil || payload.TopK != nil) {
+		_, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		minimal := openAIChatRequest{
+			Model:       payload.Model,
+			Messages:    payload.Messages,
+			Stream:      true,
+			Temperature: payload.Temperature,
+			TopP:        payload.TopP,
+			MaxTokens:   payload.MaxTokens,
+			Stop:        payload.Stop,
+			Tools:       payload.Tools,
+		}
+		if minBytes, mErr := json.Marshal(minimal); mErr == nil {
+			if resp2, err2 := doPost(endpoint, minBytes); err2 == nil {
+				resp = resp2
+			}
+		}
+	}
 	if resp.StatusCode >= 400 {
 		errBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		var errObj openAIChatCompletionResponse
 		_ = json.Unmarshal(errBytes, &errObj)
 		if errObj.Error != nil && errObj.Error.Message != "" {
@@ -819,6 +845,7 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 		}
 		return fmt.Errorf("error del modelo externo (HTTP %d): %s", resp.StatusCode, string(errBytes))
 	}
+	defer resp.Body.Close()
 
 	// Tool calls aggregation accumulator
 	toolCallsAcc := make(map[int]*ollama.ToolCall)
@@ -831,14 +858,20 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 	var lastUsagePromptTokens, lastUsageCompletionTokens int
 	var totalContentLen int
 	var lastFinishReason string
+	var rawFallback strings.Builder
 
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, ":") {
 			continue
 		}
 
 		if !strings.HasPrefix(line, "data:") {
+			// Keep non-SSE lines: some servers ignore stream:true and
+			// return a single JSON chat-completion object instead.
+			rawFallback.WriteString(rawLine)
+			rawFallback.WriteByte('\n')
 			continue
 		}
 
@@ -921,6 +954,38 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 
 	if lastFinishReason == "error" && totalContentLen == 0 {
 		return fmt.Errorf("el servidor del modelo externo (%s) reportó un error al procesar la solicitud (finish_reason: error)", ext.Name)
+	}
+
+	// Fallback: server returned plain JSON instead of SSE (stream ignored).
+	if totalContentLen == 0 && len(toolCallsAcc) == 0 {
+		if raw := strings.TrimSpace(rawFallback.String()); raw != "" {
+			var directResp openAIChatCompletionResponse
+			if err := json.Unmarshal([]byte(raw), &directResp); err == nil && len(directResp.Choices) > 0 {
+				msg := directResp.Choices[0].Message
+				if msg.Content != "" || len(msg.ToolCalls) > 0 || msg.ReasoningContent != "" {
+					var emitted []ollama.ToolCall
+					for idx, tc := range msg.ToolCalls {
+						tc2 := ollama.ToolCall{Type: "function"}
+						tc2.Function.Name = tc.Function.Name
+						tc2.Function.Index = idx
+						tc2.Function.Arguments = json.RawMessage(tc.Function.Arguments)
+						emitted = append(emitted, tc2)
+					}
+					_ = onChunk(ollama.ChatChunk{
+						Model:     ext.Name,
+						CreatedAt: time.Now().UTC(),
+						Done:      false,
+						Message: ollama.ChatMessage{
+							Role:      "assistant",
+							Content:   msg.Content,
+							Thinking:  msg.ReasoningContent,
+							ToolCalls: emitted,
+						},
+					})
+					totalContentLen += len(msg.Content) + len(msg.ReasoningContent)
+				}
+			}
+		}
 	}
 
 	// Emit final done chunk

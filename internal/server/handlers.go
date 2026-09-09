@@ -317,6 +317,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"bind_address":            s.cfg.BindAddress(),
 		"chat_defaults":           s.cfg.ChatDefaults,
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
+		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
 		"version":                 s.versionInfo,
 	})
@@ -341,6 +342,7 @@ type patchConfigBody struct {
 	OllamaURL             *string              `json:"ollama_url"`
 	ChatDefaults          *config.ChatDefaults `json:"chat_defaults"`
 	LeaderboardGroupOrder *[]string            `json:"leaderboard_group_order"`
+	Testing               *config.TestingLimits `json:"testing"`
 	Gateway               *patchGatewayBody    `json:"gateway"`
 }
 
@@ -406,6 +408,17 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 	if body.LeaderboardGroupOrder != nil {
 		s.cfg.LeaderboardGroupOrder = *body.LeaderboardGroupOrder
 	}
+	if body.Testing != nil {
+		if body.Testing.MaxStageTokens < 0 || body.Testing.MaxStageTokens > 10000000 {
+			writeError(w, http.StatusBadRequest, errors.New("testing.max_stage_tokens must be 0..10000000 (0 = disabled)"))
+			return
+		}
+		if body.Testing.MaxStageSeconds < 0 || body.Testing.MaxStageSeconds > 86400 {
+			writeError(w, http.StatusBadRequest, errors.New("testing.max_stage_seconds must be 0..86400 (0 = disabled)"))
+			return
+		}
+		s.cfg.Testing = *body.Testing
+	}
 	if body.Gateway != nil {
 		gw := body.Gateway
 		newGw := s.cfg.Gateway
@@ -463,6 +476,7 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"ollama_url":              s.cfg.OllamaURL,
 		"chat_defaults":           s.cfg.ChatDefaults,
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
+		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
 	})
 }

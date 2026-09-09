@@ -92,6 +92,28 @@ func TestLoadDefaultsNumCtxNil(t *testing.T) {
 	}
 }
 
+func TestLoadKeepsTestingLimits(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860, "testing": {"max_stage_tokens": 50000, "max_stage_seconds": 600}}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Testing.MaxStageTokens != 50000 || cfg.Testing.MaxStageSeconds != 600 {
+		t.Errorf("Testing = %+v, want {50000 600}", cfg.Testing)
+	}
+}
+
+func TestLoadNormalizesNegativeTestingLimits(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860, "testing": {"max_stage_tokens": -5, "max_stage_seconds": -10}}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Testing.MaxStageTokens != 0 || cfg.Testing.MaxStageSeconds != 0 {
+		t.Errorf("negative Testing limits should normalize to 0, got %+v", cfg.Testing)
+	}
+}
+
 func TestLoadKeepsLeaderboardGroupOrder(t *testing.T) {
 	path := writeTempConfig(t, `{"port": 7860, "leaderboard_group_order": ["coding", "terminal", "judge"]}`)
 	cfg, err := Load(path)

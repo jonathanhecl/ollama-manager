@@ -117,6 +117,23 @@ type Client struct {
 	// runExpected tracks tests expected per model per run, used to keep
 	// only fully-completed models on abort with "save-completed".
 	runExpected map[string]map[string]int
+	// stageLimitsMu guards stageLimits, the optional per-stage auto-skip
+	// limits applied to every turn (see StageLimits).
+	stageLimitsMu sync.RWMutex
+	stageLimits   StageLimits
+}
+
+// StageLimits holds optional automatic skip conditions for battery turns.
+// Each limit applies per stage (thinking or response) individually, never
+// to their sum. Zero disables the condition.
+type StageLimits struct {
+	// MaxTokens caps the approximate tokens of a single stage. Counts are
+	// estimated (~4 chars per token) because Ollama only reports exact
+	// token counts when generation finishes. 0 = no limit.
+	MaxTokens int
+	// MaxSeconds caps the streaming time spent in a single stage.
+	// 0 = no limit.
+	MaxSeconds int
 }
 
 // NewClient creates a runner client.
@@ -130,6 +147,36 @@ func NewClient(ollamaClient *ollama.Client) *Client {
 		abortMode:    make(map[string]string),
 		runExpected:  make(map[string]map[string]int),
 	}
+}
+
+// SetStageLimits replaces the per-stage auto-skip limits used by future
+// turns. It is safe for concurrent use.
+func (c *Client) SetStageLimits(l StageLimits) {
+	c.stageLimitsMu.Lock()
+	defer c.stageLimitsMu.Unlock()
+	c.stageLimits = l
+}
+
+// getStageLimits returns a snapshot of the current per-stage limits.
+func (c *Client) getStageLimits() StageLimits {
+	c.stageLimitsMu.RLock()
+	defer c.stageLimitsMu.RUnlock()
+	return c.stageLimits
+}
+
+// estimateStageTokens approximates token counts from text (~4 chars per
+// token, rune-based). Same convention as estimateTextTokens in the server
+// package. Used for live per-stage enforcement while streaming, when exact
+// counts are not available yet.
+func estimateStageTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := len([]rune(s))
+	if n < 4 {
+		return 1
+	}
+	return n / 4
 }
 
 func (c *Client) setProgress(p Progress) {
@@ -601,7 +648,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			c.setTestCancel(runID, stepCancel)
 			turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]))
 			retry := errors.Is(context.Cause(stepCtx), errManualRetry)
-			skipCase := errors.Is(context.Cause(stepCtx), errManualSkip)
+			// A stage-limit auto-skip behaves like a manual case skip:
+			// record the step as skipped and continue with the next
+			// step instead of aborting the whole test.
+			skipCase := errors.Is(context.Cause(stepCtx), errManualSkip) || errors.Is(turn.Error, errAutoSkipStage)
 			stepCancel(nil)
 			if retry {
 				// Manual retry: drop the cancelled attempt and run
@@ -1197,11 +1247,12 @@ func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages
 	isThinking := false
 	start := time.Now()
 	var chatErr error
+	limits := c.getStageLimits()
 
 retryLoop:
 	for attempt := 0; attempt <= 3; attempt++ {
 		if attempt > 0 {
-			if errors.Is(chatErr, errRepetitionLoop) || errors.Is(chatErr, errManualSkip) || errors.Is(chatErr, errManualSkipModel) || ctx.Err() != nil {
+			if errors.Is(chatErr, errRepetitionLoop) || errors.Is(chatErr, errManualSkip) || errors.Is(chatErr, errManualSkipModel) || errors.Is(chatErr, errAutoSkipStage) || ctx.Err() != nil {
 				break retryLoop
 			}
 			if loaded, psErr := c.isModelLoaded(ctx, model); psErr == nil && !loaded {
@@ -1227,12 +1278,29 @@ retryLoop:
 			isThinking = false
 		}
 
+		// Per-stage auto-skip bookkeeping. Thinking and response are
+		// tracked individually (never summed): the thinking bucket holds
+		// the thinking field plus content streamed while the turn is in
+		// its thinking phase; the response bucket holds the rest.
+		// Token counts are estimates (~4 chars/token) since Ollama only
+		// reports exact counts once generation finishes.
+		thinkChars := 0
+		respChars := 0
+		var thinkMs, respMs int64
+		lastT := time.Now()
 		chatErr = c.ollama.Chat(ctx, req, func(chunk ollama.ChatChunk) error {
+			now := time.Now()
+			deltaMs := now.Sub(lastT).Milliseconds()
+			if deltaMs < 0 {
+				deltaMs = 0
+			}
+			lastT = now
 			if chunk.Message.Content != "" {
 				fullContent.WriteString(chunk.Message.Content)
 			}
 			if chunk.Message.Thinking != "" {
 				fullThinking.WriteString(chunk.Message.Thinking)
+				thinkChars += len([]rune(chunk.Message.Thinking))
 			}
 			content := fullContent.String()
 			if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
@@ -1241,9 +1309,37 @@ retryLoop:
 			if isThinking && (strings.Contains(content, "</thinking>") || strings.Contains(content, "</stitching>") || strings.Contains(content, "</throat>")) {
 				isThinking = false
 			}
+			if n := len([]rune(chunk.Message.Content)); n > 0 {
+				if isThinking {
+					thinkChars += n
+				} else {
+					respChars += n
+				}
+			}
+			if isThinking {
+				thinkMs += deltaMs
+			} else {
+				respMs += deltaMs
+			}
 			c.updateProgressStream(runID, isThinking, content, fullThinking.String())
 			if chunk.Done {
 				chunkMeta = &chunk
+			}
+			if limits.MaxTokens > 0 {
+				if t := thinkChars / 4; t > limits.MaxTokens {
+					return fmt.Errorf("auto-skipped: thinking stage exceeded %d tokens (~%d): %w", limits.MaxTokens, t, errAutoSkipStage)
+				}
+				if t := respChars / 4; t > limits.MaxTokens {
+					return fmt.Errorf("auto-skipped: response stage exceeded %d tokens (~%d): %w", limits.MaxTokens, t, errAutoSkipStage)
+				}
+			}
+			if limits.MaxSeconds > 0 {
+				if s := thinkMs / 1000; s > int64(limits.MaxSeconds) {
+					return fmt.Errorf("auto-skipped: thinking stage exceeded %ds (%ds): %w", limits.MaxSeconds, s, errAutoSkipStage)
+				}
+				if s := respMs / 1000; s > int64(limits.MaxSeconds) {
+					return fmt.Errorf("auto-skipped: response stage exceeded %ds (%ds): %w", limits.MaxSeconds, s, errAutoSkipStage)
+				}
 			}
 			if isLoop, _ := detectRepetitionLoop(content); isLoop {
 				return errRepetitionLoop

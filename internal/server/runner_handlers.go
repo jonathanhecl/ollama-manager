@@ -163,6 +163,16 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	// Detect system info for this run.
 	sysInfo := runner.DetectSysInfo()
 
+	// Snapshot the per-stage auto-skip limits so this run enforces the
+	// testing settings active at start time.
+	s.cfgMu.RLock()
+	testingLimits := s.cfg.Testing
+	s.cfgMu.RUnlock()
+	s.runner.SetStageLimits(runner.StageLimits{
+		MaxTokens:  testingLimits.MaxStageTokens,
+		MaxSeconds: testingLimits.MaxStageSeconds,
+	})
+
 	// Use background context so async execution survives HTTP request completion.
 	bgCtx := context.Background()
 	runID := s.runner.ExecuteBatteryAsync(bgCtx, group, testsList, body.ModelIDs, modelCaps, sysInfo, func(run *runner.BatteryRun) {

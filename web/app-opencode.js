@@ -425,11 +425,27 @@ $("settings-save").addEventListener("click", async () => {
     toast(t("toast.error", { msg: "gateway port 0..65535" }), "error");
     return;
   }
+  const maxStageTokensRaw = ($("set-testing-max-stage-tokens")?.value ?? "").trim();
+  const maxStageTokens = maxStageTokensRaw === "" ? 0 : parseInt(maxStageTokensRaw, 10);
+  if (!Number.isFinite(maxStageTokens) || maxStageTokens < 0 || maxStageTokens > 10000000) {
+    toast(t("toast.error", { msg: "max stage tokens 0..10000000" }), "error");
+    return;
+  }
+  const maxStageSecondsRaw = ($("set-testing-max-stage-seconds")?.value ?? "").trim();
+  const maxStageSeconds = maxStageSecondsRaw === "" ? 0 : parseInt(maxStageSecondsRaw, 10);
+  if (!Number.isFinite(maxStageSeconds) || maxStageSeconds < 0 || maxStageSeconds > 86400) {
+    toast(t("toast.error", { msg: "max stage seconds 0..86400" }), "error");
+    return;
+  }
   const body = {
     language: $("set-language").value,
     port,
     expose_network: $("set-expose").checked,
     chat_defaults: chatDefaults,
+    testing: {
+      max_stage_tokens: maxStageTokens,
+      max_stage_seconds: maxStageSeconds,
+    },
     gateway: {
       enabled: $("gw-enable")?.checked ?? false,
       port: gwPort,

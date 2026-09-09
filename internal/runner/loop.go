@@ -10,6 +10,10 @@ var (
 	errManualSkip     = errors.New("manually skipped")
 	errManualRetry    = errors.New("manually retried")
 	errManualSkipModel = errors.New("manually skipped model")
+	// errAutoSkipStage aborts a turn when a configured per-stage testing
+	// limit is exceeded. It wraps details about the stage and the limit;
+	// callers match it with errors.Is to treat the turn as skipped.
+	errAutoSkipStage = errors.New("auto-skipped")
 )
 
 // isUniformChar reports whether s is non-empty and composed entirely of the same rune.
@@ -96,7 +100,8 @@ func detectRepetitionLoop(s string) (bool, string) {
 	return false, ""
 }
 
-// isLoopOrSkip reports whether the error string indicates a repetition loop or manual test skip.
+// isLoopOrSkip reports whether the error string indicates a repetition loop,
+// a manual test skip or an automatic stage-limit skip.
 func isLoopOrSkip(errStr string) bool {
-	return strings.Contains(errStr, "repetition loop detected") || strings.Contains(errStr, "manually skipped")
+	return strings.Contains(errStr, "repetition loop detected") || strings.Contains(errStr, "manually skipped") || strings.Contains(errStr, "auto-skipped")
 }

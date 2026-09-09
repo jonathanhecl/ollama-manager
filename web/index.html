@@ -1396,6 +1396,10 @@
             <span class="settings-nav-icon">💬</span>
             <span class="settings-nav-label" data-i18n="settings.nav_chat_defaults">Chat Defaults</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-testing">
+            <span class="settings-nav-icon">🧪</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_testing">Testing</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-network">
             <span class="settings-nav-icon">🔒</span>
             <span class="settings-nav-label" data-i18n="settings.nav_network">Network &amp; Security</span>
@@ -1551,6 +1555,28 @@
                   <small class="muted settings-reset-overrides-desc" data-i18n="settings.reset_all_models_desc">Clear all browser-saved custom parameters and prompts for individual models so they all use these defaults.</small>
                 </div>
                 <button type="button" id="set-reset-all-models-btn" class="danger" data-i18n="settings.reset_all_models_btn">Reset defaults for all models</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Testing auto-skip limits -->
+          <section class="settings-section-card" id="sec-testing" hidden>
+            <div class="settings-section-header">
+              <h3 class="settings-section-title" data-i18n="settings.testing_section">Testing auto-skip</h3>
+              <p class="settings-section-desc" data-i18n="settings.testing_hint">Automatically skip a test case when a model gets stuck in one stage (thinking or response). Each limit applies per stage individually, never to their sum. Leave at 0 to disable.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="settings-param-row">
+                <div class="field-compact">
+                  <label for="set-testing-max-stage-tokens" data-i18n="settings.testing_max_stage_tokens">Max tokens per stage</label>
+                  <input id="set-testing-max-stage-tokens" type="number" min="0" max="10000000" step="1000" value="0" autocomplete="off">
+                  <small class="muted" data-i18n="settings.testing_max_stage_tokens_hint">Skip when thinking or response alone exceeds this many tokens (approximate, ~4 chars/token). 0 = disabled.</small>
+                </div>
+                <div class="field-compact">
+                  <label for="set-testing-max-stage-seconds" data-i18n="settings.testing_max_stage_seconds">Max seconds per stage</label>
+                  <input id="set-testing-max-stage-seconds" type="number" min="0" max="86400" step="60" value="0" autocomplete="off">
+                  <small class="muted" data-i18n="settings.testing_max_stage_seconds_hint">Skip when thinking or response alone takes longer than this (e.g. 600 = 10 min). 0 = disabled.</small>
+                </div>
               </div>
             </div>
           </section>
@@ -2562,7 +2588,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260909_02"></script>
+  <script src="/static/i18n.js?v=20260909_03"></script>
   <script src="/static/app-helpers.js?v=20260908_02"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
@@ -2579,8 +2605,8 @@
   <script src="/static/app-hf-search.js?v=20260827_06"></script>
   <script src="/static/app-modelfile.js?v=20260822"></script>
   <script src="/static/app-topbar.js?v=20260820"></script>
-  <script src="/static/app-settings.js?v=20260830_01"></script>
-  <script src="/static/app-opencode.js?v=20260821"></script>
+  <script src="/static/app-settings.js?v=20260909_01"></script>
+  <script src="/static/app-opencode.js?v=20260909_01"></script>
   <script src="/static/app-opencode-actions.js?v=20260821"></script>
   <script src="/static/app-agent-session.js?v=20260820"></script>
   <script src="/static/app-battery.js?v=20260908_01"></script>

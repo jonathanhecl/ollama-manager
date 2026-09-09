@@ -44,6 +44,21 @@ type GatewayConfig struct {
 	RequireAuth bool `json:"require_auth"`
 }
 
+// TestingLimits holds optional automatic skip conditions for battery tests.
+// Each limit applies per stage (thinking or response) individually, not to
+// their sum: e.g. MaxStageTokens=50000 allows 49k thinking + 39k response.
+// Zero (or negative) disables the condition.
+type TestingLimits struct {
+	// MaxStageTokens caps the approximate tokens of a single stage
+	// (thinking or response). Token counts during streaming are estimated
+	// (~4 chars per token) since Ollama only reports exact counts at the
+	// end. 0 = no limit.
+	MaxStageTokens int `json:"max_stage_tokens,omitempty"`
+	// MaxStageSeconds caps the time spent in a single stage (thinking or
+	// response). 0 = no limit.
+	MaxStageSeconds int `json:"max_stage_seconds,omitempty"`
+}
+
 // DefaultGatewayPort is used when Gateway.Port is 0.
 const DefaultGatewayPort = 7861
 
@@ -70,6 +85,7 @@ type Config struct {
 	Language              string        `json:"language"`
 	ChatDefaults          ChatDefaults  `json:"chat_defaults"`
 	LeaderboardGroupOrder []string      `json:"leaderboard_group_order,omitempty"`
+	Testing               TestingLimits `json:"testing"`
 	Gateway               GatewayConfig `json:"gateway"`
 
 	path string `json:"-"`
@@ -164,6 +180,13 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.OllamaURL == "" {
 		cfg.OllamaURL = Defaults().OllamaURL
+	}
+	// Normalize testing auto-skip limits: negatives mean disabled.
+	if cfg.Testing.MaxStageTokens < 0 {
+		cfg.Testing.MaxStageTokens = 0
+	}
+	if cfg.Testing.MaxStageSeconds < 0 {
+		cfg.Testing.MaxStageSeconds = 0
 	}
 
 	def := Defaults().ChatDefaults

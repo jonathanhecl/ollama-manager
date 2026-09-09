@@ -46,6 +46,10 @@ async function showSettingsView() {
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
 
+  const testingLimits = currentConfig.testing || {};
+  if ($("set-testing-max-stage-tokens")) $("set-testing-max-stage-tokens").value = String(Math.max(0, testingLimits.max_stage_tokens || 0));
+  if ($("set-testing-max-stage-seconds")) $("set-testing-max-stage-seconds").value = String(Math.max(0, testingLimits.max_stage_seconds || 0));
+
   const buildEl = $("settings-build-info");
   if (buildEl) {
     buildEl.textContent = currentConfig.version ? `v${currentConfig.version}` : "";
@@ -68,6 +72,7 @@ async function showSettingsView() {
   const path = window.location.pathname;
   let targetSecId = "sec-general";
   if (path === "/settings/chat-defaults") targetSecId = "sec-chat-defaults";
+  else if (path === "/settings/testing") targetSecId = "sec-testing";
   else if (path === "/settings/prompts") targetSecId = "sec-prompts";
   else if (path === "/settings/network") targetSecId = "sec-network";
   else if (path === "/settings/external") targetSecId = "sec-ext-models";
@@ -307,6 +312,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
     let subRoute = "/settings";
     if (sectionId === "sec-general") subRoute = "/settings/general";
     else if (sectionId === "sec-chat-defaults") subRoute = "/settings/chat-defaults";
+    else if (sectionId === "sec-testing") subRoute = "/settings/testing";
     else if (sectionId === "sec-prompts") subRoute = "/settings/prompts";
     else if (sectionId === "sec-network") subRoute = "/settings/network";
     else if (sectionId === "sec-ext-models") subRoute = "/settings/external";

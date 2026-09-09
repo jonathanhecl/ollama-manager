@@ -1083,6 +1083,7 @@ function newEditorCase(name) {
     temperature: "",
     top_p: "",
     max_tokens: "",
+    think_level: "",
     subevals: [],
     steps: [],
     sidecars: [],
@@ -1096,6 +1097,18 @@ function newEditorStep(name) {
 
 function isPatternEvalType(type) {
   return type === "regex" || type === "not_contains";
+}
+
+// Think level options for per-case overrides. "" = inherit/model default;
+// otherwise the flag is sent with every turn of the case (harmless for
+// models without thinking support).
+function thinkLevelOptionsHtml(selected) {
+  const levels = ["auto", "off", "low", "medium", "high", "max"];
+  let html = `<option value="" ${!selected ? "selected" : ""}>${escapeHtml(t("tests.inherit_placeholder"))}</option>`;
+  for (const lvl of levels) {
+    html += `<option value="${lvl}" ${selected === lvl ? "selected" : ""}>${escapeHtml(t("chat.think." + lvl))}</option>`;
+  }
+  return html;
 }
 
 function evalLeafOptionsHtml(selectedType) {
@@ -1204,6 +1217,7 @@ function renderEditorCasesList() {
             <button type="button" class="btn-icon te-case-move-down" data-idx="${idx}" title="${t("tests.move_down")}" ${isLast ? "disabled" : ""}>▼</button>
           </div>
           <span class="te-case-card-badge">${t("tests.case_num", { n: idx + 1 })}</span>
+          ${c.think_level ? `<span class="pill" title="${escapeHtml(t("tests.case_think"))}">🧠 ${escapeHtml(c.think_level)}</span>` : ""}
           <input type="text" class="te-case-name" value="${escapeHtml(c.name || "")}" placeholder="${t("tests.case_name_placeholder")}" autocomplete="off">
           ${deleteBtn}
         </div>
@@ -1260,6 +1274,10 @@ function renderEditorCasesList() {
               <div class="field">
                 <label class="te-case-label">${t("tests.case_maxtokens")}</label>
                 <input type="number" class="te-case-max-tokens" min="1" step="1" value="${escapeHtml(c.max_tokens ?? "")}" placeholder="${t("tests.inherit_placeholder")}" autocomplete="off">
+              </div>
+              <div class="field">
+                <label class="te-case-label">${t("tests.case_think")}</label>
+                <select class="te-case-think-level" autocomplete="off" title="${t("tests.case_think_hint")}">${thinkLevelOptionsHtml(c.think_level || "")}</select>
               </div>
             </div>
           </details>
@@ -1424,6 +1442,7 @@ function syncEditorCasesFromDOM() {
     const temperature = card.querySelector(".te-case-temperature")?.value.trim() || "";
     const topP = card.querySelector(".te-case-top-p")?.value.trim() || "";
     const maxTokens = card.querySelector(".te-case-max-tokens")?.value.trim() || "";
+    const thinkLevel = card.querySelector(".te-case-think-level")?.value || "";
     const stepEls = card.querySelectorAll(".te-case-step");
     const steps = Array.from(stepEls).map((sel2, sidx) => {
       const sName = sel2.querySelector(".te-case-step-name")?.value.trim() || `Step ${sidx + 1}`;
@@ -1457,6 +1476,7 @@ function syncEditorCasesFromDOM() {
       temperature,
       top_p: topP,
       max_tokens: maxTokens,
+      think_level: thinkLevel,
       steps,
       // Sidecars travel with the entry (reorder/delete preserve them here;
       // the server reconciles them by case number at save time).
@@ -1520,6 +1540,7 @@ async function showTestEditorView(id) {
         let temp = c.options?.temperature ?? "";
         let topP = c.options?.top_p ?? "";
         let maxTok = c.options?.max_tokens ?? "";
+        let thinkLevel = c.options?.think_level || "";
         let subevals = evalObj?.type === "all_of" && Array.isArray(evalObj.evaluations)
           ? evalObj.evaluations.map(toEditorSub) : [];
         let steps = Array.isArray(c.steps) ? c.steps.map(toEditorStep) : [];
@@ -1557,6 +1578,7 @@ async function showTestEditorView(id) {
           temperature: temp,
           top_p: topP,
           max_tokens: maxTok,
+          think_level: thinkLevel,
           subevals,
           steps,
           sidecars,
@@ -2160,11 +2182,13 @@ async function saveTestEditor() {
     const temp = parseNum(c.temperature);
     const topP = parseNum(c.top_p);
     const maxTokens = parseNum(c.max_tokens);
-    if (temp !== undefined || topP !== undefined || maxTokens !== undefined) {
+    const thinkLevel = (c.think_level || "").trim().toLowerCase();
+    if (temp !== undefined || topP !== undefined || maxTokens !== undefined || thinkLevel !== "") {
       item.options = {};
       if (temp !== undefined) item.options.temperature = temp;
       if (topP !== undefined) item.options.top_p = topP;
       if (maxTokens !== undefined) item.options.max_tokens = Math.round(maxTokens);
+      if (thinkLevel !== "") item.options.think_level = thinkLevel;
     }
     if (Array.isArray(c.steps) && c.steps.length > 0) {
       item.steps = c.steps.map((s, j) => {

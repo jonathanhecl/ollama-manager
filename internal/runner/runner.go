@@ -646,7 +646,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			history = append(history, stepMsg)
 			stepCtx, stepCancel := context.WithCancelCause(ctx)
 			c.setTestCancel(runID, stepCancel)
-			turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]))
+			turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]), thinkFor(effStepOpts[i]))
 			retry := errors.Is(context.Cause(stepCtx), errManualRetry)
 			// A stage-limit auto-skip behaves like a manual case skip:
 			// record the step as skipped and continue with the next
@@ -850,7 +850,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				caseMsg.Images = caseMedia
 			}
 			history = append(history, caseMsg)
-			turn := c.execChatTurn(caseCtx, runID, model, history, optsFor(effOpts))
+			turn := c.execChatTurn(caseCtx, runID, model, history, optsFor(effOpts), thinkFor(effOpts))
 			if turn.Error != nil {
 				if ctx.Err() != nil {
 					res.Error = ctx.Err().Error()
@@ -1195,7 +1195,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		ActivePrompt: promptText,
 	})
 
-	turn := c.execChatTurn(ctx, runID, model, messages, optsFor(test.Options))
+	turn := c.execChatTurn(ctx, runID, model, messages, optsFor(test.Options), thinkFor(test.Options))
 	res.ResponseTimeMs = turn.ResponseTimeMs
 	if turn.Error != nil {
 		res.Error = turn.Error.Error()
@@ -1233,11 +1233,12 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	return res
 }
 
-func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages []ollama.ChatMessage, opts map[string]any) turnResult {
+func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages []ollama.ChatMessage, opts map[string]any, think *ollama.ThinkLevel) turnResult {
 	req := ollama.ChatRequest{
 		Model:    model,
 		Messages: messages,
 		Options:  opts,
+		Think:    think,
 		Stream:   true,
 	}
 
@@ -1416,6 +1417,22 @@ func (c *Client) updateProgressStream(runID string, thinking bool, content, reas
 		p.PartialResponse = content
 		p.PartialThinking = reasoning
 	}
+}
+
+// thinkFor resolves the Ollama think flag for a turn from the effective
+// options. Empty or "auto" returns nil (model default, no flag sent) so
+// models without thinking support are unaffected; any other valid level is
+// forwarded as-is.
+func thinkFor(o *tests.TestOptions) *ollama.ThinkLevel {
+	if o == nil {
+		return nil
+	}
+	lvl := strings.ToLower(strings.TrimSpace(o.ThinkLevel))
+	if lvl == "" || lvl == "auto" {
+		return nil
+	}
+	think := ollama.ThinkLevel(lvl)
+	return &think
 }
 
 // optsFor converts TestOptions into the Ollama request options map.
@@ -1718,6 +1735,9 @@ func isKnownEvalType(t string) bool {
 // starts, so a typo surfaces as a 400 instead of silent failures.
 func ValidateTestsForBattery(testsList []tests.Test) error {
 	for _, t := range testsList {
+		if t.Options != nil && !tests.IsValidThinkLevel(t.Options.ThinkLevel) {
+			return fmt.Errorf("test %q uses invalid think_level %q (use auto, off, low, medium, high or max)", t.Name, t.Options.ThinkLevel)
+		}
 		if t.EvaluationType != "" && !isKnownEvalType(t.EvaluationType) {
 			return fmt.Errorf("test %q uses unknown evaluation type %q", t.Name, t.EvaluationType)
 		}
@@ -1728,15 +1748,24 @@ func ValidateTestsForBattery(testsList []tests.Test) error {
 			if tc.Evaluation != nil && !isKnownEvalType(tc.Evaluation.Type) {
 				return fmt.Errorf("test %q case %d uses unknown evaluation type %q", t.Name, i+1, tc.Evaluation.Type)
 			}
+			if tc.Options != nil && !tests.IsValidThinkLevel(tc.Options.ThinkLevel) {
+				return fmt.Errorf("test %q case %d uses invalid think_level %q (use auto, off, low, medium, high or max)", t.Name, i+1, tc.Options.ThinkLevel)
+			}
 			for j, cs := range tc.Steps {
 				if cs.Evaluation != nil && !isKnownEvalType(cs.Evaluation.Type) {
 					return fmt.Errorf("test %q case %d step %d uses unknown evaluation type %q", t.Name, i+1, j+1, cs.Evaluation.Type)
+				}
+				if cs.Options != nil && !tests.IsValidThinkLevel(cs.Options.ThinkLevel) {
+					return fmt.Errorf("test %q case %d step %d uses invalid think_level %q (use auto, off, low, medium, high or max)", t.Name, i+1, j+1, cs.Options.ThinkLevel)
 				}
 			}
 		}
 		for _, st := range t.Steps {
 			if st.Evaluation != nil && !isKnownEvalType(st.Evaluation.Type) {
 				return fmt.Errorf("test %q step %d uses unknown evaluation type %q", t.Name, st.Step, st.Evaluation.Type)
+			}
+			if st.Options != nil && !tests.IsValidThinkLevel(st.Options.ThinkLevel) {
+				return fmt.Errorf("test %q step %d uses invalid think_level %q (use auto, off, low, medium, high or max)", t.Name, st.Step, st.Options.ThinkLevel)
 			}
 		}
 	}

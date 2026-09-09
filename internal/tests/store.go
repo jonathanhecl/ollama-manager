@@ -138,10 +138,15 @@ type TestOptions struct {
 	Temperature *float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
 	MaxTokens   *int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	// ThinkLevel controls reasoning effort for this turn ("auto", "off",
+	// "low", "medium", "high", "max"). Empty means inherit / model default.
+	// It is only exposed per case in the editor, but merges like any other
+	// option so chains and YAML authors behave consistently.
+	ThinkLevel string `json:"think_level,omitempty" yaml:"think_level,omitempty"`
 }
 
 // MergeOptions returns the effective inference options for a case or step:
-// fields set in override win, nil fields fall back to base.
+// fields set in override win, nil/empty fields fall back to base.
 // A nil override returns base unchanged.
 func MergeOptions(base, override *TestOptions) *TestOptions {
 	if override == nil {
@@ -160,7 +165,54 @@ func MergeOptions(base, override *TestOptions) *TestOptions {
 	if override.MaxTokens != nil {
 		out.MaxTokens = override.MaxTokens
 	}
+	if override.ThinkLevel != "" {
+		out.ThinkLevel = override.ThinkLevel
+	}
 	return &out
+}
+
+// IsValidThinkLevel reports whether lvl is a usable think_level value.
+// Empty means "inherit / model default" and is always valid.
+func IsValidThinkLevel(lvl string) bool {
+	if lvl == "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(lvl)) {
+	case "auto", "off", "low", "medium", "high", "max":
+		return true
+	}
+	return false
+}
+
+// validateThinkLevels rejects unknown think_level values in test, case and
+// step options so typos fail fast at save/run time instead of silently
+// running with the model default.
+func validateThinkLevels(t *Test) error {
+	check := func(where string, o *TestOptions) error {
+		if o != nil && !IsValidThinkLevel(o.ThinkLevel) {
+			return fmt.Errorf("invalid think_level %q in %s (use auto, off, low, medium, high or max)", o.ThinkLevel, where)
+		}
+		return nil
+	}
+	if err := check("test options", t.Options); err != nil {
+		return err
+	}
+	for i := range t.Cases {
+		if err := check(fmt.Sprintf("case %d (%s) options", i+1, t.Cases[i].Name), t.Cases[i].Options); err != nil {
+			return err
+		}
+		for j := range t.Cases[i].Steps {
+			if err := check(fmt.Sprintf("case %d step %d options", i+1, j+1), t.Cases[i].Steps[j].Options); err != nil {
+				return err
+			}
+		}
+	}
+	for i := range t.Steps {
+		if err := check(fmt.Sprintf("step %d options", i+1), t.Steps[i].Options); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // EffectiveSystemPrompt resolves which system prompt applies to a case or step:
@@ -862,6 +914,10 @@ func (s *Store) CreateTest(in Test) (Test, error) {
 		}
 	}
 
+	if err := validateThinkLevels(&in); err != nil {
+		return Test{}, err
+	}
+
 	evalType := in.EvaluationType
 	if evalType == "" && in.Evaluation != nil {
 		evalType = in.Evaluation.Type
@@ -943,6 +999,10 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	t, ok := s.tests[id]
 	if !ok || t == nil {
 		return Test{}, errors.New("test not found")
+	}
+
+	if err := validateThinkLevels(&in); err != nil {
+		return Test{}, err
 	}
 
 	oldGroup := t.GroupID

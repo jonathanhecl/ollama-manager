@@ -66,8 +66,8 @@ history scoped to the case).
 | `prompt` | string | yes, unless `steps` has an opening turn | Single-turn prompt, or the opening turn of a multi-turn chain (scored with the case-level `evaluation` when set) |
 | `evaluation` | object | no | `{ type, expected?, pattern?, schema? }`; same types as §4 |
 | `system_prompt` | string | no | Override for this case only; empty/missing = inherits the test-level `system_prompt` |
-| `options` | object | no | `{ temperature?, top_p?, max_tokens? }`; set fields override the test-level `options` |
-| `steps` | []CaseStep | no | Chained follow-up turns; each `{ name?, prompt, evaluation?, system_prompt?, options? }` is sent in order keeping prior turns in context. A step-level `system_prompt` is **sticky**: it replaces the active system from that step onward, while an empty one keeps the active system (case-level, or test-level). Step-level `options` (`{ temperature?, top_p?, max_tokens? }`) fold the same way field by field over the active options. Each case starts fresh from the test-level system and options (or its own overrides) |
+| `options` | object | no | `{ temperature?, top_p?, max_tokens?, think_level? }`; set fields override the test-level `options`. `think_level` (`auto`, `off`, `low`, `medium`, `high`, `max`; empty = inherit/model default) is sent as the Ollama `think` flag with every turn of the case, so the same prompt can be repeated across cases with different thinking levels. Models without thinking support ignore it |
+| `steps` | []CaseStep | no | Chained follow-up turns; each `{ name?, prompt, evaluation?, system_prompt?, options? }` is sent in order keeping prior turns in context. A step-level `system_prompt` is **sticky**: it replaces the active system from that step onward, while an empty one keeps the active system (case-level, or test-level). Step-level `options` (`{ temperature?, top_p?, max_tokens?, think_level? }`) fold the same way field by field over the active options. Each case starts fresh from the test-level system and options (or its own overrides) |
 
 Example (instruction-list following with a per-case voice override):
 

@@ -41,6 +41,39 @@ func TestValidateTestsForBattery(t *testing.T) {
 	if err := ValidateTestsForBattery(badCase); err == nil {
 		t.Fatal("expected error for bad case type")
 	}
+
+	badThink := []tests.Test{{
+		Name:  "badthink",
+		Cases: []tests.TestCase{{Prompt: "x", Options: &tests.TestOptions{ThinkLevel: "ultra"}}},
+	}}
+	if err := ValidateTestsForBattery(badThink); err == nil || !strings.Contains(err.Error(), "think_level") {
+		t.Fatalf("expected think_level error, got %v", err)
+	}
+
+	goodThink := []tests.Test{{
+		Name:  "goodthink",
+		Cases: []tests.TestCase{{Prompt: "x", Options: &tests.TestOptions{ThinkLevel: "off"}}},
+	}}
+	if err := ValidateTestsForBattery(goodThink); err != nil {
+		t.Fatalf("expected valid think_level, got %v", err)
+	}
+}
+
+func TestThinkFor(t *testing.T) {
+	if got := thinkFor(nil); got != nil {
+		t.Fatalf("nil options should give nil think, got %v", *got)
+	}
+	for _, lvl := range []string{"", "auto", "AUTO"} {
+		if got := thinkFor(&tests.TestOptions{ThinkLevel: lvl}); got != nil {
+			t.Fatalf("think_level %q should give nil (model default), got %v", lvl, *got)
+		}
+	}
+	for _, lvl := range []string{"off", "low", "medium", "high", "max"} {
+		got := thinkFor(&tests.TestOptions{ThinkLevel: lvl})
+		if got == nil || string(*got) != lvl {
+			t.Fatalf("think_level %q should be forwarded, got %v", lvl, got)
+		}
+	}
 }
 
 func TestSplitCaseMedia(t *testing.T) {

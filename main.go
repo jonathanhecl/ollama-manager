@@ -119,6 +119,9 @@ func main() {
 		log.Println("WARNING: expose_network=true with no password set. Anyone on your LAN can manage Ollama.")
 		log.Println("         Run 'ollama-manager set-password <password>' to secure access.")
 	}
+	if cfg.Gateway.Enabled && cfg.Gateway.ExposeNetwork && !cfg.Gateway.RequireAuth {
+		log.Println("WARNING: gateway expose_network=true with require_auth=false. Anyone on your LAN can use your models (and your external API keys).")
+	}
 
 	subFS, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -153,6 +156,13 @@ func main() {
 	addr := cfg.BindAddress()
 	log.Printf("ollama-manager %s starting...", getVersionInfo())
 	log.Printf("listening on http://%s  (ollama: %s)", addr, cfg.OllamaURL)
+	if cfg.Gateway.Enabled {
+		go func() {
+			if err := srv.ListenAndServeGateway(ctx); err != nil {
+				log.Fatalf("gateway: %v", err)
+			}
+		}()
+	}
 	if err := srv.ListenAndServe(ctx); err != nil {
 		log.Fatalf("server: %v", err)
 	}

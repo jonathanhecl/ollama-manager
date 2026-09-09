@@ -12629,6 +12629,237 @@ button.chat-send:disabled:hover {
   }
 }
 
+/* ---------- Leaderboard: Ready Models Section ---------- */
+.lb-ready-section {
+  margin-top: 32px;
+  padding: 22px 24px;
+  background: var(--panel, #12131a);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.lb-ready-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.lb-ready-title-area {
+  flex: 1;
+  min-width: 260px;
+}
+
+.lb-ready-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lb-ready-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.lb-ready-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text, #fff);
+  letter-spacing: -0.01em;
+}
+
+.lb-ready-desc {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--text-dim, #888);
+  line-height: 1.4;
+}
+
+.lb-ready-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-2, #181a24);
+  padding: 4px;
+  border-radius: var(--radius, 8px);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.lb-ready-tab {
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: var(--text-dim, #999);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lb-ready-tab:hover {
+  color: var(--text, #fff);
+  background: var(--panel-hover, rgba(255, 255, 255, 0.06));
+}
+
+.lb-ready-tab.active {
+  color: var(--accent, #7aa2ff);
+  background: color-mix(in srgb, var(--accent, #7aa2ff) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #7aa2ff) 35%, transparent);
+  font-weight: 600;
+}
+
+.lb-tab-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-weight: 600;
+}
+
+.lb-ready-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.lb-ready-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--panel-2, #161822);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius, 8px);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lb-ready-card:hover {
+  border-color: color-mix(in srgb, var(--accent, #7aa2ff) 40%, transparent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.lb-ready-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.lb-ready-card-name-box {
+  flex: 1;
+  min-width: 0;
+}
+
+.lb-ready-card-name {
+  font-size: 13px;
+  color: var(--text, #fff);
+  word-break: break-all;
+  display: block;
+  line-height: 1.35;
+}
+
+.lb-ready-card-speed {
+  flex-shrink: 0;
+}
+
+.lb-ready-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.lb-ready-card-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.lb-ready-card-specs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.lb-ready-card-specs span:not(:last-child)::after {
+  content: "·";
+  margin-left: 6px;
+  opacity: 0.5;
+}
+
+.lb-ready-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+  flex-wrap: wrap;
+}
+
+.lb-ready-card-status {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lb-ready-badge-pending {
+  color: var(--warning, #e6a23c);
+  background: color-mix(in srgb, var(--warning, #e6a23c) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warning, #e6a23c) 30%, transparent);
+}
+
+.lb-ready-badge-partial {
+  color: var(--accent, #7aa2ff);
+  background: color-mix(in srgb, var(--accent, #7aa2ff) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #7aa2ff) 30%, transparent);
+}
+
+.lb-ready-badge-complete {
+  color: var(--success, #67c23a);
+  background: color-mix(in srgb, var(--success, #67c23a) 14%, transparent);
+  border-color: color-mix(in srgb, var(--success, #67c23a) 30%, transparent);
+}
+
+.lb-ready-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lb-ready-empty {
+  text-align: center;
+  padding: 36px 16px;
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .lb-ready-grid {
+    grid-template-columns: 1fr;
+  }
+  .lb-ready-section-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lb-ready-tabs {
+    overflow-x: auto;
+  }
+}
+
 /* Category reorder modal */
 .leaderboard-order-list {
   display: flex;

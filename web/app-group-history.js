@@ -209,6 +209,28 @@ function applyLbModelFilter(root, activeInput) {
   if (clearBtn) clearBtn.hidden = !(_lbModelFilter || "");
   const emptyEl = root.querySelector(".lb-filter-empty");
   if (emptyEl) emptyEl.hidden = !(total > 0 && shown === 0);
+  root.querySelectorAll(".lb-ready-section").forEach((sec) => filterReadyCards(sec));
+}
+
+function filterReadyCards(section) {
+  if (!section) return;
+  const activeTab = section.dataset.activeTab || "pending";
+  const q = (_lbModelFilter || "").trim().toLowerCase();
+  let shown = 0;
+  const cards = section.querySelectorAll(".lb-ready-card");
+  cards.forEach((card) => {
+    const status = card.dataset.lbReadyStatus;
+    const name = (card.dataset.lbModel || "").toLowerCase();
+    const matchesSearch = !q || name.includes(q);
+    let matchesTab = true;
+    if (activeTab === "pending") matchesTab = (status === "pending");
+    else if (activeTab === "evaluated") matchesTab = (status === "complete" || status === "partial");
+    const visible = matchesSearch && matchesTab;
+    card.style.display = visible ? "" : "none";
+    if (visible) shown++;
+  });
+  const emptyEl = section.querySelector(".lb-ready-empty");
+  if (emptyEl) emptyEl.style.display = (cards.length > 0 && shown === 0) ? "block" : "none";
 }
 
 // Delegated: survives table rebuilds (innerHTML) in both page and modal.
@@ -256,6 +278,161 @@ function openLeaderboardModal() {
 
 function closeLeaderboardModal() {
   $("leaderboard-modal").hidden = true;
+}
+
+function buildReadySectionHtml(modelsData, lbRows = [], cols = []) {
+  const allInstalled = (modelsData && Array.isArray(modelsData.models)) ? modelsData.models : [];
+  const readyModels = allInstalled.filter((m) => {
+    if (m.archived || m.disabled || m.is_ghost) return false;
+    const tps = Number(m.record_tokens_per_sec) || 0;
+    return tps > 0;
+  });
+  if (readyModels.length === 0) return "";
+
+  readyModels.sort((a, b) => (Number(b.record_tokens_per_sec) || 0) - (Number(a.record_tokens_per_sec) || 0));
+
+  const rowMap = new Map((lbRows || []).map((r) => [r.model, r]));
+
+  let pendingCount = 0;
+  let evaluatedCount = 0;
+
+  const cardsData = readyModels.map((m) => {
+    const row = rowMap.get(m.name);
+    const evaluated = row ? (row.evaluated || 0) : 0;
+    let compatible = 0;
+    if (row && typeof row.compatible === "number") {
+      compatible = row.compatible;
+    } else {
+      const caps = new Set((m.capabilities || []).map((c) => String(c).toLowerCase()));
+      compatible = (cols || []).filter((col) => {
+        if ((col.activeTotal || 0) <= 0) return false;
+        const req = col.requiredCaps || [];
+        return !req.some((cap) => !caps.has(cap));
+      }).length;
+    }
+
+    let status = "pending";
+    if (evaluated > 0 && compatible > 0 && evaluated >= compatible) {
+      status = "complete";
+      evaluatedCount++;
+    } else if (evaluated > 0) {
+      status = "partial";
+      evaluatedCount++;
+    } else {
+      status = "pending";
+      pendingCount++;
+    }
+    return { model: m, evaluated, compatible, status };
+  });
+
+  const allCount = readyModels.length;
+  const activeTab = pendingCount > 0 ? "pending" : "all";
+  const q = (_lbModelFilter || "").trim().toLowerCase();
+
+  let cardsHtml = "";
+  let shownCards = 0;
+
+  for (const { model: m, evaluated, compatible, status } of cardsData) {
+    const tps = Number(m.record_tokens_per_sec) || 0;
+    const rc = (typeof getToksRecordColor === "function") ? getToksRecordColor(tps) : "";
+
+    let modelName = m.name;
+    let modelDisplay = escapeHtml(modelName);
+    if (modelName.startsWith("hf.co/")) {
+      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">hf.co/</span>${escapeHtml(modelName.slice(6))}`;
+    }
+
+    const pills = (typeof renderCapabilityPills === "function") ? renderCapabilityPills(m.capabilities) : "";
+
+    const specs = [];
+    if (m.details && m.details.parameter_size) {
+      specs.push(`<span>${escapeHtml(m.details.parameter_size)}</span>`);
+    }
+    if (m.size) {
+      specs.push(`<span>${fmtBytes(m.size)}</span>`);
+    }
+    if (m.context_length) {
+      specs.push(`<span>${fmtCtx(m.context_length)} ctx</span>`);
+    }
+    if (m.record_cold_load_ms > 0) {
+      specs.push(`<span title="${escapeHtml(t("models.cold_load_time") || "Cold load")}: ${fmtColdLoad(m.record_cold_load_ms)}">❄️ ${fmtColdLoad(m.record_cold_load_ms)}</span>`);
+    }
+
+    let statusBadge = "";
+    let actionLabel = "";
+    if (status === "complete") {
+      statusBadge = `<span class="pill lb-ready-badge-complete">✅ ${escapeHtml(t("battery.lb_ready_status_complete", { done: evaluated, total: compatible }))}</span>`;
+      actionLabel = `🧪 ${escapeHtml(t("battery.lb_ready_rerun_btn") || t("battery.lb_ready_run_btn"))}`;
+    } else if (status === "partial") {
+      statusBadge = `<span class="pill lb-ready-badge-partial">📊 ${escapeHtml(t("battery.lb_ready_status_partial", { done: evaluated, total: compatible }))}</span>`;
+      actionLabel = `🧪 ${escapeHtml(t("battery.lb_ready_continue_btn"))}`;
+    } else {
+      statusBadge = `<span class="pill lb-ready-badge-pending">⏳ ${escapeHtml(t("battery.lb_ready_status_untested"))}</span>`;
+      actionLabel = `🧪 ${escapeHtml(t("battery.lb_ready_run_btn"))}`;
+    }
+
+    const matchesSearch = !q || m.name.toLowerCase().includes(q);
+    let matchesTab = true;
+    if (activeTab === "pending") matchesTab = (status === "pending");
+    else if (activeTab === "evaluated") matchesTab = (status === "complete" || status === "partial");
+
+    const isVisible = matchesSearch && matchesTab;
+    if (isVisible) shownCards++;
+
+    cardsHtml += `
+      <div class="lb-ready-card" data-lb-model="${escapeHtml(m.name)}" data-lb-ready-status="${status}"${isVisible ? "" : ` style="display:none;"`}>
+        <div class="lb-ready-card-header">
+          <div class="lb-ready-card-name-box">
+            <strong class="lb-ready-card-name mono" title="${escapeHtml(m.name)}">${modelDisplay}</strong>
+          </div>
+          <div class="lb-ready-card-speed">
+            <span class="pill" title="${tps.toFixed(1)} tok/s"${rc ? ` style="color:${rc};"` : ""}><strong>${tps.toFixed(1)}</strong> <span class="speed-unit">tok/s</span></span>
+          </div>
+        </div>
+        <div class="lb-ready-card-meta">
+          ${pills ? `<div class="lb-ready-card-caps">${pills}</div>` : ""}
+          ${specs.length > 0 ? `<div class="lb-ready-card-specs muted mono">${specs.join("")}</div>` : ""}
+        </div>
+        <div class="lb-ready-card-footer">
+          <div class="lb-ready-card-status">${statusBadge}</div>
+          <div class="lb-ready-card-actions">
+            <button type="button" class="btn btn-sm btn-primary" data-lb-bench-model="${escapeHtml(m.name)}" title="${escapeHtml(t("battery.lb_ready_run_btn"))}">${actionLabel}</button>
+            <button type="button" class="btn btn-sm ghost" data-lb-chat="${escapeHtml(m.name)}" title="${escapeHtml(t("battery.lb_chat"))}">💬</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const titleTxt = escapeHtml(t("battery.lb_ready_section_title"));
+  const descTxt = escapeHtml(t("battery.lb_ready_section_desc"));
+  const tabPendingTxt = escapeHtml(t("battery.lb_ready_tab_pending"));
+  const tabAllTxt = escapeHtml(t("battery.lb_ready_tab_all"));
+  const tabEvalTxt = escapeHtml(t("battery.lb_ready_tab_evaluated"));
+  const emptyTxt = escapeHtml(t("battery.lb_ready_no_match"));
+
+  return `
+    <section class="lb-ready-section" data-active-tab="${activeTab}">
+      <div class="lb-ready-section-head">
+        <div class="lb-ready-title-area">
+          <div class="lb-ready-heading">
+            <span class="lb-ready-icon" aria-hidden="true">⚡</span>
+            <h3 class="lb-ready-title">${titleTxt}</h3>
+          </div>
+          <p class="lb-ready-desc">${descTxt}</p>
+        </div>
+        <div class="lb-ready-tabs" role="tablist">
+          <button type="button" class="lb-ready-tab${activeTab === "pending" ? " active" : ""}" data-lb-ready-tab="pending" role="tab" aria-selected="${activeTab === "pending"}">${tabPendingTxt} <span class="lb-tab-badge">${pendingCount}</span></button>
+          <button type="button" class="lb-ready-tab${activeTab === "all" ? " active" : ""}" data-lb-ready-tab="all" role="tab" aria-selected="${activeTab === "all"}">${tabAllTxt} <span class="lb-tab-badge">${allCount}</span></button>
+          <button type="button" class="lb-ready-tab${activeTab === "evaluated" ? " active" : ""}" data-lb-ready-tab="evaluated" role="tab" aria-selected="${activeTab === "evaluated"}">${tabEvalTxt} <span class="lb-tab-badge">${evaluatedCount}</span></button>
+        </div>
+      </div>
+      <div class="lb-ready-grid">
+        ${cardsHtml}
+      </div>
+      <div class="lb-ready-empty muted" style="${shownCards === 0 ? "display:block;" : "display:none;"}">${emptyTxt}</div>
+    </section>
+  `;
 }
 
 async function buildLeaderboardTableHtml() {
@@ -389,7 +566,8 @@ async function buildLeaderboardTableHtml() {
   }
 
   if (cols.length === 0 || modelSet.size === 0) {
-    return `<div class="battery-empty">${t("battery.no_history")}</div>`;
+    const readySectionHtml = buildReadySectionHtml(modelsData, [], cols);
+    return `<div class="battery-empty">${t("battery.no_history")}</div>${readySectionHtml}`;
   }
 
   const lbRows = Array.from(modelSet).map((m) => {
@@ -633,6 +811,7 @@ async function buildLeaderboardTableHtml() {
       </table>
     </div>
     <div class="lb-filter-empty muted"${lbTotal > 0 && lbShown === 0 ? "" : " hidden"}>${lbFilterEmptyTxt}</div>
+    ${buildReadySectionHtml(modelsData, lbRows, cols)}
   `;
 }
 
@@ -928,6 +1107,37 @@ document.addEventListener("click", (e) => {
       closeLeaderboardModal();
     }
     void openBatteryModal({ groupIds: missing, initialModel: name });
+    return;
+  }
+  // Ready models tab switching
+  const readyTab = e.target?.closest?.("[data-lb-ready-tab]");
+  if (readyTab) {
+    const sec = readyTab.closest(".lb-ready-section");
+    if (sec) {
+      const tabName = readyTab.dataset.lbReadyTab;
+      sec.dataset.activeTab = tabName;
+      sec.querySelectorAll(".lb-ready-tab").forEach((btn) => {
+        const isActive = btn === readyTab;
+        btn.classList.toggle("active", isActive);
+        btn.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+      filterReadyCards(sec);
+    }
+    return;
+  }
+  // Ready models bench action: launches runner modal preselected with this model
+  const benchModelBtn = e.target?.closest?.("[data-lb-bench-model]");
+  if (benchModelBtn) {
+    const name = benchModelBtn.dataset.lbBenchModel;
+    const missing = (window._lbMissingByModel && window._lbMissingByModel[name]) || [];
+    if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) {
+      closeLeaderboardModal();
+    }
+    if (missing && missing.length > 0) {
+      void openBatteryModal({ groupIds: missing, initialModel: name });
+    } else {
+      void openBatteryModal({ initialModel: name });
+    }
     return;
   }
   // Incompatible (✕) cells: the model lacks a capability the category

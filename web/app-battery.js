@@ -879,15 +879,17 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
   const queue = batteryTimelineQueue || [];
 
   for (const m of modelIDs) {
-    const expected = queue.filter((q) => q.model === m).length || 0;
+    const queueExpected = queue.filter((q) => q.model === m).length || 0;
     const modelResults = results.filter((r) => r.model === m);
     const completed = modelResults.length;
     const passed = modelResults.filter((r) => r.passed === true).length;
     const failed = modelResults.filter((r) => r.passed === false).length;
+    // Expected tests for this model can never be less than what it has already completed
+    const expected = Math.max(queueExpected, completed);
     const totalExpected = expected > 0 ? expected : completed;
     // Pass rate relative to total expected tests (done + pending) so it builds up progressively and never moves downward
-    const passRate = totalExpected > 0 ? (passed / totalExpected) * 100 : 0;
-    const completedPassRate = completed > 0 ? (passed / completed) * 100 : 0;
+    const passRate = totalExpected > 0 ? Math.min(100, (passed / totalExpected) * 100) : 0;
+    const completedPassRate = completed > 0 ? Math.min(100, (passed / completed) * 100) : 0;
     const totalSpeed = modelResults.reduce((sum, r) => sum + (r.tokens_per_sec || 0), 0);
     const avgSpeed = completed > 0 ? totalSpeed / completed : 0;
     const totalDuration = modelResults.reduce((sum, r) => sum + (r.response_time_ms || 0), 0);
@@ -897,7 +899,7 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
 
     modelMap.set(m, {
       model: m,
-      expected: expected || completed,
+      expected: totalExpected,
       completed,
       passed,
       failed,
@@ -991,11 +993,12 @@ function renderBatteryKPIs(p, stats) {
 
   const curStats = stats.modelMap.get(currentModel);
   if (curStats) {
-    const curModelRunningIdx = Math.min(curStats.expected, curStats.completed + (done ? 0 : 1));
+    const totalExp = Math.max(curStats.expected, curStats.completed);
+    const curModelRunningIdx = Math.min(totalExp, curStats.completed + (done ? 0 : 1));
     if (elModelSub) {
-      elModelSub.textContent = t("battery.kpi_model_tests", { current: String(curModelRunningIdx), total: String(curStats.expected) });
+      elModelSub.textContent = t("battery.kpi_model_tests", { current: String(curModelRunningIdx), total: String(totalExp) });
     }
-    const modelPct = curStats.expected > 0 ? Math.round((curStats.completed / curStats.expected) * 100) : 0;
+    const modelPct = totalExp > 0 ? Math.min(100, Math.round((curStats.completed / totalExp) * 100)) : 0;
     if (elModelPct) elModelPct.textContent = `${modelPct}%`;
     if (elModelBar) elModelBar.style.width = `${modelPct}%`;
   } else {
@@ -1605,8 +1608,27 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryTimelineCompleted = [];
   batteryTimelineCurrent = null;
   batteryLiveResults = [];
-  batteryStartTime = Date.now();
   _leaderboardRowModels = []; // force a full leaderboard build for the new run
+
+  // Try to rehydrate start time from active run or localStorage so elapsed time does not reset on re-entering
+  let knownStartTime = 0;
+  if (window._activeBatteryRun && window._activeBatteryRun.runID === runID && window._activeBatteryRun.startedAtUnixMs) {
+    knownStartTime = window._activeBatteryRun.startedAtUnixMs;
+  }
+  const savedInit = localStorage.getItem(BATTERY_KEY);
+  if (!knownStartTime && savedInit) {
+    try {
+      const d = JSON.parse(savedInit);
+      if (d.runID === runID && d.startTime) {
+        knownStartTime = d.startTime;
+      }
+    } catch { }
+  }
+  if (batteryActiveRunID === runID && batteryStartTime > 0) {
+    // Retain existing start time
+  } else {
+    batteryStartTime = knownStartTime || Date.now();
+  }
 
   // Try to rehydrate modelIDs and groupId if not provided
   if (!Array.isArray(modelIDs) || modelIDs.length === 0) {
@@ -1712,7 +1734,7 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   renderBatteryLeaderboard(batteryProgressModelIDs, initialStats.modelMap, batteryProgressModelIDs[0] || "");
   renderBatteryAnalyticsCharts(batteryProgressModelIDs, initialStats.modelMap);
 
-  localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs: batteryProgressModelIDs, groupId }));
+  localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs: batteryProgressModelIDs, groupId, startTime: batteryStartTime }));
   batteryActiveRunID = runID;
   const progressPath = "/tests/battery/progress/" + runID;
   if (window.location.pathname !== progressPath) {
@@ -1937,6 +1959,20 @@ async function pollBatteryProgress(runID, modelIDs) {
   }
   try {
     const p = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/progress");
+    // Sync true start time from backend so elapsed time survives refresh & view navigation
+    if (p.started_at_unix_ms && p.started_at_unix_ms > 0) {
+      batteryStartTime = p.started_at_unix_ms;
+      try {
+        const saved = localStorage.getItem(BATTERY_KEY);
+        if (saved) {
+          const d = JSON.parse(saved);
+          if (d.runID === runID) {
+            d.startTime = p.started_at_unix_ms;
+            localStorage.setItem(BATTERY_KEY, JSON.stringify(d));
+          }
+        }
+      } catch { }
+    }
     // Update live results and models from server if provided
     if (p.results && Array.isArray(p.results)) {
       batteryLiveResults = p.results;
@@ -2041,13 +2077,21 @@ async function pollBatteryProgress(runID, modelIDs) {
         respActive,
         hasThink,
       };
+      const turnElapsedServerMs = (p.thinking_ms || 0) + (p.response_ms || 0);
+      const serverTurnStart = p.turn_started_at_unix_ms > 0
+        ? p.turn_started_at_unix_ms
+        : (turnElapsedServerMs > 0 ? (Date.now() - turnElapsedServerMs) : 0);
+
       if (turnKey !== batteryActiveTurnKey) {
         batteryActiveTurnKey = turnKey;
-        batteryTurnStartTime = Date.now();
+        batteryTurnStartTime = serverTurnStart || Date.now();
         const oldThinkTok = $("battery-stream-thinking-tokens");
         if (oldThinkTok) oldThinkTok.hidden = true;
         const oldRespTok = $("battery-stream-response-tokens");
         if (oldRespTok) oldRespTok.hidden = true;
+      } else if (serverTurnStart > 0 && Math.abs(batteryTurnStartTime - serverTurnStart) > 3000) {
+        // Sync drift if local timer was ahead/behind by more than 3 seconds
+        batteryTurnStartTime = serverTurnStart;
       }
       updateBatteryCurrentTurnTimer();
 
@@ -2057,7 +2101,7 @@ async function pollBatteryProgress(runID, modelIDs) {
       const casePillEl = $("battery-stream-case-pill");
       const statusBadgeEl = $("battery-stream-status-badge");
 
-      const catName = getTestCategoryName(p.test_id, p.group_id || (currentTest ? currentTest.group_id : ""));
+      const catName = getTestCategoryName(p.test_id, p.category || (currentTest ? currentTest.group_id : ""));
       if (categoryBadgeEl) {
         if (catName) {
           categoryBadgeEl.hidden = false;

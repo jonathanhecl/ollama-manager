@@ -76,11 +76,14 @@ type TestResult struct {
 
 // Progress tracks the current state of a battery run.
 type Progress struct {
-	RunID           string       `json:"run_id"`
-	Model           string       `json:"model"`
+	RunID               string       `json:"run_id"`
+	StartedAtUnixMs     int64        `json:"started_at_unix_ms,omitempty"`
+	TurnStartedAtUnixMs int64        `json:"turn_started_at_unix_ms,omitempty"`
+	Model               string       `json:"model"`
 	Models          []string     `json:"models,omitempty"`
 	GroupID         string       `json:"group_id,omitempty"`
 	GroupName       string       `json:"group_name,omitempty"`
+	Category        string       `json:"category,omitempty"`
 	TestID          string       `json:"test_id"`
 	TestName        string       `json:"test_name"`
 	TestIndex       int          `json:"test_index"`
@@ -231,6 +234,14 @@ func (c *Client) setProgress(p Progress) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
 	if existing, ok := c.progress[p.RunID]; ok && existing != nil {
+		if p.StartedAtUnixMs == 0 && existing.StartedAtUnixMs > 0 {
+			p.StartedAtUnixMs = existing.StartedAtUnixMs
+		}
+		if p.TurnStartedAtUnixMs == 0 && existing.TurnStartedAtUnixMs > 0 {
+			if p.TestID == existing.TestID && p.Model == existing.Model && p.CaseIndex == existing.CaseIndex {
+				p.TurnStartedAtUnixMs = existing.TurnStartedAtUnixMs
+			}
+		}
 		if len(p.Results) == 0 && len(existing.Results) > 0 {
 			p.Results = existing.Results
 		}
@@ -372,7 +383,14 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 	}
 	c.setRunExpected(run.ID, expectedByModel)
 
-	c.setProgress(Progress{RunID: run.ID, TotalTests: total, GroupID: group.ID, GroupName: group.Name, Models: append([]string(nil), run.Models...)})
+	c.setProgress(Progress{
+		RunID:           run.ID,
+		StartedAtUnixMs: run.Timestamp.UnixMilli(),
+		TotalTests:      total,
+		GroupID:         group.ID,
+		GroupName:       group.Name,
+		Models:          append([]string(nil), run.Models...),
+	})
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	c.cancelMu.Lock()
@@ -777,6 +795,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			snapResError := res.Error
 
 			stepFailed := false
+			turnStartMs := time.Now().UnixMilli()
 			for {
 				if ctx.Err() != nil {
 					res.Error = ctx.Err().Error()
@@ -785,19 +804,19 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				}
 
 				c.setProgress(Progress{
-					RunID:          runID,
-					Model:          model,
-					GroupID:        test.GroupID,
-					GroupName:      test.GroupID,
-					TestID:         test.ID,
-					TestName:       test.Name,
-					TestIndex:      idx,
-					TotalTests:     total,
-					CaseName:       stepLabel,
-					CaseIndex:      i + 1,
-					TotalCases:     len(test.Steps),
-					ActivePrompt:   step.Prompt,
-					CompletedCases: append([]SubResult(nil), res.SubResults...),
+					RunID:               runID,
+					Model:               model,
+					Category:            test.GroupID,
+					TestID:              test.ID,
+					TestName:            test.Name,
+					TestIndex:           idx,
+					TotalTests:          total,
+					CaseName:            stepLabel,
+					CaseIndex:           i + 1,
+					TotalCases:          len(test.Steps),
+					ActivePrompt:        step.Prompt,
+					CompletedCases:      append([]SubResult(nil), res.SubResults...),
+					TurnStartedAtUnixMs: turnStartMs,
 				})
 
 				stepPrompt, stepMedia := applyCaseMedia(step.Prompt, step.Attachments)
@@ -1037,25 +1056,26 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			snapSkippedOrLoop := anySkippedOrLoop
 			snapResError := res.Error
 
+			turnStartMs := time.Now().UnixMilli()
 			for {
 				if ctx.Err() != nil {
 					res.Error = ctx.Err().Error()
 					return history, caseTurnAbort
 				}
 				c.setProgress(Progress{
-					RunID:          runID,
-					Model:          model,
-					GroupID:        test.GroupID,
-					GroupName:      test.GroupID,
-					TestID:         test.ID,
-					TestName:       test.Name,
-					TestIndex:      idx,
-					TotalTests:     total,
-					CaseName:       unitName,
-					CaseIndex:      unitIdx,
-					TotalCases:     totalUnits,
-					ActivePrompt:   prompt,
-					CompletedCases: append([]SubResult(nil), res.SubResults...),
+					RunID:               runID,
+					Model:               model,
+					Category:            test.GroupID,
+					TestID:              test.ID,
+					TestName:            test.Name,
+					TestIndex:           idx,
+					TotalTests:          total,
+					CaseName:            unitName,
+					CaseIndex:           unitIdx,
+					TotalCases:          totalUnits,
+					ActivePrompt:        prompt,
+					CompletedCases:      append([]SubResult(nil), res.SubResults...),
+					TurnStartedAtUnixMs: turnStartMs,
 				})
 
 				casePrompt, caseMedia := applyCaseMedia(prompt, attachments)
@@ -1435,18 +1455,19 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	if promptText == "" && len(messages) > 0 {
 		promptText = messages[len(messages)-1].Content
 	}
+	turnStartMs := time.Now().UnixMilli()
 	c.setProgress(Progress{
-		RunID:        runID,
-		Model:        model,
-		GroupID:      test.GroupID,
-		GroupName:    test.GroupID,
-		TestID:       test.ID,
-		TestName:     test.Name,
-		TestIndex:    idx,
-		TotalTests:   total,
-		CaseIndex:    1,
-		TotalCases:   1,
-		ActivePrompt: promptText,
+		RunID:               runID,
+		Model:               model,
+		Category:            test.GroupID,
+		TestID:              test.ID,
+		TestName:            test.Name,
+		TestIndex:           idx,
+		TotalTests:          total,
+		CaseIndex:           1,
+		TotalCases:          1,
+		ActivePrompt:        promptText,
+		TurnStartedAtUnixMs: turnStartMs,
 	})
 
 	turn := c.execChatTurn(ctx, runID, model, messages, optsFor(test.Options), thinkFor(test.Options))

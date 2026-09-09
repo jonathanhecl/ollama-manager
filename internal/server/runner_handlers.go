@@ -442,14 +442,15 @@ func (s *Server) handleBatteryProgress(w http.ResponseWriter, r *http.Request) {
 		if s.runnerStore != nil {
 			if run, found := s.runnerStore.GetRun(id); found {
 				writeJSON(w, http.StatusOK, runner.Progress{
-					RunID:      run.ID,
-					Done:       true,
-					GroupID:    run.GroupID,
-					GroupName:  run.GroupName,
-					Models:     run.Models,
-					TotalTests: len(run.Results),
-					TestIndex:  len(run.Results),
-					Results:    run.Results,
+					RunID:           run.ID,
+					StartedAtUnixMs: run.Timestamp.UnixMilli(),
+					Done:            true,
+					GroupID:         run.GroupID,
+					GroupName:       run.GroupName,
+					Models:          run.Models,
+					TotalTests:      len(run.Results),
+					TestIndex:       len(run.Results),
+					Results:         run.Results,
 				})
 				return
 			}

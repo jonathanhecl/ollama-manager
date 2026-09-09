@@ -53,6 +53,7 @@ function updateBatteryGlobalStatus(s) {
   if (s && s.battery_active) {
     window._activeBatteryRun = {
       runID: s.battery_run_id,
+      startedAtUnixMs: s.battery_started_at_unix_ms || 0,
       groupName: s.battery_group_name || "",
       groupId: s.battery_group_id || "",
       testIndex: s.battery_test_index || 0,

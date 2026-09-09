@@ -362,13 +362,13 @@ function buildReadySectionHtml(modelsData, lbRows = [], cols = []) {
     let actionLabel = "";
     if (status === "complete") {
       statusBadge = `<span class="pill lb-ready-badge-complete">✅ ${escapeHtml(t("battery.lb_ready_status_complete", { done: evaluated, total: compatible }))}</span>`;
-      actionLabel = `🧪 ${escapeHtml(t("battery.lb_ready_rerun_btn") || t("battery.lb_ready_run_btn"))}`;
+      actionLabel = `⚡ ${escapeHtml(t("battery.lb_ready_rerun_btn") || t("battery.lb_ready_run_btn"))}`;
     } else if (status === "partial") {
       statusBadge = `<span class="pill lb-ready-badge-partial">📊 ${escapeHtml(t("battery.lb_ready_status_partial", { done: evaluated, total: compatible }))}</span>`;
-      actionLabel = `🧪 ${escapeHtml(t("battery.lb_ready_continue_btn"))}`;
+      actionLabel = `⚡ ${escapeHtml(t("battery.lb_ready_continue_btn"))}`;
     } else {
       statusBadge = `<span class="pill lb-ready-badge-pending">⏳ ${escapeHtml(t("battery.lb_ready_status_untested"))}</span>`;
-      actionLabel = `🧪 ${escapeHtml(t("battery.lb_ready_run_btn"))}`;
+      actionLabel = `⚡ ${escapeHtml(t("battery.lb_ready_run_btn"))}`;
     }
 
     const matchesSearch = !q || m.name.toLowerCase().includes(q);
@@ -810,7 +810,7 @@ async function buildLeaderboardTableHtml() {
       <tr class="${idx === 0 ? "lb-row-first" : ""}${installed ? "" : " lb-row-uninstalled"}" data-lb-model="${escapeHtml(row.model)}"${installed ? "" : ` data-lb-uninstalled="1"`}${lbFilterQ && !row.model.toLowerCase().includes(lbFilterQ) ? ` style="display:none"` : ""}>
         <td class="cell-lb-model">
           <div class="lb-model-top"><span class="lb-rank">${idx + 1}</span><strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong>
-            <span class="lb-row-actions">${installed ? `<button type="button" class="ghost lb-row-btn" data-lb-chat="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_chat"))}">💬</button>` : ""}${installed && (missingByModel[row.model] || []).length > 0 ? `<button type="button" class="ghost lb-row-btn" data-lb-bench-missing="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_bench_missing"))}">🧪</button>` : ""}${row.total > 0 ? `<button type="button" class="ghost lb-row-btn danger-text" data-lb-reset-model="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_reset_model"))}">🧹</button>` : ""}</span>
+            <span class="lb-row-actions">${installed ? `<button type="button" class="ghost lb-row-btn" data-lb-chat="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_chat"))}">💬</button>` : ""}${installed && (missingByModel[row.model] || []).length > 0 ? `<button type="button" class="ghost lb-row-btn" data-lb-bench-missing="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_bench_missing"))}">⚡</button>` : ""}${row.total > 0 ? `<button type="button" class="ghost lb-row-btn danger-text" data-lb-reset-model="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_reset_model"))}">🧹</button>` : ""}</span>
           </div>
           ${metaHtml}
         </td>

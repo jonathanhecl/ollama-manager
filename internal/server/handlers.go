@@ -280,6 +280,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		if activeProg, ok := s.runner.GetActiveProgress(); ok {
 			resp["battery_active"] = true
 			resp["battery_run_id"] = activeProg.RunID
+			resp["battery_started_at_unix_ms"] = activeProg.StartedAtUnixMs
 			resp["battery_group_name"] = activeProg.GroupName
 			resp["battery_group_id"] = activeProg.GroupID
 			resp["battery_test_index"] = activeProg.TestIndex
@@ -293,6 +294,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			if run, pending, hasPending := s.runnerStore.GetLatestRunPendingReview(); hasPending {
 				resp["battery_active"] = true
 				resp["battery_run_id"] = run.ID
+				resp["battery_started_at_unix_ms"] = run.Timestamp.UnixMilli()
 				resp["battery_group_name"] = run.GroupName
 				resp["battery_group_id"] = run.GroupID
 				resp["battery_test_index"] = len(run.Results)

@@ -73,11 +73,12 @@ func TestEffectiveStageCutNoMatchDisables(t *testing.T) {
 	l := StageLimits{
 		MaxTokens:  10000,
 		MaxSeconds: 300,
+		Mode:       "all",
 		Rules:      []StageSkipRule{{MinTPS: 0, MaxTPS: 100, MaxSeconds: 60}},
 	}
-	toks, secs, _ := c.effectiveStageCut("m", l)
-	if toks != 0 || secs != 0 {
-		t.Fatalf("no matching rule should disable cuts, got (%d,%d)", toks, secs)
+	toks, secs, mode := c.effectiveStageCut("m", l)
+	if toks != 10000 || secs != 300 || mode != "all" {
+		t.Fatalf("no matching rule should fall back to simple limits, got (%d,%d,%q)", toks, secs, mode)
 	}
 }
 

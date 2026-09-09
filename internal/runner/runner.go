@@ -249,7 +249,7 @@ func (c *Client) effectiveStageCut(model string, limits StageLimits) (maxTokens,
 		}
 		return r.MaxTokens, r.MaxSeconds, r.Mode
 	}
-	return 0, 0, "any"
+	return limits.MaxTokens, limits.MaxSeconds, limits.Mode
 }
 
 // NewClient creates a runner client.

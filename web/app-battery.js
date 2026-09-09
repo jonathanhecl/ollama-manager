@@ -1382,6 +1382,7 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryTimelineQueue = buildBatteryTimelineQueue(groupId, modelIDs);
   batteryTimelineScrollKey = "";
   batteryLiveResults = [];
+  batteryStartTime = Date.now();
   _leaderboardRowModels = []; // force a full leaderboard build for the new run
 
   const promptDetails = $("battery-stream-prompt-details");

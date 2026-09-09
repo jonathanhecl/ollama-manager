@@ -44,6 +44,13 @@ type GatewayConfig struct {
 	RequireAuth bool `json:"require_auth"`
 }
 
+// Testing auto-skip modes: "any" skips when either condition trips,
+// "all" only skips when every enabled condition trips at once.
+const (
+	TestingModeAny = "any"
+	TestingModeAll = "all"
+)
+
 // TestingLimits holds optional automatic skip conditions for battery tests.
 // Each limit applies per stage (thinking or response) individually, not to
 // their sum: e.g. MaxStageTokens=50000 allows 49k thinking + 39k response.
@@ -57,6 +64,18 @@ type TestingLimits struct {
 	// MaxStageSeconds caps the time spent in a single stage (thinking or
 	// response). 0 = no limit.
 	MaxStageSeconds int `json:"max_stage_seconds,omitempty"`
+	// Mode combines the enabled conditions: "any" (default) or "all".
+	Mode string `json:"mode,omitempty"`
+}
+
+// NormalizeTestingMode returns "any" for empty/unknown modes.
+func NormalizeTestingMode(mode string) string {
+	switch mode {
+	case TestingModeAll:
+		return TestingModeAll
+	default:
+		return TestingModeAny
+	}
 }
 
 // DefaultGatewayPort is used when Gateway.Port is 0.
@@ -188,6 +207,7 @@ func Load(path string) (*Config, error) {
 	if cfg.Testing.MaxStageSeconds < 0 {
 		cfg.Testing.MaxStageSeconds = 0
 	}
+	cfg.Testing.Mode = NormalizeTestingMode(cfg.Testing.Mode)
 
 	def := Defaults().ChatDefaults
 	if cfg.ChatDefaults.Temperature == nil {

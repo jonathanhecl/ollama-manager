@@ -49,6 +49,9 @@ async function showSettingsView() {
   const testingLimits = currentConfig.testing || {};
   if ($("set-testing-max-stage-tokens")) $("set-testing-max-stage-tokens").value = String(Math.max(0, testingLimits.max_stage_tokens || 0));
   if ($("set-testing-max-stage-seconds")) $("set-testing-max-stage-seconds").value = String(Math.max(0, testingLimits.max_stage_seconds || 0));
+  if ($("set-testing-mode")) $("set-testing-mode").value = testingLimits.mode === "all" ? "all" : "any";
+  bindTestingSummaryEvents();
+  updateTestingSummary();
 
   const buildEl = $("settings-build-info");
   if (buildEl) {
@@ -335,6 +338,47 @@ function showSettingsMobileMenu() {
   }
 }
 window.showSettingsMobileMenu = showSettingsMobileMenu;
+
+// ---------- testing auto-skip summary ----------
+
+function fmtTestingTokens(n) {
+  return `${Number(n).toLocaleString()} tokens`;
+}
+
+function fmtTestingSeconds(s) {
+  s = Number(s) || 0;
+  if (s >= 60) {
+    const m = s / 60;
+    return `${Number.isInteger(m) ? m : m.toFixed(1)} min`;
+  }
+  return `${s}s`;
+}
+
+function updateTestingSummary() {
+  const el = $("set-testing-summary");
+  if (!el) return;
+  const tokens = Math.max(0, parseInt($("set-testing-max-stage-tokens")?.value, 10) || 0);
+  const seconds = Math.max(0, parseInt($("set-testing-max-stage-seconds")?.value, 10) || 0);
+  const mode = $("set-testing-mode")?.value === "all" ? "all" : "any";
+  const vars = { tokens: fmtTestingTokens(tokens), time: fmtTestingSeconds(seconds) };
+  let key = "settings.testing_summary_off";
+  if (tokens && seconds) key = mode === "all" ? "settings.testing_summary_all" : "settings.testing_summary_any";
+  else if (tokens) key = "settings.testing_summary_tokens";
+  else if (seconds) key = "settings.testing_summary_time";
+  el.textContent = t(key, vars);
+}
+window.updateTestingSummary = updateTestingSummary;
+
+function bindTestingSummaryEvents() {
+  for (const id of ["set-testing-mode", "set-testing-max-stage-tokens", "set-testing-max-stage-seconds"]) {
+    const el = $(id);
+    if (el && !el._testingBound) {
+      el._testingBound = true;
+      el.addEventListener("input", updateTestingSummary);
+      el.addEventListener("change", updateTestingSummary);
+    }
+  }
+}
 
 // ---------- System Prompts Library ----------
 let systemPromptsList = [];
@@ -1466,13 +1510,10 @@ async function renderGatewayModels(lang = null) {
     return;
   }
   gatewayModelsCache = list.map((m) => m.name);
-  if (gatewaySelectedModels.size === 0) {
-    // Empty allowlist = everything exposed: reflect as all checked.
-    gatewaySelectedModels = new Set(gatewayModelsCache);
-  } else {
-    // Drop names that no longer exist.
-    gatewaySelectedModels = new Set([...gatewaySelectedModels].filter((n) => gatewayModelsCache.includes(n)));
-  }
+  // Empty allowlist = everything exposed (see hint below), but it is shown
+  // as nothing checked by default. Only drop names that no longer exist so
+  // "Clear" really unchecks everything instead of re-checking all.
+  gatewaySelectedModels = new Set([...gatewaySelectedModels].filter((n) => gatewayModelsCache.includes(n)));
   if (list.length === 0) {
     listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.gateway_models_none", null, targetLang))}</div>`;
   } else {
@@ -1498,8 +1539,9 @@ async function renderGatewayModels(lang = null) {
   updateGatewayStatus(targetLang);
 }
 
-// Selection sent on save: all checked (or none visible) means "expose
-// everything", encoded as an empty allowlist like the backend expects.
+// Selection sent on save: empty selection (nothing checked) or everything
+// checked both mean "expose everything", encoded as an empty allowlist
+// like the backend expects.
 function getGatewayModelsSelection() {
   if (gatewayModelsCache.length === 0) return [];
   if (gatewaySelectedModels.size >= gatewayModelsCache.length) return [];
@@ -1659,6 +1701,7 @@ function renderSettingsTranslations(lang = null) {
   loadSystemPrompts(targetLang);
   loadArchivedModelsInSettings(targetLang);
   loadGatewaySection(targetLang);
+  updateTestingSummary();
   if (typeof refreshOpenCodeUI === "function") {
     refreshOpenCodeUI();
   }

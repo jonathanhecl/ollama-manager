@@ -417,6 +417,11 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, errors.New("testing.max_stage_seconds must be 0..86400 (0 = disabled)"))
 			return
 		}
+		if body.Testing.Mode != "" && body.Testing.Mode != config.TestingModeAny && body.Testing.Mode != config.TestingModeAll {
+			writeError(w, http.StatusBadRequest, errors.New("testing.mode must be \"any\" or \"all\""))
+			return
+		}
+		body.Testing.Mode = config.NormalizeTestingMode(body.Testing.Mode)
 		s.cfg.Testing = *body.Testing
 	}
 	if body.Gateway != nil {

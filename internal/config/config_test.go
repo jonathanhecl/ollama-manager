@@ -93,13 +93,39 @@ func TestLoadDefaultsNumCtxNil(t *testing.T) {
 }
 
 func TestLoadKeepsTestingLimits(t *testing.T) {
-	path := writeTempConfig(t, `{"port": 7860, "testing": {"max_stage_tokens": 50000, "max_stage_seconds": 600}}`)
+	path := writeTempConfig(t, `{"port": 7860, "testing": {"max_stage_tokens": 50000, "max_stage_seconds": 600, "mode": "all"}}`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Testing.MaxStageTokens != 50000 || cfg.Testing.MaxStageSeconds != 600 {
-		t.Errorf("Testing = %+v, want {50000 600}", cfg.Testing)
+	if cfg.Testing.MaxStageTokens != 50000 || cfg.Testing.MaxStageSeconds != 600 || cfg.Testing.Mode != "all" {
+		t.Errorf("Testing = %+v, want {50000 600 all}", cfg.Testing)
+	}
+}
+
+func TestLoadNormalizesTestingMode(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{`"all"`, "all"},
+		{`"any"`, "any"},
+		{`"bogus"`, "any"},
+	} {
+		path := writeTempConfig(t, `{"port": 7860, "testing": {"mode": `+tc.in+`}}`)
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.Testing.Mode != tc.want {
+			t.Errorf("mode %s normalized to %q, want %q", tc.in, cfg.Testing.Mode, tc.want)
+		}
+	}
+	// Missing mode defaults to any.
+	path := writeTempConfig(t, `{"port": 7860}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Testing.Mode != "any" {
+		t.Errorf("missing mode = %q, want any", cfg.Testing.Mode)
 	}
 }
 

@@ -171,6 +171,7 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	s.runner.SetStageLimits(runner.StageLimits{
 		MaxTokens:  testingLimits.MaxStageTokens,
 		MaxSeconds: testingLimits.MaxStageSeconds,
+		Mode:       testingLimits.Mode,
 	})
 
 	// Use background context so async execution survives HTTP request completion.

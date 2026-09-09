@@ -134,6 +134,45 @@ type StageLimits struct {
 	// MaxSeconds caps the streaming time spent in a single stage.
 	// 0 = no limit.
 	MaxSeconds int
+	// Mode combines the enabled conditions: "any" (default) fires when
+	// either trips; "all" only fires when every enabled condition trips
+	// at once. With a single enabled condition both modes behave the same.
+	Mode string
+}
+
+// stageSkipDecision evaluates the auto-skip conditions for one stage and
+// reports whether the turn must be skipped plus a human-readable reason.
+// Tokens are approximate (~4 chars/token); elapsed is streaming time in
+// the stage.
+func (l StageLimits) stageSkipDecision(stage string, chars int, elapsedMs int64) (bool, string) {
+	enabled := 0
+	met := 0
+	var reasons []string
+	if l.MaxTokens > 0 {
+		enabled++
+		if t := chars / 4; t > l.MaxTokens {
+			met++
+			reasons = append(reasons, fmt.Sprintf("exceeded %d tokens (~%d)", l.MaxTokens, t))
+		}
+	}
+	if l.MaxSeconds > 0 {
+		enabled++
+		if s := elapsedMs / 1000; s > int64(l.MaxSeconds) {
+			met++
+			reasons = append(reasons, fmt.Sprintf("exceeded %ds (%ds)", l.MaxSeconds, s))
+		}
+	}
+	if enabled == 0 {
+		return false, ""
+	}
+	if l.Mode == "all" {
+		if met != enabled {
+			return false, ""
+		}
+	} else if met == 0 {
+		return false, ""
+	}
+	return true, fmt.Sprintf("auto-skipped: %s stage %s", stage, strings.Join(reasons, " and "))
 }
 
 // NewClient creates a runner client.
@@ -1326,21 +1365,11 @@ retryLoop:
 			if chunk.Done {
 				chunkMeta = &chunk
 			}
-			if limits.MaxTokens > 0 {
-				if t := thinkChars / 4; t > limits.MaxTokens {
-					return fmt.Errorf("auto-skipped: thinking stage exceeded %d tokens (~%d): %w", limits.MaxTokens, t, errAutoSkipStage)
-				}
-				if t := respChars / 4; t > limits.MaxTokens {
-					return fmt.Errorf("auto-skipped: response stage exceeded %d tokens (~%d): %w", limits.MaxTokens, t, errAutoSkipStage)
-				}
+			if fire, reason := limits.stageSkipDecision("thinking", thinkChars, thinkMs); fire {
+				return fmt.Errorf("%s: %w", reason, errAutoSkipStage)
 			}
-			if limits.MaxSeconds > 0 {
-				if s := thinkMs / 1000; s > int64(limits.MaxSeconds) {
-					return fmt.Errorf("auto-skipped: thinking stage exceeded %ds (%ds): %w", limits.MaxSeconds, s, errAutoSkipStage)
-				}
-				if s := respMs / 1000; s > int64(limits.MaxSeconds) {
-					return fmt.Errorf("auto-skipped: response stage exceeded %ds (%ds): %w", limits.MaxSeconds, s, errAutoSkipStage)
-				}
+			if fire, reason := limits.stageSkipDecision("response", respChars, respMs); fire {
+				return fmt.Errorf("%s: %w", reason, errAutoSkipStage)
 			}
 			if isLoop, _ := detectRepetitionLoop(content); isLoop {
 				return errRepetitionLoop

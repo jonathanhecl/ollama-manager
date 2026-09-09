@@ -437,6 +437,7 @@ $("settings-save").addEventListener("click", async () => {
     toast(t("toast.error", { msg: "max stage seconds 0..86400" }), "error");
     return;
   }
+  const testingMode = $("set-testing-mode")?.value === "all" ? "all" : "any";
   const body = {
     language: $("set-language").value,
     port,
@@ -445,6 +446,7 @@ $("settings-save").addEventListener("click", async () => {
     testing: {
       max_stage_tokens: maxStageTokens,
       max_stage_seconds: maxStageSeconds,
+      mode: testingMode,
     },
     gateway: {
       enabled: $("gw-enable")?.checked ?? false,

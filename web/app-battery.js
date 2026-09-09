@@ -1689,24 +1689,6 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryElapsedInterval = setInterval(updateBatteryElapsedDisplay, 1000);
   updateBatteryElapsedDisplay();
 
-  const groupBadge = $("battery-progress-group-badge");
-  if (groupBadge) {
-    if (Array.isArray(groupId) && groupId.length > 1) {
-      groupBadge.hidden = false;
-      groupBadge.textContent = t("battery.n_categories", { count: groupId.length });
-    } else {
-      const singleId = Array.isArray(groupId) ? groupId[0] : groupId;
-      if (singleId && singleId !== "all") {
-        const g = batteryModalGroupById(singleId) ||
-          ((typeof groups !== "undefined" && Array.isArray(groups)) ? groups.find((grp) => grp.id === singleId) : null);
-        groupBadge.hidden = false;
-        groupBadge.textContent = g ? g.name : singleId;
-      } else {
-        groupBadge.hidden = true;
-      }
-    }
-  }
-
   initBatteryProgressControls();
 
   const completedEl = $("battery-completed-tests");
@@ -2002,14 +1984,6 @@ async function pollBatteryProgress(runID, modelIDs) {
           });
         }
       }
-    }
-
-    // Update group badge if available
-    const effGroup = p.group_name || p.group_id;
-    const groupBadge = $("battery-progress-group-badge");
-    if (groupBadge && effGroup && effGroup !== "all") {
-      groupBadge.hidden = false;
-      groupBadge.textContent = effGroup;
     }
 
     // Detect test change: archive previous snapshot.

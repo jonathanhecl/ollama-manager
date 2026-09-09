@@ -7456,14 +7456,6 @@ button.chat-send:disabled:hover {
 .battery-timer-icon {
   font-size: 13px;
 }
-.battery-group-badge {
-  font-size: 11px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  padding: 2px 8px;
-  border-radius: 12px;
-}
-
 @media (max-width: 900px) {
   .battery-head {
     flex-wrap: wrap;

@@ -435,6 +435,7 @@ function renderTable() {
   let benchMax = -Infinity;
   for (const m of activeModels) {
     if (m.isGhost || !m.bench_tested || !m.bench_complete) continue;
+    if ((Number(m.record_tokens_per_sec) || 0) <= 0) continue;
     const v = Number(m.bench_overall);
     if (!isFinite(v)) continue;
     if (v < benchMin) benchMin = v;
@@ -475,6 +476,9 @@ function renderTable() {
   function getBenchCellHtml(m) {
     const overall = (typeof m.bench_overall === "number" && isFinite(m.bench_overall)) ? m.bench_overall : null;
     if (m.isPending) return "—";
+    // Without recorded tok/s there is no evidence the model actually runs,
+    // so the bench cell is always "—" (even with failed bench attempts).
+    if ((Number(m.record_tokens_per_sec) || 0) <= 0) return "—";
     if (m.isGhost) {
       // Deleted models: grey number, read-only, no action.
       if (m.bench_tested && overall != null) {
@@ -493,11 +497,9 @@ function renderTable() {
         : `<span class="muted">—</span>`;
       return `<button type="button" class="bench-btn bench-grey-bg" data-bench-action="bench-missing" title="${escapeHtml(t("battery.lb_bench_missing"))}">${label}</button>`;
     }
-    if ((Number(m.record_tokens_per_sec) || 0) > 0) {
-      // Never benched but known to run: grey ⚡ opens bench for all categories.
-      return `<button type="button" class="bench-btn bench-grey-bg" data-bench-action="bench-all" title="${escapeHtml(t("battery.lb_bench_missing"))}" aria-label="${escapeHtml(t("battery.lb_bench_missing"))}"><span aria-hidden="true">⚡</span></button>`;
-    }
-    return "—";
+    // Never benched but known to run (tok/s checked above): grey ⚡ opens
+    // bench for all categories.
+    return `<button type="button" class="bench-btn bench-grey-bg" data-bench-action="bench-all" title="${escapeHtml(t("battery.lb_bench_missing"))}" aria-label="${escapeHtml(t("battery.lb_bench_missing"))}"><span aria-hidden="true">⚡</span></button>`;
   }
 
   const dotLoadedTxt = t("detail.dot_loaded");

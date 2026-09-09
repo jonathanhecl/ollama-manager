@@ -1409,6 +1409,11 @@
             <span class="settings-nav-label" data-i18n="settings.nav_prompts">System Prompts</span>
             <span class="badge" id="prompts-nav-badge">0</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-gateway">
+            <span class="settings-nav-icon">📡</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_gateway">Tunneling Models</span>
+            <span class="badge" id="gateway-nav-badge">0</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-ext-models">
             <span class="settings-nav-icon">🧩</span>
             <span class="settings-nav-label" data-i18n="settings.nav_ext_models">External Models</span>
@@ -1418,11 +1423,6 @@
             <span class="settings-nav-icon">📦</span>
             <span class="settings-nav-label" data-i18n="settings.nav_archived">Archived Models</span>
             <span class="badge" id="archived-nav-badge">0</span>
-          </button>
-          <button type="button" class="settings-nav-item" data-section="sec-gateway">
-            <span class="settings-nav-icon">🌐</span>
-            <span class="settings-nav-label" data-i18n="settings.nav_gateway">Exposed Models</span>
-            <span class="badge" id="gateway-nav-badge">0</span>
           </button>
           <button type="button" class="settings-nav-item" data-section="sec-opencode">
             <span class="settings-nav-icon">💻</span>
@@ -1566,7 +1566,7 @@
               <p class="settings-section-desc" data-i18n="settings.testing_hint">Automatically skip a test case when a model gets stuck in one stage (thinking or response). Each limit applies per stage individually, never to their sum. Leave at 0 to disable.</p>
             </div>
             <div class="settings-section-body">
-              <div class="field">
+              <div class="field field-vertical">
                 <label for="set-testing-mode" data-i18n="settings.testing_mode">Skip when</label>
                 <select id="set-testing-mode" autocomplete="off">
                   <option value="any" data-i18n="settings.testing_mode_any">Any condition trips (OR)</option>
@@ -1574,7 +1574,7 @@
                 </select>
                 <small class="muted" data-i18n="settings.testing_mode_hint">“Any” skips as soon as one limit trips. “Both” only skips when tokens and time are exceeded at the same time — set both limits.</small>
               </div>
-              <div class="settings-param-row">
+              <div class="settings-param-row settings-param-row-2col">
                 <div class="field-compact">
                   <label for="set-testing-max-stage-tokens" data-i18n="settings.testing_max_stage_tokens">Max tokens per stage</label>
                   <input id="set-testing-max-stage-tokens" type="number" min="0" max="10000000" step="1000" value="0" autocomplete="off">
@@ -1586,7 +1586,10 @@
                   <small class="muted" data-i18n="settings.testing_max_stage_seconds_hint">Skip when thinking or response alone takes longer than this (e.g. 600 = 10 min). 0 = disabled.</small>
                 </div>
               </div>
-              <p class="muted" id="set-testing-summary" style="margin:4px 0 0;font-size:12.5px;"></p>
+              <div class="settings-summary-callout">
+                <span class="summary-callout-icon">⚡</span>
+                <span class="muted" id="set-testing-summary"></span>
+              </div>
             </div>
           </section>
 
@@ -1703,6 +1706,100 @@
             </div>
           </section>
 
+          <!-- Gateway (tunneling models) -->
+          <section class="settings-section-card" id="sec-gateway" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.gateway_section">Tunneling Models</h3>
+                <span class="badge" id="gateway-status-badge"></span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.gateway_hint">Expose selected models to external applications and tools over OpenAI (/v1/*) and Ollama (/api/*) protocols.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="settings.gateway_enable">Enable gateway service</span>
+                  <small class="muted" data-i18n="settings.gateway_enable_hint">Starts a separate listener for third-party clients.</small>
+                </div>
+                <label class="switch">
+                  <input id="gw-enable" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div class="field">
+                <label for="gw-port" data-i18n="settings.gateway_port">Gateway port</label>
+                <input id="gw-port" type="number" min="0" max="65535" inputmode="numeric" autocomplete="off" placeholder="7861">
+              </div>
+              <p class="form-hint" data-i18n="settings.gateway_port_hint">0 or empty uses the default port (7861). Must differ from the main port.</p>
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="settings.gateway_expose">Expose to local network (0.0.0.0)</span>
+                  <small class="muted" data-i18n="settings.gateway_expose_hint">Allow other devices on your LAN to use the gateway.</small>
+                </div>
+                <label class="switch">
+                  <input id="gw-expose" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="settings.gateway_auth">Require API key</span>
+                  <small class="muted" data-i18n="settings.gateway_auth_hint">Third-party clients must send Authorization: Bearer.</small>
+                </div>
+                <label class="switch">
+                  <input id="gw-require-auth" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div id="gw-expose-warning" class="callout callout-warn" hidden>
+                <span class="callout-icon">!</span>
+                <span data-i18n="settings.gateway_expose_warn">Warning: exposed to your LAN without an API key, anyone can use your models (and your external API keys).</span>
+              </div>
+              <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
+              <hr class="settings-sep">
+              <div class="section-head">
+                <div class="section-head-title-wrap">
+                  <h4 data-i18n="settings.gateway_models_title">Tunneling models</h4>
+                  <span id="gw-models-selected-count" class="badge badge-muted"></span>
+                </div>
+                <div class="gw-models-actions">
+                  <button type="button" id="gw-models-select-all" class="ghost small" data-i18n="settings.gateway_select_all">Select all</button>
+                  <button type="button" id="gw-models-clear" class="ghost small" data-i18n="settings.gateway_clear">Clear</button>
+                </div>
+              </div>
+              <p class="form-hint" data-i18n="settings.gateway_models_hint">Select models accessible through the tunnel. Empty selection exposes every visible model.</p>
+              <div class="gw-filter-bar">
+                <input id="gw-models-filter" type="search" class="gw-models-filter" data-i18n-attr="placeholder" data-i18n="settings.gateway_filter_placeholder" placeholder="Filter models..." autocomplete="off">
+              </div>
+              <div id="gw-models-list" class="gw-models-list">
+                <div class="muted small" data-i18n="status.loading">Loading…</div>
+              </div>
+              <hr class="settings-sep">
+              <div class="section-head">
+                <div class="section-head-title-wrap">
+                  <h4 data-i18n="settings.gateway_keys_title">API keys</h4>
+                  <span id="gw-keys-auth-badge" class="badge"></span>
+                </div>
+              </div>
+              <p class="form-hint gw-keys-note" id="gw-keys-hint-text" data-i18n="settings.gateway_key_optional_note">Optional: Keys are only required when “Require API key” is enabled above.</p>
+              <div class="field">
+                <label for="gw-key-name" data-i18n="settings.gateway_key_name">Key name</label>
+                <div class="input-with-action">
+                  <input id="gw-key-name" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.gateway_key_name_placeholder" placeholder="e.g. opencode, laptop">
+                  <button id="gw-key-create-btn" class="primary" data-i18n="settings.gateway_key_create">Create</button>
+                </div>
+              </div>
+              <div id="gw-key-secret" class="gw-key-secret" hidden>
+                <code id="gw-key-secret-value" class="mono"></code>
+                <button type="button" id="gw-key-copy-btn" class="ghost small" data-i18n="settings.gateway_key_copy">Copy</button>
+              </div>
+              <p class="form-hint" data-i18n="settings.gateway_key_once">The secret is shown only once. Save it now.</p>
+              <div id="gw-keys-list" class="ext-models-list">
+                <div class="muted small" data-i18n="settings.gateway_keys_none">No API keys yet.</div>
+              </div>
+            </div>
+          </section>
+
           <!-- External Models -->
           <section class="settings-section-card" id="sec-ext-models" hidden>
             <div class="settings-section-header">
@@ -1756,90 +1853,6 @@
             <div class="settings-section-body">
               <div id="settings-archived-list" class="settings-archived-list">
                 <div class="muted small" data-i18n="settings.archived_none">No archived models.</div>
-              </div>
-            </div>
-          </section>
-
-          <!-- Gateway (exposed models tunnel) -->
-          <section class="settings-section-card" id="sec-gateway" hidden>
-            <div class="settings-section-header">
-              <div class="settings-section-title-wrap">
-                <h3 class="settings-section-title" data-i18n="settings.gateway_section">Exposed Models</h3>
-                <span class="badge" id="gateway-status-badge"></span>
-              </div>
-              <p class="settings-section-desc" data-i18n="settings.gateway_hint">Re-expose selected models to third-party clients over OpenAI (/v1/*) and Ollama (/api/*) protocols.</p>
-            </div>
-            <div class="settings-section-body">
-              <div class="field switch-field">
-                <div class="switch-label">
-                  <span data-i18n="settings.gateway_enable">Enable gateway service</span>
-                  <small class="muted" data-i18n="settings.gateway_enable_hint">Starts a separate listener for third-party clients.</small>
-                </div>
-                <label class="switch">
-                  <input id="gw-enable" type="checkbox" autocomplete="off">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-              <div class="field">
-                <label for="gw-port" data-i18n="settings.gateway_port">Gateway port</label>
-                <input id="gw-port" type="number" min="0" max="65535" inputmode="numeric" autocomplete="off" placeholder="7861">
-              </div>
-              <p class="form-hint" data-i18n="settings.gateway_port_hint">0 or empty uses the default port (7861). Must differ from the main port.</p>
-              <div class="field switch-field">
-                <div class="switch-label">
-                  <span data-i18n="settings.gateway_expose">Expose to local network (0.0.0.0)</span>
-                  <small class="muted" data-i18n="settings.gateway_expose_hint">Allow other devices on your LAN to use the gateway.</small>
-                </div>
-                <label class="switch">
-                  <input id="gw-expose" type="checkbox" autocomplete="off">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-              <div class="field switch-field">
-                <div class="switch-label">
-                  <span data-i18n="settings.gateway_auth">Require API key</span>
-                  <small class="muted" data-i18n="settings.gateway_auth_hint">Third-party clients must send Authorization: Bearer.</small>
-                </div>
-                <label class="switch">
-                  <input id="gw-require-auth" type="checkbox" autocomplete="off">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-              <div id="gw-expose-warning" class="callout callout-warn" hidden>
-                <span class="callout-icon">!</span>
-                <span data-i18n="settings.gateway_expose_warn">Warning: exposed to your LAN without an API key, anyone can use your models (and your external API keys).</span>
-              </div>
-              <p class="form-hint" data-i18n="settings.restart_hint">Port and network changes take effect after restarting the server.</p>
-              <hr class="settings-sep">
-              <div class="section-head">
-                <h4 data-i18n="settings.gateway_models_title">Exposed models</h4>
-                <div class="gw-models-actions">
-                  <button type="button" id="gw-models-select-all" class="ghost small" data-i18n="settings.gateway_select_all">Select all</button>
-                  <button type="button" id="gw-models-clear" class="ghost small" data-i18n="settings.gateway_clear">Clear</button>
-                </div>
-              </div>
-              <p class="form-hint" data-i18n="settings.gateway_models_hint">Empty selection exposes every visible model.</p>
-              <div id="gw-models-list" class="gw-models-list">
-                <div class="muted small" data-i18n="status.loading">Loading…</div>
-              </div>
-              <hr class="settings-sep">
-              <div class="section-head">
-                <h4 data-i18n="settings.gateway_keys_title">API keys</h4>
-              </div>
-              <div class="field">
-                <label for="gw-key-name" data-i18n="settings.gateway_key_name">Key name</label>
-                <div class="input-with-action">
-                  <input id="gw-key-name" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.gateway_key_name_placeholder" placeholder="e.g. opencode, laptop">
-                  <button id="gw-key-create-btn" class="primary" data-i18n="settings.gateway_key_create">Create</button>
-                </div>
-              </div>
-              <div id="gw-key-secret" class="gw-key-secret" hidden>
-                <code id="gw-key-secret-value" class="mono"></code>
-                <button type="button" id="gw-key-copy-btn" class="ghost small" data-i18n="settings.gateway_key_copy">Copy</button>
-              </div>
-              <p class="form-hint" data-i18n="settings.gateway_key_once">The secret is shown only once. Save it now.</p>
-              <div id="gw-keys-list" class="ext-models-list">
-                <div class="muted small" data-i18n="settings.gateway_keys_none">No API keys yet.</div>
               </div>
             </div>
           </section>

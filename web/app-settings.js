@@ -1444,6 +1444,7 @@ function bindExternalModelsEvents() {
 const GATEWAY_DEFAULT_PORT = 7861;
 
 let gatewayModelsCache = [];
+let gatewayModelsListCache = null;
 let gatewaySelectedModels = new Set();
 
 async function loadGatewaySection(lang = null) {
@@ -1453,7 +1454,15 @@ async function loadGatewaySection(lang = null) {
   if ($("gw-port")) $("gw-port").value = gw.port > 0 ? String(gw.port) : "";
   if ($("gw-expose")) $("gw-expose").checked = !!gw.expose_network;
   if ($("gw-require-auth")) $("gw-require-auth").checked = !!gw.require_auth;
-  gatewaySelectedModels = new Set(gw.models || []);
+
+  if (Array.isArray(gw.models) && gw.models.length > 0) {
+    gatewaySelectedModels = new Set(gw.models);
+  } else {
+    // Empty allowlist in config means "expose all". Will be populated
+    // in renderGatewayModels once the models cache is loaded.
+    gatewaySelectedModels = new Set(gatewayModelsCache);
+  }
+
   updateGatewayWarning(targetLang);
   updateGatewayStatus(targetLang);
   await Promise.all([
@@ -1468,11 +1477,39 @@ function gatewayEffectivePort() {
 }
 
 function updateGatewayWarning(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
   const warn = $("gw-expose-warning");
-  if (!warn) return;
-  const exposed = $("gw-expose")?.checked;
-  const authed = $("gw-require-auth")?.checked;
-  warn.hidden = !(exposed && !authed);
+  if (warn) {
+    const exposed = $("gw-expose")?.checked;
+    const authed = $("gw-require-auth")?.checked;
+    warn.hidden = !(exposed && !authed);
+  }
+  updateGatewayAuthBadge(targetLang);
+}
+
+function updateGatewayAuthBadge(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const reqAuth = !!$("gw-require-auth")?.checked;
+  const authBadge = $("gw-keys-auth-badge");
+  const hintText = $("gw-keys-hint-text");
+  if (authBadge) {
+    if (reqAuth) {
+      authBadge.textContent = targetLang === "es" ? "Requerido" : "Required";
+      authBadge.className = "badge badge-warn";
+    } else {
+      authBadge.textContent = targetLang === "es" ? "Opcional (auth desactivada)" : "Optional (auth is off)";
+      authBadge.className = "badge badge-muted";
+    }
+  }
+  if (hintText) {
+    if (reqAuth) {
+      hintText.textContent = targetLang === "es"
+        ? "Requerido: Los clientes deben enviar Authorization: Bearer <key> usando una de estas claves."
+        : "Required: Third-party clients must send Authorization: Bearer <key> using one of these keys.";
+    } else {
+      hintText.textContent = t("settings.gateway_key_optional_note", null, targetLang);
+    }
+  }
 }
 
 function updateGatewayStatus(lang = null) {
@@ -1495,25 +1532,45 @@ function updateGatewayStatus(lang = null) {
     const n = gatewaySelectedModels.size > 0 ? gatewaySelectedModels.size : gatewayModelsCache.length;
     navBadge.textContent = enabled ? String(n) : "0";
   }
+  const countBadge = $("gw-models-selected-count");
+  if (countBadge) {
+    countBadge.textContent = t("settings.gateway_models_selected_count", {
+      count: gatewaySelectedModels.size,
+      total: gatewayModelsCache.length,
+    }, targetLang);
+  }
+  updateGatewayAuthBadge(targetLang);
 }
 
-async function renderGatewayModels(lang = null) {
+async function renderGatewayModels(lang = null, forceRefresh = false) {
   const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
   const listEl = $("gw-models-list");
   if (!listEl) return;
-  let list = [];
-  try {
-    const data = await api("/api/models");
-    list = (data.models || []).filter((m) => !m.archived && !m.disabled && !m.is_ghost);
-  } catch (e) {
-    listEl.innerHTML = `<div class="muted small">${escapeHtml(e.message)}</div>`;
-    return;
+  let list = gatewayModelsListCache;
+  if (!list || forceRefresh) {
+    try {
+      const data = await api("/api/models");
+      list = (data.models || []).filter((m) => !m.archived && !m.disabled && !m.is_ghost);
+      gatewayModelsListCache = list;
+    } catch (e) {
+      if (!gatewayModelsListCache) {
+        listEl.innerHTML = `<div class="muted small">${escapeHtml(e.message)}</div>`;
+        return;
+      }
+      list = gatewayModelsListCache;
+    }
   }
   gatewayModelsCache = list.map((m) => m.name);
-  // Empty allowlist = everything exposed (see hint below), but it is shown
-  // as nothing checked by default. Only drop names that no longer exist so
-  // "Clear" really unchecks everything instead of re-checking all.
-  gatewaySelectedModels = new Set([...gatewaySelectedModels].filter((n) => gatewayModelsCache.includes(n)));
+
+  // If empty selection on initial load, expose all by default
+  const gwModelsConfig = currentConfig?.gateway?.models;
+  if (gatewaySelectedModels.size === 0 && gatewayModelsCache.length > 0 && (!gwModelsConfig || gwModelsConfig.length === 0)) {
+    gatewaySelectedModels = new Set(gatewayModelsCache);
+  } else {
+    // Keep only models that still exist
+    gatewaySelectedModels = new Set([...gatewaySelectedModels].filter((n) => gatewayModelsCache.includes(n)));
+  }
+
   if (list.length === 0) {
     listEl.innerHTML = `<div class="muted small">${escapeHtml(t("settings.gateway_models_none", null, targetLang))}</div>`;
   } else {
@@ -1521,13 +1578,14 @@ async function renderGatewayModels(lang = null) {
       const checked = gatewaySelectedModels.has(m.name);
       const extTag = m.is_external ? ` <span class="model-external-tag">${escapeHtml(t("models.external_badge", null, targetLang))}</span>` : "";
       return `
-        <label class="gw-model-item${checked ? " selected" : ""}">
+        <label class="gw-model-item${checked ? " selected" : ""}" data-name="${escapeHtml(m.name)}">
           <input type="checkbox" value="${escapeHtml(m.name)}"${checked ? " checked" : ""} />
           <span class="gw-model-name mono">${escapeHtml(m.name)}${extTag}</span>
         </label>
       `;
     }).join("");
   }
+
   listEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
     cb.addEventListener("change", () => {
       if (cb.checked) gatewaySelectedModels.add(cb.value);
@@ -1536,6 +1594,15 @@ async function renderGatewayModels(lang = null) {
       updateGatewayStatus(targetLang);
     });
   });
+
+  const filterVal = $("gw-models-filter")?.value?.trim().toLowerCase();
+  if (filterVal) {
+    listEl.querySelectorAll(".gw-model-item").forEach((item) => {
+      const name = (item.dataset.name || "").toLowerCase();
+      item.hidden = !name.includes(filterVal);
+    });
+  }
+
   updateGatewayStatus(targetLang);
 }
 
@@ -1630,7 +1697,10 @@ function bindGatewayEvents() {
   const authEl = $("gw-require-auth");
   if (authEl && !authEl._bound) {
     authEl._bound = true;
-    authEl.addEventListener("change", () => updateGatewayWarning());
+    authEl.addEventListener("change", () => {
+      updateGatewayWarning();
+      updateGatewayStatus();
+    });
   }
   const portEl = $("gw-port");
   if (portEl && !portEl._bound) {
@@ -1642,7 +1712,13 @@ function bindGatewayEvents() {
     selectAll._bound = true;
     selectAll.addEventListener("click", () => {
       gatewaySelectedModels = new Set(gatewayModelsCache);
-      renderGatewayModels();
+      const items = document.querySelectorAll("#gw-models-list .gw-model-item");
+      items.forEach((item) => {
+        const cb = item.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = true;
+        item.classList.add("selected");
+      });
+      updateGatewayStatus();
     });
   }
   const clearBtn = $("gw-models-clear");
@@ -1650,7 +1726,25 @@ function bindGatewayEvents() {
     clearBtn._bound = true;
     clearBtn.addEventListener("click", () => {
       gatewaySelectedModels = new Set();
-      renderGatewayModels();
+      const items = document.querySelectorAll("#gw-models-list .gw-model-item");
+      items.forEach((item) => {
+        const cb = item.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = false;
+        item.classList.remove("selected");
+      });
+      updateGatewayStatus();
+    });
+  }
+  const filterInput = $("gw-models-filter");
+  if (filterInput && !filterInput._bound) {
+    filterInput._bound = true;
+    filterInput.addEventListener("input", () => {
+      const q = filterInput.value.trim().toLowerCase();
+      const items = document.querySelectorAll("#gw-models-list .gw-model-item");
+      items.forEach((item) => {
+        const name = (item.dataset.name || "").toLowerCase();
+        item.hidden = q ? !name.includes(q) : false;
+      });
     });
   }
   const createBtn = $("gw-key-create-btn");

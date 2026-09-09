@@ -5382,6 +5382,20 @@ button.chat-send:disabled:hover {
     max-width: 100% !important;
     box-sizing: border-box;
   }
+  /* Battery modal: the card itself must NOT scroll on touch — the model
+     list inside is the scroller. Otherwise the swipe moves the card /
+     background and the list starves. */
+  .battery-modal-card {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .battery-modal-models {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 120px;
+  }
   .dl-add form {
     flex-direction: column;
   }
@@ -6619,7 +6633,7 @@ button.chat-send:disabled:hover {
   margin: 0 auto;
 }
 
-.battery-modal-card { width: min(640px, 100%); }
+.battery-modal-card { width: min(640px, 100%); display: flex; flex-direction: column; min-height: 0; }
 .battery-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .battery-modal-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
 .battery-modal-toolbar {
@@ -6757,7 +6771,7 @@ button.chat-send:disabled:hover {
   padding: 30px 16px;
   font-style: italic;
 }
-.battery-modal-models { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 420px; overflow-y: auto; }
+.battery-modal-models { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 420px; overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
 .battery-modal-sysinfo { font-size: 11px; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 8px; }
 
 .battery-model-item {

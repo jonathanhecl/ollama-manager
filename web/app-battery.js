@@ -216,6 +216,9 @@ async function openBatteryModal(options = {}) {
     batterySelectedModels.add(defaultModel);
   }
   $("battery-modal").hidden = false;
+  // Lock background scroll so touch drags over the model list don't move
+  // the page behind (mobile). Restored in closeBatteryModal.
+  document.body.style.overflow = "hidden";
 
   wireBatteryModalStepButtons();
 
@@ -499,6 +502,7 @@ function batteryModalConfirm() {
 
 function closeBatteryModal() {
   $("battery-modal").hidden = true;
+  document.body.style.overflow = "";
 }
 
 function renderBatteryModalModels() {

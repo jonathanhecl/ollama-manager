@@ -136,8 +136,9 @@ type Client struct {
 	// abortMode records a pending abort choice per run ("discard" or
 	// "save-completed"), applied to the run before onComplete fires.
 	abortMode map[string]string
-	// runExpected tracks tests expected per model per run, used to keep
-	// only fully-completed models on abort with "save-completed".
+	// runExpected tracks tests expected per model per run, kept for
+	// progress reporting (no longer used to prune abort saves, which keep
+	// all completed tests including the partial current model).
 	runExpected map[string]map[string]int
 	// stageLimitsMu guards stageLimits, the optional per-stage auto-skip
 	// limits applied to every turn (see StageLimits).
@@ -724,7 +725,9 @@ func (c *Client) SkipCurrentModel(runID string) bool {
 
 // AbortRun cancels an active battery run, choosing what happens to the
 // partial results. mode "discard" drops everything; mode "save-completed"
-// keeps only results of models that completed all their expected tests.
+// keeps everything completed so far, including the partial progress of the
+// current model (fully completed models plus completed tests/categories of
+// the in-progress model). The in-flight aborted test is dropped.
 // Returns false when there is no active run to abort.
 func (c *Client) AbortRun(runID, mode string) bool {
 	if mode != "save-completed" {
@@ -761,7 +764,6 @@ func (c *Client) applyAbortMode(run *BatteryRun) {
 	c.abortMu.Lock()
 	mode := c.abortMode[run.ID]
 	delete(c.abortMode, run.ID)
-	expected := c.runExpected[run.ID]
 	delete(c.runExpected, run.ID)
 	c.abortMu.Unlock()
 
@@ -770,24 +772,27 @@ func (c *Client) applyAbortMode(run *BatteryRun) {
 		run.Results = nil
 		run.Models = nil
 	case "save-completed":
-		counts := make(map[string]int, len(run.Results))
-		for _, res := range run.Results {
-			counts[res.Model]++
+		// Guarda "hasta donde va": todos los tests completados hasta el
+		// abort, incluyendo el progreso parcial del modelo actual.
+		// Solo se descarta el test en curso interrumpido por el abort
+		// (placeholder con "context canceled"), no una categoría real.
+		for len(run.Results) > 0 {
+			last := run.Results[len(run.Results)-1]
+			if last.Passed == nil && strings.Contains(last.Error, "context canceled") {
+				run.Results = run.Results[:len(run.Results)-1]
+				continue
+			}
+			break
 		}
-		kept := run.Results[:0]
+		keptModels := make(map[string]bool, len(run.Results))
 		for _, res := range run.Results {
-			if counts[res.Model] >= expected[res.Model] {
-				kept = append(kept, res)
+			if res.Model != "" {
+				keptModels[res.Model] = true
 			}
 		}
-		// Clear the tail so dropped results are not retained.
-		for i := len(kept); i < len(run.Results); i++ {
-			run.Results[i] = TestResult{}
-		}
-		run.Results = kept
 		models := run.Models[:0]
 		for _, m := range run.Models {
-			if counts[m] >= expected[m] {
+			if keptModels[m] {
 				models = append(models, m)
 			}
 		}

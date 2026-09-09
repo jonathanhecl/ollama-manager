@@ -2352,8 +2352,8 @@ function closeBatteryAbortModal() {
 }
 
 // Abort the run, choosing what happens to partial results:
-// "discard" drops everything, "save-completed" keeps results of models
-// that completed all their expected tests.
+// "discard" drops everything, "save-completed" keeps everything completed
+// so far, including the partial current model (in-flight test is dropped).
 async function abortBatteryRun(mode) {
   const runID = batteryRunIdFromStorage();
   if (!runID) {
@@ -2400,7 +2400,7 @@ async function abortBatteryRun(mode) {
     // Pruned results are saved by the backend; the regular poll loop picks
     // up Done and shows the results view.
     resetBatteryTurnTimers();
-    toast(t("toast.run_abort_saving") || "Stopping… completed models will be kept", "info");
+    toast(t("toast.run_abort_saving") || "Stopping… progress so far will be kept", "info");
     if (batteryActiveRunID === runID) {
       void pollBatteryProgress(runID, []);
     }

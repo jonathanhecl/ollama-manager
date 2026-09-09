@@ -920,6 +920,16 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						res.Error = ctx.Err().Error()
 						return false
 					}
+					subEnd := len(res.SubResults)
+					thisCaseOK := subEnd > subStart
+					for sIdx := subStart; sIdx < subEnd; sIdx++ {
+						sub := res.SubResults[sIdx]
+						if sub.Error != "" || sub.Passed == nil || !*sub.Passed {
+							thisCaseOK = false
+							break
+						}
+					}
+					casePassedFlags[i] = thisCaseOK
 					return true
 				}
 

@@ -317,8 +317,19 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"bind_address":            s.cfg.BindAddress(),
 		"chat_defaults":           s.cfg.ChatDefaults,
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
+		"gateway":                 s.cfg.Gateway,
 		"version":                 s.versionInfo,
 	})
+}
+
+// patchGatewayBody uses pointers so callers can update only the gateway
+// fields they care about (PATCH semantics nested under "gateway").
+type patchGatewayBody struct {
+	Enabled       *bool     `json:"enabled"`
+	Port          *int      `json:"port"`
+	ExposeNetwork *bool     `json:"expose_network"`
+	Models        *[]string `json:"models"`
+	RequireAuth   *bool     `json:"require_auth"`
 }
 
 // patchConfigBody uses pointers so callers can update only the fields they
@@ -330,6 +341,7 @@ type patchConfigBody struct {
 	OllamaURL             *string              `json:"ollama_url"`
 	ChatDefaults          *config.ChatDefaults `json:"chat_defaults"`
 	LeaderboardGroupOrder *[]string            `json:"leaderboard_group_order"`
+	Gateway               *patchGatewayBody    `json:"gateway"`
 }
 
 func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
@@ -347,6 +359,16 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		if *body.Port < 1 || *body.Port > 65535 {
 			writeError(w, http.StatusBadRequest, errors.New("port must be 1..65535"))
 			return
+		}
+		if s.cfg.Gateway.Enabled {
+			effGwPort := s.cfg.Gateway.Port
+			if effGwPort == 0 {
+				effGwPort = config.DefaultGatewayPort
+			}
+			if effGwPort == *body.Port {
+				writeError(w, http.StatusBadRequest, errors.New("main port must differ from the enabled gateway port"))
+				return
+			}
 		}
 		if *body.Port != s.cfg.Port {
 			s.cfg.Port = *body.Port
@@ -384,6 +406,49 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 	if body.LeaderboardGroupOrder != nil {
 		s.cfg.LeaderboardGroupOrder = *body.LeaderboardGroupOrder
 	}
+	if body.Gateway != nil {
+		gw := body.Gateway
+		newGw := s.cfg.Gateway
+		if gw.Port != nil {
+			// 0 means "use the default gateway port".
+			if *gw.Port < 0 || *gw.Port > 65535 {
+				writeError(w, http.StatusBadRequest, errors.New("gateway port must be 0..65535 (0 = default)"))
+				return
+			}
+			newGw.Port = *gw.Port
+		}
+		if gw.Enabled != nil {
+			newGw.Enabled = *gw.Enabled
+		}
+		if gw.ExposeNetwork != nil {
+			newGw.ExposeNetwork = *gw.ExposeNetwork
+		}
+		if gw.Models != nil {
+			newGw.Models = *gw.Models
+			if newGw.Models == nil {
+				newGw.Models = []string{}
+			}
+		}
+		if gw.RequireAuth != nil {
+			newGw.RequireAuth = *gw.RequireAuth
+		}
+		// The gateway runs on its own listener: refuse a port clash with
+		// the main server while the gateway is (or stays) enabled.
+		if newGw.Enabled {
+			effGwPort := newGw.Port
+			if effGwPort == 0 {
+				effGwPort = config.DefaultGatewayPort
+			}
+			if effGwPort == s.cfg.Port {
+				writeError(w, http.StatusBadRequest, errors.New("gateway port must differ from the main server port"))
+				return
+			}
+		}
+		if newGw.Port != s.cfg.Gateway.Port || newGw.Enabled != s.cfg.Gateway.Enabled || newGw.ExposeNetwork != s.cfg.Gateway.ExposeNetwork {
+			needsRestart = true
+		}
+		s.cfg.Gateway = newGw
+	}
 
 	if err := s.cfg.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -398,6 +463,7 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"ollama_url":              s.cfg.OllamaURL,
 		"chat_defaults":           s.cfg.ChatDefaults,
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
+		"gateway":                 s.cfg.Gateway,
 	})
 }
 

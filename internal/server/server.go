@@ -43,6 +43,7 @@ type Server struct {
 	usage          *modelUsageStore
 	customModels   *customModelsStore
 	externalModels *externalModelsStore
+	gatewayKeys    *gatewayKeysStore
 	systemPrompts  *systemPromptsStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
@@ -146,6 +147,12 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		log.Printf("external-models: could not load %s: %v", extPath, err)
 	}
 
+	gwKeysPath := filepath.Join(filepath.Dir(cfg.Path()), "gateway_keys.json")
+	gwKeysStore := newGatewayKeysStore(gwKeysPath)
+	if err := gwKeysStore.Load(); err != nil {
+		log.Printf("gateway-keys: could not load %s: %v", gwKeysPath, err)
+	}
+
 	promptsDir := getPromptsDir(cfg.Path())
 	promptsLegacyPath := filepath.Join(filepath.Dir(cfg.Path()), "system_prompts.json")
 	promptsStore := newSystemPromptsStore(promptsDir, promptsLegacyPath)
@@ -168,6 +175,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		usage:                usageStore,
 		customModels:         customStore,
 		externalModels:       extStore,
+		gatewayKeys:          gwKeysStore,
 		systemPrompts:        promptsStore,
 		ctxCache:             make(map[string]int64),
 		capsCache:            make(map[string][]string),
@@ -229,6 +237,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/external-models/test", s.requireAuth(s.handleTestExternalModel))
 	mux.Handle("POST /api/external-models/toggle", s.requireAuth(s.handleToggleExternalModel))
 	mux.Handle("DELETE /api/external-models/{name...}", s.requireAuth(s.handleDeleteExternalModel))
+	mux.Handle("GET /api/gateway/keys", s.requireAuth(s.handleListGatewayKeys))
+	mux.Handle("POST /api/gateway/keys", s.requireAuth(s.handleCreateGatewayKey))
+	mux.Handle("DELETE /api/gateway/keys/{id}", s.requireAuth(s.handleDeleteGatewayKey))
 	mux.Handle("GET /api/hf/search", s.requireAuth(s.handleHFSearch))
 	mux.Handle("GET /api/hf/model", s.requireAuth(s.handleHFModelDetails))
 	mux.Handle("GET /api/hf/readme", s.requireAuth(s.handleHFReadme))

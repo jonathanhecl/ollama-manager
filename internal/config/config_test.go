@@ -103,3 +103,27 @@ func TestLoadKeepsLeaderboardGroupOrder(t *testing.T) {
 	}
 }
 
+func TestGatewayBindAddressDefaults(t *testing.T) {
+	gw := GatewayConfig{}
+	if addr := gw.GatewayBindAddress(); addr != "127.0.0.1:7861" {
+		t.Fatalf("default bind = %q, want 127.0.0.1:7861", addr)
+	}
+	gw = GatewayConfig{ExposeNetwork: true, Port: 8080}
+	if addr := gw.GatewayBindAddress(); addr != "0.0.0.0:8080" {
+		t.Fatalf("exposed bind = %q, want 0.0.0.0:8080", addr)
+	}
+}
+
+func TestLoadRejectsBadGatewayPort(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/config.json"
+	cfg := Defaults()
+	cfg.Gateway.Port = 70000
+	cfg.path = path
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatalf("expected Load to reject gateway port 70000")
+	}
+}

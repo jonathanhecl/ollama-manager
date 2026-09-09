@@ -28,16 +28,49 @@ type ChatDefaults struct {
 	Artifacts *bool `json:"artifacts,omitempty"`
 }
 
+// GatewayConfig controls the optional OpenAI/Ollama-compatible gateway
+// that re-exposes selected models to third-party clients on its own port.
+type GatewayConfig struct {
+	// Enabled turns the gateway listener on (requires restart).
+	Enabled bool `json:"enabled"`
+	// Port is the gateway listen port (requires restart). 0 = default.
+	Port int `json:"port"`
+	// ExposeNetwork binds 0.0.0.0 instead of 127.0.0.1 (requires restart).
+	ExposeNetwork bool `json:"expose_network"`
+	// Models is the allowlist of exposed model names (local and external).
+	// Empty means all visible (non-archived, non-disabled) models.
+	Models []string `json:"models,omitempty"`
+	// RequireAuth rejects requests without a valid Bearer API key.
+	RequireAuth bool `json:"require_auth"`
+}
+
+// DefaultGatewayPort is used when Gateway.Port is 0.
+const DefaultGatewayPort = 7861
+
+// GatewayBindAddress returns the host:port the gateway should listen on.
+func (g GatewayConfig) GatewayBindAddress() string {
+	host := "127.0.0.1"
+	if g.ExposeNetwork {
+		host = "0.0.0.0"
+	}
+	port := g.Port
+	if port <= 0 {
+		port = DefaultGatewayPort
+	}
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
 // Config holds the runtime configuration for ollama-manager.
 type Config struct {
-	Port          int          `json:"port"`
-	ExposeNetwork bool         `json:"expose_network"`
-	PasswordHash  string       `json:"password_hash"`
-	SessionSecret string       `json:"session_secret"`
-	OllamaURL     string       `json:"ollama_url"`
-	Language               string       `json:"language"`
-	ChatDefaults           ChatDefaults `json:"chat_defaults"`
-	LeaderboardGroupOrder  []string     `json:"leaderboard_group_order,omitempty"`
+	Port                  int           `json:"port"`
+	ExposeNetwork         bool          `json:"expose_network"`
+	PasswordHash          string        `json:"password_hash"`
+	SessionSecret         string        `json:"session_secret"`
+	OllamaURL             string        `json:"ollama_url"`
+	Language              string        `json:"language"`
+	ChatDefaults          ChatDefaults  `json:"chat_defaults"`
+	LeaderboardGroupOrder []string      `json:"leaderboard_group_order,omitempty"`
+	Gateway               GatewayConfig `json:"gateway"`
 
 	path string `json:"-"`
 }
@@ -125,6 +158,9 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Port <= 0 || cfg.Port > 65535 {
 		return nil, fmt.Errorf("invalid port %d in config", cfg.Port)
+	}
+	if cfg.Gateway.Port < 0 || cfg.Gateway.Port > 65535 {
+		return nil, fmt.Errorf("invalid gateway port %d in config", cfg.Gateway.Port)
 	}
 	if cfg.OllamaURL == "" {
 		cfg.OllamaURL = Defaults().OllamaURL

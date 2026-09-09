@@ -418,3 +418,56 @@ func TestUpdateResultPassedRecomputesScore(t *testing.T) {
 		t.Fatalf("expected bad rating to fail with zero points, got %+v", res)
 	}
 }
+
+func TestGetLatestRunPendingReview_EmptyOutput(t *testing.T) {
+	store := NewResultStore(t.TempDir())
+
+	// Run with only empty response for human review
+	runEmpty := &BatteryRun{
+		ID:        "run-empty",
+		Timestamp: time.Now(),
+		Results: []TestResult{
+			{
+				TestID:        "test-1",
+				Model:         "llama",
+				Passed:        nil,
+				ModelResponse: "",
+				SubResults: []SubResult{
+					{ModelResponse: ""},
+					{ModelResponse: "   "},
+				},
+			},
+		},
+	}
+	if err := store.SaveRun(runEmpty); err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+
+	_, pending, hasPending := store.GetLatestRunPendingReview()
+	if hasPending || pending > 0 {
+		t.Fatalf("expected no pending reviews for empty responses, got pending=%d hasPending=%v", pending, hasPending)
+	}
+
+	// Run with actual reviewable output
+	runReviewable := &BatteryRun{
+		ID:        "run-reviewable",
+		Timestamp: time.Now().Add(time.Minute),
+		Results: []TestResult{
+			{
+				TestID:        "test-2",
+				Model:         "llama",
+				Passed:        nil,
+				ModelResponse: "Actual answer from model",
+			},
+		},
+	}
+	if err := store.SaveRun(runReviewable); err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+
+	run, pending, hasPending := store.GetLatestRunPendingReview()
+	if !hasPending || pending != 1 || run.ID != "run-reviewable" {
+		t.Fatalf("expected 1 pending review for reviewable run, got id=%s pending=%d hasPending=%v", run.ID, pending, hasPending)
+	}
+}
+

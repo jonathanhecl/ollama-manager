@@ -71,6 +71,10 @@ type Server struct {
 
 	leaderboardMu sync.Mutex
 
+	testsCacheMu   sync.RWMutex
+	testsCacheJSON []byte
+	testsCacheETag string
+
 	projectorCacheMu sync.RWMutex
 	projectorCache   map[string]string // url -> hexSum
 
@@ -186,8 +190,8 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		artifactScreenshotCh: make(map[string]chan artifactScreenshotResponse),
 		artifactEvalCh:       make(map[string]chan artifactEvalResponse),
 		projectorCache:       make(map[string]string),
+		testsCacheETag:       fmt.Sprintf("\"%d\"", time.Now().UnixNano()),
 	}
-	go srv.RegenerateLeaderboardCache()
 	return srv, nil
 }
 

@@ -148,3 +148,63 @@ func TestLeaderboardCacheOnMutations(t *testing.T) {
 
 	_ = grp
 }
+
+func TestTestsListCacheAndETag(t *testing.T) {
+	ollamaSrv := fakeOllamaForBattery()
+	defer ollamaSrv.Close()
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	// Seed test group
+	if _, err := srv.testsStore.CreateGroup(tests.Group{ID: "g_cache", Name: "G Cache"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// First request: should return 200 with an ETag header
+	req1 := httptest.NewRequest(http.MethodGet, "/api/tests", nil)
+	rr1 := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr1, req1)
+
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first GET /api/tests returned %d", rr1.Code)
+	}
+	etag := rr1.Header().Get("ETag")
+	if etag == "" {
+		t.Fatalf("expected ETag header on /api/tests, got empty")
+	}
+
+	// Second request with If-None-Match: should return 304 Not Modified
+	req2 := httptest.NewRequest(http.MethodGet, "/api/tests", nil)
+	req2.Header.Set("If-None-Match", etag)
+	rr2 := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusNotModified {
+		t.Fatalf("expected 304 Not Modified, got %d", rr2.Code)
+	}
+
+	// Mutate: create a new test (invalidates cache)
+	if _, err := srv.testsStore.CreateTest(tests.Test{
+		Name:    "New Test",
+		Prompt:  "hello",
+		GroupID: "g_cache",
+		Active:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv.invalidateTestsCache()
+
+	// Third request with old ETag: should now return 200 with new ETag
+	req3 := httptest.NewRequest(http.MethodGet, "/api/tests", nil)
+	req3.Header.Set("If-None-Match", etag)
+	rr3 := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr3, req3)
+
+	if rr3.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK after mutation, got %d", rr3.Code)
+	}
+	newETag := rr3.Header().Get("ETag")
+	if newETag == etag {
+		t.Errorf("expected new ETag after mutation, but got same: %s", newETag)
+	}
+}
+

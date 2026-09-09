@@ -231,11 +231,20 @@ func (c *Client) setProgress(p Progress) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
 	if existing, ok := c.progress[p.RunID]; ok && existing != nil {
-		if p.Results == nil && len(existing.Results) > 0 {
+		if len(p.Results) == 0 && len(existing.Results) > 0 {
 			p.Results = existing.Results
 		}
-		if p.Models == nil && len(existing.Models) > 0 {
+		if len(p.Models) == 0 && len(existing.Models) > 0 {
 			p.Models = existing.Models
+		}
+		if p.GroupName == "" && existing.GroupName != "" {
+			p.GroupName = existing.GroupName
+		}
+		if p.GroupID == "" && existing.GroupID != "" {
+			p.GroupID = existing.GroupID
+		}
+		if p.TotalTests == 0 && existing.TotalTests > 0 {
+			p.TotalTests = existing.TotalTests
 		}
 	}
 	c.progress[p.RunID] = &p
@@ -433,9 +442,10 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 				break runModels
 			}
 		}
+		SanitizeEmptyReviewResults(run.Results)
 		pendingReviews := 0
 		for _, res := range run.Results {
-			if res.Passed == nil && res.Error == "" {
+			if res.Passed == nil && res.Error == "" && HasReviewableOutput(res) {
 				pendingReviews++
 			}
 		}
@@ -1354,6 +1364,15 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		} else if hasScored && res.Error == "" {
 			res.Passed = &allPassed
 		}
+		if res.Passed == nil && res.Error == "" && !HasReviewableOutput(res) {
+			falseVal := false
+			res.Passed = &falseVal
+			for i := range res.SubResults {
+				if res.SubResults[i].Passed == nil {
+					res.SubResults[i].Passed = &falseVal
+				}
+			}
+		}
 		casesTotal := len(test.Cases)
 		casesPassed := 0
 		for _, ok := range casePassedFlags {
@@ -1453,6 +1472,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	passed := scoreEval(test.Evaluation, test.EvaluationType, test.EvaluationConfig, res.ModelResponse)
 	if passed != nil {
 		res.Passed = passed
+	}
+	if res.Passed == nil && res.Error == "" && !HasReviewableOutput(res) {
+		falseVal := false
+		res.Passed = &falseVal
 	}
 	res.CasesTotal = 1
 	if res.Passed != nil && *res.Passed && res.Error == "" {
@@ -1951,6 +1974,10 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 		return &v
 
 	case "human_review":
+		if strings.TrimSpace(response) == "" {
+			v := false
+			return &v
+		}
 		return nil
 
 	default:

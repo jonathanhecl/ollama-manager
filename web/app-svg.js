@@ -1029,6 +1029,12 @@ function showTestsView(preserveGroup = false) {
   if (window.location.pathname !== targetPath && (!preserveGroup || !window.location.pathname.startsWith("/tests/group/"))) {
     history.pushState(null, "", targetPath);
   }
+  // Immediately render from in-memory cache so there is 0ms delay / blank state
+  if (Array.isArray(testsGroups) && testsGroups.length > 0) {
+    renderTestsSidebar();
+    renderTestsModelSelect();
+    renderTestsList();
+  }
   void refreshTests();
   if (typeof updateActiveBatteryBanner === "function") {
     updateActiveBatteryBanner(window._activeBatteryRun);
@@ -2530,6 +2536,10 @@ async function handleRouting() {
           groupId = data.groupId || "";
         }
       } catch { }
+    }
+    if ((!modelIDs || modelIDs.length === 0) && window._activeBatteryRun && window._activeBatteryRun.runID === id) {
+      modelIDs = window._activeBatteryRun.models || [];
+      if (!groupId) groupId = window._activeBatteryRun.groupId || "";
     }
     showBatteryProgressView(modelIDs, id, groupId);
   } else if (path.startsWith("/tests/battery/results/")) {

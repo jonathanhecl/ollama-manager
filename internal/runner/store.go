@@ -321,6 +321,7 @@ func (s *ResultStore) Load() error {
 	}
 
 	for _, r := range runMap {
+		SanitizeEmptyReviewResults(r.Results)
 		s.runs = append(s.runs, r)
 	}
 
@@ -345,6 +346,8 @@ func (s *ResultStore) Load() error {
 func (s *ResultStore) SaveRun(run *BatteryRun) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	SanitizeEmptyReviewResults(run.Results)
 
 	found := false
 	for i := range s.runs {
@@ -400,6 +403,40 @@ func (s *ResultStore) GetRun(id string) (BatteryRun, bool) {
 	return BatteryRun{}, false
 }
 
+// HasReviewableOutput reports whether a test result has any non-empty response
+// to evaluate. If the model produced no output (empty or whitespace only),
+// there is nothing for a human to review, which is treated as a default failure.
+func HasReviewableOutput(res TestResult) bool {
+	if len(res.SubResults) > 0 {
+		for _, s := range res.SubResults {
+			if strings.TrimSpace(s.ModelResponse) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.TrimSpace(res.ModelResponse) != ""
+}
+
+// SanitizeEmptyReviewResults sets tests and sub-results awaiting human review
+// that have no reviewable output (empty response) to a failed verdict.
+func SanitizeEmptyReviewResults(results []TestResult) {
+	for i := range results {
+		if results[i].Passed == nil && results[i].Error == "" && !HasReviewableOutput(results[i]) {
+			falseVal := false
+			results[i].Passed = &falseVal
+			results[i].CasesPassed = 0
+			results[i].Points = 0.0
+			results[i].Score = 0.0
+			for j := range results[i].SubResults {
+				if results[i].SubResults[j].Passed == nil {
+					results[i].SubResults[j].Passed = &falseVal
+				}
+			}
+		}
+	}
+}
+
 // GetLatestRunPendingReview checks if the most recent run has tests pending human review.
 func (s *ResultStore) GetLatestRunPendingReview() (BatteryRun, int, bool) {
 	s.mu.Lock()
@@ -408,7 +445,7 @@ func (s *ResultStore) GetLatestRunPendingReview() (BatteryRun, int, bool) {
 		run := s.runs[i]
 		pending := 0
 		for _, res := range run.Results {
-			if res.Passed == nil && res.Error == "" {
+			if res.Passed == nil && res.Error == "" && HasReviewableOutput(res) {
 				pending++
 			}
 		}

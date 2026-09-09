@@ -212,14 +212,13 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		hasPendingReviews := false
 		if run != nil {
 			for _, r := range run.Results {
-				if r.Passed == nil && r.Error == "" {
+				if r.Passed == nil && r.Error == "" && runner.HasReviewableOutput(r) {
 					hasPendingReviews = true
 					break
 				}
 			}
 		}
 		if !hasPendingReviews && run != nil {
-			s.runner.ClearProgress(run.ID)
 			go s.RegenerateLeaderboardCache()
 		}
 	})
@@ -440,7 +439,22 @@ func (s *Server) handleBatteryProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	p, ok := s.runner.GetProgress(id)
 	if !ok {
-		// If no active progress, maybe it's already done — return done flag.
+		if s.runnerStore != nil {
+			if run, found := s.runnerStore.GetRun(id); found {
+				writeJSON(w, http.StatusOK, runner.Progress{
+					RunID:      run.ID,
+					Done:       true,
+					GroupID:    run.GroupID,
+					GroupName:  run.GroupName,
+					Models:     run.Models,
+					TotalTests: len(run.Results),
+					TestIndex:  len(run.Results),
+					Results:    run.Results,
+				})
+				return
+			}
+		}
+		// If no active progress and not found in store — return done flag.
 		writeJSON(w, http.StatusOK, runner.Progress{RunID: id, Done: true})
 		return
 	}

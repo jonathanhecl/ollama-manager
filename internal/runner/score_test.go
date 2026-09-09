@@ -167,3 +167,109 @@ func TestScoreAllOf(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestScoreHumanReview(t *testing.T) {
+	eval := &tests.Evaluation{Type: "human_review"}
+
+	t.Run("empty response fails without review", func(t *testing.T) {
+		got := scoreEval(eval, "", nil, "")
+		if got == nil || *got != false {
+			t.Fatalf("expected false for empty response, got %v", got)
+		}
+	})
+
+	t.Run("whitespace only response fails without review", func(t *testing.T) {
+		got := scoreEval(eval, "", nil, "   \n\t  ")
+		if got == nil || *got != false {
+			t.Fatalf("expected false for whitespace response, got %v", got)
+		}
+	})
+
+	t.Run("non-empty response leaves verdict nil for human review", func(t *testing.T) {
+		got := scoreEval(eval, "", nil, "Paris")
+		if got != nil {
+			t.Fatalf("expected nil for valid response, got %v", got)
+		}
+	})
+}
+
+func TestHasReviewableOutput(t *testing.T) {
+	if HasReviewableOutput(TestResult{ModelResponse: ""}) {
+		t.Fatal("expected false for empty ModelResponse")
+	}
+	if HasReviewableOutput(TestResult{ModelResponse: "   \n"}) {
+		t.Fatal("expected false for whitespace ModelResponse")
+	}
+	if !HasReviewableOutput(TestResult{ModelResponse: "Hello"}) {
+		t.Fatal("expected true for non-empty ModelResponse")
+	}
+
+	subEmpty := TestResult{
+		SubResults: []SubResult{
+			{ModelResponse: ""},
+			{ModelResponse: "   "},
+		},
+	}
+	if HasReviewableOutput(subEmpty) {
+		t.Fatal("expected false for all empty SubResults")
+	}
+
+	subMixed := TestResult{
+		SubResults: []SubResult{
+			{ModelResponse: ""},
+			{ModelResponse: "Paris"},
+		},
+	}
+	if !HasReviewableOutput(subMixed) {
+		t.Fatal("expected true for SubResults with at least one non-empty response")
+	}
+}
+
+func TestSanitizeEmptyReviewResults(t *testing.T) {
+	passVal := true
+	results := []TestResult{
+		{
+			TestID:        "t1",
+			Passed:        nil,
+			ModelResponse: "",
+		},
+		{
+			TestID:        "t2",
+			Passed:        nil,
+			ModelResponse: "some answer",
+		},
+		{
+			TestID:        "t3",
+			Passed:        &passVal,
+			ModelResponse: "already passed",
+		},
+		{
+			TestID: "t4",
+			Passed: nil,
+			SubResults: []SubResult{
+				{ModelResponse: ""},
+				{ModelResponse: "   "},
+			},
+		},
+	}
+
+	SanitizeEmptyReviewResults(results)
+
+	if results[0].Passed == nil || *results[0].Passed != false {
+		t.Fatalf("expected results[0].Passed == false, got %v", results[0].Passed)
+	}
+	if results[1].Passed != nil {
+		t.Fatalf("expected results[1].Passed == nil, got %v", results[1].Passed)
+	}
+	if results[2].Passed == nil || !*results[2].Passed {
+		t.Fatalf("expected results[2].Passed == true, got %v", results[2].Passed)
+	}
+	if results[3].Passed == nil || *results[3].Passed != false {
+		t.Fatalf("expected results[3].Passed == false, got %v", results[3].Passed)
+	}
+	for i, sub := range results[3].SubResults {
+		if sub.Passed == nil || *sub.Passed != false {
+			t.Fatalf("expected sub[%d].Passed == false, got %v", i, sub.Passed)
+		}
+	}
+}

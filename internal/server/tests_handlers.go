@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gense/ollama-manager/internal/tests"
 )
@@ -14,12 +16,63 @@ var errMissingParam = errors.New("missing id parameter")
 
 // ---------- tests ----------
 
+func (s *Server) invalidateTestsCache() {
+	s.testsCacheMu.Lock()
+	s.testsCacheJSON = nil
+	s.testsCacheETag = fmt.Sprintf("\"%d\"", time.Now().UnixNano())
+	s.testsCacheMu.Unlock()
+}
+
 func (s *Server) handleTestsList(w http.ResponseWriter, r *http.Request) {
-	groups, tests := s.testsStore.List()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"groups": groups,
-		"tests":  tests,
-	})
+	if r.URL.Query().Get("refresh") == "true" || r.URL.Query().Get("refresh") == "1" {
+		_ = s.testsStore.Load()
+		s.invalidateTestsCache()
+	}
+
+	s.testsCacheMu.RLock()
+	cachedJSON := s.testsCacheJSON
+	etag := s.testsCacheETag
+	s.testsCacheMu.RUnlock()
+
+	clientETag := r.Header.Get("If-None-Match")
+	if etag != "" && clientETag == etag && cachedJSON != nil {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	if cachedJSON == nil {
+		s.testsCacheMu.Lock()
+		if s.testsCacheJSON == nil {
+			groups, tests := s.testsStore.List()
+			raw, err := json.Marshal(map[string]any{
+				"groups": groups,
+				"tests":  tests,
+			})
+			if err != nil {
+				s.testsCacheMu.Unlock()
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			s.testsCacheJSON = raw
+			if s.testsCacheETag == "" {
+				s.testsCacheETag = fmt.Sprintf("\"%d\"", time.Now().UnixNano())
+			}
+		}
+		cachedJSON = s.testsCacheJSON
+		etag = s.testsCacheETag
+		s.testsCacheMu.Unlock()
+	}
+
+	if clientETag == etag && clientETag != "" {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(cachedJSON)
 }
 
 func (s *Server) handleTestsCreate(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +86,7 @@ func (s *Server) handleTestsCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
@@ -53,6 +107,7 @@ func (s *Server) handleTestsUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
@@ -72,6 +127,7 @@ func (s *Server) handleTestsDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
@@ -91,6 +147,7 @@ func (s *Server) handleTestsReorder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -108,6 +165,7 @@ func (s *Server) handleTestGroupsCreate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
@@ -128,6 +186,7 @@ func (s *Server) handleTestGroupsUpdate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
@@ -142,6 +201,7 @@ func (s *Server) handleTestGroupsDelete(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -175,6 +235,7 @@ func (s *Server) handleTestSidecarUpload(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	writeJSON(w, http.StatusOK, att)
 }
 
@@ -194,5 +255,6 @@ func (s *Server) handleTestSidecarDelete(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.invalidateTestsCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

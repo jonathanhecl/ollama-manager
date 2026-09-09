@@ -13,7 +13,7 @@ async function refreshModels() {
     updateChatContextMeter();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
-    $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
+    $("models-tbody").innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
   }
 }
 
@@ -391,11 +391,11 @@ function renderTable() {
   if (!allToRender.length) {
     tbody.innerHTML = "";
     if (q) {
-      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.no_search_results", { query: modelSearchQuery.trim() }))}</td></tr>`;
+      tbody.innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.no_search_results", { query: modelSearchQuery.trim() }))}</td></tr>`;
     } else if (showArchivedOnly) {
-      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
+      tbody.innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
     } else {
-      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
+      tbody.innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.empty_models"))}</td></tr>`;
     }
     return;
   }
@@ -492,7 +492,6 @@ function renderTable() {
         </div>
       </td>
       <td class="cell-params">${escapeHtml(m.is_external ? "—" : modelParameterLabel(m))}</td>
-      <td class="cell-quant">${escapeHtml(m.is_external ? "—" : modelQuantLabel(m))}</td>
       <td class="cell-ctx">${m.isPending || m.is_external ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
       <td class="cell-size">${m.isPending || m.is_external ? "—" : (m.size > 0 ? fmtBytes(m.size) : "—")}</td>
       <td class="cell-modified">
@@ -552,7 +551,6 @@ function renderTable() {
         tr._m_family !== m.family ||
         tr._m_param !== m.parameter_size ||
         tr._m_param_count !== m.parameter_count ||
-        tr._m_quant !== modelQuantLabel(m) ||
         tr._m_archived !== !!m.archived
       ) {
         needUpdate = true;
@@ -640,7 +638,6 @@ function renderTable() {
       newTr._m_family = m.family;
       newTr._m_param = m.parameter_size;
       newTr._m_param_count = m.parameter_count;
-      newTr._m_quant = modelQuantLabel(m);
 
       if (tr) {
         tr.replaceWith(newTr);

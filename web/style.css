@@ -4996,8 +4996,7 @@ button.chat-send:disabled:hover {
   /* Simplify table on smaller screens so it uses the viewport instead of horizontal scrolling.
      Keep Record Tok/s visible alongside Size. */
   #models-table th:nth-child(4), #models-table td:nth-child(4),
-  #models-table th:nth-child(5), #models-table td:nth-child(5),
-  #models-table th:nth-child(6), #models-table td:nth-child(6) { display: none; }
+  #models-table th:nth-child(5), #models-table td:nth-child(5) { display: none; }
   #models-table th:nth-child(3), #models-table td:nth-child(3) {
     display: table-cell;
     text-align: right;
@@ -5725,9 +5724,9 @@ button.chat-send:disabled:hover {
     text-align: right;
     white-space: nowrap;
   }
+  #models-table th:nth-child(6), #models-table td:nth-child(6),
   #models-table th:nth-child(7), #models-table td:nth-child(7),
-  #models-table th:nth-child(8), #models-table td:nth-child(8),
-  #models-table th:nth-child(9), #models-table td:nth-child(9) {
+  #models-table th:nth-child(8), #models-table td:nth-child(8) {
     display: none;
   }
   .cell-record-wrap {

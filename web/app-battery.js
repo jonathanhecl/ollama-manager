@@ -620,6 +620,9 @@ let batteryActiveTurnKey = "";
 let batteryTurnStartTime = 0;
 let batteryThinkingStartTime = 0;
 let batteryResponseStartTime = 0;
+// Frozen per-stage elapsed times (ms) so headers show the time actually
+// invested in each stage instead of counting after the phase ended.
+let batteryThinkingElapsedMs = null;
 const testHistoryResponses = new Map(); // respKey -> full response string
 
 function formatTimeDisplay(totalSeconds) {
@@ -632,6 +635,28 @@ function formatTimeDisplay(totalSeconds) {
     return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+// Approximate token count from text (~4 chars/token, same convention as
+// the backend stage limits). Used for the live per-stage counters.
+function estimateStreamTokens(s) {
+  if (!s) return 0;
+  const n = Array.from(String(s)).length;
+  if (n < 4) return 1;
+  return Math.floor(n / 4);
+}
+
+// Splits streamed content into tag-embedded thinking (<thinking>, <stitching>,
+// <throat> blocks) and the actual response, so per-stage token counters work
+// for models that think inside the content as well as for models using the
+// dedicated thinking field.
+function splitStreamThinkTags(text) {
+  let thinking = "";
+  const response = String(text || "").replace(/<(thinking|stitching|throat)>[\s\S]*?<\/(thinking|stitching|throat)>/gi, (m) => {
+    thinking += m;
+    return "";
+  });
+  return { thinking, response };
 }
 
 function updateBatteryCurrentTurnTimer() {
@@ -682,7 +707,8 @@ function updateBatteryCurrentTurnTimer() {
 
   if (elThinkingTimer) {
     if (batteryThinkingStartTime) {
-      const thinkingSec = Math.floor((Date.now() - batteryThinkingStartTime) / 1000);
+      const elapsed = batteryThinkingElapsedMs ?? (Date.now() - batteryThinkingStartTime);
+      const thinkingSec = Math.floor(Math.max(0, elapsed) / 1000);
       elThinkingTimer.hidden = false;
       elThinkingTimer.textContent = `⏱️ ${formatTimeDisplay(thinkingSec)}`;
     } else {
@@ -1697,9 +1723,22 @@ async function pollBatteryProgress(runID, modelIDs) {
         batteryTurnStartTime = Date.now();
         batteryThinkingStartTime = p.is_thinking ? Date.now() : 0;
         batteryResponseStartTime = p.partial_response ? Date.now() : 0;
+        batteryThinkingElapsedMs = null;
+        const oldThinkTok = $("battery-stream-thinking-tokens");
+        if (oldThinkTok) oldThinkTok.hidden = true;
+        const oldRespTok = $("battery-stream-response-tokens");
+        if (oldRespTok) oldRespTok.hidden = true;
       } else {
-        if (p.is_thinking && !batteryThinkingStartTime) {
-          batteryThinkingStartTime = Date.now();
+        if (p.is_thinking) {
+          if (!batteryThinkingStartTime) {
+            batteryThinkingStartTime = Date.now();
+          }
+          // Thinking resumed: go back to live counting.
+          batteryThinkingElapsedMs = null;
+        } else if (batteryThinkingStartTime && batteryThinkingElapsedMs == null && (p.partial_response || batteryResponseStartTime)) {
+          // Thinking phase ended (response took over): freeze its timer so
+          // the header shows the time actually invested thinking.
+          batteryThinkingElapsedMs = Date.now() - batteryThinkingStartTime;
         }
         if (p.partial_response && !batteryResponseStartTime) {
           batteryResponseStartTime = Date.now();
@@ -1842,6 +1881,12 @@ async function pollBatteryProgress(runID, modelIDs) {
         promptBlock.textContent = promptText;
       }
 
+      // Per-stage token split (thinking field + tag-embedded thinking vs
+      // plain response), refreshed on every progress poll.
+      const stageParts = splitStreamThinkTags(p.partial_response || "");
+      const thinkingTokCount = estimateStreamTokens((p.partial_thinking || "") + stageParts.thinking);
+      const responseTokCount = estimateStreamTokens(stageParts.response);
+
       // Thinking block
       const thinkingWrap = $("battery-stream-thinking-wrap");
       const thinkingBlock = $("battery-stream-thinking");
@@ -1850,6 +1895,16 @@ async function pollBatteryProgress(runID, modelIDs) {
         thinkingWrap.hidden = !p.partial_thinking;
         if (p.partial_thinking) {
           thinkingBlock.scrollTo({ top: thinkingBlock.scrollHeight, behavior: "smooth" });
+        }
+      }
+      const thinkingTokEl = $("battery-stream-thinking-tokens");
+      if (thinkingTokEl) {
+        if (thinkingTokCount > 0 && (p.partial_thinking || stageParts.thinking)) {
+          thinkingTokEl.hidden = false;
+          thinkingTokEl.textContent = `~${thinkingTokCount.toLocaleString()} tok`;
+          thinkingTokEl.title = t("battery.stream_thinking_tokens");
+        } else {
+          thinkingTokEl.hidden = true;
         }
       }
 
@@ -1863,6 +1918,16 @@ async function pollBatteryProgress(runID, modelIDs) {
           responseBlock.innerHTML = `<em class="muted pulse">🧠 ${t("battery.status_thinking")}…</em>`;
         } else {
           responseBlock.innerHTML = `<em class="muted pulse">⏳ ${t("battery.status_evaluating")}…</em>`;
+        }
+      }
+      const responseTokEl = $("battery-stream-response-tokens");
+      if (responseTokEl) {
+        if (responseTokCount > 0) {
+          responseTokEl.hidden = false;
+          responseTokEl.textContent = `~${responseTokCount.toLocaleString()} tok`;
+          responseTokEl.title = t("battery.stream_response_tokens");
+        } else {
+          responseTokEl.hidden = true;
         }
       }
     } else if (streamPanel) {

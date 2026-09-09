@@ -132,6 +132,15 @@ type Client struct {
 	// SkipCurrentModel cancels both the inner (step/case) and the outer
 	// cancel so the run jumps to the next model instead of retrying.
 	modelCancels map[string]context.CancelCauseFunc
+	// turnCancels holds the inner per-turn cancel funcs (one live per run).
+	// Separated from testCancels so Skip pressed during streaming cancels
+	// the turn without losing the outer per-test cancel, and Skip pressed
+	// between turns (Evaluating/scoring) can fall back to it.
+	turnCancels map[string]context.CancelCauseFunc
+	// skipPending marks a Skip requested while no turn was streaming
+	// (e.g. Evaluating). The next runCaseTurn/step consumes it and records
+	// the subcase as skipped instead of running it.
+	skipPending map[string]bool
 	abortMu      sync.Mutex
 	// abortMode records a pending abort choice per run ("discard" or
 	// "save-completed"), applied to the run before onComplete fires.
@@ -260,6 +269,8 @@ func NewClient(ollamaClient *ollama.Client) *Client {
 		cancels:      make(map[string]context.CancelFunc),
 		testCancels:  make(map[string]context.CancelCauseFunc),
 		modelCancels: make(map[string]context.CancelCauseFunc),
+		turnCancels:  make(map[string]context.CancelCauseFunc),
+		skipPending:  make(map[string]bool),
 		abortMode:    make(map[string]string),
 		runExpected:  make(map[string]map[string]int),
 	}
@@ -526,6 +537,8 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 		defer func() {
 			c.cancelMu.Lock()
 			delete(c.cancels, run.ID)
+			delete(c.turnCancels, run.ID)
+			delete(c.skipPending, run.ID)
 			c.cancelMu.Unlock()
 			c.applyAbortMode(run)
 			if onComplete != nil {
@@ -673,16 +686,44 @@ func (c *Client) clearTestCancel(runID string) {
 	delete(c.testCancels, runID)
 }
 
+func (c *Client) setTurnCancel(runID string, cancel context.CancelCauseFunc) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	c.turnCancels[runID] = cancel
+}
+
+func (c *Client) clearTurnCancel(runID string) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	delete(c.turnCancels, runID)
+}
+
+// takeSkipPending consumes a Skip requested while no turn was streaming.
+func (c *Client) takeSkipPending(runID string) bool {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	if c.skipPending[runID] {
+		delete(c.skipPending, runID)
+		return true
+	}
+	return false
+}
+
 // RetryCurrentTest cancels the currently executing case (or step) of an active
 // battery run so it restarts from the beginning. It mirrors SkipCurrentTest
 // but uses the retry cause, which the run loops interpret as "discard this
 // attempt and run it again" instead of "record and move on".
 func (c *Client) RetryCurrentTest(runID string) bool {
 	c.cancelMu.Lock()
-	cancel, ok := c.testCancels[runID]
+	turnCancel, hasTurn := c.turnCancels[runID]
+	testCancel, hasTest := c.testCancels[runID]
 	c.cancelMu.Unlock()
-	if ok && cancel != nil {
-		cancel(errManualRetry)
+	if hasTurn && turnCancel != nil {
+		turnCancel(errManualRetry)
+		return true
+	}
+	if hasTest && testCancel != nil {
+		testCancel(errManualRetry)
 		return true
 	}
 	return false
@@ -690,13 +731,34 @@ func (c *Client) RetryCurrentTest(runID string) bool {
 
 // SkipCurrentTest skips the currently executing case (or step) of an active
 // battery run, recording it as skipped and continuing with the next case
-// instead of aborting the whole test.
+// instead of aborting the whole test. It cancels the streaming turn when
+// there is one; otherwise it cancels the outer per-test context or, when
+// the run is between turns (Evaluating/scoring), it queues a pending skip
+// consumed by the next subcase so the press is never lost.
 func (c *Client) SkipCurrentTest(runID string) bool {
 	c.cancelMu.Lock()
-	cancel, ok := c.testCancels[runID]
+	turnCancel, hasTurn := c.turnCancels[runID]
+	testCancel, hasTest := c.testCancels[runID]
+	_, runActive := c.cancels[runID]
 	c.cancelMu.Unlock()
-	if ok && cancel != nil {
-		cancel(errManualSkip)
+	// Also consider progress map: runs waiting review have no cancel entry.
+	if !runActive {
+		c.progressMu.Lock()
+		_, runActive = c.progress[runID]
+		c.progressMu.Unlock()
+	}
+	if hasTurn && turnCancel != nil {
+		turnCancel(errManualSkip)
+		return true
+	}
+	if hasTest && testCancel != nil {
+		testCancel(errManualSkip)
+		return true
+	}
+	if runActive {
+		c.cancelMu.Lock()
+		c.skipPending[runID] = true
+		c.cancelMu.Unlock()
 		return true
 	}
 	return false
@@ -710,8 +772,14 @@ func (c *Client) SkipCurrentModel(runID string) bool {
 	c.cancelMu.Lock()
 	inner, hasInner := c.testCancels[runID]
 	outer, hasOuter := c.modelCancels[runID]
+	turn, hasTurn := c.turnCancels[runID]
+	delete(c.skipPending, runID)
 	c.cancelMu.Unlock()
 	ok := false
+	if hasTurn && turn != nil {
+		turn(errManualSkipModel)
+		ok = true
+	}
 	if hasInner && inner != nil {
 		inner(errManualSkipModel)
 		ok = true
@@ -949,11 +1017,32 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			snapResError := res.Error
 
 			stepFailed := false
-			turnStartMs := time.Now().UnixMilli()
 			for {
+				// Per-attempt start so Retry restarts the general turn
+				// counter (stage think/response timers already reset in
+				// execChatTurn; the auto-skip rule only watches those).
+				turnStartMs := time.Now().UnixMilli()
 				if ctx.Err() != nil {
 					res.Error = ctx.Err().Error()
 					stepFailed = true
+					break
+				}
+				if c.takeSkipPending(runID) {
+					// Skip pressed between turns (Evaluating): record this
+					// step as skipped without running it.
+					falseVal := false
+					allPassed = false
+					anySkippedOrLoop = true
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:        i + 1,
+						Name:         stepLabel,
+						Prompt:       step.Prompt,
+						SystemPrompt: effStepSys[i],
+						Options:      effStepOpts[i],
+						Passed:       &falseVal,
+						Error:        "manually skipped",
+					})
+					responsesSummary = append(responsesSummary, fmt.Sprintf("[SKIP] %s: (Error: manually skipped)", stepLabel))
 					break
 				}
 
@@ -980,7 +1069,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				}
 				history = append(history, stepMsg)
 				stepCtx, stepCancel := context.WithCancelCause(ctx)
-				c.setTestCancel(runID, stepCancel)
+				c.setTurnCancel(runID, stepCancel)
 				turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]), thinkFor(effStepOpts[i]))
 				retry := errors.Is(context.Cause(stepCtx), errManualRetry)
 				// A stage-limit auto-skip behaves like a manual case skip:
@@ -989,7 +1078,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				skipCase := errors.Is(context.Cause(stepCtx), errManualSkip) || errors.Is(turn.Error, errAutoSkipStage)
 				skipModel := errors.Is(context.Cause(stepCtx), errManualSkipModel)
 				stepCancel(nil)
-				c.clearTestCancel(runID)
+				c.clearTurnCancel(runID)
 				if retry {
 					// Manual retry: drop the cancelled attempt and run
 					// the same step again from its snapshot.
@@ -1213,11 +1302,32 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 			snapSkippedOrLoop := anySkippedOrLoop
 			snapResError := res.Error
 
-			turnStartMs := time.Now().UnixMilli()
 			for {
+				// Per-attempt start so Retry restarts the general turn
+				// counter (stage think/response timers already reset in
+				// execChatTurn; the auto-skip rule only watches those).
+				turnStartMs := time.Now().UnixMilli()
 				if ctx.Err() != nil {
 					res.Error = ctx.Err().Error()
 					return history, caseTurnAbort
+				}
+				if c.takeSkipPending(runID) {
+					// Skip pressed between turns (Evaluating): record this
+					// subcase as skipped without running it.
+					falseVal := false
+					allPassed = false
+					anySkippedOrLoop = true
+					res.SubResults = append(res.SubResults, SubResult{
+						Index:        unitIdx,
+						Name:         unitName,
+						Prompt:       prompt,
+						SystemPrompt: sys,
+						Options:      effOpts,
+						Passed:       &falseVal,
+						Error:        "manually skipped",
+					})
+					casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: manually skipped)", unitName))
+					return history, caseTurnSkip
 				}
 				c.setProgress(Progress{
 					RunID:               runID,
@@ -1242,13 +1352,13 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				}
 				history = append(history, caseMsg)
 				turnCtx, turnCancel := context.WithCancelCause(ctx)
-				c.setTestCancel(runID, turnCancel)
+				c.setTurnCancel(runID, turnCancel)
 				turn := c.execChatTurn(turnCtx, runID, model, history, optsFor(effOpts), thinkFor(effOpts))
 				retry := errors.Is(context.Cause(turnCtx), errManualRetry)
 				skipCase := errors.Is(context.Cause(turnCtx), errManualSkip) || errors.Is(turn.Error, errAutoSkipStage)
 				skipModel := errors.Is(context.Cause(turnCtx), errManualSkipModel)
 				turnCancel(nil)
-				c.clearTestCancel(runID)
+				c.clearTurnCancel(runID)
 
 				if retry {
 					// Manual retry: drop this turn attempt and run THIS subcase again.

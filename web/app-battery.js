@@ -1651,6 +1651,13 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   batteryProgressModelIDs = Array.isArray(modelIDs) ? modelIDs : [];
   batteryTimelineQueue = buildBatteryTimelineQueue(groupId, batteryProgressModelIDs);
 
+  // A new run must never inherit stuck disabled controls from a previous
+  // run (e.g. a Skip whose request never settled and left finally pending).
+  for (const id of ["battery-progress-retry", "battery-progress-skip", "battery-progress-skip-model", "battery-progress-abort"]) {
+    const btn = $(id);
+    if (btn) btn.disabled = false;
+  }
+
   const promptDetails = $("battery-stream-prompt-details");
   if (promptDetails && typeof window !== "undefined" && window.innerWidth <= 900) {
     promptDetails.open = false;
@@ -2411,7 +2418,12 @@ async function skipModelBatteryTest() {
   const runID = batteryRunIdFromStorage();
   if (!runID) return;
   const skipBtn = $("battery-progress-skip-model");
-  if (skipBtn) skipBtn.disabled = true;
+  if (skipBtn) {
+    skipBtn.disabled = true;
+    // Re-enable on a timer, not in finally: if the request hangs (stuck
+    // backend), the button must come back anyway.
+    setTimeout(() => { if (skipBtn) skipBtn.disabled = false; }, 1000);
+  }
   try {
     const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/skip-model", { method: "POST" });
     if (res?.skipped) {
@@ -2428,15 +2440,11 @@ async function skipModelBatteryTest() {
       if (batteryActiveRunID === runID) {
         void pollBatteryProgress(runID, []);
       }
+    } else {
+      toast(t("toast.skip_no_turn") || "No active case to skip right now", "warn");
     }
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
-  } finally {
-    if (skipBtn) {
-      setTimeout(() => {
-        if (skipBtn) skipBtn.disabled = false;
-      }, 1000);
-    }
   }
 }
 
@@ -2450,7 +2458,10 @@ async function retryCurrentBatteryTest() {
   } catch { }
   if (!runID) return;
   const retryBtn = $("battery-progress-retry");
-  if (retryBtn) retryBtn.disabled = true;
+  if (retryBtn) {
+    retryBtn.disabled = true;
+    setTimeout(() => { if (retryBtn) retryBtn.disabled = false; }, 1000);
+  }
   try {
     const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/retry", { method: "POST" });
     if (res?.retried) {
@@ -2462,15 +2473,11 @@ async function retryCurrentBatteryTest() {
       if (batteryActiveRunID === runID) {
         void pollBatteryProgress(runID, []);
       }
+    } else {
+      toast(t("toast.skip_no_turn") || "No active case to skip right now", "warn");
     }
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
-  } finally {
-    if (retryBtn) {
-      setTimeout(() => {
-        if (retryBtn) retryBtn.disabled = false;
-      }, 1000);
-    }
   }
 }
 
@@ -2484,7 +2491,10 @@ async function skipCurrentBatteryTest() {
   } catch { }
   if (!runID) return;
   const skipBtn = $("battery-progress-skip");
-  if (skipBtn) skipBtn.disabled = true;
+  if (skipBtn) {
+    skipBtn.disabled = true;
+    setTimeout(() => { if (skipBtn) skipBtn.disabled = false; }, 1000);
+  }
   try {
     const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/skip", { method: "POST" });
     if (res?.skipped) {
@@ -2496,15 +2506,11 @@ async function skipCurrentBatteryTest() {
       if (batteryActiveRunID === runID) {
         void pollBatteryProgress(runID, []);
       }
+    } else {
+      toast(t("toast.skip_no_turn") || "No active case to skip right now", "warn");
     }
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
-  } finally {
-    if (skipBtn) {
-      setTimeout(() => {
-        if (skipBtn) skipBtn.disabled = false;
-      }, 1000);
-    }
   }
 }
 

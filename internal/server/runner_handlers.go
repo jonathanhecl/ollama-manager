@@ -29,6 +29,11 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if activeProg, ok := s.runner.GetActiveProgress(); ok {
+		writeError(w, http.StatusConflict, errors.New("a battery run is already in progress: "+activeProg.RunID))
+		return
+	}
+
 	var group tests.Group
 	var testsList []tests.Test
 
@@ -396,6 +401,19 @@ func (s *Server) handleBatteryProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Server) handleActiveBatteryRun(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.runner.GetActiveProgress()
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"active": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"active":   true,
+		"run_id":   p.RunID,
+		"progress": p,
+	})
 }
 
 func (s *Server) handleGetTestHistory(w http.ResponseWriter, r *http.Request) {

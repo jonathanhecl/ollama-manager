@@ -14,6 +14,10 @@ $("models-reload-btn")?.addEventListener("click", () => { refreshStatus(); refre
 $("settings-logout-btn").addEventListener("click", logoutAndRedirect);
 
 $("tests-btn")?.addEventListener("click", () => {
+  if (window._activeBatteryRun && window._activeBatteryRun.runID && typeof showBatteryProgressView === "function" && currentView !== "battery-progress") {
+    showBatteryProgressView(window._activeBatteryRun.models || [], window._activeBatteryRun.runID, window._activeBatteryRun.groupId || "all");
+    return;
+  }
   showTestsView();
 });
 $("tests-back-btn")?.addEventListener("click", () => {

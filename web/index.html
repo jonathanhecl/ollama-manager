@@ -390,6 +390,21 @@
         <button id="tests-new-test-btn" class="primary" data-i18n="tests.new_test">New Test</button>
       </div>
     </header>
+    <div id="tests-active-battery-banner" class="tests-active-battery-banner" hidden>
+      <div class="active-battery-banner-left">
+        <span class="active-battery-pulse-icon" aria-hidden="true">⚡</span>
+        <div class="active-battery-text">
+          <div class="active-battery-title-row">
+            <strong data-i18n="battery.active_banner_title">Test Battery in Progress</strong>
+            <span id="active-battery-badge" class="pill pill-warning"></span>
+          </div>
+          <div class="active-battery-meta muted" id="active-battery-meta"></div>
+        </div>
+      </div>
+      <div class="active-battery-banner-actions">
+        <button type="button" id="active-battery-view-btn" class="primary active-battery-view-btn" data-i18n="battery.active_banner_view">View Live Progress</button>
+      </div>
+    </div>
     <div class="tests-layout">
       <aside class="tests-sidebar">
         <header class="tests-sidebar-head">

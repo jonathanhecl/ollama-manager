@@ -276,6 +276,21 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"models_loaded_bytes":      totalBytes,
 		"running":                  runningViews,
 	}
+	if s.runner != nil {
+		if activeProg, ok := s.runner.GetActiveProgress(); ok {
+			resp["battery_active"] = true
+			resp["battery_run_id"] = activeProg.RunID
+			resp["battery_group_name"] = activeProg.GroupName
+			resp["battery_group_id"] = activeProg.GroupID
+			resp["battery_test_index"] = activeProg.TestIndex
+			resp["battery_total_tests"] = activeProg.TotalTests
+			resp["battery_models"] = activeProg.Models
+			resp["battery_model"] = activeProg.Model
+			resp["battery_test_name"] = activeProg.TestName
+		} else {
+			resp["battery_active"] = false
+		}
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

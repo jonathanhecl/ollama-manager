@@ -193,6 +193,21 @@ async function refreshBatteryCoverage() {
 }
 
 async function openBatteryModal(options = {}) {
+  if (window._activeBatteryRun && window._activeBatteryRun.runID) {
+    toast(t("battery.already_running_toast"), "warn");
+    return;
+  }
+  try {
+    const check = await api("/api/runner/active");
+    if (check && check.active) {
+      if (typeof updateBatteryGlobalStatus === "function") {
+        updateBatteryGlobalStatus({ battery_active: true, battery_run_id: check.run_id, ...(check.progress || {}) });
+      }
+      toast(t("battery.already_running_toast"), "warn");
+      return;
+    }
+  } catch { }
+
   batterySelectedModels.clear();
   const defaultModel = options.initialModel || (typeof selectedTestModel !== "undefined" ? selectedTestModel : "");
   if (defaultModel) {
@@ -1485,7 +1500,73 @@ function buildBatteryTimelineQueue(groupFilter, modelIDs) {
       }
     }
   }
-  return queue;
+}
+
+function updateActiveBatteryBanner(activeRun) {
+  const banner = $("tests-active-battery-banner");
+  const runBtn = $("tests-run-battery-btn");
+
+  if (!activeRun || !activeRun.runID) {
+    if (banner) banner.hidden = true;
+    if (runBtn) {
+      runBtn.disabled = false;
+      runBtn.classList.remove("disabled");
+      runBtn.removeAttribute("title");
+    }
+    return;
+  }
+
+  if (runBtn) {
+    runBtn.disabled = true;
+    runBtn.classList.add("disabled");
+    runBtn.setAttribute("title", t("battery.already_running_toast"));
+  }
+
+  if (!banner) return;
+
+  if (typeof currentView !== "undefined" && currentView === "battery-progress") {
+    banner.hidden = true;
+    return;
+  }
+
+  banner.hidden = false;
+
+  const badge = $("active-battery-badge");
+  if (badge) {
+    badge.textContent = activeRun.groupName || activeRun.groupId || t("battery.running") || "Running";
+  }
+
+  const meta = $("active-battery-meta");
+  if (meta) {
+    const parts = [];
+    if (activeRun.totalTests > 0) {
+      const idx = activeRun.testIndex || 1;
+      const pct = Math.round(((Math.max(1, idx) - 1) / activeRun.totalTests) * 100);
+      parts.push(t("battery.active_banner_test_progress", {
+        index: idx,
+        total: activeRun.totalTests,
+        pct: pct,
+      }));
+    }
+    if (Array.isArray(activeRun.models) && activeRun.models.length > 0) {
+      parts.push(t("battery.active_banner_models", {
+        models: activeRun.models.join(", "),
+      }));
+    }
+    if (activeRun.model) {
+      parts.push(activeRun.model);
+    }
+    meta.textContent = parts.join(" · ");
+  }
+
+  const viewBtn = $("active-battery-view-btn");
+  if (viewBtn) {
+    viewBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showBatteryProgressView(activeRun.models || [], activeRun.runID, activeRun.groupId || "all");
+    };
+  }
 }
 
 function showBatteryProgressView(modelIDs, runID, groupId) {
@@ -1798,6 +1879,51 @@ async function pollBatteryProgress(runID, modelIDs) {
     }
     if (p.models && Array.isArray(p.models) && p.models.length > 0) {
       batteryProgressModelIDs = p.models;
+      try {
+        localStorage.setItem(BATTERY_KEY, JSON.stringify({ runID, modelIDs: p.models, groupId: p.group_id || "" }));
+      } catch { }
+    }
+
+    // Ensure tests & groups are loaded (e.g. if loaded directly from another tab/device)
+    if (!tests || tests.length === 0 || !testsGroups || testsGroups.length === 0) {
+      try {
+        const tData = await api("/api/tests");
+        if (tData) {
+          if (tData.tests) tests = tData.tests;
+          if (tData.groups) testsGroups = tData.groups;
+        }
+      } catch { }
+    }
+
+    // Rebuild timeline queue if it was empty (rehydrated from another tab/device)
+    if ((!batteryTimelineQueue || batteryTimelineQueue.length === 0) && batteryProgressModelIDs.length > 0) {
+      const effGroupId = p.group_id || "all";
+      batteryTimelineQueue = buildBatteryTimelineQueue(effGroupId, batteryProgressModelIDs);
+      batteryTimelineTotal = p.total_tests || batteryTimelineQueue.length;
+    }
+
+    // Reconstruct completed timeline items for prior tests if rehydrated
+    if (batteryTimelineCompleted.length === 0 && p.test_index > 1 && batteryTimelineQueue && batteryTimelineQueue.length > 0) {
+      for (let idx = 1; idx < p.test_index; idx++) {
+        const q = batteryTimelineQueue.find((item) => item.index === idx);
+        if (q) {
+          batteryTimelineCompleted.push({
+            index: q.index,
+            name: q.name,
+            model: q.model,
+            testId: q.testId,
+            groupId: q.groupId,
+          });
+        }
+      }
+    }
+
+    // Update group badge if available
+    const effGroup = p.group_name || p.group_id;
+    const groupBadge = $("battery-progress-group-badge");
+    if (groupBadge && effGroup && effGroup !== "all") {
+      groupBadge.hidden = false;
+      groupBadge.textContent = effGroup;
     }
 
     // Detect test change: archive previous snapshot.
@@ -2053,7 +2179,7 @@ async function pollBatteryProgress(runID, modelIDs) {
     };
 
     // Update model cards (show current + next 2).
-    renderBatteryProgressModels(modelIDs, p.model || "", p.is_thinking || false);
+    renderBatteryProgressModels(batteryProgressModelIDs, p.model || "", p.is_thinking || false);
     if (p.done) {
       // Archive final snapshot before finishing.
       if (batteryLastTestSnapshot) {
@@ -2061,6 +2187,10 @@ async function pollBatteryProgress(runID, modelIDs) {
         renderBatteryCompletedTests();
       }
       localStorage.removeItem(BATTERY_KEY);
+      window._activeBatteryRun = null;
+      if (typeof updateBatteryGlobalStatus === "function") {
+        updateBatteryGlobalStatus(null);
+      }
       // The user may have navigated away while the run finished: only take
       // over the view when this run is still the followed one.
       if (runID !== batteryActiveRunID) return;
@@ -2090,15 +2220,19 @@ async function pollBatteryProgress(runID, modelIDs) {
     // The user may have navigated away while the request was in flight:
     // do not reschedule a poll nobody follows anymore.
     if (runID !== batteryActiveRunID) return;
-    batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, modelIDs), 2000);
+    batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, batteryProgressModelIDs), 2000);
   } catch (err) {
     if (runID !== batteryActiveRunID) return;
     batteryPollRetryCount++;
     if (batteryPollRetryCount < 3) {
-      batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, modelIDs), 2000);
+      batteryPollTimer = setTimeout(() => pollBatteryProgress(runID, batteryProgressModelIDs), 2000);
       return;
     }
     localStorage.removeItem(BATTERY_KEY);
+    window._activeBatteryRun = null;
+    if (typeof updateBatteryGlobalStatus === "function") {
+      updateBatteryGlobalStatus(null);
+    }
     toast(t("toast.error", { msg: err.message }), "error");
     showTestsView();
   }
@@ -2287,6 +2421,10 @@ async function skipCurrentBatteryTest() {
 }
 
 async function confirmBatteryRun() {
+  if (window._activeBatteryRun && window._activeBatteryRun.runID) {
+    toast(t("battery.already_running_toast"), "warn");
+    return;
+  }
   if (batterySelectedModels.size === 0) {
     toast(t("battery.select_models"), "warn");
     return;
@@ -2346,7 +2484,11 @@ async function confirmBatteryRun() {
     }
     showBatteryProgressView(modelIDs, runID, groupFilter);
   } catch (err) {
-    toast(t("toast.error", { msg: err.message }), "error");
+    if (err.status === 409 || (err.message && err.message.includes("already in progress"))) {
+      toast(t("battery.already_running_toast"), "warn");
+    } else {
+      toast(t("toast.error", { msg: err.message }), "error");
+    }
     showTestsView();
   }
 }

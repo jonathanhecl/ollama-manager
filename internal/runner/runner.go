@@ -239,6 +239,11 @@ func (c *Client) setProgress(p Progress) {
 	c.progress[p.RunID] = &p
 }
 
+// SetProgressForTest sets progress state for unit testing.
+func (c *Client) SetProgressForTest(p Progress) {
+	c.setProgress(p)
+}
+
 func (c *Client) updateProgressResults(runID string, results []TestResult) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
@@ -263,6 +268,30 @@ func (c *Client) ClearProgress(runID string) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
 	delete(c.progress, runID)
+}
+
+// GetActiveProgress returns the progress of the currently active run, if any.
+func (c *Client) GetActiveProgress() (Progress, bool) {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	for _, p := range c.progress {
+		if p != nil && !p.Done {
+			return *p, true
+		}
+	}
+	return Progress{}, false
+}
+
+// HasActiveRun returns true if there is a battery run currently in progress.
+func (c *Client) HasActiveRun() bool {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	for _, p := range c.progress {
+		if p != nil && !p.Done {
+			return true
+		}
+	}
+	return false
 }
 
 // ExecuteBatteryAsync starts the battery run in a goroutine and returns the run ID immediately.

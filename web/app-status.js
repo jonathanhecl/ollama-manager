@@ -25,6 +25,7 @@ async function refreshStatus() {
     $("settings-logout-btn").hidden = !s.has_password;
     updateSystemWidgets(s);
     updateChatSendEnabled();
+    updateBatteryGlobalStatus(s);
     if (Array.isArray(s.running)) {
       runningModels = s.running;
       applyRunning(s.running);
@@ -43,6 +44,37 @@ async function refreshStatus() {
     $("status-pill").className = "pill pill-bad";
     updateSystemWidgets(null);
     updateChatSendEnabled();
+    updateBatteryGlobalStatus(null);
+  }
+}
+
+function updateBatteryGlobalStatus(s) {
+  const testsBtn = $("tests-btn");
+  if (s && s.battery_active) {
+    window._activeBatteryRun = {
+      runID: s.battery_run_id,
+      groupName: s.battery_group_name || "",
+      groupId: s.battery_group_id || "",
+      testIndex: s.battery_test_index || 0,
+      totalTests: s.battery_total_tests || 0,
+      models: s.battery_models || [],
+      model: s.battery_model || "",
+      testName: s.battery_test_name || "",
+    };
+    if (testsBtn) {
+      testsBtn.classList.add("battery-running");
+      testsBtn.hidden = false;
+      testsBtn.setAttribute("title", t("battery.tests_nav_running_hint") || "Tests · ⚡ Battery in progress");
+    }
+  } else {
+    window._activeBatteryRun = null;
+    if (testsBtn) {
+      testsBtn.classList.remove("battery-running");
+      testsBtn.setAttribute("title", t("tests.button") || "Tests");
+    }
+  }
+  if (typeof updateActiveBatteryBanner === "function") {
+    updateActiveBatteryBanner(window._activeBatteryRun);
   }
 }
 

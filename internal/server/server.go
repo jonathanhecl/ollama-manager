@@ -292,6 +292,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/tests/agent/sessions/{id}/files", s.requireAuth(s.handleAgentSessionFiles))
 
 	mux.Handle("GET /api/runner/sys-info", s.requireAuth(s.handleSysInfo))
+	mux.Handle("GET /api/runner/active", s.requireAuth(s.handleActiveBatteryRun))
 	mux.Handle("POST /api/runner/battery", s.requireAuth(s.handleBatteryRun))
 	mux.Handle("GET /api/runner/runs", s.requireAuth(s.handleListRuns))
 	mux.Handle("GET /api/runner/runs/{id}", s.requireAuth(s.handleGetRun))

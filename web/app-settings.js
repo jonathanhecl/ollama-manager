@@ -1455,11 +1455,10 @@ async function loadGatewaySection(lang = null) {
   if ($("gw-expose")) $("gw-expose").checked = !!gw.expose_network;
   if ($("gw-require-auth")) $("gw-require-auth").checked = !!gw.require_auth;
 
-  if (Array.isArray(gw.models) && gw.models.length > 0) {
+  if (Array.isArray(gw.models)) {
     gatewaySelectedModels = new Set(gw.models);
   } else {
-    // Empty allowlist in config means "expose all". Will be populated
-    // in renderGatewayModels once the models cache is loaded.
+    // Models allowlist not configured: default to all visible models
     gatewaySelectedModels = new Set(gatewayModelsCache);
   }
 
@@ -1529,8 +1528,7 @@ function updateGatewayStatus(lang = null) {
     }
   }
   if (navBadge) {
-    const n = gatewaySelectedModels.size > 0 ? gatewaySelectedModels.size : gatewayModelsCache.length;
-    navBadge.textContent = enabled ? String(n) : "0";
+    navBadge.textContent = enabled ? String(gatewaySelectedModels.size) : "0";
   }
   const countBadge = $("gw-models-selected-count");
   if (countBadge) {
@@ -1562,9 +1560,9 @@ async function renderGatewayModels(lang = null, forceRefresh = false) {
   }
   gatewayModelsCache = list.map((m) => m.name);
 
-  // If empty selection on initial load, expose all by default
+  // If models were never configured at all (null/undefined in config), default to all visible models
   const gwModelsConfig = currentConfig?.gateway?.models;
-  if (gatewaySelectedModels.size === 0 && gatewayModelsCache.length > 0 && (!gwModelsConfig || gwModelsConfig.length === 0)) {
+  if (!Array.isArray(gwModelsConfig) && gatewaySelectedModels.size === 0 && gatewayModelsCache.length > 0) {
     gatewaySelectedModels = new Set(gatewayModelsCache);
   } else {
     // Keep only models that still exist
@@ -1606,12 +1604,10 @@ async function renderGatewayModels(lang = null, forceRefresh = false) {
   updateGatewayStatus(targetLang);
 }
 
-// Selection sent on save: empty selection (nothing checked) or everything
-// checked both mean "expose everything", encoded as an empty allowlist
-// like the backend expects.
 function getGatewayModelsSelection() {
-  if (gatewayModelsCache.length === 0) return [];
-  if (gatewaySelectedModels.size >= gatewayModelsCache.length) return [];
+  if (gatewayModelsCache.length === 0 && currentConfig && Array.isArray(currentConfig.gateway?.models)) {
+    return [...currentConfig.gateway.models];
+  }
   return [...gatewaySelectedModels];
 }
 

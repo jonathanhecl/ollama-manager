@@ -100,6 +100,12 @@ func TestGatewayModelsListsExposed(t *testing.T) {
 	if len(got) != 1 || got[0] != "ext-on" {
 		t.Fatalf("allowlisted = %v", got)
 	}
+	// Explicit empty slice means 0 models exposed.
+	srv.cfg.Gateway.Models = []string{}
+	got, _ = srv.gatewayExposedModelsWithLister(context.Background(), stub)
+	if len(got) != 0 {
+		t.Fatalf("empty allowlist should expose 0 models, got %v", got)
+	}
 	srv.cfg.Gateway.Models = nil
 
 	// :latest tolerance.

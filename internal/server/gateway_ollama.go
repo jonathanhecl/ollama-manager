@@ -59,6 +59,7 @@ func (s *Server) gatewayExposedEntries(ctx context.Context, lister gatewayLister
 	}
 
 	s.cfgMu.RLock()
+	modelsConfigured := s.cfg.Gateway.Models != nil
 	allow := append([]string(nil), s.cfg.Gateway.Models...)
 	s.cfgMu.RUnlock()
 	allowed := make(map[string]bool, len(allow))
@@ -66,7 +67,10 @@ func (s *Server) gatewayExposedEntries(ctx context.Context, lister gatewayLister
 		allowed[strings.TrimSpace(n)] = true
 	}
 	keep := func(name string) bool {
-		return len(allowed) == 0 || allowed[strings.TrimSpace(name)]
+		if !modelsConfigured {
+			return true
+		}
+		return allowed[strings.TrimSpace(name)]
 	}
 
 	var out []gatewayExposedEntry

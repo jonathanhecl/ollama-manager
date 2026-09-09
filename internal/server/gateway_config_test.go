@@ -81,6 +81,28 @@ func TestGatewayConfigPatchAndGet(t *testing.T) {
 	if addr := reloaded.Gateway.GatewayBindAddress(); addr != "127.0.0.1:7861" {
 		t.Fatalf("bind address = %q, want 127.0.0.1:7861", addr)
 	}
+
+	// Patching empty models should persist an empty list (not nil, not all).
+	code, _ = patchConfig(t, srv, map[string]any{
+		"gateway": map[string]any{
+			"models": []string{},
+		},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	got = getConfig(t, srv)["gateway"].(map[string]any)
+	models, _ = got["models"].([]any)
+	if models == nil || len(models) != 0 {
+		t.Fatalf("expected empty models list in GET, got %v", got["models"])
+	}
+	reloaded, err = config.Load(srv.cfg.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Gateway.Models == nil || len(reloaded.Gateway.Models) != 0 {
+		t.Fatalf("expected empty models list in reloaded config, got %v", reloaded.Gateway.Models)
+	}
 }
 
 func TestGatewayConfigPortValidation(t *testing.T) {

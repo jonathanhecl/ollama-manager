@@ -113,9 +113,10 @@ func (s *Server) gatewayExposedModelsWithLister(ctx context.Context, lister gate
 	}
 
 	s.cfgMu.RLock()
+	modelsConfigured := s.cfg.Gateway.Models != nil
 	allow := append([]string(nil), s.cfg.Gateway.Models...)
 	s.cfgMu.RUnlock()
-	if len(allow) > 0 {
+	if modelsConfigured {
 		allowed := make(map[string]bool, len(allow))
 		for _, n := range allow {
 			allowed[strings.TrimSpace(n)] = true

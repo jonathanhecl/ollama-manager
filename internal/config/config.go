@@ -38,8 +38,9 @@ type GatewayConfig struct {
 	// ExposeNetwork binds 0.0.0.0 instead of 127.0.0.1 (requires restart).
 	ExposeNetwork bool `json:"expose_network"`
 	// Models is the allowlist of exposed model names (local and external).
-	// Empty means all visible (non-archived, non-disabled) models.
-	Models []string `json:"models,omitempty"`
+	// When nil (unconfigured), all visible models are exposed.
+	// When set (including an empty slice), only the listed models are exposed.
+	Models []string `json:"models"`
 	// RequireAuth rejects requests without a valid Bearer API key.
 	RequireAuth bool `json:"require_auth"`
 }

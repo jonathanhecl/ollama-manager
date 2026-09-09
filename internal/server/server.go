@@ -69,6 +69,8 @@ type Server struct {
 	artifactEvalMu sync.Mutex
 	artifactEvalCh map[string]chan artifactEvalResponse
 
+	leaderboardMu sync.Mutex
+
 	projectorCacheMu sync.RWMutex
 	projectorCache   map[string]string // url -> hexSum
 
@@ -160,7 +162,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		log.Printf("system-prompts: could not initialize %s: %v", promptsDir, err)
 	}
 
-	return &Server{
+	srv := &Server{
 		cfg:                  cfg,
 		ollama:               ollamaClient,
 		web:                  webRoot,
@@ -184,7 +186,9 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		artifactScreenshotCh: make(map[string]chan artifactScreenshotResponse),
 		artifactEvalCh:       make(map[string]chan artifactEvalResponse),
 		projectorCache:       make(map[string]string),
-	}, nil
+	}
+	go srv.RegenerateLeaderboardCache()
+	return srv, nil
 }
 
 // Routes returns the http.Handler with all routes mounted.
@@ -307,6 +311,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/runner/model-history/{name...}", s.requireAuth(s.handleDeleteModelHistory))
 	mux.Handle("GET /api/runner/test-history/{id}", s.requireAuth(s.handleGetTestHistory))
 	mux.Handle("GET /api/runner/group-history/{id}", s.requireAuth(s.handleGetGroupHistory))
+	mux.Handle("GET /api/runner/leaderboard", s.requireAuth(s.handleGetLeaderboard))
 	mux.Handle("POST /api/artifacts/console", s.requireAuth(s.handleArtifactConsoleLogs))
 	mux.Handle("POST /api/artifacts/screenshot", s.requireAuth(s.handleArtifactScreenshot))
 	mux.Handle("POST /api/artifacts/eval", s.requireAuth(s.handleArtifactEval))

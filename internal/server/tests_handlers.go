@@ -33,6 +33,7 @@ func (s *Server) handleTestsCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -52,6 +53,7 @@ func (s *Server) handleTestsUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -70,13 +72,15 @@ func (s *Server) handleTestsDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
 		"reseeded": result.Reseeded,
 	})
 }
 
-func (s *Server) handleTestsReorder(w http.ResponseWriter, r *http.Request) {	var body struct {
+func (s *Server) handleTestsReorder(w http.ResponseWriter, r *http.Request) {
+	var body struct {
 		Updates map[string]int `json:"updates"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -87,6 +91,7 @@ func (s *Server) handleTestsReorder(w http.ResponseWriter, r *http.Request) {	va
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -103,6 +108,7 @@ func (s *Server) handleTestGroupsCreate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -122,6 +128,7 @@ func (s *Server) handleTestGroupsUpdate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -135,6 +142,7 @@ func (s *Server) handleTestGroupsDelete(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

@@ -41,6 +41,8 @@ testing/.history.json
 testing/**/_history.json
 testing/**/.history.json
 *_history.json
+testing/_leaderboard.json
+_leaderboard.json
 
 # Runtime state: generated artifact projects
 artifacts/

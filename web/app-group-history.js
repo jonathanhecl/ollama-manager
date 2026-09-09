@@ -436,22 +436,10 @@ function buildReadySectionHtml(modelsData, lbRows = [], cols = []) {
 }
 
 async function buildLeaderboardTableHtml() {
-  const testsData = await api("/api/tests").catch(() => null);
-  if (testsData && testsData.groups) {
-    testsGroups = testsData.groups;
-  }
-  const allTests = (testsData && testsData.tests) || [];
-  const activeCountByGroup = new Map();
-  const activeMaxPointsByGroup = new Map();
-  const activeCasesByGroup = new Map();
-  for (const tst of allTests) {
-    if (tst.active) {
-      activeCountByGroup.set(tst.group_id, (activeCountByGroup.get(tst.group_id) || 0) + 1);
-      const cCount = (tst.cases && tst.cases.length > 0) ? tst.cases.length : 1;
-      activeCasesByGroup.set(tst.group_id, (activeCasesByGroup.get(tst.group_id) || 0) + cCount);
-      activeMaxPointsByGroup.set(tst.group_id, (activeMaxPointsByGroup.get(tst.group_id) || 0) + (cCount + 1));
-    }
-  }
+  let lbData = null;
+  try {
+    lbData = await api("/api/runner/leaderboard");
+  } catch (_) {}
 
   // Load custom category order from localStorage or config
   let customOrder = null;
@@ -471,25 +459,6 @@ async function buildLeaderboardTableHtml() {
     customOrder.forEach((id, idx) => orderMap.set(id, idx));
   }
 
-  const groups = (testsGroups || []).slice().sort((a, b) => {
-    if (orderMap.size > 0) {
-      const idxA = orderMap.has(a.id) ? orderMap.get(a.id) : Number.MAX_SAFE_INTEGER;
-      const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : Number.MAX_SAFE_INTEGER;
-      if (idxA !== idxB) return idxA - idxB;
-    }
-    const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
-    const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
-    if (oa !== ob) return oa - ob;
-    return String(a.name || a.id).localeCompare(String(b.name || b.id));
-  });
-
-  const summaries = await Promise.all(
-    groups.map((g) =>
-      api("/api/runner/group-history/" + encodeURIComponent(g.id))
-        .then((d) => d.summary || [])
-        .catch(() => [])
-    )
-  );
   // Model metadata for the second line of the model cell (capabilities,
   // context, disk size, record speed). Best-effort: rows still render if
   // the model was deleted or the call fails.
@@ -498,108 +467,183 @@ async function buildLeaderboardTableHtml() {
     ((modelsData && modelsData.models) || []).map((m) => [m.name, m])
   );
 
-  // Keep ALL groups as columns (even if no models evaluated yet).
-  const cols = [];
-  groups.forEach((g, i) => {
-    const activeTotal = activeCountByGroup.get(g.id) || 0;
-    const activeMaxPoints = activeMaxPointsByGroup.get(g.id) || 0;
-    const activeCases = activeCasesByGroup.get(g.id) || 0;
-    const requiredCaps = (g.required_caps || []).map((c) => String(c).toLowerCase());
-    cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases, requiredCaps });
-  });
-
-  // Per model per group: last-run % (own denominator, no active penalty).
-  const modelSet = new Set();
+  let cols = [];
+  let lbRows = [];
   const scores = {};
-  for (const col of cols) {
-    for (const s of col.summary) {
-      modelSet.add(s.model);
-      const hasLast = (s.last_run_max_points || 0) > 0 || (s.last_run_total_tests || 0) > 0;
-      let passed, tested, passedCases, totalCases, pts, maxPts, score, unrun;
-      if (hasLast) {
-        passed = s.last_run_passed || 0;
-        tested = s.last_run_total_tests || 0;
-        passedCases = s.last_run_passed_cases || 0;
-        totalCases = s.last_run_total_cases || 0;
-        pts = s.last_run_points || 0;
-        maxPts = s.last_run_max_points || 0;
-        score = s.last_run_score != null ? s.last_run_score : (maxPts > 0 ? Math.min(100, Math.max(0, (pts / maxPts) * 100)) : null);
-        unrun = 0;
-      } else {
-        passed = s.passed || 0;
-        tested = s.total_tests || 0;
-        passedCases = s.passed_cases != null ? s.passed_cases : passed;
-        totalCases = s.total_cases != null ? s.total_cases : tested;
-        pts = s.score_points != null ? s.score_points : (passed * 2);
-        const activeTotal = Math.max(col.activeTotal, tested);
-        const activeCases = Math.max(col.activeCases, totalCases);
-        const activeMaxPoints = Math.max(col.activeMaxPoints, s.max_points || (activeTotal * 2));
-        unrun = Math.max(0, col.activeTotal - tested);
-        score = activeMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (pts / activeMaxPoints) * 100)) : (activeTotal > 0 ? (passed / activeTotal) * 100 : null);
+
+  if (lbData && Array.isArray(lbData.groups)) {
+    cols = lbData.groups.slice().sort((a, b) => {
+      if (orderMap.size > 0) {
+        const idxA = orderMap.has(a.id) ? orderMap.get(a.id) : Number.MAX_SAFE_INTEGER;
+        const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : Number.MAX_SAFE_INTEGER;
+        if (idxA !== idxB) return idxA - idxB;
+      }
+      const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
+      const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
+      if (oa !== ob) return oa - ob;
+      return String(a.name || a.id).localeCompare(String(b.name || b.id));
+    }).map((g) => ({
+      id: g.id,
+      name: g.name || g.id,
+      order: g.order,
+      requiredCaps: (g.required_caps || []).map((c) => String(c).toLowerCase()),
+      activeTotal: g.activeTotal || 0,
+      activeCases: g.activeCases || 0,
+      activeMaxPoints: g.activeMaxPoints || 0,
+    }));
+
+    lbRows = (lbData.models || []).map((m) => {
+      scores[m.model] = m.scores || {};
+      return {
+        model: m.model,
+        passed: m.passed || 0,
+        total: m.total || 0,
+        passedCases: m.passedCases || 0,
+        totalCases: m.totalCases || 0,
+        points: m.points || 0,
+        maxPoints: m.maxPoints || 0,
+        overall: m.overall != null ? m.overall : null,
+      };
+    });
+  } else {
+    const testsData = await api("/api/tests").catch(() => null);
+    if (testsData && testsData.groups) {
+      testsGroups = testsData.groups;
+    }
+    const allTests = (testsData && testsData.tests) || [];
+    const activeCountByGroup = new Map();
+    const activeMaxPointsByGroup = new Map();
+    const activeCasesByGroup = new Map();
+    for (const tst of allTests) {
+      if (tst.active) {
+        activeCountByGroup.set(tst.group_id, (activeCountByGroup.get(tst.group_id) || 0) + 1);
+        const cCount = (tst.cases && tst.cases.length > 0) ? tst.cases.length : 1;
+        activeCasesByGroup.set(tst.group_id, (activeCasesByGroup.get(tst.group_id) || 0) + cCount);
+        activeMaxPointsByGroup.set(tst.group_id, (activeMaxPointsByGroup.get(tst.group_id) || 0) + (cCount + 1));
+      }
+    }
+
+    const groups = (testsGroups || []).slice().sort((a, b) => {
+      if (orderMap.size > 0) {
+        const idxA = orderMap.has(a.id) ? orderMap.get(a.id) : Number.MAX_SAFE_INTEGER;
+        const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : Number.MAX_SAFE_INTEGER;
+        if (idxA !== idxB) return idxA - idxB;
+      }
+      const oa = typeof a.order === "number" ? a.order : Number.MAX_SAFE_INTEGER;
+      const ob = typeof b.order === "number" ? b.order : Number.MAX_SAFE_INTEGER;
+      if (oa !== ob) return oa - ob;
+      return String(a.name || a.id).localeCompare(String(b.name || b.id));
+    });
+
+    const summaries = await Promise.all(
+      groups.map((g) =>
+        api("/api/runner/group-history/" + encodeURIComponent(g.id))
+          .then((d) => d.summary || [])
+          .catch(() => [])
+      )
+    );
+
+    // Keep ALL groups as columns (even if no models evaluated yet).
+    groups.forEach((g, i) => {
+      const activeTotal = activeCountByGroup.get(g.id) || 0;
+      const activeMaxPoints = activeMaxPointsByGroup.get(g.id) || 0;
+      const activeCases = activeCasesByGroup.get(g.id) || 0;
+      const requiredCaps = (g.required_caps || []).map((c) => String(c).toLowerCase());
+      cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases, requiredCaps });
+    });
+
+    // Per model per group: last-run % (own denominator, no active penalty).
+    const modelSet = new Set();
+    for (const col of cols) {
+      for (const s of col.summary) {
+        modelSet.add(s.model);
+        const hasLast = (s.last_run_max_points || 0) > 0 || (s.last_run_total_tests || 0) > 0;
+        let passed, tested, passedCases, totalCases, pts, maxPts, score, unrun;
+        if (hasLast) {
+          passed = s.last_run_passed || 0;
+          tested = s.last_run_total_tests || 0;
+          passedCases = s.last_run_passed_cases || 0;
+          totalCases = s.last_run_total_cases || 0;
+          pts = s.last_run_points || 0;
+          maxPts = s.last_run_max_points || 0;
+          score = s.last_run_score != null ? s.last_run_score : (maxPts > 0 ? Math.min(100, Math.max(0, (pts / maxPts) * 100)) : null);
+          unrun = 0;
+        } else {
+          passed = s.passed || 0;
+          tested = s.total_tests || 0;
+          passedCases = s.passed_cases != null ? s.passed_cases : passed;
+          totalCases = s.total_cases != null ? s.total_cases : tested;
+          pts = s.score_points != null ? s.score_points : (passed * 2);
+          const activeTotal = Math.max(col.activeTotal, tested);
+          const activeCases = Math.max(col.activeCases, totalCases);
+          const activeMaxPoints = Math.max(col.activeMaxPoints, s.max_points || (activeTotal * 2));
+          unrun = Math.max(0, col.activeTotal - tested);
+          score = activeMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (pts / activeMaxPoints) * 100)) : (activeTotal > 0 ? (passed / activeTotal) * 100 : null);
+          (scores[s.model] ||= {})[col.id] = {
+            passed,
+            tested,
+            passedCases,
+            totalCases,
+            pts,
+            activeTotal,
+            activeCases,
+            activeMaxPoints,
+            unrun,
+            score,
+          };
+          continue;
+        }
         (scores[s.model] ||= {})[col.id] = {
           passed,
           tested,
           passedCases,
           totalCases,
           pts,
-          activeTotal,
-          activeCases,
-          activeMaxPoints,
+          activeTotal: tested,
+          activeCases: totalCases,
+          activeMaxPoints: maxPts,
           unrun,
           score,
         };
-        continue;
       }
-      (scores[s.model] ||= {})[col.id] = {
-        passed,
-        tested,
-        passedCases,
-        totalCases,
-        pts,
-        activeTotal: tested,
-        activeCases: totalCases,
-        activeMaxPoints: maxPts,
-        unrun,
-        score,
-      };
     }
+
+    lbRows = Array.from(modelSet).map((m) => {
+      let totalPassed = 0;
+      let totalActive = 0;
+      let totalPassedCases = 0;
+      let totalActiveCases = 0;
+      let totalPoints = 0;
+      let totalMaxPoints = 0;
+      for (const col of cols) {
+        const c = scores[m]?.[col.id];
+        if (c && c.activeMaxPoints > 0) {
+          totalPassed += c.passed;
+          totalActive += c.activeTotal;
+          totalPassedCases += c.passedCases;
+          totalActiveCases += c.activeCases;
+          totalPoints += c.pts;
+          totalMaxPoints += c.activeMaxPoints;
+        }
+      }
+      const overall = totalMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (totalPoints / totalMaxPoints) * 100)) : null;
+      return {
+        model: m,
+        passed: totalPassed,
+        total: totalActive,
+        passedCases: totalPassedCases,
+        totalCases: totalActiveCases,
+        points: totalPoints,
+        maxPoints: totalMaxPoints,
+        overall,
+      };
+    });
   }
 
-  if (cols.length === 0 || modelSet.size === 0) {
+  if (cols.length === 0 || lbRows.length === 0) {
     const readySectionHtml = buildReadySectionHtml(modelsData, [], cols);
     return `<div class="battery-empty">${t("battery.no_history")}</div>${readySectionHtml}`;
   }
-
-  const lbRows = Array.from(modelSet).map((m) => {
-    let totalPassed = 0;
-    let totalActive = 0;
-    let totalPassedCases = 0;
-    let totalActiveCases = 0;
-    let totalPoints = 0;
-    let totalMaxPoints = 0;
-    for (const col of cols) {
-      const c = scores[m]?.[col.id];
-      if (c && c.activeMaxPoints > 0) {
-        totalPassed += c.passed;
-        totalActive += c.activeTotal;
-        totalPassedCases += c.passedCases;
-        totalActiveCases += c.activeCases;
-        totalPoints += c.pts;
-        totalMaxPoints += c.activeMaxPoints;
-      }
-    }
-    const overall = totalMaxPoints > 0 ? Math.min(100.0, Math.max(0.0, (totalPoints / totalMaxPoints) * 100)) : null;
-    return {
-      model: m,
-      passed: totalPassed,
-      total: totalActive,
-      passedCases: totalPassedCases,
-      totalCases: totalActiveCases,
-      points: totalPoints,
-      maxPoints: totalMaxPoints,
-      overall,
-    };
-  });
   // Sort happens below once coverage per model is known (needs lbLacksCaps).
 
   const colRange = {};

@@ -220,6 +220,7 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		}
 		if !hasPendingReviews && run != nil {
 			s.runner.ClearProgress(run.ID)
+			go s.RegenerateLeaderboardCache()
 		}
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
@@ -339,6 +340,7 @@ func (s *Server) handleRateRun(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -352,6 +354,7 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -368,6 +371,7 @@ func (s *Server) handleDeleteModelHistory(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	go s.RegenerateLeaderboardCache()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

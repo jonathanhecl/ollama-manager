@@ -19,11 +19,13 @@ import (
 // Served on the gateway's own listener (see plan step 4); the routes below
 // are also directly testable via gatewayRoutes().
 
-// gatewayRoutes builds the OpenAI-compatible mux behind the Bearer middleware.
+// gatewayRoutes builds the OpenAI+Ollama compatible mux behind the Bearer
+// middleware.
 func (s *Server) gatewayRoutes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /v1/models", s.requireGatewayKey(http.HandlerFunc(s.handleGatewayModels)))
 	mux.Handle("POST /v1/chat/completions", s.requireGatewayKey(http.HandlerFunc(s.handleGatewayChatCompletions)))
+	s.gatewayOllamaRoutes(mux)
 	return mux
 }
 

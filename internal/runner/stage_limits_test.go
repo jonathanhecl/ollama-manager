@@ -37,6 +37,22 @@ func TestAutoSkipStageMatches(t *testing.T) {
 	}
 }
 
+func TestUpdateProgressStreamStageCounters(t *testing.T) {
+	c := NewClient(nil)
+	c.setProgress(Progress{RunID: "r"})
+	c.updateProgressStream("r", true, "content", "reason", 1234, 5678, 400, 800)
+	p, ok := c.GetProgress("r")
+	if !ok {
+		t.Fatal("progress missing")
+	}
+	if p.ThinkingMs != 1234 || p.ResponseMs != 5678 || p.ThinkingChars != 400 || p.ResponseChars != 800 {
+		t.Fatalf("stage counters not stored: %+v", p)
+	}
+	if !p.IsThinking || p.PartialResponse != "content" || p.PartialThinking != "reason" {
+		t.Fatalf("stream fields not stored: %+v", p)
+	}
+}
+
 func TestSetStageLimits(t *testing.T) {
 	c := NewClient(nil)
 	c.SetStageLimits(StageLimits{MaxTokens: 50000, MaxSeconds: 600, Mode: "all"})

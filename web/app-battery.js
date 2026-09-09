@@ -600,8 +600,7 @@ function stopBatteryPolling() {
   batteryActiveRunID = null;
   batteryActiveTurnKey = "";
   batteryTurnStartTime = 0;
-  batteryThinkingStartTime = 0;
-  batteryResponseStartTime = 0;
+  batteryStageSnap = null;
   updateBatteryCurrentTurnTimer();
 }
 let batteryCompletedTests = [];
@@ -618,11 +617,11 @@ let batteryElapsedInterval = null;
 let batteryActiveTab = "models";
 let batteryActiveTurnKey = "";
 let batteryTurnStartTime = 0;
-let batteryThinkingStartTime = 0;
-let batteryResponseStartTime = 0;
-// Frozen per-stage elapsed times (ms) so headers show the time actually
-// invested in each stage instead of counting after the phase ended.
-let batteryThinkingElapsedMs = null;
+// Latest per-stage snapshot from the backend progress poll. Times come from
+// the server (exact per-chunk accounting), so headers stay correct even when
+// a phase ends before the first poll sees it. Live phases are projected
+// forward from `at` until the snapshot goes stale.
+let batteryStageSnap = null;
 const testHistoryResponses = new Map(); // respKey -> full response string
 
 function formatTimeDisplay(totalSeconds) {
@@ -637,26 +636,17 @@ function formatTimeDisplay(totalSeconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
-// Approximate token count from text (~4 chars/token, same convention as
-// the backend stage limits). Used for the live per-stage counters.
-function estimateStreamTokens(s) {
-  if (!s) return 0;
-  const n = Array.from(String(s)).length;
-  if (n < 4) return 1;
-  return Math.floor(n / 4);
-}
-
-// Splits streamed content into tag-embedded thinking (<thinking>, <stitching>,
-// <throat> blocks) and the actual response, so per-stage token counters work
-// for models that think inside the content as well as for models using the
-// dedicated thinking field.
-function splitStreamThinkTags(text) {
-  let thinking = "";
-  const response = String(text || "").replace(/<(thinking|stitching|throat)>[\s\S]*?<\/(thinking|stitching|throat)>/gi, (m) => {
-    thinking += m;
-    return "";
-  });
-  return { thinking, response };
+// Elapsed ms for one live stage: backend snapshot plus projection while the
+// phase is active and the snapshot is fresh (polls arrive ~every 2s).
+function batteryStageElapsed(which) {
+  const snap = batteryStageSnap;
+  if (!snap) return 0;
+  const base = which === "think" ? (snap.thinkMs || 0) : (snap.respMs || 0);
+  const active = which === "think" ? snap.isThinking : snap.respActive;
+  if (active && Date.now() - snap.at < 5000) {
+    return base + (Date.now() - snap.at);
+  }
+  return base;
 }
 
 function updateBatteryCurrentTurnTimer() {
@@ -706,9 +696,8 @@ function updateBatteryCurrentTurnTimer() {
   }
 
   if (elThinkingTimer) {
-    if (batteryThinkingStartTime) {
-      const elapsed = batteryThinkingElapsedMs ?? (Date.now() - batteryThinkingStartTime);
-      const thinkingSec = Math.floor(Math.max(0, elapsed) / 1000);
+    if (batteryStageSnap && batteryStageSnap.hasThink) {
+      const thinkingSec = Math.floor(Math.max(0, batteryStageElapsed("think")) / 1000);
       elThinkingTimer.hidden = false;
       elThinkingTimer.textContent = `⏱️ ${formatTimeDisplay(thinkingSec)}`;
     } else {
@@ -717,8 +706,8 @@ function updateBatteryCurrentTurnTimer() {
   }
 
   if (elResponseTimer) {
-    if (batteryResponseStartTime) {
-      const respSec = Math.floor((Date.now() - batteryResponseStartTime) / 1000);
+    if (batteryStageSnap && (batteryStageSnap.respMs > 0 || batteryStageSnap.respChars > 0 || batteryStageSnap.respActive)) {
+      const respSec = Math.floor(Math.max(0, batteryStageElapsed("resp")) / 1000);
       elResponseTimer.hidden = false;
       elResponseTimer.textContent = `⏱️ ${formatTimeDisplay(respSec)}`;
     } else {
@@ -1718,31 +1707,29 @@ async function pollBatteryProgress(runID, modelIDs) {
 
       // Track active turn for the live duration counter
       const turnKey = `${p.model || ""}::${p.test_id || ""}::${p.case_index || 0}::${p.case_name || ""}`;
+      // Per-stage snapshot from the backend (exact per-chunk accounting).
+      // hasThink covers both the dedicated thinking field and tag-embedded
+      // thinking so the header shows even when thinking ended early.
+      const hasThink = !!(p.partial_thinking || /<(thinking|stitching|throat)>[\s\S]*?<\/(thinking|stitching|throat)>/i.test(p.partial_response || ""));
+      const respActive = !p.is_thinking && !!p.partial_response;
+      batteryStageSnap = {
+        key: turnKey,
+        thinkMs: p.thinking_ms || 0,
+        respMs: p.response_ms || 0,
+        thinkChars: p.thinking_chars || 0,
+        respChars: p.response_chars || 0,
+        at: Date.now(),
+        isThinking: !!p.is_thinking,
+        respActive,
+        hasThink,
+      };
       if (turnKey !== batteryActiveTurnKey) {
         batteryActiveTurnKey = turnKey;
         batteryTurnStartTime = Date.now();
-        batteryThinkingStartTime = p.is_thinking ? Date.now() : 0;
-        batteryResponseStartTime = p.partial_response ? Date.now() : 0;
-        batteryThinkingElapsedMs = null;
         const oldThinkTok = $("battery-stream-thinking-tokens");
         if (oldThinkTok) oldThinkTok.hidden = true;
         const oldRespTok = $("battery-stream-response-tokens");
         if (oldRespTok) oldRespTok.hidden = true;
-      } else {
-        if (p.is_thinking) {
-          if (!batteryThinkingStartTime) {
-            batteryThinkingStartTime = Date.now();
-          }
-          // Thinking resumed: go back to live counting.
-          batteryThinkingElapsedMs = null;
-        } else if (batteryThinkingStartTime && batteryThinkingElapsedMs == null && (p.partial_response || batteryResponseStartTime)) {
-          // Thinking phase ended (response took over): freeze its timer so
-          // the header shows the time actually invested thinking.
-          batteryThinkingElapsedMs = Date.now() - batteryThinkingStartTime;
-        }
-        if (p.partial_response && !batteryResponseStartTime) {
-          batteryResponseStartTime = Date.now();
-        }
       }
       updateBatteryCurrentTurnTimer();
 
@@ -1881,11 +1868,10 @@ async function pollBatteryProgress(runID, modelIDs) {
         promptBlock.textContent = promptText;
       }
 
-      // Per-stage token split (thinking field + tag-embedded thinking vs
-      // plain response), refreshed on every progress poll.
-      const stageParts = splitStreamThinkTags(p.partial_response || "");
-      const thinkingTokCount = estimateStreamTokens((p.partial_thinking || "") + stageParts.thinking);
-      const responseTokCount = estimateStreamTokens(stageParts.response);
+      // Per-stage token counters from the backend char accumulators
+      // (~4 chars/token), refreshed on every progress poll.
+      const thinkingTokCount = batteryStageSnap.thinkChars > 0 ? Math.max(1, Math.floor(batteryStageSnap.thinkChars / 4)) : 0;
+      const responseTokCount = batteryStageSnap.respChars > 0 ? Math.max(1, Math.floor(batteryStageSnap.respChars / 4)) : 0;
 
       // Thinking block
       const thinkingWrap = $("battery-stream-thinking-wrap");
@@ -1899,7 +1885,7 @@ async function pollBatteryProgress(runID, modelIDs) {
       }
       const thinkingTokEl = $("battery-stream-thinking-tokens");
       if (thinkingTokEl) {
-        if (thinkingTokCount > 0 && (p.partial_thinking || stageParts.thinking)) {
+        if (thinkingTokCount > 0 && batteryStageSnap.hasThink) {
           thinkingTokEl.hidden = false;
           thinkingTokEl.textContent = `~${thinkingTokCount.toLocaleString()} tok`;
           thinkingTokEl.title = t("battery.stream_thinking_tokens");
@@ -2008,8 +1994,7 @@ function batteryRunIdFromStorage() {
 function resetBatteryTurnTimers() {
   batteryActiveTurnKey = "";
   batteryTurnStartTime = 0;
-  batteryThinkingStartTime = 0;
-  batteryResponseStartTime = 0;
+  batteryStageSnap = null;
   updateBatteryCurrentTurnTimer();
 }
 
@@ -2127,8 +2112,7 @@ async function retryCurrentBatteryTest() {
       toast(t("toast.test_retried") || "Retrying current case", "info");
       batteryActiveTurnKey = "";
       batteryTurnStartTime = 0;
-      batteryThinkingStartTime = 0;
-      batteryResponseStartTime = 0;
+      batteryStageSnap = null;
       updateBatteryCurrentTurnTimer();
       if (batteryActiveRunID === runID) {
         void pollBatteryProgress(runID, []);
@@ -2162,8 +2146,7 @@ async function skipCurrentBatteryTest() {
       toast(t("toast.test_skipped") || "Current case skipped", "info");
       batteryActiveTurnKey = "";
       batteryTurnStartTime = 0;
-      batteryThinkingStartTime = 0;
-      batteryResponseStartTime = 0;
+      batteryStageSnap = null;
       updateBatteryCurrentTurnTimer();
       if (batteryActiveRunID === runID) {
         void pollBatteryProgress(runID, []);

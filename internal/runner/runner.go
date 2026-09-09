@@ -93,6 +93,13 @@ type Progress struct {
 	IsThinking      bool         `json:"is_thinking"`
 	PartialResponse string       `json:"partial_response,omitempty"`
 	PartialThinking string       `json:"partial_thinking,omitempty"`
+	// Per-stage live counters (thinking vs response, never summed).
+	// Streaming time in each stage, in milliseconds.
+	ThinkingMs int64 `json:"thinking_ms,omitempty"`
+	ResponseMs int64 `json:"response_ms,omitempty"`
+	// Accumulated rune counts per stage (token estimates ≈ chars/4).
+	ThinkingChars int `json:"thinking_chars,omitempty"`
+	ResponseChars int `json:"response_chars,omitempty"`
 	Done            bool         `json:"done"`
 	Error           string       `json:"error,omitempty"`
 	Results         []TestResult `json:"results,omitempty"`
@@ -1361,7 +1368,7 @@ retryLoop:
 			} else {
 				respMs += deltaMs
 			}
-			c.updateProgressStream(runID, isThinking, content, fullThinking.String())
+			c.updateProgressStream(runID, isThinking, content, fullThinking.String(), thinkMs, respMs, thinkChars, respChars)
 			if chunk.Done {
 				chunkMeta = &chunk
 			}
@@ -1438,13 +1445,17 @@ func (c *Client) isModelLoaded(ctx context.Context, model string) (bool, error) 
 	return false, nil
 }
 
-func (c *Client) updateProgressStream(runID string, thinking bool, content, reasoning string) {
+func (c *Client) updateProgressStream(runID string, thinking bool, content, reasoning string, thinkMs, respMs int64, thinkChars, respChars int) {
 	c.progressMu.Lock()
 	defer c.progressMu.Unlock()
 	if p, ok := c.progress[runID]; ok && p != nil {
 		p.IsThinking = thinking
 		p.PartialResponse = content
 		p.PartialThinking = reasoning
+		p.ThinkingMs = thinkMs
+		p.ResponseMs = respMs
+		p.ThinkingChars = thinkChars
+		p.ResponseChars = respChars
 	}
 }
 

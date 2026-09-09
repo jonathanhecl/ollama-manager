@@ -720,7 +720,6 @@ let batteryTimelineTotal = 0;
 let batteryTimelineCompleted = []; // {index, name, model, testId}
 let batteryTimelineCurrent = null; // {index, name, model, isThinking}
 let batteryTimelineQueue = []; // {index, testId, testName, model}
-let batteryTimelineScrollKey = "";
 let batteryProgressModelIDs = [];
 let batteryLiveResults = [];
 let batteryStartTime = 0;
@@ -1651,7 +1650,6 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
 
   batteryProgressModelIDs = Array.isArray(modelIDs) ? modelIDs : [];
   batteryTimelineQueue = buildBatteryTimelineQueue(groupId, batteryProgressModelIDs);
-  batteryTimelineScrollKey = "";
 
   const promptDetails = $("battery-stream-prompt-details");
   if (promptDetails && typeof window !== "undefined" && window.innerWidth <= 900) {
@@ -1727,6 +1725,9 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   hideAllMainViews();
   currentView = "battery-progress";
   $("battery-progress-view").hidden = false;
+  // Start at the top (header/KPIs): entering a battery must not inherit or
+  // jump to a scrolled-down position.
+  window.scrollTo(0, 0);
 
   const queueLen = (batteryTimelineQueue && batteryTimelineQueue.length) || 0;
   const initialStats = computeBatteryStats(batteryProgressModelIDs, [], batteryProgressModelIDs[0] || "", 0, queueLen);
@@ -1838,26 +1839,6 @@ function renderBatteryTimeline(liveResults = []) {
     `;
   }
   container.innerHTML = html;
-  requestAnimationFrame(() => scrollBatteryTimelineToActive());
-}
-
-function scrollBatteryTimelineToActive() {
-  const container = $("battery-timeline");
-  if (!container) return;
-  const active = container.querySelector(".battery-timeline-item.active");
-  if (!active) return;
-
-  const key = batteryTimelineCurrent
-    ? `${batteryTimelineCurrent.testId || ""}:${batteryTimelineCurrent.index || 0}`
-    : "";
-  const taskChanged = key !== batteryTimelineScrollKey;
-  if (key) batteryTimelineScrollKey = key;
-
-  active.scrollIntoView({
-    behavior: taskChanged ? "smooth" : "auto",
-    block: "center",
-    inline: "nearest",
-  });
 }
 
 function updateBatteryProgressUI(p, liveResults = []) {

@@ -320,7 +320,7 @@ func (c *Client) clearTestCancel(runID string) {
 	delete(c.testCancels, runID)
 }
 
-// RetryCurrentTest cancels the currently executing test (or case) of an active
+// RetryCurrentTest cancels the currently executing case (or step) of an active
 // battery run so it restarts from the beginning. It mirrors SkipCurrentTest
 // but uses the retry cause, which the run loops interpret as "discard this
 // attempt and run it again" instead of "record and move on".
@@ -335,7 +335,9 @@ func (c *Client) RetryCurrentTest(runID string) bool {
 	return false
 }
 
-// SkipCurrentTest cancels the currently executing test of an active battery run.
+// SkipCurrentTest skips the currently executing case (or step) of an active
+// battery run, recording it as skipped and continuing with the next case
+// instead of aborting the whole test.
 func (c *Client) SkipCurrentTest(runID string) bool {
 	c.cancelMu.Lock()
 	cancel, ok := c.testCancels[runID]
@@ -594,29 +596,34 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 				if len(stepMedia) > 0 {
 					stepMsg.Images = stepMedia
 				}
-				history = append(history, stepMsg)
-				stepCtx, stepCancel := context.WithCancelCause(ctx)
-				c.setTestCancel(runID, stepCancel)
-				turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]))
-				retry := errors.Is(context.Cause(stepCtx), errManualRetry)
-				stepCancel(nil)
-				if retry {
-					// Manual retry: drop the cancelled attempt and run
-					// the same step again from its snapshot.
-					history = history[:snapHistLen]
-					res.SubResults = res.SubResults[:snapSubLen]
-					responsesSummary = responsesSummary[:snapSummaryLen]
-					totalEvalDuration = snapEvalDuration
-					res.PromptTokens = snapPromptTokens
-					res.EvalTokens = snapEvalTokens
-					res.TotalTokens = snapTotalTokens
-					res.ReasoningUsed = snapReasoning
-					hasScored = snapHasScored
-					allPassed = snapAllPassed
-					res.Error = snapResError
-					continue
-				}
-				if turn.Error != nil {
+			history = append(history, stepMsg)
+			stepCtx, stepCancel := context.WithCancelCause(ctx)
+			c.setTestCancel(runID, stepCancel)
+			turn := c.execChatTurn(stepCtx, runID, model, history, optsFor(effStepOpts[i]))
+			retry := errors.Is(context.Cause(stepCtx), errManualRetry)
+			skipCase := errors.Is(context.Cause(stepCtx), errManualSkip)
+			stepCancel(nil)
+			if retry {
+				// Manual retry: drop the cancelled attempt and run
+				// the same step again from its snapshot.
+				history = history[:snapHistLen]
+				res.SubResults = res.SubResults[:snapSubLen]
+				responsesSummary = responsesSummary[:snapSummaryLen]
+				totalEvalDuration = snapEvalDuration
+				res.PromptTokens = snapPromptTokens
+				res.EvalTokens = snapEvalTokens
+				res.TotalTokens = snapTotalTokens
+				res.ReasoningUsed = snapReasoning
+				hasScored = snapHasScored
+				allPassed = snapAllPassed
+				res.Error = snapResError
+				continue
+			}
+			if turn.Error != nil {
+				if skipCase {
+					// Skip Case: record this step as skipped and
+					// continue with the next step instead of
+					// aborting the whole test.
 					res.Error = turn.Error.Error()
 					falseVal := false
 					allPassed = false
@@ -637,10 +644,33 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						Thinking:       turn.Thinking,
 						Error:          turn.Error.Error(),
 					})
-					responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
-					stepFailed = true
+					responsesSummary = append(responsesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", stepLabel, turn.Error.Error()))
 					break
 				}
+				res.Error = turn.Error.Error()
+				falseVal := false
+				allPassed = false
+				res.SubResults = append(res.SubResults, SubResult{
+					Index:          i + 1,
+					Name:           stepLabel,
+					Prompt:         step.Prompt,
+					SystemPrompt:   effStepSys[i],
+					Options:        effStepOpts[i],
+					Passed:         &falseVal,
+					ResponseTimeMs: turn.ResponseTimeMs,
+					TokensPerSec:   turn.TokensPerSec,
+					PromptTokens:   turn.PromptTokens,
+					EvalTokens:     turn.EvalTokens,
+					TotalTokens:    turn.TotalTokens,
+					ReasoningUsed:  turn.Thinking != "",
+					ModelResponse:  turn.Content,
+					Thinking:       turn.Thinking,
+					Error:          turn.Error.Error(),
+				})
+				responsesSummary = append(responsesSummary, fmt.Sprintf("[FAIL] %s: %s (Error: %s)", stepLabel, strings.TrimSpace(turn.Content), turn.Error.Error()))
+				stepFailed = true
+				break
+			}
 
 				if turn.Thinking != "" {
 					res.ReasoningUsed = true

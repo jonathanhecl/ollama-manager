@@ -660,7 +660,7 @@ function updateBatteryCurrentTurnTimer() {
     elStreamTurn.classList.remove("timer-warn", "timer-danger");
     if (turnSec >= 60) {
       elStreamTurn.classList.add("timer-danger");
-      elStreamTurn.title = `${t("battery.timer_long_desc") || "Posible bloqueo o bucle (>60s). Puedes usar Skip Test para continuar."} (${timeStr})`;
+      elStreamTurn.title = `${t("battery.timer_long_desc") || "Posible bloqueo o bucle (>60s). Puedes usar Skip Case para continuar."} (${timeStr})`;
     } else if (turnSec >= 30) {
       elStreamTurn.classList.add("timer-warn");
       elStreamTurn.title = `${t("battery.timer_warn_desc") || "Generación tomando más de 30 segundos"} (${timeStr})`;
@@ -2059,7 +2059,7 @@ async function retryCurrentBatteryTest() {
   try {
     const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/retry", { method: "POST" });
     if (res?.retried) {
-      toast(t("toast.test_retried") || "Retrying current step", "info");
+      toast(t("toast.test_retried") || "Retrying current case", "info");
       batteryActiveTurnKey = "";
       batteryTurnStartTime = 0;
       batteryThinkingStartTime = 0;
@@ -2094,7 +2094,7 @@ async function skipCurrentBatteryTest() {
   try {
     const res = await api("/api/runner/runs/" + encodeURIComponent(runID) + "/skip", { method: "POST" });
     if (res?.skipped) {
-      toast(t("toast.test_skipped") || "Current test skipped", "info");
+      toast(t("toast.test_skipped") || "Current case skipped", "info");
       batteryActiveTurnKey = "";
       batteryTurnStartTime = 0;
       batteryThinkingStartTime = 0;

@@ -808,6 +808,28 @@ type turnResult struct {
 	Error              error
 }
 
+// avgSubResultsTPS promedia los tok/s de los sub-resultados cuando el
+// agregado por duraciones no está disponible (backends externos sin
+// eval_duration). Evita que el bench muestre 0/-- aunque cada caso
+// tenga su velocidad (ej. 16.7 tok/s).
+func avgSubResultsTPS(subs []SubResult, evalTokens int, responseTimeMs int64) float64 {
+	var sum float64
+	var n int
+	for _, s := range subs {
+		if s.TokensPerSec > 0 {
+			sum += s.TokensPerSec
+			n++
+		}
+	}
+	if n > 0 {
+		return sum / float64(n)
+	}
+	if evalTokens > 0 && responseTimeMs > 0 {
+		return float64(evalTokens) / (float64(responseTimeMs) / 1000.0)
+	}
+	return 0
+}
+
 // splitCaseMedia separates a case/step's attachments into image payloads
 // (image + audio kinds, sent via the message Images field) and text document
 // blocks (inlined into the prompt, since Ollama has no document input).
@@ -1107,6 +1129,9 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		res.ModelResponse = strings.Join(responsesSummary, "\n\n")
 		if totalEvalDuration > 0 && res.EvalTokens > 0 {
 			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
+		}
+		if res.TokensPerSec == 0 {
+			res.TokensPerSec = avgSubResultsTPS(res.SubResults, res.EvalTokens, res.ResponseTimeMs)
 		}
 		if isLoopOrSkip(res.Error) || anySkippedOrLoop {
 			falseVal := false
@@ -1502,6 +1527,9 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		if totalEvalDuration > 0 && res.EvalTokens > 0 {
 			res.TokensPerSec = float64(res.EvalTokens) / (float64(totalEvalDuration) / 1e9)
 		}
+		if res.TokensPerSec == 0 {
+			res.TokensPerSec = avgSubResultsTPS(res.SubResults, res.EvalTokens, res.ResponseTimeMs)
+		}
 		if ctx.Err() != nil {
 			res.Error = ctx.Err().Error()
 		}
@@ -1817,6 +1845,12 @@ retryLoop:
 			if res.EvalTokens == 0 {
 				res.EvalTokens = n / 4
 				res.TotalTokens = res.PromptTokens + res.EvalTokens
+			}
+			// Sin esto, totalEvalDuration queda en 0 y los agregados
+			// multi-step/multi-case (EvalTokens/totalEvalDuration)
+			// descartan el estimado y dejan res.TokensPerSec en 0.
+			if res.EvalDuration == 0 {
+				res.EvalDuration = elapsed * 1e6
 			}
 		}
 	}

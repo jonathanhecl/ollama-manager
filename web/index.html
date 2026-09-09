@@ -2247,7 +2247,14 @@
         <span id="battery-modal-count" class="muted battery-modal-count"></span>
       </div>
       <div class="battery-modal-filter-bar">
-        <input id="battery-models-filter" type="search" class="battery-models-filter" data-i18n-attr="placeholder" data-i18n="battery.filter_placeholder" placeholder="Search or filter models..." autocomplete="off">
+        <div class="battery-models-search-wrap">
+          <span class="search-icon" aria-hidden="true">🔍</span>
+          <input id="battery-models-filter" type="search" class="battery-models-filter" data-i18n-attr="placeholder" data-i18n="battery.filter_placeholder" placeholder="Search or filter models..." autocomplete="off">
+        </div>
+        <button type="button" id="battery-models-toggle-pending" class="battery-toggle-pending-btn" data-i18n-attr="title" data-i18n="battery.filter_only_pending_title" title="Show only models that have not completed these categories">
+          <span class="toggle-icon" aria-hidden="true">⏳</span>
+          <span data-i18n="battery.filter_only_pending">Pending only</span>
+        </button>
       </div>
       <div id="battery-modal-models" class="battery-modal-models"></div>
       <div id="battery-models-no-match" class="muted small battery-models-no-match" data-i18n="battery.no_matching_models" style="display: none;">No models match your search.</div>

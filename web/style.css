@@ -6626,12 +6626,29 @@ button.chat-send:disabled:hover {
   font-weight: 500;
 }
 .battery-modal-filter-bar {
-  margin: 6px 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.battery-models-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.battery-models-search-wrap .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  opacity: 0.55;
+  pointer-events: none;
 }
 .battery-models-filter {
   width: 100%;
   height: 34px;
-  padding: 0 12px;
+  padding: 0 10px 0 32px;
   background: var(--input-bg, #0e0e12);
   border: 1px solid var(--border-strong, var(--border));
   border-radius: var(--radius);
@@ -6644,6 +6661,39 @@ button.chat-send:disabled:hover {
 .battery-models-filter:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(122, 162, 255, 0.2);
+}
+.battery-toggle-pending-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text-dim, #999);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.battery-toggle-pending-btn:hover {
+  color: var(--text);
+  background: var(--panel-hover, rgba(255, 255, 255, 0.08));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.battery-toggle-pending-btn.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: 600;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.battery-toggle-pending-btn .toggle-icon {
+  font-size: 13px;
+  line-height: 1;
 }
 .battery-models-no-match {
   text-align: center;
@@ -6691,7 +6741,8 @@ button.chat-send:disabled:hover {
   font-weight: 600;
   font-size: 13.5px;
   color: var(--text);
-  word-break: break-all;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   line-height: 1.35;
 }
 .battery-model-caps {
@@ -6768,6 +6819,150 @@ button.chat-send:disabled:hover {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
   font-size: 11px;
+}
+
+/* ---------- Battery Modal: Mobile & Responsive Polish ---------- */
+@media (max-width: 640px) {
+  .battery-modal-card {
+    padding: 16px 14px;
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: var(--radius-lg, 12px);
+  }
+  .battery-modal-header h3 {
+    font-size: 15px;
+  }
+  #battery-modal-subtitle {
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  .battery-modal-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin: 8px 0 6px;
+    padding-bottom: 8px;
+  }
+  .battery-modal-selection-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .battery-modal-sort-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .battery-modal-sort-label {
+    font-size: 11px;
+    opacity: 0.7;
+  }
+  .battery-modal-filter-bar {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: 6px 0 4px;
+  }
+  .battery-models-search-wrap {
+    flex: 1 1 170px;
+  }
+  .battery-toggle-pending-btn {
+    flex: 0 0 auto;
+    font-size: 11.5px;
+    padding: 0 10px;
+  }
+  .battery-modal-models {
+    max-height: calc(100dvh - 290px);
+    min-height: 180px;
+    gap: 8px;
+    margin: 8px 0;
+  }
+  .battery-model-item {
+    padding: 10px 12px;
+    gap: 10px;
+    border-radius: var(--radius, 8px);
+  }
+  .battery-model-item input[type="checkbox"] {
+    margin-top: 3px;
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+  }
+  .battery-model-main {
+    gap: 4px;
+    min-width: 0;
+  }
+  .battery-model-name {
+    font-size: 13px;
+    line-height: 1.35;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .battery-model-caps {
+    gap: 4px;
+  }
+  .battery-model-caps .pill {
+    font-size: 10px;
+    padding: 1px 6px;
+  }
+  .battery-model-coverage {
+    font-size: 10.5px;
+    margin-top: 1px;
+  }
+  /* In models step: reorganize right-cols into a clean bottom meta-row */
+  #battery-modal-models .battery-model-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  #battery-modal-models .battery-model-main {
+    flex: 1 1 calc(100% - 30px);
+    min-width: 0;
+  }
+  #battery-modal-models .battery-model-right-cols {
+    width: 100%;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border, rgba(255, 255, 255, 0.08));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  #battery-modal-models .battery-model-tps-wrap {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    min-width: auto;
+    justify-content: flex-start;
+  }
+  #battery-modal-models .battery-model-tps {
+    font-size: 13px;
+    text-align: left;
+  }
+  #battery-modal-models .battery-model-specs {
+    min-width: auto;
+    justify-content: flex-end;
+    gap: 6px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 420px) {
+  .battery-modal-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .battery-models-search-wrap {
+    width: 100%;
+  }
+  .battery-toggle-pending-btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 .battery-summary { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }

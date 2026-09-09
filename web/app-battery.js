@@ -252,6 +252,10 @@ async function openBatteryModal(options = {}) {
   }
   updateBatteryModalSelectionUI();
 
+  const filterInput = $("battery-models-filter");
+  if (filterInput) filterInput.value = "";
+  wireBatteryModelsFilter();
+
   // Wire toolbar quick buttons if not wired
   const selectAllBtn = $("battery-modal-select-all");
   if (selectAllBtn && !selectAllBtn.dataset.wired) {
@@ -260,9 +264,11 @@ async function openBatteryModal(options = {}) {
       const cbs = $("battery-modal-models")?.querySelectorAll('input[type="checkbox"]:not(:disabled)');
       if (cbs) {
         cbs.forEach((cb) => {
+          const item = cb.closest(".battery-model-item");
+          if (item && item.hidden) return;
           cb.checked = true;
           batterySelectedModels.add(cb.value);
-          cb.closest(".battery-model-item")?.classList.add("selected");
+          item?.classList.add("selected");
         });
         updateBatteryModalSelectionUI();
       }
@@ -273,13 +279,18 @@ async function openBatteryModal(options = {}) {
   if (clearBtn && !clearBtn.dataset.wired) {
     clearBtn.dataset.wired = "1";
     clearBtn.addEventListener("click", () => {
+      const filterInput = $("battery-models-filter");
+      const q = (filterInput?.value || "").trim();
       const cbs = $("battery-modal-models")?.querySelectorAll('input[type="checkbox"]');
       if (cbs) {
         cbs.forEach((cb) => {
+          const item = cb.closest(".battery-model-item");
+          if (q && item && item.hidden) return;
           cb.checked = false;
-          cb.closest(".battery-model-item")?.classList.remove("selected");
+          batterySelectedModels.delete(cb.value);
+          item?.classList.remove("selected");
         });
-        batterySelectedModels.clear();
+        if (!q) batterySelectedModels.clear();
         updateBatteryModalSelectionUI();
       }
     });
@@ -345,6 +356,7 @@ function batteryModalShowStep(step) {
   } else {
     updateBatteryModalSelectionUI();
     void loadBatteryModalSysinfo();
+    setTimeout(() => { $("battery-models-filter")?.focus(); }, 50);
   }
 }
 
@@ -538,7 +550,7 @@ function renderBatteryModalModels() {
     const isChecked = batterySelectedModels.has(m.name);
 
     return `
-      <label class="battery-model-item ${isChecked ? "selected" : ""} ${disabled ? "disabled" : ""}" title="${escapeHtml(title)}">
+      <label class="battery-model-item ${isChecked ? "selected" : ""} ${disabled ? "disabled" : ""}" data-name="${escapeHtml(m.name)}" title="${escapeHtml(title)}">
         <input type="checkbox" value="${escapeHtml(m.name)}" ${isChecked ? "checked" : ""} ${disabled ? "disabled" : ""} />
         <div class="battery-model-main">
           <div class="battery-model-name">${escapeHtml(m.name)}</div>
@@ -581,6 +593,33 @@ function renderBatteryModalModels() {
 
   updateBatteryModalSelectionUI();
   paintBatteryCoverage();
+  applyBatteryModelsFilter();
+}
+
+function applyBatteryModelsFilter() {
+  const filterInput = $("battery-models-filter");
+  const q = (filterInput?.value || "").trim().toLowerCase();
+  const items = document.querySelectorAll("#battery-modal-models .battery-model-item");
+  let visibleCount = 0;
+  items.forEach((item) => {
+    const name = (item.dataset.name || "").toLowerCase();
+    const matches = !q || name.includes(q);
+    item.hidden = !matches;
+    if (matches) visibleCount++;
+  });
+  const noMatchEl = $("battery-models-no-match");
+  if (noMatchEl) {
+    noMatchEl.textContent = t("battery.no_matching_models");
+    noMatchEl.style.display = (items.length > 0 && visibleCount === 0) ? "block" : "none";
+  }
+}
+
+function wireBatteryModelsFilter() {
+  const filterInput = $("battery-models-filter");
+  if (filterInput && !filterInput.dataset.wired) {
+    filterInput.dataset.wired = "1";
+    filterInput.addEventListener("input", applyBatteryModelsFilter);
+  }
 }
 
 let batteryPollTimer = null;

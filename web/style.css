@@ -6625,6 +6625,31 @@ button.chat-send:disabled:hover {
   color: var(--accent);
   font-weight: 500;
 }
+.battery-modal-filter-bar {
+  margin: 6px 0 2px;
+}
+.battery-models-filter {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  background: var(--input-bg, #0e0e12);
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.battery-models-filter:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(122, 162, 255, 0.2);
+}
+.battery-models-no-match {
+  text-align: center;
+  padding: 30px 16px;
+  font-style: italic;
+}
 .battery-modal-models { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 420px; overflow-y: auto; }
 .battery-modal-sysinfo { font-size: 11px; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 8px; }
 

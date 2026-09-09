@@ -133,6 +133,122 @@ async function renderGroupHistoryModal(groupId) {
 
 // ---------- leaderboard modal (aggregated across all groups) ----------
 
+// Quick model filter for the leaderboard (page + modal). Persisted so it
+// survives re-renders; actual row hiding is instant DOM filtering (no rebuild).
+let _lbModelFilter = "";
+try { _lbModelFilter = localStorage.getItem("leaderboard_model_filter") || ""; } catch (_) {}
+
+// Sort mode: "coverage" (default) ranks models with more evaluated
+// categories first so a 100% in a single category doesn't beat a solid
+// model evaluated everywhere; "overall" restores the classic score sort.
+let _lbSortMode = "coverage";
+try {
+  const _sm = localStorage.getItem("leaderboard_sort");
+  if (_sm === "overall" || _sm === "coverage") _lbSortMode = _sm;
+} catch (_) {}
+
+async function refreshVisibleLeaderboards() {
+  const jobs = [];
+  if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) jobs.push(renderLeaderboardModal());
+  if ($("battery-leaderboard-view") && !$("battery-leaderboard-view").hidden) jobs.push(renderLeaderboardPage());
+  if (jobs.length) await Promise.all(jobs);
+}
+
+function setLbSortMode(mode) {
+  if (mode !== "overall" && mode !== "coverage") return;
+  _lbSortMode = mode;
+  try { localStorage.setItem("leaderboard_sort", mode); } catch (_) {}
+  void refreshVisibleLeaderboards();
+}
+
+function lbFilterText(key, fallback, vars) {
+  try {
+    const s = t(key, vars);
+    if (s && s !== key) return s;
+  } catch (_) {}
+  let out = fallback;
+  if (vars) for (const k of Object.keys(vars)) out = out.replace("{" + k + "}", vars[k]);
+  return out;
+}
+
+function refreshAllLbFilters(newVal, activeInput) {
+  _lbModelFilter = newVal || "";
+  try {
+    if (_lbModelFilter) localStorage.setItem("leaderboard_model_filter", _lbModelFilter);
+    else localStorage.removeItem("leaderboard_model_filter");
+  } catch (_) {}
+  document.querySelectorAll("#battery-leaderboard-page-body, #leaderboard-modal-body").forEach((root) => {
+    applyLbModelFilter(root, activeInput);
+  });
+}
+
+function applyLbModelFilter(root, activeInput) {
+  if (!root) return;
+  const q = (_lbModelFilter || "").trim().toLowerCase();
+  const input = root.querySelector(".lb-filter-input");
+  if (input && input !== activeInput && input.value !== (_lbModelFilter || "")) {
+    input.value = _lbModelFilter || "";
+  }
+  let shown = 0;
+  let total = 0;
+  root.querySelectorAll(".battery-lb-table tbody tr").forEach((row) => {
+    total++;
+    const name = row.getAttribute("data-lb-model")
+      || row.querySelector(".lb-model-name")?.getAttribute("title")
+      || row.textContent || "";
+    const match = !q || name.toLowerCase().includes(q);
+    row.style.display = match ? "" : "none";
+    if (match) shown++;
+  });
+  const countEl = root.querySelector(".lb-filter-count");
+  if (countEl) {
+    countEl.textContent = lbFilterText("battery.leaderboard_filter_count", "{shown} / {total}", { shown, total });
+    countEl.style.display = total > 0 ? "" : "none";
+  }
+  const clearBtn = root.querySelector(".lb-filter-clear");
+  if (clearBtn) clearBtn.hidden = !(_lbModelFilter || "");
+  const emptyEl = root.querySelector(".lb-filter-empty");
+  if (emptyEl) emptyEl.hidden = !(total > 0 && shown === 0);
+}
+
+// Delegated: survives table rebuilds (innerHTML) in both page and modal.
+document.addEventListener("input", (e) => {
+  const inp = e.target?.closest?.(".lb-filter-input");
+  if (!inp) return;
+  refreshAllLbFilters(inp.value, inp);
+  // Keep the other container in sync without moving the caret here.
+  const root = inp.closest("#battery-leaderboard-page-body, #leaderboard-modal-body");
+  if (root) applyLbModelFilter(root, inp);
+});
+
+document.addEventListener("click", (e) => {
+  const clr = e.target?.closest?.(".lb-filter-clear");
+  if (!clr) return;
+  refreshAllLbFilters("", null);
+  const root = clr.closest("#battery-leaderboard-page-body, #leaderboard-modal-body");
+  const inp = root?.querySelector(".lb-filter-input") || document.querySelector(".lb-filter-input");
+  if (inp) inp.focus();
+});
+
+document.addEventListener("click", (e) => {
+  const sortBtn = e.target?.closest?.(".lb-sort-btn");
+  if (!sortBtn) return;
+  setLbSortMode(_lbSortMode === "coverage" ? "overall" : "coverage");
+});
+
+// "/" focuses the filter when the leaderboard page is visible; Esc clears it.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && typeof currentView !== "undefined" && currentView === "leaderboard") {
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+    const inp = document.querySelector("#battery-leaderboard-page-body .lb-filter-input");
+    if (inp) { e.preventDefault(); inp.focus(); }
+  } else if (e.key === "Escape" && e.target?.closest?.(".lb-filter-input")) {
+    if (e.target.value) { e.target.value = ""; refreshAllLbFilters("", null); }
+    else e.target.blur();
+  }
+});
+
 function openLeaderboardModal() {
   $("leaderboard-modal").hidden = false;
   void renderLeaderboardModal();
@@ -306,7 +422,7 @@ async function buildLeaderboardTableHtml() {
       overall,
     };
   });
-  lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || (b.points ?? 0) - (a.points ?? 0) || b.total - a.total);
+  // Sort happens below once coverage per model is known (needs lbLacksCaps).
 
   const colRange = {};
   for (const col of cols) {
@@ -353,6 +469,38 @@ async function buildLeaderboardTableHtml() {
     const caps = lbModelCaps.get(model) || new Set();
     return req.filter((c) => !caps.has(c));
   };
+  // Coverage per model: evaluated categories over compatible ones (only
+  // groups with active tests count). Uninstalled models keep their cached
+  // results but their caps are unknown, so they count as compatible —
+  // same rule the cells use (— instead of ✕). A 0.0 score still counts
+  // as evaluated; only missing (—/✕) doesn't.
+  const lbActiveCols = cols.filter((col) => (col.activeTotal || 0) > 0);
+  for (const row of lbRows) {
+    const installed = modelInfo.has(row.model);
+    let compatible = 0;
+    let evaluated = 0;
+    for (const col of lbActiveCols) {
+      const lacking = installed ? lbLacksCaps(row.model, col) : [];
+      if (lacking.length > 0) continue;
+      compatible++;
+      const c = scores[row.model]?.[col.id];
+      if (c && c.score != null) evaluated++;
+    }
+    row.compatible = compatible;
+    row.evaluated = evaluated;
+    row.coverage = compatible > 0 ? evaluated / compatible : 0;
+  }
+  if (_lbSortMode === "overall") {
+    lbRows.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1) || (b.points ?? 0) - (a.points ?? 0) || b.total - a.total);
+  } else {
+    // Default: most evaluated categories first, then coverage ratio (a
+    // model compatible with fewer categories isn't penalized), then score.
+    lbRows.sort((a, b) => (b.evaluated ?? 0) - (a.evaluated ?? 0)
+      || (b.coverage ?? 0) - (a.coverage ?? 0)
+      || (b.overall ?? -1) - (a.overall ?? -1)
+      || (b.points ?? 0) - (a.points ?? 0)
+      || b.total - a.total);
+  }
   let bodyRows = "";
   // Missing categories per model: no result (—/✕) or 0.0 score, limited to
   // groups with active tests AND compatible with the model (incompatible
@@ -371,6 +519,7 @@ async function buildLeaderboardTableHtml() {
       .map((col) => col.id);
   }
   window._lbMissingByModel = missingByModel;
+  const lbFilterQ = (_lbModelFilter || "").trim().toLowerCase();
   lbRows.forEach((row, idx) => {
     let cells = "";
     const installed = modelInfo.has(row.model);
@@ -411,12 +560,14 @@ async function buildLeaderboardTableHtml() {
     }
 
     const info = modelInfo.get(row.model);
+    const lbCovTitle = escapeHtml(lbFilterText("battery.leaderboard_coverage_title", "Categories evaluated: {done}/{total}", { done: row.evaluated || 0, total: row.compatible || 0 }));
+    const lbCovHtml = `<span class="lb-coverage" title="${lbCovTitle}">📊 ${row.evaluated || 0}/${row.compatible || 0}</span>`;
     let metaHtml = "";
     if (!installed) {
-      metaHtml = `<div class="lb-model-meta mono"><span class="pill lb-uninstalled-tag">${escapeHtml(t("battery.lb_not_installed_tag"))}</span></div>`;
+      metaHtml = `<div class="lb-model-meta mono">${lbCovHtml}<span class="lb-meta-sep">·</span><span class="pill lb-uninstalled-tag">${escapeHtml(t("battery.lb_not_installed_tag"))}</span></div>`;
     } else if (info) {
       const pills = (typeof renderCapabilityPills === "function") ? renderCapabilityPills(info.capabilities) : "";
-      const parts = [];
+      const parts = [lbCovHtml];
       if (Number(info.context_length) > 0) {
         parts.push(`<span title="${escapeHtml(t("detail.context"))}">ctx ${escapeHtml(fmtCtx(Number(info.context_length)))}</span>`);
       }
@@ -428,13 +579,13 @@ async function buildLeaderboardTableHtml() {
         const rc = (typeof getToksRecordColor === "function") ? getToksRecordColor(rec) : "";
         parts.push(`<span title="${rec.toFixed(1)} tok/s"${rc ? ` style="color:${rc};"` : ""}>${rec.toFixed(1)} <span class="speed-unit">tok/s</span></span>`);
       }
-      if (pills || parts.length > 0) {
-        metaHtml = `<div class="lb-model-meta muted mono">${pills}${(pills && parts.length > 0) ? `<span class="lb-meta-sep">·</span>` : ""}${parts.join(`<span class="lb-meta-sep">·</span>`)}</div>`;
-      }
+      metaHtml = `<div class="lb-model-meta muted mono">${pills}${pills ? `<span class="lb-meta-sep">·</span>` : ""}${parts.join(`<span class="lb-meta-sep">·</span>`)}</div>`;
+    } else {
+      metaHtml = `<div class="lb-model-meta muted mono">${lbCovHtml}</div>`;
     }
 
     bodyRows += `
-      <tr class="${idx === 0 ? "lb-row-first" : ""}${installed ? "" : " lb-row-uninstalled"}"${installed ? "" : ` data-lb-uninstalled="1" data-lb-model="${escapeHtml(row.model)}"`}>
+      <tr class="${idx === 0 ? "lb-row-first" : ""}${installed ? "" : " lb-row-uninstalled"}" data-lb-model="${escapeHtml(row.model)}"${installed ? "" : ` data-lb-uninstalled="1"`}${lbFilterQ && !row.model.toLowerCase().includes(lbFilterQ) ? ` style="display:none"` : ""}>
         <td class="cell-lb-model">
           <div class="lb-model-top"><span class="lb-rank">${idx + 1}</span><strong class="lb-model-name mono" title="${escapeHtml(row.model)}">${modelDisplay}</strong>
             <span class="lb-row-actions">${installed ? `<button type="button" class="ghost lb-row-btn" data-lb-chat="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_chat"))}">💬</button>` : ""}${installed && (missingByModel[row.model] || []).length > 0 ? `<button type="button" class="ghost lb-row-btn" data-lb-bench-missing="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_bench_missing"))}">🧪</button>` : ""}${row.total > 0 ? `<button type="button" class="ghost lb-row-btn danger-text" data-lb-reset-model="${escapeHtml(row.model)}" title="${escapeHtml(t("battery.lb_reset_model"))}">🧹</button>` : ""}</span>
@@ -446,7 +597,30 @@ async function buildLeaderboardTableHtml() {
     `;
   });
 
+  const lbTotal = lbRows.length;
+  const lbShown = lbFilterQ ? lbRows.filter((r) => r.model.toLowerCase().includes(lbFilterQ)).length : lbTotal;
+  const lbFilterVal = escapeHtml(_lbModelFilter || "");
+  const lbFilterPlaceholder = escapeHtml(lbFilterText("battery.leaderboard_filter_placeholder", "Filter models… ( / )"));
+  const lbFilterCount = escapeHtml(lbFilterText("battery.leaderboard_filter_count", "{shown} / {total}", { shown: lbShown, total: lbTotal }));
+  const lbFilterClearTitle = escapeHtml(lbFilterText("battery.leaderboard_filter_clear", "Clear"));
+  const lbFilterEmptyTxt = escapeHtml(lbFilterText("battery.leaderboard_filter_empty", "No models match this filter."));
+  const lbIsCoverage = _lbSortMode !== "overall";
+  const lbSortLabel = escapeHtml(lbIsCoverage
+    ? lbFilterText("battery.leaderboard_sort_coverage", "📊 Coverage")
+    : lbFilterText("battery.leaderboard_sort_overall", "🏆 Overall"));
+  const lbSortTitle = escapeHtml(lbFilterText("battery.leaderboard_sort_title", "Toggle leaderboard sort: coverage first vs overall score"));
+  const lbFilterBar = `
+    <div class="lb-filter-bar">
+      <span class="lb-filter-icon" aria-hidden="true">🔍</span>
+      <input type="search" class="lb-filter-input" placeholder="${lbFilterPlaceholder}" value="${lbFilterVal}" autocomplete="off" spellcheck="false" aria-label="${lbFilterPlaceholder}">
+      <button type="button" class="ghost lb-filter-clear" title="${lbFilterClearTitle}"${_lbModelFilter ? "" : " hidden"}>✕</button>
+      <button type="button" class="ghost lb-sort-btn${lbIsCoverage ? " active" : ""}" title="${lbSortTitle}">${lbSortLabel}</button>
+      <span class="lb-filter-count muted mono"${lbTotal > 0 ? "" : ` style="display:none"`}>${lbFilterCount}</span>
+    </div>
+  `;
+
   return `
+    ${lbFilterBar}
     <div class="battery-table-wrap battery-lb-wrap">
       <table class="battery-table battery-lb-table">
         <thead>
@@ -458,6 +632,7 @@ async function buildLeaderboardTableHtml() {
         <tbody>${bodyRows}</tbody>
       </table>
     </div>
+    <div class="lb-filter-empty muted"${lbTotal > 0 && lbShown === 0 ? "" : " hidden"}>${lbFilterEmptyTxt}</div>
   `;
 }
 

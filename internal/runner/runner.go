@@ -1279,6 +1279,26 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	return res
 }
 
+func hasOpenThinkTag(s string) bool {
+	lower := strings.ToLower(s)
+	tags := []string{"think", "thinking", "stitching", "throat"}
+	for _, tag := range tags {
+		openTag := "<" + tag
+		closeTag := "</" + tag + ">"
+		openIdx := strings.LastIndex(lower, openTag)
+		if openIdx != -1 {
+			after := lower[openIdx+len(openTag):]
+			if len(after) > 0 && (after[0] == '>' || after[0] == ' ' || after[0] == '\n' || after[0] == '\r' || after[0] == '\t') {
+				closeIdx := strings.LastIndex(lower, closeTag)
+				if closeIdx < openIdx {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages []ollama.ChatMessage, opts map[string]any, think *ollama.ThinkLevel) turnResult {
 	req := ollama.ChatRequest{
 		Model:    model,
@@ -1325,12 +1345,6 @@ retryLoop:
 			isThinking = false
 		}
 
-		// Per-stage auto-skip bookkeeping. Thinking and response are
-		// tracked individually (never summed): the thinking bucket holds
-		// the thinking field plus content streamed while the turn is in
-		// its thinking phase; the response bucket holds the rest.
-		// Token counts are estimates (~4 chars/token) since Ollama only
-		// reports exact counts once generation finishes.
 		thinkChars := 0
 		respChars := 0
 		var thinkMs, respMs int64
@@ -1350,12 +1364,14 @@ retryLoop:
 				thinkChars += len([]rune(chunk.Message.Thinking))
 			}
 			content := fullContent.String()
-			if strings.Contains(content, "<thinking>") || strings.Contains(content, "<stitching>") || strings.Contains(content, "<throat>") {
-				isThinking = true
-			}
-			if isThinking && (strings.Contains(content, "</thinking>") || strings.Contains(content, "</stitching>") || strings.Contains(content, "</throat>")) {
-				isThinking = false
-			}
+
+			// Determine whether the turn is currently in the thinking stage:
+			// 1. Native reasoning chunks are streaming (or thinking started and response content has not arrived yet).
+			// 2. Content is currently inside an unclosed inline thinking tag (<think>, <thinking>, etc.).
+			chunkHasThinking := chunk.Message.Thinking != ""
+			nativeThinkingActive := chunkHasThinking || (fullThinking.Len() > 0 && fullContent.Len() == 0)
+			isThinking = nativeThinkingActive || hasOpenThinkTag(content)
+
 			if n := len([]rune(chunk.Message.Content)); n > 0 {
 				if isThinking {
 					thinkChars += n

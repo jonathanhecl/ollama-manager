@@ -106,3 +106,26 @@ func TestStageSkipDecisionAll(t *testing.T) {
 		t.Fatalf("all mode with a single limit should fire on it")
 	}
 }
+
+func TestHasOpenThinkTag(t *testing.T) {
+	cases := []struct {
+		input string
+		want  bool
+	}{
+		{"Hello world", false},
+		{"<think>This is thinking", true},
+		{"<think>This was thinking</think> This is response", false},
+		{"<thinking>Long reasoning", true},
+		{"<thinking>Long reasoning</thinking>", false},
+		{"<think>\nMultiline\n</think>\nAnd <think>more thinking", true},
+		{"<think>Nested</think> <stitching>stitching mode", true},
+		{"<stitching>stitching</stitching>", false},
+		{"<throat>throat</throat>", false},
+	}
+	for _, tc := range cases {
+		got := hasOpenThinkTag(tc.input)
+		if got != tc.want {
+			t.Errorf("hasOpenThinkTag(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}

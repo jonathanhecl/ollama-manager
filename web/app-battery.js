@@ -695,6 +695,9 @@ function updateBatteryCurrentTurnTimer() {
     }
   }
 
+  const elThinkingLiveTag = $("battery-stream-thinking-live-tag");
+  const elResponseLiveTag = $("battery-stream-live-tag");
+
   if (elThinkingTimer) {
     if (batteryStageSnap && batteryStageSnap.hasThink) {
       const thinkingSec = Math.floor(Math.max(0, batteryStageElapsed("think")) / 1000);
@@ -710,9 +713,28 @@ function updateBatteryCurrentTurnTimer() {
       const respSec = Math.floor(Math.max(0, batteryStageElapsed("resp")) / 1000);
       elResponseTimer.hidden = false;
       elResponseTimer.textContent = `⏱️ ${formatTimeDisplay(respSec)}`;
+    } else if (batteryStageSnap && batteryStageSnap.isThinking) {
+      elResponseTimer.hidden = false;
+      elResponseTimer.textContent = `⏱️ 00:00`;
     } else {
       elResponseTimer.hidden = true;
     }
+  }
+
+  if (batteryStageSnap) {
+    if (batteryStageSnap.isThinking) {
+      if (elThinkingLiveTag) elThinkingLiveTag.hidden = false;
+      if (elResponseLiveTag) elResponseLiveTag.hidden = true;
+    } else if (batteryStageSnap.respActive) {
+      if (elThinkingLiveTag) elThinkingLiveTag.hidden = true;
+      if (elResponseLiveTag) elResponseLiveTag.hidden = false;
+    } else {
+      if (elThinkingLiveTag) elThinkingLiveTag.hidden = true;
+      if (elResponseLiveTag) elResponseLiveTag.hidden = true;
+    }
+  } else {
+    if (elThinkingLiveTag) elThinkingLiveTag.hidden = true;
+    if (elResponseLiveTag) elResponseLiveTag.hidden = true;
   }
 }
 
@@ -1711,8 +1733,14 @@ async function pollBatteryProgress(runID, modelIDs) {
       // Per-stage snapshot from the backend (exact per-chunk accounting).
       // hasThink covers both the dedicated thinking field and tag-embedded
       // thinking so the header shows even when thinking ended early.
-      const hasThink = !!(p.partial_thinking || /<(thinking|stitching|throat)>[\s\S]*?<\/(thinking|stitching|throat)>/i.test(p.partial_response || ""));
-      const respActive = !p.is_thinking && !!p.partial_response;
+      const hasThink = !!(
+        p.partial_thinking ||
+        p.thinking_ms > 0 ||
+        p.is_thinking ||
+        /<(think|thinking|stitching|throat)>[\s\S]*?<\/(think|thinking|stitching|throat)>/i.test(p.partial_response || "")
+      );
+      const isThinking = !!p.is_thinking;
+      const respActive = !isThinking && (!!p.partial_response || (p.response_ms || 0) > 0);
       batteryStageSnap = {
         key: turnKey,
         thinkMs: p.thinking_ms || 0,
@@ -1720,7 +1748,7 @@ async function pollBatteryProgress(runID, modelIDs) {
         thinkChars: p.thinking_chars || 0,
         respChars: p.response_chars || 0,
         at: Date.now(),
-        isThinking: !!p.is_thinking,
+        isThinking,
         respActive,
         hasThink,
       };
@@ -1879,7 +1907,7 @@ async function pollBatteryProgress(runID, modelIDs) {
       const thinkingBlock = $("battery-stream-thinking");
       if (thinkingWrap && thinkingBlock) {
         thinkingBlock.textContent = p.partial_thinking || "";
-        thinkingWrap.hidden = !p.partial_thinking;
+        thinkingWrap.hidden = !(p.partial_thinking || p.is_thinking || (batteryStageSnap && batteryStageSnap.hasThink));
         if (p.partial_thinking) {
           thinkingBlock.scrollTo({ top: thinkingBlock.scrollHeight, behavior: "smooth" });
         }

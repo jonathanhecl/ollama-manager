@@ -438,6 +438,28 @@ $("settings-save").addEventListener("click", async () => {
     return;
   }
   const testingMode = $("set-testing-mode")?.value === "all" ? "all" : "any";
+  const skipRules = [];
+  if (typeof testingSkipRules !== "undefined" && Array.isArray(testingSkipRules)) {
+    for (const r of testingSkipRules) {
+      const min = Math.max(0, Number(r.min_tps) || 0);
+      const max = Math.max(0, Number(r.max_tps) || 0);
+      const toks = Math.max(0, Math.floor(Number(r.max_tokens) || 0));
+      const secs = Math.max(0, Math.floor(Number(r.max_seconds) || 0));
+      if (max > 0 && max <= min) {
+        toast(t("toast.error", { msg: t("settings.testing_rule_invalid_range") }), "error");
+        return;
+      }
+      if (toks < 0 || toks > 10000000 || secs < 0 || secs > 86400) {
+        toast(t("toast.error", { msg: t("settings.testing_rule_invalid_cut") }), "error");
+        return;
+      }
+      if (!toks && !secs) {
+        toast(t("toast.error", { msg: t("settings.testing_rule_invalid_empty") }), "error");
+        return;
+      }
+      skipRules.push({ min_tps: min, max_tps: max, max_tokens: toks, max_seconds: secs, mode: r.mode === "all" ? "all" : "any" });
+    }
+  }
   const body = {
     language: $("set-language").value,
     port,
@@ -447,6 +469,7 @@ $("settings-save").addEventListener("click", async () => {
       max_stage_tokens: maxStageTokens,
       max_stage_seconds: maxStageSeconds,
       mode: testingMode,
+      skip_rules: skipRules,
     },
     gateway: {
       enabled: $("gw-enable")?.checked ?? false,

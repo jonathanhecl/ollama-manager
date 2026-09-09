@@ -1643,6 +1643,46 @@ select:focus { border-color: var(--accent); }
   margin-top: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
+.skip-rules-head,
+.skip-rule-row {
+  display: grid;
+  grid-template-columns: 1fr 14px 1fr 1fr 1fr 76px auto;
+  gap: 8px;
+  align-items: center;
+}
+.skip-rules-head {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.skip-rule-row {
+  margin-bottom: 8px;
+}
+.skip-rule-row input,
+.skip-rule-row select {
+  width: 100%;
+  min-width: 0;
+}
+.skip-dash {
+  text-align: center;
+}
+.skip-rule-btns {
+  display: inline-flex;
+  gap: 2px;
+  white-space: nowrap;
+}
+.skip-rule-summary {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+}
+@media (max-width: 650px) {
+  .skip-rules-head { display: none; }
+  .skip-rule-row { grid-template-columns: 1fr 14px 1fr; }
+  .skip-rule-row .skip-tokens,
+  .skip-rule-row .skip-seconds,
+  .skip-rule-row .skip-mode { grid-column: span 1; }
+  .skip-rule-summary { grid-column: 1 / -1; }
+}
 .settings-summary-callout .summary-callout-icon {
   font-size: 16px;
   line-height: 1;

@@ -120,6 +120,9 @@ type Client struct {
 	ollama      *ollama.Client
 	chatFunc    ChatFunc
 	isExternal  func(string) bool
+	// speedFunc reports a model's recorded tok/s (ok=false when unknown).
+	// Used to select the applicable per-speed auto-skip rule.
+	speedFunc   func(string) (float64, bool)
 	progressMu  sync.Mutex
 	progress    map[string]*Progress
 	cancelMu    sync.Mutex
@@ -157,34 +160,51 @@ type StageLimits struct {
 	// either trips; "all" only fires when every enabled condition trips
 	// at once. With a single enabled condition both modes behave the same.
 	Mode string
+	// Rules holds optional per-speed skip rules. When non-empty, the
+	// legacy MaxTokens/MaxSeconds/Mode above are ignored and the first
+	// rule whose speed range contains the model's recorded tok/s applies
+	// to the turn. Models without a recorded speed only match rules with
+	// MinTPS == 0.
+	Rules []StageSkipRule
 }
 
-// stageSkipDecision evaluates the auto-skip conditions for one stage and
-// reports whether the turn must be skipped plus a human-readable reason.
+// StageSkipRule is one auto-skip rule bound to a model speed range.
+// Speed is the model's recorded tok/s. MinTPS is inclusive, MaxTPS is
+// exclusive; MaxTPS <= 0 means unbounded.
+type StageSkipRule struct {
+	MinTPS     float64
+	MaxTPS     float64
+	MaxTokens  int
+	MaxSeconds int
+	Mode       string
+}
+
+// evalStageSkip evaluates token/time conditions for one stage and reports
+// whether the turn must be skipped plus a human-readable reason.
 // Tokens are approximate (~4 chars/token); elapsed is streaming time in
 // the stage.
-func (l StageLimits) stageSkipDecision(stage string, chars int, elapsedMs int64) (bool, string) {
+func evalStageSkip(stage string, chars int, elapsedMs int64, maxTokens, maxSeconds int, mode string) (bool, string) {
 	enabled := 0
 	met := 0
 	var reasons []string
-	if l.MaxTokens > 0 {
+	if maxTokens > 0 {
 		enabled++
-		if t := chars / 4; t > l.MaxTokens {
+		if t := chars / 4; t > maxTokens {
 			met++
-			reasons = append(reasons, fmt.Sprintf("exceeded %d tokens (~%d)", l.MaxTokens, t))
+			reasons = append(reasons, fmt.Sprintf("exceeded %d tokens (~%d)", maxTokens, t))
 		}
 	}
-	if l.MaxSeconds > 0 {
+	if maxSeconds > 0 {
 		enabled++
-		if s := elapsedMs / 1000; s > int64(l.MaxSeconds) {
+		if s := elapsedMs / 1000; s > int64(maxSeconds) {
 			met++
-			reasons = append(reasons, fmt.Sprintf("exceeded %ds (%ds)", l.MaxSeconds, s))
+			reasons = append(reasons, fmt.Sprintf("exceeded %ds (%ds)", maxSeconds, s))
 		}
 	}
 	if enabled == 0 {
 		return false, ""
 	}
-	if l.Mode == "all" {
+	if mode == "all" {
 		if met != enabled {
 			return false, ""
 		}
@@ -192,6 +212,43 @@ func (l StageLimits) stageSkipDecision(stage string, chars int, elapsedMs int64)
 		return false, ""
 	}
 	return true, fmt.Sprintf("auto-skipped: %s stage %s", stage, strings.Join(reasons, " and "))
+}
+
+// stageSkipDecision evaluates the auto-skip conditions for one stage and
+// reports whether the turn must be skipped plus a human-readable reason.
+// Tokens are approximate (~4 chars/token); elapsed is streaming time in
+// the stage.
+func (l StageLimits) stageSkipDecision(stage string, chars int, elapsedMs int64) (bool, string) {
+	return evalStageSkip(stage, chars, elapsedMs, l.MaxTokens, l.MaxSeconds, l.Mode)
+}
+
+// effectiveStageCut resolves the token/time/mode cut that applies to a turn
+// of the given model. With rules configured, the first rule whose speed
+// range contains the model's recorded tok/s wins; models without a recorded
+// speed only match rules starting at 0. Without rules (or no match) it
+// falls back to the legacy limits (possibly all disabled).
+func (c *Client) effectiveStageCut(model string, limits StageLimits) (maxTokens, maxSeconds int, mode string) {
+	if len(limits.Rules) == 0 {
+		return limits.MaxTokens, limits.MaxSeconds, limits.Mode
+	}
+	speed, ok := c.modelSpeed(model)
+	for i := range limits.Rules {
+		r := &limits.Rules[i]
+		if !ok {
+			if r.MinTPS != 0 {
+				continue
+			}
+		} else {
+			if speed < r.MinTPS {
+				continue
+			}
+			if r.MaxTPS > 0 && speed >= r.MaxTPS {
+				continue
+			}
+		}
+		return r.MaxTokens, r.MaxSeconds, r.Mode
+	}
+	return 0, 0, "any"
 }
 
 // NewClient creates a runner client.
@@ -231,6 +288,25 @@ func (c *Client) isExt(model string) bool {
 	c.cancelMu.Unlock()
 	if fn == nil {
 		return false
+	}
+	return fn(model)
+}
+
+// SetSpeedFunc registers a lookup for a model's recorded tok/s, used to
+// select the applicable per-speed auto-skip rule. ok=false means unknown
+// (model never ran): only rules starting at 0 tok/s apply.
+func (c *Client) SetSpeedFunc(fn func(string) (float64, bool)) {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	c.speedFunc = fn
+}
+
+func (c *Client) modelSpeed(model string) (float64, bool) {
+	c.cancelMu.Lock()
+	fn := c.speedFunc
+	c.cancelMu.Unlock()
+	if fn == nil {
+		return 0, false
 	}
 	return fn(model)
 }
@@ -1599,6 +1675,9 @@ func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages
 	start := time.Now()
 	var chatErr error
 	limits := c.getStageLimits()
+	// Resolve the applicable cut once per turn (rule by recorded speed,
+	// or the legacy limits when no rules match).
+	cutTokens, cutSeconds, cutMode := c.effectiveStageCut(model, limits)
 
 retryLoop:
 	for attempt := 0; attempt <= 3; attempt++ {
@@ -1672,10 +1751,10 @@ retryLoop:
 			if chunk.Done {
 				chunkMeta = &chunk
 			}
-			if fire, reason := limits.stageSkipDecision("thinking", thinkChars, thinkMs); fire {
+			if fire, reason := evalStageSkip("thinking", thinkChars, thinkMs, cutTokens, cutSeconds, cutMode); fire {
 				return fmt.Errorf("%s: %w", reason, errAutoSkipStage)
 			}
-			if fire, reason := limits.stageSkipDecision("response", respChars, respMs); fire {
+			if fire, reason := evalStageSkip("response", respChars, respMs, cutTokens, cutSeconds, cutMode); fire {
 				return fmt.Errorf("%s: %w", reason, errAutoSkipStage)
 			}
 			if isLoop, _ := detectRepetitionLoop(content); isLoop {

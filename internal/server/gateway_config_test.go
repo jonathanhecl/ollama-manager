@@ -131,6 +131,47 @@ func TestGatewayConfigPortValidation(t *testing.T) {
 	}
 }
 
+func TestTestingSkipRulesPatch(t *testing.T) {
+	ollamaSrv := fakeOllamaForBattery()
+	defer ollamaSrv.Close()
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	// Bad range: max <= min.
+	if code, _ := patchConfig(t, srv, map[string]any{"testing": map[string]any{
+		"skip_rules": []any{map[string]any{"min_tps": 200, "max_tps": 100, "max_seconds": 60}},
+	}}); code != http.StatusBadRequest {
+		t.Fatalf("inverted range status = %d, want 400", code)
+	}
+	// Rule without any cut.
+	if code, _ := patchConfig(t, srv, map[string]any{"testing": map[string]any{
+		"skip_rules": []any{map[string]any{"min_tps": 0, "max_tps": 100}},
+	}}); code != http.StatusBadRequest {
+		t.Fatalf("cut-less rule status = %d, want 400", code)
+	}
+	// Valid rules persist and round-trip through GET.
+	code, _ := patchConfig(t, srv, map[string]any{"testing": map[string]any{
+		"skip_rules": []any{
+			map[string]any{"min_tps": 100, "max_tps": 200, "max_seconds": 120, "mode": "any"},
+			map[string]any{"min_tps": 0, "max_tokens": 3000, "max_seconds": 180, "mode": "all"},
+		},
+	}})
+	if code != http.StatusOK {
+		t.Fatalf("valid rules status = %d", code)
+	}
+	got := getConfig(t, srv)["testing"].(map[string]any)
+	rules, _ := got["skip_rules"].([]any)
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 rules in GET, got %v", got["skip_rules"])
+	}
+	r0 := rules[0].(map[string]any)
+	if r0["min_tps"] != float64(100) || r0["max_tps"] != float64(200) || r0["max_seconds"] != float64(120) {
+		t.Fatalf("unexpected rule 0 in GET: %v", r0)
+	}
+	if len(srv.cfg.Testing.SkipRules) != 2 || srv.cfg.Testing.SkipRules[1].Mode != config.TestingModeAll {
+		t.Fatalf("in-memory rules mismatch: %+v", srv.cfg.Testing.SkipRules)
+	}
+}
+
 func gatewayKeysCall(t *testing.T, srv *Server, method, target string, payload map[string]any) (int, map[string]any) {
 	t.Helper()
 	var body *bytes.Reader

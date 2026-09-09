@@ -51,7 +51,7 @@ async function showSettingsView() {
   if ($("set-testing-max-stage-seconds")) $("set-testing-max-stage-seconds").value = String(Math.max(0, testingLimits.max_stage_seconds || 0));
   if ($("set-testing-mode")) $("set-testing-mode").value = testingLimits.mode === "all" ? "all" : "any";
   bindTestingSummaryEvents();
-  updateTestingSummary();
+  loadSkipRulesFromConfig();
 
   const buildEl = $("settings-build-info");
   if (buildEl) {
@@ -357,6 +357,10 @@ function fmtTestingSeconds(s) {
 function updateTestingSummary() {
   const el = $("set-testing-summary");
   if (!el) return;
+  if (Array.isArray(testingSkipRules) && testingSkipRules.length > 0) {
+    el.textContent = t("settings.testing_summary_rules", { count: testingSkipRules.length });
+    return;
+  }
   const tokens = Math.max(0, parseInt($("set-testing-max-stage-tokens")?.value, 10) || 0);
   const seconds = Math.max(0, parseInt($("set-testing-max-stage-seconds")?.value, 10) || 0);
   const mode = $("set-testing-mode")?.value === "all" ? "all" : "any";
@@ -378,6 +382,143 @@ function bindTestingSummaryEvents() {
       el.addEventListener("change", updateTestingSummary);
     }
   }
+}
+
+// ---------- testing auto-skip rules by model speed ----------
+
+let testingSkipRules = [];
+
+function fmtSpeedRange(min, max) {
+  min = Math.max(0, Number(min) || 0);
+  max = Number(max) || 0;
+  if (max > 0) return `${min}–${max} tok/s`;
+  if (min > 0) return `${min}+ tok/s`;
+  return t("settings.testing_rule_any_speed");
+}
+
+function testingRuleSummary(rule) {
+  const range = fmtSpeedRange(rule.min_tps, rule.max_tps);
+  const tokens = Math.max(0, parseInt(rule.max_tokens, 10) || 0);
+  const seconds = Math.max(0, parseInt(rule.max_seconds, 10) || 0);
+  const mode = rule.mode === "all" ? "all" : "any";
+  const vars = { range, tokens: fmtTestingTokens(tokens), time: fmtTestingSeconds(seconds) };
+  let key = "settings.testing_rule_summary_off";
+  if (tokens && seconds) key = mode === "all" ? "settings.testing_rule_summary_all" : "settings.testing_rule_summary_any";
+  else if (tokens) key = "settings.testing_rule_summary_tokens";
+  else if (seconds) key = "settings.testing_rule_summary_time";
+  return t(key, vars);
+}
+
+function renderSkipRules() {
+  const box = $("testing-skip-rules");
+  if (!box) return;
+  box.innerHTML = "";
+  testingSkipRules.forEach((rule, idx) => {
+    const row = document.createElement("div");
+    row.className = "skip-rule-row";
+    row.dataset.idx = String(idx);
+    row.innerHTML = `
+      <input type="number" class="skip-min" min="0" step="10" value="${escapeHtml(String(rule.min_tps ?? 0))}" autocomplete="off">
+      <span class="muted skip-dash">–</span>
+      <input type="number" class="skip-max" min="0" step="10" value="${rule.max_tps ? escapeHtml(String(rule.max_tps)) : ""}" placeholder="∞" autocomplete="off">
+      <input type="number" class="skip-tokens" min="0" step="100" value="${rule.max_tokens ? escapeHtml(String(rule.max_tokens)) : ""}" placeholder="—" autocomplete="off">
+      <input type="number" class="skip-seconds" min="0" step="10" value="${rule.max_seconds ? escapeHtml(String(rule.max_seconds)) : ""}" placeholder="—" autocomplete="off">
+      <select class="skip-mode" autocomplete="off">
+        <option value="any"${rule.mode === "all" ? "" : " selected"}>OR</option>
+        <option value="all"${rule.mode === "all" ? " selected" : ""}>AND</option>
+      </select>
+      <span class="skip-rule-btns">
+        <button type="button" class="btn-icon skip-up" title="↑">↑</button>
+        <button type="button" class="btn-icon skip-down" title="↓">↓</button>
+        <button type="button" class="btn-icon skip-del" title="×">×</button>
+      </span>
+      <div class="skip-rule-summary muted"></div>
+    `;
+    box.appendChild(row);
+    updateSkipRuleSummary(row, rule);
+  });
+  updateTestingSummary();
+}
+
+function updateSkipRuleSummary(row, rule) {
+  const el = row.querySelector(".skip-rule-summary");
+  if (el) el.textContent = testingRuleSummary(rule);
+}
+
+function readSkipRuleRow(row) {
+  const num = (sel) => {
+    const raw = (row.querySelector(sel)?.value ?? "").trim();
+    return raw === "" ? 0 : Number(raw);
+  };
+  return {
+    min_tps: Math.max(0, num(".skip-min") || 0),
+    max_tps: Math.max(0, num(".skip-max") || 0),
+    max_tokens: Math.max(0, Math.floor(num(".skip-tokens") || 0)),
+    max_seconds: Math.max(0, Math.floor(num(".skip-seconds") || 0)),
+    mode: row.querySelector(".skip-mode")?.value === "all" ? "all" : "any",
+  };
+}
+
+function syncSkipRulesFromDOM() {
+  const box = $("testing-skip-rules");
+  if (!box) return;
+  const next = [];
+  box.querySelectorAll(".skip-rule-row").forEach((row) => {
+    const rule = readSkipRuleRow(row);
+    next.push(rule);
+    updateSkipRuleSummary(row, rule);
+  });
+  testingSkipRules = next;
+  updateTestingSummary();
+}
+
+function bindSkipRulesEvents() {
+  const box = $("testing-skip-rules");
+  if (box && !box._skipRulesBound) {
+    box._skipRulesBound = true;
+    box.addEventListener("input", syncSkipRulesFromDOM);
+    box.addEventListener("change", syncSkipRulesFromDOM);
+    box.addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const row = e.target.closest(".skip-rule-row");
+      if (!row) return;
+      const idx = Number(row.dataset.idx);
+      if (btn.classList.contains("skip-del")) {
+        testingSkipRules.splice(idx, 1);
+      } else if (btn.classList.contains("skip-up") && idx > 0) {
+        const [r] = testingSkipRules.splice(idx, 1);
+        testingSkipRules.splice(idx - 1, 0, r);
+      } else if (btn.classList.contains("skip-down") && idx < testingSkipRules.length - 1) {
+        const [r] = testingSkipRules.splice(idx, 1);
+        testingSkipRules.splice(idx + 1, 0, r);
+      } else {
+        return;
+      }
+      renderSkipRules();
+    });
+  }
+  const add = $("set-testing-add-rule");
+  if (add && !add._skipRuleAddBound) {
+    add._skipRuleAddBound = true;
+    add.addEventListener("click", () => {
+      testingSkipRules.push({ min_tps: 0, max_tps: 0, max_tokens: 0, max_seconds: 0, mode: "any" });
+      renderSkipRules();
+    });
+  }
+}
+
+function loadSkipRulesFromConfig() {
+  const raw = currentConfig?.testing?.skip_rules;
+  testingSkipRules = Array.isArray(raw) ? raw.map((r) => ({
+    min_tps: Math.max(0, Number(r.min_tps) || 0),
+    max_tps: Math.max(0, Number(r.max_tps) || 0),
+    max_tokens: Math.max(0, Math.floor(Number(r.max_tokens) || 0)),
+    max_seconds: Math.max(0, Math.floor(Number(r.max_seconds) || 0)),
+    mode: r.mode === "all" ? "all" : "any",
+  })) : [];
+  bindSkipRulesEvents();
+  renderSkipRules();
 }
 
 // ---------- System Prompts Library ----------

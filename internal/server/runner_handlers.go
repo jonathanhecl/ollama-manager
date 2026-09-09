@@ -201,10 +201,21 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	testingLimits := s.cfg.Testing
 	s.cfgMu.RUnlock()
+	stageRules := make([]runner.StageSkipRule, 0, len(testingLimits.SkipRules))
+	for _, r := range testingLimits.SkipRules {
+		stageRules = append(stageRules, runner.StageSkipRule{
+			MinTPS:     r.MinTPS,
+			MaxTPS:     r.MaxTPS,
+			MaxTokens:  r.MaxTokens,
+			MaxSeconds: r.MaxSeconds,
+			Mode:       r.Mode,
+		})
+	}
 	s.runner.SetStageLimits(runner.StageLimits{
 		MaxTokens:  testingLimits.MaxStageTokens,
 		MaxSeconds: testingLimits.MaxStageSeconds,
 		Mode:       testingLimits.Mode,
+		Rules:      stageRules,
 	})
 
 	// Use background context so async execution survives HTTP request completion.

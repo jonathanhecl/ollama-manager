@@ -140,6 +140,57 @@ func TestLoadNormalizesNegativeTestingLimits(t *testing.T) {
 	}
 }
 
+func TestLoadKeepsSkipRules(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860, "testing": {"skip_rules": [
+    {"min_tps": 100, "max_tps": 200, "max_seconds": 120, "mode": "any"},
+    {"min_tps": 0, "max_tokens": 3000, "max_seconds": 180, "mode": "all"}
+  ]}}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Testing.SkipRules) != 2 {
+		t.Fatalf("SkipRules = %+v, want 2 rules", cfg.Testing.SkipRules)
+	}
+	r := cfg.Testing.SkipRules[0]
+	if r.MinTPS != 100 || r.MaxTPS != 200 || r.MaxSeconds != 120 || r.Mode != "any" {
+		t.Errorf("rule 0 = %+v, want {100 200 0 120 any}", r)
+	}
+}
+
+func TestLoadNormalizesSkipRules(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860, "testing": {"skip_rules": [
+    {"min_tps": -5, "max_tps": -1, "max_tokens": -10, "max_seconds": 60, "mode": "bogus"},
+    {"min_tps": 200, "max_tps": 100, "max_seconds": 60},
+    {"min_tps": 50}
+  ]}}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// Rule 0: negatives clamped, unknown mode -> any. Rule 1: max<=min ->
+	// unbounded. Rule 2: no cut condition -> dropped.
+	if len(cfg.Testing.SkipRules) != 2 {
+		t.Fatalf("SkipRules = %+v, want 2 rules", cfg.Testing.SkipRules)
+	}
+	r := cfg.Testing.SkipRules[0]
+	if r.MinTPS != 0 || r.MaxTPS != 0 || r.MaxTokens != 0 || r.MaxSeconds != 60 || r.Mode != "any" {
+		t.Errorf("rule 0 = %+v, want {0 0 0 60 any}", r)
+	}
+	if cfg.Testing.SkipRules[1].MaxTPS != 0 {
+		t.Errorf("rule 1 max should reset to unbounded, got %+v", cfg.Testing.SkipRules[1])
+	}
+}
+
+func TestNormalizeSkipRuleRequiresCut(t *testing.T) {
+	if _, ok := NormalizeSkipRule(SkipRule{MinTPS: 0, MaxTPS: 100}); ok {
+		t.Errorf("rule without tokens/seconds should be dropped")
+	}
+	if _, ok := NormalizeSkipRule(SkipRule{MinTPS: 0, MaxSeconds: 60}); !ok {
+		t.Errorf("rule with seconds should be kept")
+	}
+}
+
 func TestLoadKeepsLeaderboardGroupOrder(t *testing.T) {
 	path := writeTempConfig(t, `{"port": 7860, "leaderboard_group_order": ["coding", "terminal", "judge"]}`)
 	cfg, err := Load(path)

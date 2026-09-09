@@ -454,6 +454,34 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, errors.New("testing.mode must be \"any\" or \"all\""))
 			return
 		}
+		for i, r := range body.Testing.SkipRules {
+			if r.MinTPS < 0 || r.MaxTPS < 0 {
+				writeError(w, http.StatusBadRequest, errors.New("testing.skip_rules speed bounds must be >= 0"))
+				return
+			}
+			if r.MaxTPS > 0 && r.MaxTPS <= r.MinTPS {
+				writeError(w, http.StatusBadRequest, errors.New("testing.skip_rules max_tps must exceed min_tps (or be 0 for unbounded)"))
+				return
+			}
+			if r.MaxTokens < 0 || r.MaxTokens > 10000000 {
+				writeError(w, http.StatusBadRequest, errors.New("testing.skip_rules max_tokens must be 0..10000000 (0 = disabled)"))
+				return
+			}
+			if r.MaxSeconds < 0 || r.MaxSeconds > 86400 {
+				writeError(w, http.StatusBadRequest, errors.New("testing.skip_rules max_seconds must be 0..86400 (0 = disabled)"))
+				return
+			}
+			if r.Mode != "" && r.Mode != config.TestingModeAny && r.Mode != config.TestingModeAll {
+				writeError(w, http.StatusBadRequest, errors.New("testing.skip_rules mode must be \"any\" or \"all\""))
+				return
+			}
+			nr, ok := config.NormalizeSkipRule(r)
+			if !ok {
+				writeError(w, http.StatusBadRequest, errors.New("testing.skip_rules entries need at least one cut (max_tokens or max_seconds)"))
+				return
+			}
+			body.Testing.SkipRules[i] = nr
+		}
 		body.Testing.Mode = config.NormalizeTestingMode(body.Testing.Mode)
 		s.cfg.Testing = *body.Testing
 	}

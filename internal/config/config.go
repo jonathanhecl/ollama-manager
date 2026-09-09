@@ -67,6 +67,61 @@ type TestingLimits struct {
 	MaxStageSeconds int `json:"max_stage_seconds,omitempty"`
 	// Mode combines the enabled conditions: "any" (default) or "all".
 	Mode string `json:"mode,omitempty"`
+	// SkipRules holds optional per-speed auto-skip rules. When non-empty,
+	// rules replace the legacy MaxStageTokens/MaxStageSeconds/Mode limits:
+	// the first rule whose speed range contains the model's recorded tok/s
+	// applies. An empty list means "no cuts" (legacy zero behavior).
+	SkipRules []SkipRule `json:"skip_rules,omitempty"`
+}
+
+// SkipRule is one auto-skip rule bound to a model speed range.
+// Speed is the model's recorded tok/s. MinTPS is inclusive, MaxTPS is
+// exclusive; MaxTPS <= 0 means unbounded. Models without a recorded speed
+// only match rules with MinTPS == 0.
+type SkipRule struct {
+	MinTPS     float64 `json:"min_tps,omitempty"`
+	MaxTPS     float64 `json:"max_tps,omitempty"`
+	MaxTokens  int     `json:"max_tokens,omitempty"`
+	MaxSeconds int     `json:"max_seconds,omitempty"`
+	Mode       string  `json:"mode,omitempty"`
+}
+
+// NormalizeSkipRule clamps a rule to valid ranges (negatives mean disabled,
+// unknown modes become "any"). It reports whether the rule carries any
+// effective cut condition.
+func NormalizeSkipRule(r SkipRule) (SkipRule, bool) {
+	if r.MinTPS < 0 {
+		r.MinTPS = 0
+	}
+	if r.MaxTPS < 0 {
+		r.MaxTPS = 0
+	}
+	if r.MaxTPS > 0 && r.MaxTPS <= r.MinTPS {
+		r.MaxTPS = 0
+	}
+	if r.MaxTokens < 0 {
+		r.MaxTokens = 0
+	}
+	if r.MaxSeconds < 0 {
+		r.MaxSeconds = 0
+	}
+	r.Mode = NormalizeTestingMode(r.Mode)
+	return r, r.MaxTokens > 0 || r.MaxSeconds > 0
+}
+
+// NormalizeSkipRules normalizes every rule in place, dropping rules with no
+// effective condition.
+func NormalizeSkipRules(rules []SkipRule) []SkipRule {
+	out := rules[:0]
+	for _, r := range rules {
+		if nr, ok := NormalizeSkipRule(r); ok {
+			out = append(out, nr)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // NormalizeTestingMode returns "any" for empty/unknown modes.
@@ -209,6 +264,7 @@ func Load(path string) (*Config, error) {
 		cfg.Testing.MaxStageSeconds = 0
 	}
 	cfg.Testing.Mode = NormalizeTestingMode(cfg.Testing.Mode)
+	cfg.Testing.SkipRules = NormalizeSkipRules(cfg.Testing.SkipRules)
 
 	def := Defaults().ChatDefaults
 	if cfg.ChatDefaults.Temperature == nil {

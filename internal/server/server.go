@@ -199,6 +199,14 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 	srv.runner.SetIsExternal(func(name string) bool {
 		return srv.externalModels != nil && srv.externalModels.IsExternal(name)
 	})
+	// Recorded tok/s drives per-speed auto-skip rules (family-aware).
+	srv.runner.SetSpeedFunc(func(name string) (float64, bool) {
+		rec, ok := srv.getModelUsage(name)
+		if !ok || rec.RecordTokensPerSec <= 0 {
+			return 0, false
+		}
+		return rec.RecordTokensPerSec, true
+	})
 	return srv, nil
 }
 

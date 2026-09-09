@@ -596,6 +596,11 @@ type modelView struct {
 	Disabled             bool       `json:"disabled,omitempty"`
 	URL                  string     `json:"url,omitempty"`
 	BaseModel            string     `json:"base_model,omitempty"`
+	BenchOverall         *float64   `json:"bench_overall,omitempty"`
+	BenchTested          bool       `json:"bench_tested,omitempty"`
+	BenchComplete        bool       `json:"bench_complete,omitempty"`
+	BenchMissing         []string   `json:"bench_missing,omitempty"`
+	BenchPossible        []string   `json:"bench_possible,omitempty"`
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -841,6 +846,55 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			ghostOut = append(ghostOut, gv)
+		}
+	}
+
+	// Bench digest for the BENCH column: one BuildLeaderboardData for all
+	// rows (installed, external and ghosts) so the list needs no extra
+	// requests. Ghosts are passed without caps (unknown) and are always
+	// rendered grey/read-only via summarizeBench.
+	capsByModel := make(map[string][]string, len(out))
+	for _, m := range models {
+		if caps, ok := modelMeta[m.Digest]; ok && len(caps.Capabilities) > 0 {
+			capsByModel[m.Name] = caps.Capabilities
+		} else {
+			capsByModel[m.Name] = nil
+		}
+	}
+	if s.externalModels != nil {
+		for _, ext := range s.externalModels.All() {
+			if ext.Disabled {
+				continue
+			}
+			caps := ext.Capabilities
+			if len(caps) == 0 {
+				caps = []string{"completion", "tools", "thinking", "vision"}
+			}
+			capsByModel[ext.Name] = caps
+		}
+	}
+	ghostSet := make(map[string]bool, len(ghostOut))
+	for _, g := range ghostOut {
+		ghostSet[g.Name] = true
+	}
+	var lbData *LeaderboardData
+	if data, err := s.BuildLeaderboardData(); err == nil {
+		lbData = data
+	}
+	benchByModel := summarizeBench(lbData, capsByModel, ghostSet)
+	for i := range out {
+		if sum, ok := benchByModel[out[i].Name]; ok {
+			out[i].BenchOverall = sum.Overall
+			out[i].BenchTested = sum.Tested
+			out[i].BenchComplete = sum.Complete
+			out[i].BenchMissing = sum.Missing
+			out[i].BenchPossible = sum.Possible
+		}
+	}
+	for i := range ghostOut {
+		if sum, ok := benchByModel[ghostOut[i].Name]; ok {
+			ghostOut[i].BenchOverall = sum.Overall
+			ghostOut[i].BenchTested = sum.Tested
 		}
 	}
 

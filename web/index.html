@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260909_03">
+  <link rel="stylesheet" href="/static/style.css?v=20260909_04">
 </head>
 <body>
   <header class="topbar">
@@ -97,6 +97,7 @@
             <th class="col-state"></th>
             <th class="sortable" data-sort="name" data-i18n="col.name">Name</th>
             <th class="sortable" data-sort="record_tokens_per_sec" data-i18n="col.record_tokens_per_sec">Record Tok/s</th>
+            <th class="sortable" data-sort="bench_overall" data-i18n="col.bench">Bench</th>
             <th class="sortable" data-sort="parameter_size" data-i18n="col.params">Params</th>
             <th class="sortable" data-sort="context_length" data-i18n="col.context">Context</th>
             <th class="sortable" data-sort="size" data-i18n="col.size">Size</th>
@@ -576,7 +577,7 @@
                     </tr>
                   </thead>
                   <tbody id="analytics-meta-tbody-installed">
-                    <tr class="empty"><td colspan="8" data-i18n="state.loading">Loading…</td></tr>
+          <tr class="empty"><td colspan="9" data-i18n="state.loading">Loading…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -2638,12 +2639,12 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260909_06"></script>
+  <script src="/static/i18n.js?v=20260909_07"></script>
   <script src="/static/app-helpers.js?v=20260908_02"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
   <script src="/static/app-status.js?v=20260820"></script>
-  <script src="/static/app-list.js?v=20260829_01"></script>
+  <script src="/static/app-list.js?v=20260909_01"></script>
   <script src="/static/app-detail.js?v=20260829_01"></script>
   <script src="/static/app-chat.js?v=20260908_02"></script>
   <script src="/static/app-tests.js?v=20260908_02"></script>

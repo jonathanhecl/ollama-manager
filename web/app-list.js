@@ -13,7 +13,7 @@ async function refreshModels() {
     updateChatContextMeter();
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
-    $("models-tbody").innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
+    $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
   }
 }
 
@@ -181,6 +181,7 @@ function sortKey(m, col) {
     case "name": return (m.name || "").toLowerCase();
     case "family": return (m.family || "").toLowerCase();
     case "record_tokens_per_sec": return Number(m.record_tokens_per_sec) || 0;
+    case "bench_overall": return (typeof m.bench_overall === "number") ? m.bench_overall : -1;
     case "parameter_size": return parseParamSize(m.parameter_size) || Number(m.parameter_count) || 0;
     case "quantization": return ((m.family || "") + " " + (m.quantization || "")).toLowerCase();
     case "context_length": return Number(m.context_length) || 0;
@@ -388,14 +389,20 @@ function renderTable() {
 
   updateModelsCount(allToRender.length, totalCount, q);
 
+  // BENCH column is only shown when at least one model (installed or
+  // uninstalled history) has bench results; otherwise it stays hidden.
+  const hasBench = activeModels.some((m) => !!m.bench_tested);
+  const table = $("models-table");
+  if (table) table.classList.toggle("hide-bench", !hasBench);
+
   if (!allToRender.length) {
     tbody.innerHTML = "";
     if (q) {
-      tbody.innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.no_search_results", { query: modelSearchQuery.trim() }))}</td></tr>`;
+      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.no_search_results", { query: modelSearchQuery.trim() }))}</td></tr>`;
     } else if (showArchivedOnly) {
-      tbody.innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
+      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_archived"))}</td></tr>`;
     } else {
-      tbody.innerHTML = `<tr class="empty"><td colspan="8">${escapeHtml(t("state.empty_models"))}</td></tr>`;
+      tbody.innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.empty_models"))}</td></tr>`;
     }
     return;
   }
@@ -420,6 +427,77 @@ function renderTable() {
     // Hue from 0 (red) -> 60 (yellow) -> 120 (green)
     const hue = Math.round(ratio * 120);
     return `hsl(${hue}, 85%, 62%)`;
+  }
+
+  // Bench color scale: relative only among fully-evaluated installed
+  // models (state 1). Partials, untested and ghosts always render grey.
+  let benchMin = Infinity;
+  let benchMax = -Infinity;
+  for (const m of activeModels) {
+    if (m.isGhost || !m.bench_tested || !m.bench_complete) continue;
+    const v = Number(m.bench_overall);
+    if (!isFinite(v)) continue;
+    if (v < benchMin) benchMin = v;
+    if (v > benchMax) benchMax = v;
+  }
+
+  function getBenchHeatStyle(v) {
+    if (typeof batteryLbHeatStyle === "function") {
+      const range = (isFinite(benchMin) && isFinite(benchMax)) ? { min: benchMin, max: benchMax } : null;
+      return batteryLbHeatStyle(v, range, true);
+    }
+    let rel = 1.0;
+    if (isFinite(benchMin) && isFinite(benchMax)) {
+      if (benchMax > benchMin) {
+        rel = Math.max(0, Math.min(1, (v - benchMin) / (benchMax - benchMin)));
+      } else if (benchMax === 0) {
+        rel = 0.0;
+      }
+    }
+    const hue = Math.round(rel * 120);
+    const bgPct = (18 + rel * 38).toFixed(0);
+    const textL = (58 + rel * 18).toFixed(0);
+    return `background: color-mix(in srgb, hsl(${hue}, 75%, 42%) ${bgPct}%, transparent); color: hsl(${hue}, 88%, ${textL}%); font-weight: ${rel >= 0.95 ? "700" : "600"};`;
+  }
+
+  function handleBenchCellAction(action, m) {
+    if (action === "leaderboard") {
+      if (typeof showLeaderboardView === "function") showLeaderboardView();
+      return;
+    }
+    if (typeof openBatteryModal !== "function") return;
+    const groups = action === "bench-missing" ? (m.bench_missing || []) : (m.bench_possible || []);
+    const opts = { initialModel: m.name };
+    if (Array.isArray(groups) && groups.length > 0) opts.groupIds = groups;
+    void openBatteryModal(opts);
+  }
+
+  function getBenchCellHtml(m) {
+    const overall = (typeof m.bench_overall === "number" && isFinite(m.bench_overall)) ? m.bench_overall : null;
+    if (m.isPending) return "—";
+    if (m.isGhost) {
+      // Deleted models: grey number, read-only, no action.
+      if (m.bench_tested && overall != null) {
+        return `<span class="record-num bench-grey">${overall.toFixed(1)}</span>`;
+      }
+      return "—";
+    }
+    if (m.bench_tested) {
+      if (m.bench_complete && overall != null) {
+        // Complete: colored overall, click goes to leaderboard.
+        return `<button type="button" class="bench-btn" data-bench-action="leaderboard" title="${escapeHtml(t("models.bench_leaderboard_title"))}" style="${escapeHtml(getBenchHeatStyle(overall))}"><span class="record-num">${overall.toFixed(1)}</span></button>`;
+      }
+      // Missing categories: partial overall in grey, click benches the gaps.
+      const label = overall != null
+        ? `<span class="record-num bench-grey">${overall.toFixed(1)}</span>`
+        : `<span class="muted">—</span>`;
+      return `<button type="button" class="bench-btn bench-grey-bg" data-bench-action="bench-missing" title="${escapeHtml(t("battery.lb_bench_missing"))}">${label}</button>`;
+    }
+    if ((Number(m.record_tokens_per_sec) || 0) > 0) {
+      // Never benched but known to run: grey ⚡ opens bench for all categories.
+      return `<button type="button" class="bench-btn bench-grey-bg" data-bench-action="bench-all" title="${escapeHtml(t("battery.lb_bench_missing"))}" aria-label="${escapeHtml(t("battery.lb_bench_missing"))}"><span aria-hidden="true">⚡</span></button>`;
+    }
+    return "—";
   }
 
   const dotLoadedTxt = t("detail.dot_loaded");
@@ -491,6 +569,7 @@ function renderTable() {
           ${m.isPending ? "" : minLoadHtml}
         </div>
       </td>
+      <td class="cell-bench-col">${getBenchCellHtml(m)}</td>
       <td class="cell-params">${escapeHtml(m.is_external ? "—" : modelParameterLabel(m))}</td>
       <td class="cell-ctx">${m.isPending || m.is_external ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
       <td class="cell-size">${m.isPending || m.is_external ? "—" : (m.size > 0 ? fmtBytes(m.size) : "—")}</td>
@@ -529,6 +608,7 @@ function renderTable() {
     const isActive = (m.name === activeName);
     const capsStr = JSON.stringify(m.capabilities || []);
     const tokColor = getToksRecordColor(m.record_tokens_per_sec);
+    const benchSig = JSON.stringify([m.bench_overall ?? null, !!m.bench_tested, !!m.bench_complete, m.bench_missing || [], m.bench_possible || [], Number(m.record_tokens_per_sec) || 0]);
 
     let tr = existingRows.get(m.name);
     let needUpdate = false;
@@ -546,6 +626,7 @@ function renderTable() {
         tr._m_last_used !== m.last_used_at ||
         tr._m_record_tok !== m.record_tokens_per_sec ||
         tr._m_tok_color !== tokColor ||
+        tr._m_bench_sig !== benchSig ||
         tr._m_min_cold_load !== m.min_cold_load_ms ||
         tr._m_ctx !== m.context_length ||
         tr._m_family !== m.family ||
@@ -580,9 +661,18 @@ function renderTable() {
         if (e.target.closest(".reinstall-ghost-btn")) return;
         if (e.target.closest(".ghost-site-btn")) return;
         if (e.target.closest(".unarchive-btn")) return;
+        if (e.target.closest(".bench-btn")) return;
         if (m.isGhost) return;
         showChatViewWithModel(newTr.dataset.name);
       });
+
+      const benchBtn = newTr.querySelector("[data-bench-action]");
+      if (benchBtn) {
+        benchBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          handleBenchCellAction(benchBtn.dataset.benchAction, m);
+        });
+      }
 
       const reinstallBtn = newTr.querySelector(".reinstall-ghost-btn");
       if (reinstallBtn) {
@@ -633,6 +723,7 @@ function renderTable() {
       newTr._m_last_used = m.last_used_at;
       newTr._m_record_tok = m.record_tokens_per_sec;
       newTr._m_tok_color = tokColor;
+      newTr._m_bench_sig = benchSig;
       newTr._m_min_cold_load = m.min_cold_load_ms;
       newTr._m_ctx = m.context_length;
       newTr._m_family = m.family;
@@ -741,7 +832,7 @@ document.querySelectorAll("#models-table th.sortable").forEach((th) => {
     } else {
       sort.col = col;
       // Numeric defaults: largest first; text defaults: A→Z.
-      sort.dir = ["size", "context_length", "modified_at", "parameter_size", "record_tokens_per_sec"].includes(col) ? "desc" : "asc";
+      sort.dir = ["size", "context_length", "modified_at", "parameter_size", "record_tokens_per_sec", "bench_overall"].includes(col) ? "desc" : "asc";
     }
     localStorage.setItem(SORT_KEY, JSON.stringify(sort));
     renderTable();

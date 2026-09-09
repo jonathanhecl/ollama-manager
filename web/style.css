@@ -518,6 +518,23 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 }
 .cell-size, .cell-quant, .cell-params, .cell-ctx { font-family: var(--mono); color: var(--text-dim); }
 .cell-record-tok-col { font-family: var(--mono); color: var(--text); }
+.cell-bench-col { font-family: var(--mono); color: var(--text); white-space: nowrap; }
+#models-table.hide-bench th[data-sort="bench_overall"],
+#models-table.hide-bench .cell-bench-col { display: none; }
+.bench-btn {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.bench-btn:hover { filter: brightness(1.25); }
+.bench-grey { color: #9ca3af; }
+.bench-grey-bg { background: rgba(156, 163, 175, 0.14); }
 .cell-record-wrap {
   display: flex;
   flex-direction: column;
@@ -4994,9 +5011,9 @@ button.chat-send:disabled:hover {
     table-layout: auto;
   }
   /* Simplify table on smaller screens so it uses the viewport instead of horizontal scrolling.
-     Keep Record Tok/s visible alongside Size. */
-  #models-table th:nth-child(4), #models-table td:nth-child(4),
-  #models-table th:nth-child(5), #models-table td:nth-child(5) { display: none; }
+     Keep Record Tok/s visible alongside Size. Bench sits in column 4. */
+  #models-table th:nth-child(5), #models-table td:nth-child(5),
+  #models-table th:nth-child(6), #models-table td:nth-child(6) { display: none; }
   #models-table th:nth-child(3), #models-table td:nth-child(3) {
     display: table-cell;
     text-align: right;
@@ -5724,9 +5741,10 @@ button.chat-send:disabled:hover {
     text-align: right;
     white-space: nowrap;
   }
-  #models-table th:nth-child(6), #models-table td:nth-child(6),
+  #models-table th:nth-child(4), #models-table td:nth-child(4),
   #models-table th:nth-child(7), #models-table td:nth-child(7),
-  #models-table th:nth-child(8), #models-table td:nth-child(8) {
+  #models-table th:nth-child(8), #models-table td:nth-child(8),
+  #models-table th:nth-child(9), #models-table td:nth-child(9) {
     display: none;
   }
   .cell-record-wrap {

@@ -198,10 +198,17 @@ function renderDownloads() {
   $("dl-count-queued").textContent = String(buckets.queued.length);
   $("dl-count-paused").textContent = String(buckets.paused.length);
   $("dl-count-finished").textContent = String(buckets.finished.length);
-  $("dl-list-active").innerHTML = buckets.active.map(jobCardHTML).join("") || emptyRow();
-  $("dl-list-queued").innerHTML = buckets.queued.map(jobCardHTML).join("") || emptyRow();
-  $("dl-list-paused").innerHTML = buckets.paused.map(jobCardHTML).join("") || emptyRow();
-  $("dl-list-finished").innerHTML = buckets.finished.map(jobCardHTML).join("") || emptyRow();
+  dlSyncList("dl-list-active", buckets.active);
+  dlSyncList("dl-list-queued", buckets.queued);
+  dlSyncList("dl-list-paused", buckets.paused);
+  dlSyncList("dl-list-finished", buckets.finished);
+  // Re-measure name marquees after (re)insertion. setupMarquees is idempotent
+  // and does not touch the animation state when the wrapper did not change,
+  // so ongoing scrolls keep playing across progress updates.
+  requestAnimationFrame(() => {
+    const modal = $("downloads-modal");
+    if (modal && typeof setupMarquees === "function") setupMarquees(modal);
+  });
   const hasAny = jobs.size > 0;
   $("dl-empty").hidden = hasAny;
   $("dl-total-badge").hidden = !hasAny;
@@ -240,34 +247,133 @@ function emptyRow() {
   return `<div class="dl-empty-row muted">${escapeHtml(t("downloads.section_empty"))}</div>`;
 }
 
+// Live job cards, keyed by job id. Reusing the same element across renders is
+// what keeps the name marquee running: a progress tick only rewrites the
+// dynamic fields, never the name node.
+const dlCardEls = new Map();
+
+function dlSizeLine(j) {
+  if (!(j.total > 0)) return "";
+  return j.status === "done"
+    ? fmtBytes(j.total)
+    : `${fmtBytes(j.completed || 0)} / ${fmtBytes(j.total)}`;
+}
+
+function dlSpeedText(j) {
+  return (j.status === "running" && j.speed > 0) ? fmtSpeed(j.speed) : "";
+}
+
+function dlEtaText(j) {
+  if (j.status === "running" && j.total > 0 && j.speed > 0) {
+    return `~${fmtETA((j.total - (j.completed || 0)) / j.speed)}`;
+  }
+  return "";
+}
+
+function dlFinishedText(j) {
+  const show = (j.status === "done" || j.status === "error") && !!j.finished_at;
+  return show ? fmtRelativeTime(j.finished_at) : "";
+}
+
+// In-place update of a card whose name and status did not change. Only the
+// dynamic fields (progress, percentages, speed, ETA, bytes, status label) are
+// rewritten; the marquee name node is left untouched so its animation survives.
+function dlUpdateCardFields(card, j) {
+  const pct = Math.max(0, Math.min(100, j.percent || 0));
+  const bar = card.querySelector(".dl-progress-bar");
+  if (bar) bar.style.width = pct.toFixed(1) + "%";
+
+  const statusEl = card.querySelector(".dl-status");
+  if (statusEl) {
+    statusEl.textContent = jobStatusLabel(j);
+    statusEl.className = "dl-status dl-status-" + j.status;
+  }
+
+  const pctEl = card.querySelector(".dl-pct");
+  if (pctEl) {
+    const txt = (j.status === "running" || j.status === "paused") ? `${pct.toFixed(1)}%` : "";
+    pctEl.textContent = txt;
+    pctEl.hidden = !txt;
+  }
+  const speedEl = card.querySelector(".dl-speed");
+  if (speedEl) {
+    const txt = dlSpeedText(j);
+    speedEl.textContent = txt;
+    speedEl.hidden = !txt;
+  }
+  const etaEl = card.querySelector(".dl-eta");
+  if (etaEl) {
+    const txt = dlEtaText(j);
+    etaEl.textContent = txt;
+    etaEl.hidden = !txt;
+  }
+  const bytesEl = card.querySelector(".dl-bytes");
+  if (bytesEl) bytesEl.textContent = dlSizeLine(j);
+
+  const finEl = card.querySelector(".dl-finished");
+  if (finEl) {
+    const txt = dlFinishedText(j);
+    finEl.textContent = txt;
+    finEl.hidden = !txt;
+    finEl.title = txt ? fmtDateTimeFull(j.finished_at) : "";
+  }
+}
+
+// Reconciles one bucket list with the desired jobs: creates only missing cards,
+// updates fields in place and reorders/strips as needed without rebuilding the
+// whole list (which would restart marquee animations).
+function dlSyncList(containerId, list) {
+  const container = $(containerId);
+  if (!container) return;
+  container.querySelectorAll(".dl-empty-row").forEach((el) => el.remove());
+
+  const wanted = new Set();
+  let cursor = container.firstElementChild;
+  for (const j of list) {
+    const id = String(j.id);
+    wanted.add(id);
+    let card = dlCardEls.get(id);
+    const reusable = card && card.dataset.status === j.status && card.dataset.name === j.name;
+    if (!reusable) {
+      if (card) card.remove();
+      const holder = document.createElement("div");
+      holder.innerHTML = jobCardHTML(j).trim();
+      card = holder.firstElementChild;
+      dlCardEls.set(id, card);
+    } else {
+      dlUpdateCardFields(card, j);
+    }
+    if (card !== cursor) {
+      container.insertBefore(card, cursor);
+    } else {
+      cursor = cursor.nextElementSibling;
+    }
+  }
+
+  for (const child of [...container.children]) {
+    if (!child.classList.contains("dl-item")) continue;
+    if (!wanted.has(child.dataset.id)) {
+      if (dlCardEls.get(child.dataset.id) === child) dlCardEls.delete(child.dataset.id);
+      child.remove();
+    }
+  }
+  if (list.length === 0) container.innerHTML = emptyRow();
+}
+
 function jobCardHTML(j) {
   const pct = Math.max(0, Math.min(100, j.percent || 0));
-  const sizeLine = j.total > 0
-    ? (j.status === "done" ? fmtBytes(j.total) : `${fmtBytes(j.completed || 0)} / ${fmtBytes(j.total)}`)
-    : "";
-  const showFinishedAt = (j.status === "done" || j.status === "error") && !!j.finished_at;
-  const finishedLine = showFinishedAt ? fmtRelativeTime(j.finished_at) : "";
-  const finishedTitle = showFinishedAt ? fmtDateTimeFull(j.finished_at) : "";
-  const finishedHTML = finishedLine
-    ? `<span class="dl-finished muted" title="${escapeHtml(finishedTitle)}">${escapeHtml(finishedLine)}</span>`
-    : "";
+  const sizeLine = dlSizeLine(j);
+  const speedText = dlSpeedText(j);
+  const etaText = dlEtaText(j);
+  const finishedText = dlFinishedText(j);
+  const finishedTitle = finishedText ? fmtDateTimeFull(j.finished_at) : "";
+  const finishedHTML = `<span class="dl-finished muted"${finishedText ? "" : " hidden"} title="${escapeHtml(finishedTitle)}">${escapeHtml(finishedText)}</span>`;
   const statusText = jobStatusLabel(j);
   const showBar = j.status === "running" || j.status === "done" || j.status === "paused" || (j.total > 0);
   const progress = showBar
     ? `<div class="dl-progress"><div class="dl-progress-bar dl-progress-${j.status}" style="width:${pct.toFixed(1)}%"></div></div>`
     : "";
-  const pctText = j.status === "running" || j.status === "paused"
-    ? `<span class="dl-pct mono">${pct.toFixed(1)}%</span>`
-    : "";
-  let speedHTML = "";
-  if (j.status === "running" && j.speed > 0) {
-    speedHTML = `<span class="dl-speed muted">${fmtSpeed(j.speed)}</span>`;
-  }
-  let etaHTML = "";
-  if (j.status === "running" && j.total > 0 && j.speed > 0) {
-    const remaining = (j.total - (j.completed || 0)) / j.speed;
-    etaHTML = `<span class="dl-eta muted">~${fmtETA(remaining)}</span>`;
-  }
+  const pctText = (j.status === "running" || j.status === "paused") ? `${pct.toFixed(1)}%` : "";
 
   const siteUrl = typeof modelHomepageUrl === "function" ? modelHomepageUrl(j.name) : "";
   const siteBtn = siteUrl
@@ -307,18 +413,20 @@ function jobCardHTML(j) {
     ? `dl-item dl-${j.status} dl-clickable`
     : `dl-item dl-${j.status}`;
   return `
-    <div class="${cardClass}" data-id="${escapeHtml(j.id)}">
+    <div class="${cardClass}" data-id="${escapeHtml(j.id)}" data-status="${escapeHtml(j.status)}" data-name="${escapeHtml(j.name)}">
       <div class="dl-row1">
-        <span class="dl-name mono">${escapeHtml(j.name)}</span>
-        <span class="dl-status dl-status-${j.status}">${escapeHtml(statusText)}</span>
+        <div class="dl-name-wrap marquee-wrapper">
+          <span class="dl-name mono marquee-content" title="${escapeHtml(j.name)}">${escapeHtml(j.name)}</span>
+        </div>
         <span class="dl-actions">${actionBtn}</span>
       </div>
       ${progress}
       <div class="dl-row2">
         <div class="dl-left">
-          ${pctText}
-          ${speedHTML}
-          ${etaHTML}
+          <span class="dl-status dl-status-${j.status}">${escapeHtml(statusText)}</span>
+          <span class="dl-pct mono"${pctText ? "" : " hidden"}>${escapeHtml(pctText)}</span>
+          <span class="dl-speed muted"${speedText ? "" : " hidden"}>${escapeHtml(speedText)}</span>
+          <span class="dl-eta muted"${etaText ? "" : " hidden"}>${escapeHtml(etaText)}</span>
         </div>
         <div class="dl-right">
           <span class="dl-bytes muted">${escapeHtml(sizeLine)}</span>

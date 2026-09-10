@@ -2476,13 +2476,13 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   align-items: center;
   gap: 10px;
 }
-.dl-name {
+.dl-name-wrap {
   flex: 1;
+  min-width: 0;
+}
+.dl-name {
   font-size: 13px;
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .dl-status {
   font-size: 11px;
@@ -2492,7 +2492,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border-radius: 999px;
   background: #0e0e12;
   border: 1px solid var(--border);
-  max-width: 280px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2558,18 +2558,25 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  column-gap: 8px;
   font-family: var(--mono);
   font-size: 11px;
 }
 .dl-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
 }
 .dl-right {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 .dl-pct { color: var(--text); font-weight: 600; font-size: 12px; min-width: 44px; }
 .dl-speed { color: var(--good); }

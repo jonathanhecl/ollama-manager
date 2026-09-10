@@ -12918,6 +12918,22 @@ button.chat-send:disabled:hover {
   color: var(--accent);
 }
 
+/* Temporary highlight when jumping to a model from the bench list. */
+@keyframes lbRowHighlight {
+  0%, 25% {
+    background-color: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.battery-lb-table tbody tr.lb-row-highlight td {
+  animation: lbRowHighlight 2.4s ease-out 1;
+}
+.battery-lb-table tbody tr.lb-row-highlight td.cell-lb-model {
+  box-shadow: inset 3px 0 0 var(--accent), 3px 0 8px rgba(0, 0, 0, 0.45);
+}
+
 .lb-model-name {
   font-size: 13px;
   font-weight: 600;

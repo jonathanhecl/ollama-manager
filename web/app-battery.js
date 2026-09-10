@@ -164,27 +164,38 @@ function paintBatteryCoverage() {
 
 // Loads per-model evaluation history for the targeted categories so the
 // models step shows what was already evaluated (and what is still pending).
+// Derives coverage from the cached leaderboard payload (one request) instead
+// of scanning every category's full history server-side.
 async function refreshBatteryCoverage() {
   const token = ++batteryCoverageSeq;
-  const targetIds = batteryCoverageTargetIds();
+  const targetIds = new Set(batteryCoverageTargetIds());
   batteryCoverageByModel = new Map();
   batteryCoverageLoaded = false;
   paintBatteryCoverage();
-  const ids = targetIds.length > 0 ? targetIds : batteryModalAllGroupIds();
-  const results = await Promise.all(ids.map((gid) =>
-    api("/api/runner/group-history/" + encodeURIComponent(gid))
-      .then((d) => ({ gid, summary: (d && d.summary) || [] }))
-      .catch(() => ({ gid, summary: [] }))
-  ));
+
+  let lb = null;
+  try {
+    lb = await api("/api/runner/leaderboard");
+  } catch {
+    lb = null;
+  }
   if (token !== batteryCoverageSeq) return; // superseded (Back / reopen / new target)
+
   const map = new Map();
-  for (const { gid, summary } of results) {
-    for (const s of summary) {
-      if (s && s.model && (s.total_tests || 0) > 0) {
-        if (!map.has(s.model)) map.set(s.model, new Set());
-        map.get(s.model).add(gid);
+  const rows = (lb && Array.isArray(lb.models)) ? lb.models : [];
+  for (const m of rows) {
+    if (!m || !m.model) continue;
+    const scores = m.scores || {};
+    let set = null;
+    for (const gid of Object.keys(scores)) {
+      if (targetIds.size > 0 && !targetIds.has(gid)) continue;
+      const sc = scores[gid];
+      if (sc && (sc.tested || 0) > 0) {
+        if (!set) set = new Set();
+        set.add(gid);
       }
     }
+    if (set) map.set(m.model, set);
   }
   batteryCoverageByModel = map;
   batteryCoverageLoaded = true;

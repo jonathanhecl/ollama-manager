@@ -29,16 +29,16 @@ type WebFS = embed.FS
 
 // Server holds shared state for HTTP handlers.
 type Server struct {
-	cfg         *config.Config
-	ollama      *ollama.Client
-	web         fs.FS
-	tmpl        *template.Template
-	jobs        *jobs.Manager
-	uninst      *uninstallHistoryStore
-	archived    *archivedModelsStore
-	testsStore  *tests.Store
-	agentStore  *agent.SessionStore
-	runnerStore *runner.ResultStore
+	cfg            *config.Config
+	ollama         *ollama.Client
+	web            fs.FS
+	tmpl           *template.Template
+	jobs           *jobs.Manager
+	uninst         *uninstallHistoryStore
+	archived       *archivedModelsStore
+	testsStore     *tests.Store
+	agentStore     *agent.SessionStore
+	runnerStore    *runner.ResultStore
 	runner         *runner.Client
 	usage          *modelUsageStore
 	customModels   *customModelsStore
@@ -78,6 +78,14 @@ type Server struct {
 	artifactEvalCh map[string]chan artifactEvalResponse
 
 	leaderboardMu sync.Mutex
+
+	// In-memory parse of _leaderboard.json, keyed by the file's modtime+size
+	// so hot read paths (e.g. the /api/models BENCH column) never rebuild the
+	// leaderboard from every stored run.
+	leaderboardCacheMu   sync.RWMutex
+	leaderboardCache     *LeaderboardData
+	leaderboardCacheMod  time.Time
+	leaderboardCacheSize int64
 
 	testsCacheMu   sync.RWMutex
 	testsCacheJSON []byte
@@ -369,6 +377,11 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
+	// Prime the leaderboard cache (and build _leaderboard.json when missing)
+	// so the first /api/models request is served from cache instead of
+	// recomputing the whole leaderboard from every stored run.
+	go s.WarmLeaderboardCache()
+
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -406,4 +419,3 @@ func getTestingDir(cfgPath string) string {
 	}
 	return filepath.Join(filepath.Dir(cfgPath), "testing")
 }
-

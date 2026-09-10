@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -384,7 +385,80 @@ func (s *Server) RegenerateLeaderboardCache() (*LeaderboardData, error) {
 		return nil, fmt.Errorf("rename leaderboard tmp to target: %w", err)
 	}
 
+	s.storeLeaderboardCache(data, targetPath)
+
 	return data, nil
+}
+
+// storeLeaderboardCache refreshes the in-memory leaderboard copy and its
+// file fingerprint (modtime + size). Called after a successful regeneration.
+func (s *Server) storeLeaderboardCache(data *LeaderboardData, path string) {
+	var mod time.Time
+	var size int64
+	if fi, err := os.Stat(path); err == nil {
+		mod, size = fi.ModTime(), fi.Size()
+	}
+	s.leaderboardCacheMu.Lock()
+	s.leaderboardCache = data
+	s.leaderboardCacheMod = mod
+	s.leaderboardCacheSize = size
+	s.leaderboardCacheMu.Unlock()
+}
+
+// cachedLeaderboardData returns the precomputed leaderboard without rebuilding
+// it from every stored run. It serves an in-memory copy while _leaderboard.json
+// is unchanged, reloads it when the file changes, and regenerates it once when
+// the cache file is missing or unreadable. This keeps hot read paths (the
+// /api/models BENCH digest, coverage lookups) fast regardless of run history.
+func (s *Server) cachedLeaderboardData() (*LeaderboardData, error) {
+	path := s.LeaderboardPath()
+	if path == "" {
+		return s.BuildLeaderboardData()
+	}
+
+	fi, statErr := os.Stat(path)
+	if statErr == nil {
+		s.leaderboardCacheMu.RLock()
+		cached, mod, size := s.leaderboardCache, s.leaderboardCacheMod, s.leaderboardCacheSize
+		s.leaderboardCacheMu.RUnlock()
+		if cached != nil && fi.ModTime().Equal(mod) && fi.Size() == size {
+			return cached, nil
+		}
+
+		if raw, err := os.ReadFile(path); err == nil && len(raw) > 0 {
+			var data LeaderboardData
+			if err := json.Unmarshal(raw, &data); err == nil {
+				s.leaderboardCacheMu.Lock()
+				s.leaderboardCache = &data
+				s.leaderboardCacheMod = fi.ModTime()
+				s.leaderboardCacheSize = fi.Size()
+				s.leaderboardCacheMu.Unlock()
+				return &data, nil
+			}
+		}
+	}
+
+	// Missing or corrupt cache: rebuild once and reuse the result.
+	if data, err := s.RegenerateLeaderboardCache(); err == nil && data != nil {
+		return data, nil
+	}
+	return s.BuildLeaderboardData()
+}
+
+// WarmLeaderboardCache builds the on-disk leaderboard cache when it is missing
+// so the first /api/models request does not pay the full rebuild cost.
+func (s *Server) WarmLeaderboardCache() {
+	if s.LeaderboardPath() == "" {
+		return
+	}
+	if _, err := os.Stat(s.LeaderboardPath()); err == nil {
+		// Already present: just prime the in-memory copy.
+		_, _ = s.cachedLeaderboardData()
+		return
+	}
+	if _, err := s.RegenerateLeaderboardCache(); err != nil {
+		log.Printf("leaderboard warm-up failed: %v", err)
+	}
 }
 
 // handleGetLeaderboard returns the precomputed leaderboard JSON from disk, or regenerates it if missing or requested.

@@ -918,7 +918,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		ghostSet[g.Name] = true
 	}
 	var lbData *LeaderboardData
-	if data, err := s.BuildLeaderboardData(); err == nil {
+	if data, err := s.cachedLeaderboardData(); err == nil {
 		lbData = data
 	}
 	benchByModel := summarizeBench(lbData, capsByModel, ghostSet)

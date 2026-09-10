@@ -871,26 +871,52 @@ async function renderLeaderboardModal() {
   }
 }
 
-async function renderLeaderboardPage() {
+async function renderLeaderboardPage(focusModel) {
   const body = $("battery-leaderboard-page-body");
   if (!body) return;
   body.innerHTML = `<div class="muted" style="padding:32px;text-align:center;">${t("status.loading")}</div>`;
   try {
     const html = await buildLeaderboardTableHtml();
     body.innerHTML = html;
+    if (focusModel) focusLeaderboardModel(body, focusModel);
   } catch (err) {
     body.innerHTML = `<div class="muted" style="padding:32px;">${escapeHtml(err.message)}</div>`;
   }
 }
 
-function showLeaderboardView() {
+// Scrolls the freshly rendered leaderboard to a model row and flashes it, so
+// jumping here from a bench value lands on the clicked model.
+function focusLeaderboardModel(root, model) {
+  if (!root || !model) return;
+  let target = null;
+  for (const row of root.querySelectorAll("tr[data-lb-model]")) {
+    if (row.getAttribute("data-lb-model") === model) { target = row; break; }
+  }
+  if (!target) return;
+  window.requestAnimationFrame(() => {
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.classList.add("lb-row-highlight");
+    window.setTimeout(() => target.classList.remove("lb-row-highlight"), 2400);
+  });
+}
+
+function showLeaderboardView(focusModel) {
   hideAllMainViews();
   currentView = "leaderboard";
   $("battery-leaderboard-view").hidden = false;
   if (window.location.pathname !== "/leaderboard") {
     history.pushState(null, "", "/leaderboard");
   }
-  void renderLeaderboardPage();
+  // A leftover model filter would hide the clicked row; drop it so the jump
+  // always lands on the target model.
+  if (focusModel && _lbModelFilter) {
+    const q = _lbModelFilter.trim().toLowerCase();
+    if (q && !focusModel.toLowerCase().includes(q)) {
+      _lbModelFilter = "";
+      try { localStorage.removeItem("leaderboard_model_filter"); } catch (_) {}
+    }
+  }
+  void renderLeaderboardPage(focusModel || "");
 }
 
 $("test-history-modal")?.addEventListener("click", (e) => {

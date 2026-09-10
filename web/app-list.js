@@ -463,7 +463,7 @@ function renderTable() {
 
   function handleBenchCellAction(action, m) {
     if (action === "leaderboard") {
-      if (typeof showLeaderboardView === "function") showLeaderboardView();
+      if (typeof showLeaderboardView === "function") showLeaderboardView(m && m.name);
       return;
     }
     if (typeof openBatteryModal !== "function") return;

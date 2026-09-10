@@ -149,6 +149,71 @@ func TestLeaderboardCacheOnMutations(t *testing.T) {
 	_ = grp
 }
 
+// TestCachedLeaderboardData verifies that hot read paths reuse an in-memory
+// copy while _leaderboard.json is unchanged, and refresh it after a rebuild.
+func TestCachedLeaderboardData(t *testing.T) {
+	ollamaSrv := fakeOllamaForBattery()
+	defer ollamaSrv.Close()
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	if _, err := srv.testsStore.CreateGroup(tests.Group{ID: "coding", Name: "Coding", Order: 1}); err != nil {
+		t.Fatal(err)
+	}
+	tst, err := srv.testsStore.CreateTest(tests.Test{
+		Name:    "Cached",
+		Prompt:  "hi",
+		GroupID: "coding",
+		Active:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := true
+	if err := srv.runnerStore.SaveRun(&runner.BatteryRun{
+		ID:        "run-cache",
+		GroupID:   "coding",
+		Timestamp: time.Now().UTC(),
+		Results: []runner.TestResult{
+			{TestID: tst.ID, TestName: tst.Name, Model: "m1", Passed: &passed, MaxPoints: 1, Points: 1},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// First call builds (file missing) and caches.
+	d1, err := srv.cachedLeaderboardData()
+	if err != nil {
+		t.Fatalf("cachedLeaderboardData: %v", err)
+	}
+	if len(d1.Models) != 1 || d1.Models[0].Model != "m1" {
+		t.Fatalf("unexpected first leaderboard: %+v", d1.Models)
+	}
+	if _, err := os.Stat(srv.LeaderboardPath()); err != nil {
+		t.Fatalf("expected cache file to be created: %v", err)
+	}
+
+	// Second call must be served from memory (same pointer).
+	d2, err := srv.cachedLeaderboardData()
+	if err != nil {
+		t.Fatalf("cachedLeaderboardData (2): %v", err)
+	}
+	if d1 != d2 {
+		t.Fatalf("expected cached pointer reuse, got a rebuilt copy")
+	}
+
+	// A regeneration must invalidate the in-memory copy.
+	if _, err := srv.RegenerateLeaderboardCache(); err != nil {
+		t.Fatalf("RegenerateLeaderboardCache: %v", err)
+	}
+	d3, err := srv.cachedLeaderboardData()
+	if err != nil {
+		t.Fatalf("cachedLeaderboardData (3): %v", err)
+	}
+	if d3 == d1 {
+		t.Fatalf("expected refreshed data after regeneration")
+	}
+}
+
 func TestTestsListCacheAndETag(t *testing.T) {
 	ollamaSrv := fakeOllamaForBattery()
 	defer ollamaSrv.Close()
@@ -207,4 +272,3 @@ func TestTestsListCacheAndETag(t *testing.T) {
 		t.Errorf("expected new ETag after mutation, but got same: %s", newETag)
 	}
 }
-

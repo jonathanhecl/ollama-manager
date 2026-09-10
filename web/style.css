@@ -6633,7 +6633,10 @@ button.chat-send:disabled:hover {
   margin: 0 auto;
 }
 
-.battery-modal-card { width: min(640px, 100%); display: flex; flex-direction: column; min-height: 0; }
+.battery-modal-card { width: min(640px, 100%); display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow: hidden; }
+#battery-modal-models-step, #battery-modal-groups-step { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; overflow: hidden; }
+.battery-modal-header, .battery-modal-toolbar, .battery-modal-filter-bar, .battery-modal-sysinfo, #battery-modal-subtitle, .battery-models-no-match { flex-shrink: 0; }
+#battery-modal .modal-actions { flex-shrink: 0; position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; padding-bottom: 2px; }
 .battery-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .battery-modal-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
 .battery-modal-toolbar {
@@ -6771,7 +6774,7 @@ button.chat-send:disabled:hover {
   padding: 30px 16px;
   font-style: italic;
 }
-.battery-modal-models { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 420px; overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
+.battery-modal-models { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 420px; overflow-y: auto; min-height: 120px; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
 .battery-modal-sysinfo { font-size: 11px; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 8px; }
 
 .battery-model-item {
@@ -6946,10 +6949,20 @@ button.chat-send:disabled:hover {
     padding: 0 10px;
   }
   .battery-modal-models {
-    max-height: calc(100dvh - 290px);
-    min-height: 180px;
+    max-height: none;
+    min-height: 80px;
+    flex: 1 1 auto;
+    overflow-y: auto;
     gap: 8px;
     margin: 8px 0;
+  }
+  #battery-modal .modal-actions {
+    flex-wrap: wrap;
+    padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+  }
+  #battery-modal .modal-actions .primary {
+    flex: 1 1 auto;
+    min-height: 40px;
   }
   .battery-model-item {
     padding: 10px 12px;

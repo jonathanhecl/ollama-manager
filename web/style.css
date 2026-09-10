@@ -8696,6 +8696,16 @@ button.chat-send:disabled:hover {
   border-color: var(--danger);
   color: var(--danger);
 }
+.battery-timeline-item.partial .battery-timeline-dot {
+  background: rgba(245,158,11,.15);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.battery-timeline-item.review .battery-timeline-dot {
+  background: rgba(109,158,235,.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .battery-timeline-item.active .battery-timeline-dot {
   background: rgba(109,158,235,.2);
   border-color: var(--accent);
@@ -8716,6 +8726,9 @@ button.chat-send:disabled:hover {
 }
 .battery-timeline-item.failed .battery-timeline-line {
   background: linear-gradient(var(--danger), var(--border));
+}
+.battery-timeline-item.partial .battery-timeline-line {
+  background: linear-gradient(var(--warn), var(--border));
 }
 .battery-timeline-body {
   flex: 1;

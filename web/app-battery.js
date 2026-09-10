@@ -1024,12 +1024,12 @@ function renderBatteryKPIs(p, stats) {
 
   const curStats = stats.modelMap.get(currentModel);
   if (curStats) {
-    const totalExp = Math.max(curStats.expected, curStats.completed);
-    const curModelRunningIdx = Math.min(totalExp, curStats.completed + (done ? 0 : 1));
+    const totalExpUnits = Math.max(curStats.expectedUnits, curStats.completedUnits);
+    const curModelRunningIdx = Math.min(totalExpUnits, curStats.completedUnits + (done ? 0 : 1));
     if (elModelSub) {
-      elModelSub.textContent = t("battery.kpi_model_tests", { current: String(curModelRunningIdx), total: String(totalExp) });
+      elModelSub.textContent = t("battery.kpi_model_tests", { current: String(curModelRunningIdx), total: String(totalExpUnits) });
     }
-    const modelPct = totalExp > 0 ? Math.min(100, Math.round((curStats.completed / totalExp) * 100)) : 0;
+    const modelPct = totalExpUnits > 0 ? Math.min(100, Math.round((curStats.completedUnits / totalExpUnits) * 100)) : 0;
     if (elModelPct) elModelPct.textContent = `${modelPct}%`;
     if (elModelBar) elModelBar.style.width = `${modelPct}%`;
   } else {
@@ -1219,7 +1219,6 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
 
   for (const m of modelIDs) {
     const st = batteryLbStatsFor(modelMap, m, currentModel);
-    const totalExp = st.expected > 0 ? st.expected : st.completed;
     const totalExpUnits = st.expectedUnits > 0 ? st.expectedUnits : st.completedUnits;
     const passPct = Math.round(st.passRate);
     const passBarWidth = totalExpUnits > 0 ? (st.passedUnits / totalExpUnits) * 100 : 0;
@@ -1246,8 +1245,8 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
             </div>
           </div>
         </td>
-        <td class="col-cell-tests mono" title="${st.completed} / ${totalExp}">
-          <span class="tests-val">${st.completed}</span><span class="tests-sep">/</span><span class="tests-total">${totalExp}</span>
+        <td class="col-cell-tests mono" title="${st.completedUnits} / ${totalExpUnits}">
+          <span class="tests-val">${st.completedUnits}</span><span class="tests-sep">/</span><span class="tests-total">${totalExpUnits}</span>
         </td>
         <td class="col-cell-ratio">
           <div class="leaderboard-ratio-bar" title="${escapeHtml(ratioTooltip)}">
@@ -1291,16 +1290,15 @@ function updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel) {
     row.classList.toggle("active-model-row", !!st.isCurrent);
     row.title = `${m} · ${batteryLbStatusLabel(st)}`;
 
-    const totalExp = st.expected > 0 ? st.expected : st.completed;
     const totalExpUnits = st.expectedUnits > 0 ? st.expectedUnits : st.completedUnits;
     const passPct = Math.round(st.passRate);
     const pendingUnits = Math.max(0, totalExpUnits - st.completedUnits);
 
     const testsCell = row.querySelector(".col-cell-tests");
     if (testsCell) {
-      testsCell.title = `${st.completed} / ${totalExp}`;
-      setTextIfChanged(testsCell.querySelector(".tests-val"), String(st.completed));
-      setTextIfChanged(testsCell.querySelector(".tests-total"), String(totalExp));
+      testsCell.title = `${st.completedUnits} / ${totalExpUnits}`;
+      setTextIfChanged(testsCell.querySelector(".tests-val"), String(st.completedUnits));
+      setTextIfChanged(testsCell.querySelector(".tests-total"), String(totalExpUnits));
     }
     const ratioBar = row.querySelector(".leaderboard-ratio-bar");
     if (ratioBar) {
@@ -1848,17 +1846,27 @@ function renderBatteryTimeline(liveResults = []) {
     let metaDetails = "";
 
     if (res) {
+      const u = batteryResultUnitStats(res);
+      const partial = res.passed === false && u.total > 1 && u.passed > 0;
       if (res.passed === true) {
         dotIcon = "&#10003;";
         itemClass = "battery-timeline-item completed";
       } else if (res.passed === false) {
-        dotIcon = "&#10005;";
-        itemClass = "battery-timeline-item failed";
+        // A test with sub-cases where some passed but not all is "partial",
+        // not a flat failure.
+        dotIcon = partial ? "&#9680;" : "&#10005;";
+        itemClass = partial ? "battery-timeline-item partial" : "battery-timeline-item failed";
+      } else {
+        dotIcon = "&#8943;";
+        itemClass = "battery-timeline-item review";
       }
       const dur = res.response_time_ms > 0 ? (res.response_time_ms / 1000).toFixed(1) + "s" : "";
       const spd = res.tokens_per_sec > 0 ? res.tokens_per_sec.toFixed(1) + " tok/s" : "";
       if (dur || spd) {
         metaDetails = ` &middot; ${dur}${spd ? " (" + spd + ")" : ""}`;
+      }
+      if (u.total > 1) {
+        metaDetails += ` &middot; ${u.passed}/${u.total} ${escapeHtml(t("battery.subcases_short"))}`;
       }
     }
 

@@ -5420,6 +5420,87 @@ button.chat-send:disabled:hover {
   }
 }
 
+/* Tablet (<=900px): the full table squeezes Record/Bench instead of the
+   name (long hf.co/... names force the table wider than the viewport).
+   Switch early to a fixed, mobile-like layout: Name + Record + Bench only,
+   with ellipsis on the name so metric columns are never crushed. */
+@media (max-width: 900px) {
+  .table-wrap {
+    overflow-x: hidden;
+  }
+  #models-table {
+    table-layout: fixed;
+    min-width: 0;
+  }
+  #models-table th:nth-child(1), #models-table td:nth-child(1) {
+    width: 20px;
+  }
+  #models-table th:nth-child(3), #models-table td:nth-child(3) {
+    width: 118px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  #models-table th:nth-child(4), #models-table td:nth-child(4) {
+    width: 78px;
+    text-align: right;
+  }
+  #models-table th:nth-child(5), #models-table td:nth-child(5),
+  #models-table th:nth-child(6), #models-table td:nth-child(6),
+  #models-table th:nth-child(7), #models-table td:nth-child(7),
+  #models-table th:nth-child(8), #models-table td:nth-child(8),
+  #models-table th:nth-child(9), #models-table td:nth-child(9) {
+    display: none;
+  }
+  #models-table th,
+  #models-table td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  #models-table thead th {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cell-record-wrap {
+    align-items: flex-end;
+  }
+  .cell-min-load {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .model-name-wrap {
+    min-width: 0;
+  }
+  .model-name-block {
+    min-width: 0;
+    flex: 1;
+  }
+  .model-name-track {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .model-name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .model-parent-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .model-cap-list {
+    overflow: hidden;
+    max-height: 44px;
+  }
+  .model-cap-list .pill {
+    font-size: 10px;
+    padding: 1px 7px;
+  }
+}
+
 /* Fix iPhone Safari auto-zoom on input focus by ensuring >= 16px font size on mobile */
 @media (max-width: 768px) {
   input[type="text"],
@@ -5783,10 +5864,10 @@ button.chat-send:disabled:hover {
   #models-table th:nth-child(1), #models-table td:nth-child(1) {
     width: 20px;
   }
-  /* Mobile: show the record tok/s column (hidden by the wider breakpoint) in place of size/dates. */
+  /* Mobile: show record tok/s + bench, hide size/dates/actions. */
   #models-table th:nth-child(3), #models-table td:nth-child(3) {
     display: table-cell;
-    width: 86px;
+    width: 92px;
     text-align: right;
   }
   #models-table th:nth-child(3) {
@@ -5795,7 +5876,24 @@ button.chat-send:disabled:hover {
     text-align: right;
     white-space: nowrap;
   }
-  #models-table th:nth-child(4), #models-table td:nth-child(4),
+  #models-table th:nth-child(4), #models-table td:nth-child(4) {
+    display: table-cell;
+    width: 58px;
+    text-align: right;
+  }
+  #models-table th:nth-child(4) {
+    font-size: 9px;
+    letter-spacing: .2px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .cell-bench-col {
+    text-align: right;
+  }
+  .bench-btn {
+    padding: 2px 6px;
+    font-size: 12px;
+  }
   #models-table th:nth-child(7), #models-table td:nth-child(7),
   #models-table th:nth-child(8), #models-table td:nth-child(8),
   #models-table th:nth-child(9), #models-table td:nth-child(9) {

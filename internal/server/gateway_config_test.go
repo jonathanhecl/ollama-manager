@@ -3,9 +3,12 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gense/ollama-manager/internal/config"
 )
@@ -54,8 +57,10 @@ func TestGatewayConfigPatchAndGet(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, body = %v", code, out)
 	}
-	if out["needs_restart"] != true {
-		t.Fatalf("needs_restart = %v, want true: %v", out["needs_restart"], out)
+	// Gateway listener changes are hot-applied (see SyncGateway), so unlike
+	// the main server port they must not require a full process restart.
+	if out["needs_restart"] != false {
+		t.Fatalf("needs_restart = %v, want false (gateway hot-applies): %v", out["needs_restart"], out)
 	}
 
 	got := getConfig(t, srv)["gateway"].(map[string]any)
@@ -169,6 +174,128 @@ func TestTestingSkipRulesPatch(t *testing.T) {
 	}
 	if len(srv.cfg.Testing.SkipRules) != 2 || srv.cfg.Testing.SkipRules[1].Mode != config.TestingModeAll {
 		t.Fatalf("in-memory rules mismatch: %+v", srv.cfg.Testing.SkipRules)
+	}
+}
+
+// freeLoopbackPort reserves an ephemeral loopback port and releases it.
+// There is an inherent TOCTOU race (another process could grab it), but it
+// keeps gateway hot-apply tests off the real default port 7861.
+func freeLoopbackPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func gatewayStatus(t *testing.T, srv *Server) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/gateway/status", nil)
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/gateway/status status = %d", rr.Code)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func waitGatewayListening(t *testing.T, srv *Server, want bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_, _, listening := srv.GatewayStatus()
+		if listening == want {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	_, _, listening := srv.GatewayStatus()
+	t.Fatalf("gateway listening = %v, want %v", listening, want)
+}
+
+// TestGatewayHotApply proves the reported bug is fixed: enabling the gateway
+// via PATCH /api/config must start the listener without a process restart,
+// and disabling it must stop the listener.
+func TestGatewayHotApply(t *testing.T) {
+	ollamaSrv := fakeOllamaForBattery()
+	defer ollamaSrv.Close()
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	if st := gatewayStatus(t, srv); st["enabled"] != false || st["listening"] != false {
+		t.Fatalf("initial status = %v, want disabled/not-listening", st)
+	}
+
+	port := freeLoopbackPort(t)
+	if code, out := patchConfig(t, srv, map[string]any{
+		"gateway": map[string]any{"enabled": true, "port": port, "expose_network": false},
+	}); code != http.StatusOK {
+		t.Fatalf("enable status = %d, body = %v", code, out)
+	}
+	waitGatewayListening(t, srv, true)
+
+	// The port must really accept TCP connections (the user's curl case).
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial gateway 127.0.0.1:%d: %v", port, err)
+		_ = conn.Close()
+	} else {
+		_ = conn.Close()
+	}
+	if st := gatewayStatus(t, srv); st["listening"] != true || st["needs_restart"] != false {
+		t.Fatalf("status while serving = %v, want listening/no-restart", st)
+	}
+
+	if code, _ := patchConfig(t, srv, map[string]any{
+		"gateway": map[string]any{"enabled": false},
+	}); code != http.StatusOK {
+		t.Fatalf("disable status = %d", code)
+	}
+	waitGatewayListening(t, srv, false)
+	if st := gatewayStatus(t, srv); st["enabled"] != false {
+		t.Fatalf("status after disable = %v, want enabled=false", st)
+	}
+}
+
+// TestGatewayStatusBindFailure ensures a bad port surfaces as
+// needs_restart=true (not a misleading green badge) instead of killing the
+// main server.
+func TestGatewayStatusBindFailure(t *testing.T) {
+	ollamaSrv := fakeOllamaForBattery()
+	defer ollamaSrv.Close()
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	// Squat a port so the gateway cannot bind it.
+	squat, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer squat.Close()
+	busy := squat.Addr().(*net.TCPAddr).Port
+
+	if code, _ := patchConfig(t, srv, map[string]any{
+		"gateway": map[string]any{"enabled": true, "port": busy, "expose_network": false},
+	}); code != http.StatusOK {
+		t.Fatalf("enable status = %d", code)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st := gatewayStatus(t, srv)
+		if st["needs_restart"] == true && st["listening"] == false {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("status with busy port = %v, want needs_restart=true/listening=false", st)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

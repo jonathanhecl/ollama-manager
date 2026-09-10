@@ -520,6 +520,13 @@ $("settings-save").addEventListener("click", async () => {
     updateChatCapabilityUI();
     updateChatSendEnabled();
     refreshOpenCodeUI();
+    // The gateway hot-applies a moment after save (server reconciles async):
+    // re-check the real listener state so the badge turns green without a
+    // manual page reload.
+    if (typeof refreshGatewayStatusFromServer === "function") {
+      setTimeout(() => { refreshGatewayStatusFromServer().catch(() => {}); }, 800);
+      setTimeout(() => { refreshGatewayStatusFromServer().catch(() => {}); }, 2500);
+    }
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
   }

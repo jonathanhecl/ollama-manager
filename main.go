@@ -156,13 +156,15 @@ func main() {
 	addr := cfg.BindAddress()
 	log.Printf("ollama-manager %s starting...", getVersionInfo())
 	log.Printf("listening on http://%s  (ollama: %s)", addr, cfg.OllamaURL)
-	if cfg.Gateway.Enabled {
-		go func() {
-			if err := srv.ListenAndServeGateway(ctx); err != nil {
-				log.Fatalf("gateway: %v", err)
-			}
-		}()
-	}
+	// The gateway listener is managed (hot-applied on config PATCH), so a
+	// bind failure must not kill the main server: log it and keep serving.
+	// The UI polls GET /api/gateway/status and shows "not listening" until
+	// the port is fixed and the config is saved again.
+	go func() {
+		if err := srv.ListenAndServeGateway(ctx); err != nil {
+			log.Printf("gateway: %v (main server keeps running; fix the gateway port and save again)", err)
+		}
+	}()
 	if err := srv.ListenAndServe(ctx); err != nil {
 		log.Fatalf("server: %v", err)
 	}

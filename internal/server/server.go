@@ -49,6 +49,14 @@ type Server struct {
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
 
+	// Managed gateway listener state. The gateway runs on its own
+	// listener so config changes can be applied live (hot-apply) without
+	// restarting the whole process. gwMu guards gwSrv/gwAddr/gwListening.
+	gwMu        sync.Mutex
+	gwSrv       *http.Server
+	gwAddr      string
+	gwListening bool
+
 	// Serializes read-modify-write cycles against the opencode config file.
 	opencodeMu sync.Mutex
 
@@ -260,6 +268,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/external-models/test", s.requireAuth(s.handleTestExternalModel))
 	mux.Handle("POST /api/external-models/toggle", s.requireAuth(s.handleToggleExternalModel))
 	mux.Handle("DELETE /api/external-models/{name...}", s.requireAuth(s.handleDeleteExternalModel))
+	mux.Handle("GET /api/gateway/status", s.requireAuth(s.handleGatewayStatus))
 	mux.Handle("GET /api/gateway/keys", s.requireAuth(s.handleListGatewayKeys))
 	mux.Handle("POST /api/gateway/keys", s.requireAuth(s.handleCreateGatewayKey))
 	mux.Handle("DELETE /api/gateway/keys/{id}", s.requireAuth(s.handleDeleteGatewayKey))

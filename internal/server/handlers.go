@@ -523,10 +523,22 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if newGw.Port != s.cfg.Gateway.Port || newGw.Enabled != s.cfg.Gateway.Enabled || newGw.ExposeNetwork != s.cfg.Gateway.ExposeNetwork {
-			needsRestart = true
-		}
+		// The gateway listener is managed (hot-applied below): listener
+		// field changes take effect immediately, so unlike the main
+		// server port they don't need a full process restart. Models and
+		// require_auth were already live (read per request).
+		gwListenerChanged := newGw.Port != s.cfg.Gateway.Port ||
+			newGw.Enabled != s.cfg.Gateway.Enabled ||
+			newGw.ExposeNetwork != s.cfg.Gateway.ExposeNetwork
 		s.cfg.Gateway = newGw
+		if gwListenerChanged {
+			// Hot-apply the listener change without a full process
+			// restart. SyncGateway takes cfgMu itself, so run it in a
+			// goroutine: it blocks until this handler's cfgMu.Unlock
+			// (deferred at the top) runs, then reconciles the listener.
+			// Models/require_auth need no sync (read live per request).
+			go func() { _ = s.SyncGateway() }()
+		}
 	}
 
 	if err := s.cfg.Save(); err != nil {

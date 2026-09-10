@@ -1609,6 +1609,7 @@ async function loadGatewaySection(lang = null) {
     renderGatewayModels(targetLang).catch(() => {}),
     loadGatewayKeys(targetLang).catch(() => {}),
   ]);
+  refreshGatewayStatusFromServer(targetLang).catch(() => {});
 }
 
 function gatewayEffectivePort() {
@@ -1661,11 +1662,15 @@ function updateGatewayStatus(lang = null) {
   const host = $("gw-expose")?.checked ? "0.0.0.0" : "127.0.0.1";
   if (badge) {
     if (enabled) {
+      // Optimistic local render (form state, may include unsaved edits).
+      // refreshGatewayStatusFromServer() reconciles with the real listener.
       badge.textContent = `${host}:${port}`;
       badge.className = "badge badge-good";
+      badge.removeAttribute("title");
     } else {
       badge.textContent = t("settings.gateway_off", null, targetLang);
       badge.className = "badge badge-muted";
+      badge.removeAttribute("title");
     }
   }
   if (navBadge) {
@@ -1679,6 +1684,39 @@ function updateGatewayStatus(lang = null) {
     }, targetLang);
   }
   updateGatewayAuthBadge(targetLang);
+}
+
+// Reconciles the badge with the real listener state from
+// GET /api/gateway/status. Only overrides the optimistic render when the
+// form matches the saved config (otherwise the user has unsaved edits and
+// the local preview stands until they press Save).
+async function refreshGatewayStatusFromServer(lang = null) {
+  const targetLang = lang || currentConfig?.language || (window.I18n ? window.I18n.getLang() : "en");
+  const badge = $("gateway-status-badge");
+  if (!badge) return;
+  let st;
+  try {
+    st = await api("/api/gateway/status");
+  } catch {
+    return; // keep the optimistic render on network/auth errors
+  }
+  const saved = (currentConfig && currentConfig.gateway) || {};
+  const formEnabled = !!$("gw-enable")?.checked;
+  const formPort = gatewayEffectivePort();
+  const formHost = $("gw-expose")?.checked ? "0.0.0.0" : "127.0.0.1";
+  const savedPort = saved.port > 0 ? saved.port : GATEWAY_DEFAULT_PORT;
+  const savedHost = saved.expose_network ? "0.0.0.0" : "127.0.0.1";
+  if (!!saved.enabled !== formEnabled || savedPort !== formPort || savedHost !== formHost) return;
+  if (!formEnabled) return; // already shows Off
+  if (st.listening && st.addr) {
+    badge.textContent = st.addr;
+    badge.className = "badge badge-good";
+    badge.removeAttribute("title");
+  } else {
+    badge.textContent = `${formHost}:${formPort}`;
+    badge.className = "badge badge-warn";
+    badge.title = t("settings.gateway_not_listening", null, targetLang);
+  }
 }
 
 async function renderGatewayModels(lang = null, forceRefresh = false) {

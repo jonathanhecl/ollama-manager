@@ -802,5 +802,6 @@ func newTestServer(t *testing.T, ollamaURL string) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(srv.jobs.Shutdown)
+	t.Cleanup(srv.StopGateway)
 	return srv
 }

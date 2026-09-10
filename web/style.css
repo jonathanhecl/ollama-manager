@@ -1043,7 +1043,77 @@ tbody tr.row.active .btn-icon.info-btn:hover {
 .modal-card.small { width: min(380px, 100%); }
 .modal-card h2 { margin: 0 0 14px; font-size: 14px; font-weight: 600; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-.battery-abort-actions { flex-wrap: wrap; }
+.battery-abort-card { width: min(460px, 100%); }
+.battery-abort-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.battery-abort-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  background: rgba(239,68,68,.14);
+  border: 1px solid rgba(239,68,68,.4);
+  color: var(--danger);
+}
+.battery-abort-head-text h2 { margin: 0; }
+.battery-abort-head-text p {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.battery-abort-choices {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+.battery-abort-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease, transform .06s ease;
+}
+.battery-abort-choice:hover { transform: translateY(-1px); }
+.battery-abort-choice:active { transform: translateY(0); }
+.battery-abort-choice-title { font-size: 13px; font-weight: 600; }
+.battery-abort-choice-hint { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.battery-abort-choice.save {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+}
+.battery-abort-choice.save:hover {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-2));
+  border-color: var(--accent);
+}
+.battery-abort-choice.save .battery-abort-choice-title { color: var(--accent); }
+.battery-abort-choice.discard {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border-strong));
+}
+.battery-abort-choice.discard:hover {
+  background: color-mix(in srgb, var(--danger) 14%, var(--panel-2));
+  border-color: var(--danger);
+}
+.battery-abort-choice.discard .battery-abort-choice-title { color: var(--danger); }
+.battery-abort-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.battery-abort-cancel { width: 100%; justify-content: center; }
 .confirm-reason-wrap {
   margin: 10px 0 0;
   border: 1px solid var(--border);

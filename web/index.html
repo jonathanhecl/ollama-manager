@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260910_03">
+  <link rel="stylesheet" href="/static/style.css?v=20260910_04">
 </head>
 <body>
   <header class="topbar">
@@ -1340,13 +1340,26 @@
   </div>
 
   <div id="battery-abort-modal" class="modal" hidden>
-    <div class="modal-card small">
-      <h2 data-i18n="battery.abort_title">Abort battery run?</h2>
-      <p class="muted" data-i18n="battery.abort_text">The run stops immediately. Choose what happens to the results collected so far.</p>
-      <div class="modal-actions battery-abort-actions">
-        <button id="battery-abort-keep" class="ghost" data-i18n="battery.abort_keep_running">Keep running</button>
-        <button id="battery-abort-discard" class="danger" data-i18n="battery.abort_discard">Discard everything</button>
-        <button id="battery-abort-save" class="primary" data-i18n="battery.abort_save_completed">Save progress</button>
+    <div class="modal-card battery-abort-card">
+      <div class="battery-abort-head">
+        <span class="battery-abort-icon" aria-hidden="true">!</span>
+        <div class="battery-abort-head-text">
+          <h2 data-i18n="battery.abort_title">Abort battery run?</h2>
+          <p class="muted" data-i18n="battery.abort_text">The run stops immediately. Choose what happens to the results collected so far.</p>
+        </div>
+      </div>
+      <div class="battery-abort-choices">
+        <button id="battery-abort-save" class="battery-abort-choice save">
+          <span class="battery-abort-choice-title" data-i18n="battery.abort_save_completed">Save progress</span>
+          <span class="battery-abort-choice-hint" data-i18n="battery.abort_save_hint">Keep every finished test plus the partial current model.</span>
+        </button>
+        <button id="battery-abort-discard" class="battery-abort-choice discard">
+          <span class="battery-abort-choice-title" data-i18n="battery.abort_discard">Discard everything</span>
+          <span class="battery-abort-choice-hint" data-i18n="battery.abort_discard_hint">Throw away all results from this run.</span>
+        </button>
+      </div>
+      <div class="battery-abort-footer">
+        <button id="battery-abort-keep" class="ghost battery-abort-cancel" data-i18n="battery.abort_keep_running">Keep running</button>
       </div>
     </div>
   </div>
@@ -2655,7 +2668,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260910_03"></script>
+  <script src="/static/i18n.js?v=20260910_04"></script>
   <script src="/static/app-helpers.js?v=20260908_02"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>

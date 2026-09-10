@@ -320,9 +320,23 @@ func (s *ResultStore) Load() error {
 		}
 	}
 
+	// Retroactively normalize every stored result to sub-case scoring.
+	// Runs saved under the old case+bonus scheme get their points/max/score
+	// recomputed from their recorded sub-results; affected exercise files are
+	// rewritten so the correction is persisted.
+	rescoredExercises := make(map[exerciseLocation]struct{})
 	for _, r := range runMap {
 		SanitizeEmptyReviewResults(r.Results)
+		for i := range r.Results {
+			if rescoreResultFromSubResults(&r.Results[i]) {
+				gid, base := s.resolveExerciseLocked(r.Results[i].TestID, r.GroupID)
+				rescoredExercises[exerciseLocation{GroupID: gid, Base: base}] = struct{}{}
+			}
+		}
 		s.runs = append(s.runs, r)
+	}
+	for ex := range rescoredExercises {
+		_ = s.saveExerciseLocked(ex.GroupID, ex.Base)
 	}
 
 	// If any legacy files were migrated, persist per-exercise history files and clean up legacy files
@@ -348,6 +362,9 @@ func (s *ResultStore) SaveRun(run *BatteryRun) error {
 	defer s.mu.Unlock()
 
 	SanitizeEmptyReviewResults(run.Results)
+	for i := range run.Results {
+		rescoreResultFromSubResults(&run.Results[i])
+	}
 
 	found := false
 	for i := range s.runs {
@@ -461,6 +478,7 @@ func (s *ResultStore) GetLatestRunPendingReview() (BatteryRun, int, bool) {
 // leaderboards and summaries. Fractional per-case detail is left untouched.
 func applyManualVerdict(res *TestResult, passed bool) {
 	res.Passed = &passed
+	res.ManualVerdict = true
 	if res.MaxPoints <= 0 {
 		res.MaxPoints = 2.0
 	}
@@ -487,6 +505,7 @@ func (s *ResultStore) UpdateHumanRating(runID, testID, model, rating string) err
 			if res.TestID == testID && res.Model == model {
 				res.HumanRating = rating
 				applyManualVerdict(res, rating == "good")
+				rescoreResultFromSubResults(res)
 				gid, base := s.resolveExerciseLocked(testID, s.runs[i].GroupID)
 				return s.saveExerciseLocked(gid, base)
 			}
@@ -507,6 +526,7 @@ func (s *ResultStore) UpdateResultPassed(runID, testID, model string, passed boo
 			res := &s.runs[i].Results[j]
 			if res.TestID == testID && res.Model == model {
 				applyManualVerdict(res, passed)
+				rescoreResultFromSubResults(res)
 				gid, base := s.resolveExerciseLocked(testID, s.runs[i].GroupID)
 				return s.saveExerciseLocked(gid, base)
 			}
@@ -610,8 +630,45 @@ type GroupModelSummary struct {
 	SysInfo          SysInfo   `json:"sys_info,omitempty"`
 }
 
-// resultScore normalizes a stored TestResult into (casesTotal, casesPassed, points, maxPoints),
-// applying the same legacy fallback used by the runner (single test = 1 case + 1 bonus).
+// rescoreResultFromSubResults recomputes a result's score fields at sub-case
+// granularity from its recorded sub-results. Used to retroactively normalize
+// runs saved under the old case+bonus scheme: each scored turn is one point
+// (no bonus), so partial passes earn proportional credit. Manual verdicts
+// (human rating or an explicit pass/fail marker) keep the human decision and
+// only have their denominator normalized. Returns true when a field changed.
+func rescoreResultFromSubResults(res *TestResult) bool {
+	if len(res.SubResults) == 0 {
+		return false
+	}
+	unitsTotal := len(res.SubResults)
+	unitsPassed := 0
+	for i := range res.SubResults {
+		sub := res.SubResults[i]
+		if sub.Passed != nil && *sub.Passed && sub.Error == "" {
+			unitsPassed++
+		}
+	}
+	var points float64
+	if res.ManualVerdict || res.HumanRating != "" {
+		if res.Passed != nil && *res.Passed {
+			points = float64(unitsTotal)
+		}
+	} else {
+		points = float64(unitsPassed)
+	}
+	maxPoints := float64(unitsTotal)
+	score := math.Min(100.0, math.Max(0.0, (points/maxPoints)*100.0))
+	changed := res.Points != points || res.MaxPoints != maxPoints || res.Score != score
+	res.Points = points
+	res.MaxPoints = maxPoints
+	res.Score = score
+	return changed
+}
+
+// resultScore normalizes a stored TestResult into (casesTotal, casesPassed,
+// points, maxPoints). New results store unit-based points/maxPoints directly;
+// the fallback recomputes legacy results (no maxPoints) at sub-case
+// granularity with no perfect-run bonus.
 func resultScore(res TestResult) (int, int, float64, float64) {
 	cTotal := res.CasesTotal
 	cPassed := res.CasesPassed
@@ -619,31 +676,25 @@ func resultScore(res TestResult) (int, int, float64, float64) {
 	mPts := res.MaxPoints
 	if mPts == 0 {
 		if len(res.SubResults) > 0 {
-			cTotal = len(res.SubResults)
+			if cTotal == 0 {
+				cTotal = len(res.SubResults)
+			}
 			cPassed = 0
 			for _, sub := range res.SubResults {
-				if sub.Passed != nil && *sub.Passed {
+				if sub.Passed != nil && *sub.Passed && sub.Error == "" {
 					cPassed++
 				}
 			}
-			bonus := 0.0
-			if cPassed == cTotal && cTotal > 0 {
-				bonus = 1.0
-			}
-			pts = float64(cPassed) + bonus
-			mPts = float64(cTotal) + 1.0
+			pts = float64(cPassed)
+			mPts = float64(len(res.SubResults))
 		} else {
 			cTotal = 1
 			cPassed = 0
 			if res.Passed != nil && *res.Passed {
 				cPassed = 1
 			}
-			bonus := 0.0
-			if cPassed == 1 {
-				bonus = 1.0
-			}
-			pts = float64(cPassed) + bonus
-			mPts = 2.0
+			pts = float64(cPassed)
+			mPts = 1.0
 		}
 	}
 	return cTotal, cPassed, pts, mPts

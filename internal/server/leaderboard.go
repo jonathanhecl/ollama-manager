@@ -93,7 +93,9 @@ func (s *Server) BuildLeaderboardData() (*LeaderboardData, error) {
 				cCount = 1
 			}
 			activeCasesByGroup[tst.GroupID] += cCount
-			activeMaxPointsByGroup[tst.GroupID] += float64(cCount + 1)
+			// Max points are sub-case (unit) based: every scored turn is
+			// worth one point, matching the runner's scoring.
+			activeMaxPointsByGroup[tst.GroupID] += float64(tst.ComputeUnitCount())
 		}
 	}
 

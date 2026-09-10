@@ -42,7 +42,7 @@ async function renderGroupHistoryModal(groupId) {
     for (const tst of groupActiveTests) {
       const cCount = (tst.cases && tst.cases.length > 0) ? tst.cases.length : 1;
       activeCases += cCount;
-      activeMaxPoints += (cCount + 1);
+      activeMaxPoints += batteryTestUnitCount(tst);
     }
 
     let rows = "";
@@ -519,7 +519,7 @@ async function buildLeaderboardTableHtml() {
         activeCountByGroup.set(tst.group_id, (activeCountByGroup.get(tst.group_id) || 0) + 1);
         const cCount = (tst.cases && tst.cases.length > 0) ? tst.cases.length : 1;
         activeCasesByGroup.set(tst.group_id, (activeCasesByGroup.get(tst.group_id) || 0) + cCount);
-        activeMaxPointsByGroup.set(tst.group_id, (activeMaxPointsByGroup.get(tst.group_id) || 0) + (cCount + 1));
+        activeMaxPointsByGroup.set(tst.group_id, (activeMaxPointsByGroup.get(tst.group_id) || 0) + batteryTestUnitCount(tst));
       }
     }
 

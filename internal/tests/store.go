@@ -243,11 +243,39 @@ type Test struct {
 	RequiredCaps     []string        `json:"required_caps,omitempty" yaml:"required_caps,omitempty"`
 	// Sidecars holds runtime-discovered attachments for simple (prompt-only)
 	// tests, from the <base>-1.<ext> sidecar file. Never stored in YAML.
-	Sidecars         []Attachment      `json:"sidecars,omitempty" yaml:"-"`
-	Options          *TestOptions      `json:"options,omitempty" yaml:"options,omitempty"`
-	Filename         string          `json:"filename,omitempty" yaml:"filename,omitempty"`
-	CreatedAt        time.Time       `json:"created_at" yaml:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at" yaml:"updated_at"`
+	Sidecars  []Attachment `json:"sidecars,omitempty" yaml:"-"`
+	Options   *TestOptions `json:"options,omitempty" yaml:"options,omitempty"`
+	Filename  string       `json:"filename,omitempty" yaml:"filename,omitempty"`
+	CreatedAt time.Time    `json:"created_at" yaml:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at" yaml:"updated_at"`
+	// UnitCount is the number of independently scored sub-cases (turns) in
+	// this test. It is derived, never persisted, and exposed to the UI so
+	// progress and scores are computed at sub-case granularity.
+	UnitCount int `json:"unit_count,omitempty" yaml:"-"`
+}
+
+// ComputeUnitCount returns the number of independently scored sub-cases
+// (turns) in the test. Each prompt/step turn that produces a scored
+// sub-result counts as one unit:
+//   - multi-case tests: every step, plus a case-level prompt when present
+//     (or the single prompt of a step-less case);
+//   - step-chain tests: every step;
+//   - any other test: one unit.
+func (t Test) ComputeUnitCount() int {
+	if len(t.Cases) > 0 {
+		total := 0
+		for _, c := range t.Cases {
+			total += len(c.Steps)
+			if len(c.Steps) == 0 || c.Prompt != "" {
+				total++
+			}
+		}
+		return total
+	}
+	if len(t.Steps) > 0 {
+		return len(t.Steps)
+	}
+	return 1
 }
 
 // MaxSidecarBytes caps sidecar files loaded into memory (10 MiB).
@@ -722,9 +750,9 @@ func (s *Store) Load() error {
 				}
 			}
 
-		tt := t
-		s.attachSidecarsLocked(catPath, &tt)
-		s.tests[t.ID] = &tt
+			tt := t
+			s.attachSidecarsLocked(catPath, &tt)
+			s.tests[t.ID] = &tt
 		}
 	}
 
@@ -868,7 +896,9 @@ func (s *Store) List() ([]Group, []Test) {
 
 	ts := make([]Test, 0, len(s.tests))
 	for _, t := range s.tests {
-		ts = append(ts, *t)
+		cp := *t
+		cp.UnitCount = cp.ComputeUnitCount()
+		ts = append(ts, cp)
 	}
 	sort.Slice(ts, func(i, j int) bool {
 		if ts[i].GroupID != ts[j].GroupID {
@@ -892,6 +922,7 @@ func (s *Store) GetTest(id string) (Test, bool) {
 		return Test{}, false
 	}
 	cp := *t
+	cp.UnitCount = cp.ComputeUnitCount()
 	return cp, true
 }
 

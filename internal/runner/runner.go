@@ -52,62 +52,66 @@ type SubResult struct {
 
 // TestResult holds the outcome of a single test for a single model.
 type TestResult struct {
-	TestID         string      `json:"test_id"`
-	TestName       string      `json:"test_name"`
-	Model          string      `json:"model"`
-	Passed         *bool       `json:"passed,omitempty"`
-	ResponseTimeMs int64       `json:"response_time_ms"`
-	TokensPerSec   float64     `json:"tokens_per_sec,omitempty"`
-	PromptTokens   int         `json:"prompt_tokens,omitempty"`
-	EvalTokens     int         `json:"eval_tokens,omitempty"`
-	TotalTokens    int         `json:"total_tokens,omitempty"`
-	ReasoningUsed  bool        `json:"reasoning_used"`
-	HumanRating    string      `json:"human_rating,omitempty"` // "bad", "regular", "good"
-	ModelResponse  string      `json:"model_response,omitempty"`
-	Thinking       string      `json:"thinking,omitempty"`
-	Error          string      `json:"error,omitempty"`
-	CasesTotal     int         `json:"cases_total"`
-	CasesPassed    int         `json:"cases_passed"`
-	Points         float64     `json:"points"`
-	MaxPoints      float64     `json:"max_points"`
-	Score          float64     `json:"score"`
-	SubResults     []SubResult `json:"sub_results,omitempty"`
+	TestID         string  `json:"test_id"`
+	TestName       string  `json:"test_name"`
+	Model          string  `json:"model"`
+	Passed         *bool   `json:"passed,omitempty"`
+	ResponseTimeMs int64   `json:"response_time_ms"`
+	TokensPerSec   float64 `json:"tokens_per_sec,omitempty"`
+	PromptTokens   int     `json:"prompt_tokens,omitempty"`
+	EvalTokens     int     `json:"eval_tokens,omitempty"`
+	TotalTokens    int     `json:"total_tokens,omitempty"`
+	ReasoningUsed  bool    `json:"reasoning_used"`
+	HumanRating    string  `json:"human_rating,omitempty"` // "bad", "regular", "good"
+	// ManualVerdict marks a result whose Passed/Points were set by a human
+	// verdict. On rescoring from sub-results the human decision is kept and
+	// only the denominator is normalized.
+	ManualVerdict bool        `json:"manual_verdict,omitempty"`
+	ModelResponse string      `json:"model_response,omitempty"`
+	Thinking      string      `json:"thinking,omitempty"`
+	Error         string      `json:"error,omitempty"`
+	CasesTotal    int         `json:"cases_total"`
+	CasesPassed   int         `json:"cases_passed"`
+	Points        float64     `json:"points"`
+	MaxPoints     float64     `json:"max_points"`
+	Score         float64     `json:"score"`
+	SubResults    []SubResult `json:"sub_results,omitempty"`
 }
 
 // Progress tracks the current state of a battery run.
 type Progress struct {
-	RunID               string       `json:"run_id"`
-	StartedAtUnixMs     int64        `json:"started_at_unix_ms,omitempty"`
-	TurnStartedAtUnixMs int64        `json:"turn_started_at_unix_ms,omitempty"`
-	Model               string       `json:"model"`
-	Models          []string     `json:"models,omitempty"`
-	GroupID         string       `json:"group_id,omitempty"`
-	GroupName       string       `json:"group_name,omitempty"`
-	Category        string       `json:"category,omitempty"`
-	TestID          string       `json:"test_id"`
-	TestName        string       `json:"test_name"`
-	TestIndex       int          `json:"test_index"`
-	TotalTests      int          `json:"total_tests"`
-	CaseName        string       `json:"case_name,omitempty"`
-	CaseIndex       int          `json:"case_index,omitempty"`
-	TotalCases      int          `json:"total_cases,omitempty"`
-	ActivePrompt    string       `json:"active_prompt,omitempty"`
-	CompletedCases  []SubResult  `json:"completed_cases,omitempty"`
-	IsThinking      bool         `json:"is_thinking"`
-	PartialResponse string       `json:"partial_response,omitempty"`
-	PartialThinking string       `json:"partial_thinking,omitempty"`
+	RunID               string      `json:"run_id"`
+	StartedAtUnixMs     int64       `json:"started_at_unix_ms,omitempty"`
+	TurnStartedAtUnixMs int64       `json:"turn_started_at_unix_ms,omitempty"`
+	Model               string      `json:"model"`
+	Models              []string    `json:"models,omitempty"`
+	GroupID             string      `json:"group_id,omitempty"`
+	GroupName           string      `json:"group_name,omitempty"`
+	Category            string      `json:"category,omitempty"`
+	TestID              string      `json:"test_id"`
+	TestName            string      `json:"test_name"`
+	TestIndex           int         `json:"test_index"`
+	TotalTests          int         `json:"total_tests"`
+	CaseName            string      `json:"case_name,omitempty"`
+	CaseIndex           int         `json:"case_index,omitempty"`
+	TotalCases          int         `json:"total_cases,omitempty"`
+	ActivePrompt        string      `json:"active_prompt,omitempty"`
+	CompletedCases      []SubResult `json:"completed_cases,omitempty"`
+	IsThinking          bool        `json:"is_thinking"`
+	PartialResponse     string      `json:"partial_response,omitempty"`
+	PartialThinking     string      `json:"partial_thinking,omitempty"`
 	// Per-stage live counters (thinking vs response, never summed).
 	// Streaming time in each stage, in milliseconds.
 	ThinkingMs int64 `json:"thinking_ms,omitempty"`
 	ResponseMs int64 `json:"response_ms,omitempty"`
 	// Accumulated rune counts per stage (token estimates ≈ chars/4).
-	ThinkingChars int `json:"thinking_chars,omitempty"`
-	ResponseChars int `json:"response_chars,omitempty"`
-	Done            bool         `json:"done"`
-	WaitingReview   bool         `json:"waiting_review,omitempty"`
-	PendingReviews  int          `json:"pending_reviews,omitempty"`
-	Error           string       `json:"error,omitempty"`
-	Results         []TestResult `json:"results,omitempty"`
+	ThinkingChars  int          `json:"thinking_chars,omitempty"`
+	ResponseChars  int          `json:"response_chars,omitempty"`
+	Done           bool         `json:"done"`
+	WaitingReview  bool         `json:"waiting_review,omitempty"`
+	PendingReviews int          `json:"pending_reviews,omitempty"`
+	Error          string       `json:"error,omitempty"`
+	Results        []TestResult `json:"results,omitempty"`
 }
 
 // ChatFunc sends a chat request and streams back chunks. It defaults to
@@ -117,9 +121,9 @@ type ChatFunc func(ctx context.Context, req ollama.ChatRequest, onChunk func(oll
 
 // Client wraps an Ollama client and executes tests.
 type Client struct {
-	ollama      *ollama.Client
-	chatFunc    ChatFunc
-	isExternal  func(string) bool
+	ollama     *ollama.Client
+	chatFunc   ChatFunc
+	isExternal func(string) bool
 	// speedFunc reports a model's recorded tok/s (ok=false when unknown).
 	// Used to select the applicable per-speed auto-skip rule.
 	speedFunc   func(string) (float64, bool)
@@ -141,7 +145,7 @@ type Client struct {
 	// (e.g. Evaluating). The next runCaseTurn/step consumes it and records
 	// the subcase as skipped instead of running it.
 	skipPending map[string]bool
-	abortMu      sync.Mutex
+	abortMu     sync.Mutex
 	// abortMode records a pending abort choice per run ("discard" or
 	// "save-completed"), applied to the run before onComplete fires.
 	abortMode map[string]string
@@ -554,33 +558,33 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 				if !hasAllCaps(caps, test.RequiredCaps) {
 					continue
 				}
-		idx++
-		skipModel := false
-		for {
-			testCtx, testCancel := context.WithCancelCause(runCtx)
-			c.setTestCancel(run.ID, testCancel)
-			c.setModelCancel(run.ID, testCancel)
-			res := c.runTest(testCtx, run.ID, model, test, idx, total)
-			retry := errors.Is(context.Cause(testCtx), errManualRetry)
-			if errors.Is(context.Cause(testCtx), errManualSkipModel) {
-				skipModel = true
-			}
-			testCancel(nil)
-			c.clearTestCancel(run.ID)
-			c.clearModelCancel(run.ID)
-			if retry {
-				// Manual retry: discard the cancelled attempt and re-run the
-				// same test from scratch (same idx, nothing appended).
-				// Step/case-level retries are handled inside runTest;
-				// reaching here with a retry cause means a whole-test retry
-				// (single-prompt tests or a retry that landed outside any
-				// step/case attempt).
-				continue
-			}
-			run.Results = append(run.Results, res)
-			c.updateProgressResults(run.ID, run.Results)
-			break
-		}
+				idx++
+				skipModel := false
+				for {
+					testCtx, testCancel := context.WithCancelCause(runCtx)
+					c.setTestCancel(run.ID, testCancel)
+					c.setModelCancel(run.ID, testCancel)
+					res := c.runTest(testCtx, run.ID, model, test, idx, total)
+					retry := errors.Is(context.Cause(testCtx), errManualRetry)
+					if errors.Is(context.Cause(testCtx), errManualSkipModel) {
+						skipModel = true
+					}
+					testCancel(nil)
+					c.clearTestCancel(run.ID)
+					c.clearModelCancel(run.ID)
+					if retry {
+						// Manual retry: discard the cancelled attempt and re-run the
+						// same test from scratch (same idx, nothing appended).
+						// Step/case-level retries are handled inside runTest;
+						// reaching here with a retry cause means a whole-test retry
+						// (single-prompt tests or a retry that landed outside any
+						// step/case attempt).
+						continue
+					}
+					run.Results = append(run.Results, res)
+					c.updateProgressResults(run.ID, run.Results)
+					break
+				}
 				if skipModel {
 					// Manual model skip: the interrupted test was recorded
 					// above; drop this model's remaining tests and continue
@@ -901,6 +905,33 @@ func avgSubResultsTPS(subs []SubResult, evalTokens int, responseTimeMs int64) fl
 		return float64(evalTokens) / (float64(responseTimeMs) / 1000.0)
 	}
 	return 0
+}
+
+// applyUnitScore fills the score fields of a test result at sub-case
+// (unit) granularity: every scored turn counts as one point, so partial
+// passes earn proportional credit. unitsTotal is the planned number of
+// units (kept as the denominator even when a run aborts or skips early,
+// so unfinished work is not rewarded). There is no perfect-run bonus.
+// Case-level counts (CasesTotal/CasesPassed) are left untouched and stay
+// all-or-nothing per case for display.
+func applyUnitScore(res *TestResult, unitsTotal int) {
+	if unitsTotal <= 0 {
+		unitsTotal = 1
+	}
+	unitsPassed := 0
+	if len(res.SubResults) > 0 {
+		for i := range res.SubResults {
+			sr := res.SubResults[i]
+			if sr.Passed != nil && *sr.Passed && sr.Error == "" {
+				unitsPassed++
+			}
+		}
+	} else if res.Passed != nil && *res.Passed && res.Error == "" {
+		unitsPassed = 1
+	}
+	res.Points = float64(unitsPassed)
+	res.MaxPoints = float64(unitsTotal)
+	res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
 }
 
 // splitCaseMedia separates a case/step's attachments into image payloads
@@ -1236,13 +1267,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		res.CasesTotal = 1
 		if res.Passed != nil && *res.Passed {
 			res.CasesPassed = 1
-			res.Points = 2.0 // 1 case + 1 bonus
 		} else {
 			res.CasesPassed = 0
-			res.Points = 0.0
 		}
-		res.MaxPoints = 2.0
-		res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
+		applyUnitScore(&res, test.ComputeUnitCount())
 		return res
 	}
 
@@ -1672,15 +1700,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 		}
 		res.CasesTotal = casesTotal
 		res.CasesPassed = casesPassed
-		bonus := 0.0
-		if allPassed && hasScored && res.Error == "" && !anySkippedOrLoop && casesPassed == casesTotal {
-			bonus = 1.0
-		}
-		res.Points = float64(casesPassed) + bonus
-		res.MaxPoints = float64(casesTotal) + 1.0
-		if res.MaxPoints > 0 {
-			res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
-		}
+		applyUnitScore(&res, test.ComputeUnitCount())
 		return res
 	}
 
@@ -1771,13 +1791,10 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	res.CasesTotal = 1
 	if res.Passed != nil && *res.Passed && res.Error == "" {
 		res.CasesPassed = 1
-		res.Points = 2.0 // 1 case + 1 bonus
 	} else {
 		res.CasesPassed = 0
-		res.Points = 0.0
 	}
-	res.MaxPoints = 2.0
-	res.Score = math.Min(100.0, math.Max(0.0, (res.Points/res.MaxPoints)*100.0))
+	applyUnitScore(&res, test.ComputeUnitCount())
 
 	return res
 }

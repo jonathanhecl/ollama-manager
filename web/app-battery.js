@@ -882,17 +882,32 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
   const queue = batteryTimelineQueue || [];
 
   for (const m of modelIDs) {
-    const queueExpected = queue.filter((q) => q.model === m).length || 0;
+    const modelQueue = queue.filter((q) => q.model === m);
+    const queueExpected = modelQueue.length || 0;
+    const queueExpectedUnits = modelQueue.reduce((sum, q) => sum + (q.units || 1), 0);
     const modelResults = results.filter((r) => r.model === m);
     const completed = modelResults.length;
     const passed = modelResults.filter((r) => r.passed === true).length;
     const failed = modelResults.filter((r) => r.passed === false).length;
-    // Expected tests for this model can never be less than what it has already completed
+    // Sub-case (unit) aggregates: partial passes earn proportional credit.
+    let completedUnits = 0;
+    let passedUnits = 0;
+    let failedUnits = 0;
+    for (const r of modelResults) {
+      const u = batteryResultUnitStats(r);
+      completedUnits += u.total;
+      passedUnits += u.passed;
+      if (r.passed === false) failedUnits += Math.max(0, u.total - u.passed);
+    }
+    // Expected work can never be less than what has already been completed.
     const expected = Math.max(queueExpected, completed);
     const totalExpected = expected > 0 ? expected : completed;
-    // Pass rate relative to total expected tests (done + pending) so it builds up progressively and never moves downward
-    const passRate = totalExpected > 0 ? Math.min(100, (passed / totalExpected) * 100) : 0;
-    const completedPassRate = completed > 0 ? Math.min(100, (passed / completed) * 100) : 0;
+    const expectedUnits = Math.max(queueExpectedUnits, completedUnits);
+    const totalExpectedUnits = expectedUnits > 0 ? expectedUnits : completedUnits;
+    // Pass rate relative to expected units (done + pending) so it builds up
+    // progressively; completed rate is the accuracy of what has run so far.
+    const passRate = totalExpectedUnits > 0 ? Math.min(100, (passedUnits / totalExpectedUnits) * 100) : 0;
+    const completedPassRate = completedUnits > 0 ? Math.min(100, (passedUnits / completedUnits) * 100) : 0;
     const totalSpeed = modelResults.reduce((sum, r) => sum + (r.tokens_per_sec || 0), 0);
     const avgSpeed = completed > 0 ? totalSpeed / completed : 0;
     const totalDuration = modelResults.reduce((sum, r) => sum + (r.response_time_ms || 0), 0);
@@ -906,6 +921,10 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
       completed,
       passed,
       failed,
+      expectedUnits: totalExpectedUnits,
+      completedUnits,
+      passedUnits,
+      failedUnits,
       passRate,
       completedPassRate,
       avgSpeed,
@@ -935,7 +954,15 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
   const totalCompleted = results.length;
   const totalPassed = results.filter((r) => r.passed === true).length;
   const totalFailed = results.filter((r) => r.passed === false).length;
-  const globalPassRate = totalCompleted > 0 ? (totalPassed / totalCompleted) * 100 : 0;
+  let totalCompletedUnits = 0;
+  let totalPassedUnits = 0;
+  for (const r of results) {
+    const u = batteryResultUnitStats(r);
+    totalCompletedUnits += u.total;
+    totalPassedUnits += u.passed;
+  }
+  const totalExpectedUnits = queue.reduce((sum, q) => sum + (q.units || 1), 0) || totalCompletedUnits;
+  const globalPassRate = totalCompletedUnits > 0 ? (totalPassedUnits / totalCompletedUnits) * 100 : 0;
   const totalSpeedAll = results.reduce((sum, r) => sum + (r.tokens_per_sec || 0), 0);
   const globalAvgSpeed = totalCompleted > 0 ? totalSpeedAll / totalCompleted : 0;
   const totalDurationAll = results.reduce((sum, r) => sum + (r.response_time_ms || 0), 0);
@@ -948,6 +975,9 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
     totalCompleted,
     totalPassed,
     totalFailed,
+    totalCompletedUnits,
+    totalPassedUnits,
+    totalExpectedUnits,
     globalPassRate,
     globalAvgSpeed,
     globalAvgLatency,
@@ -957,8 +987,6 @@ function computeBatteryStats(modelIDs, results, currentModel, currentTestIdx, to
 
 function renderBatteryKPIs(p, stats) {
   const currentModel = p.model || "";
-  const total = p.total_tests || batteryTimelineTotal || 0;
-  const idx = p.test_index || 0;
   const done = p.done || false;
 
   // Active Model Card
@@ -1016,19 +1044,30 @@ function renderBatteryKPIs(p, stats) {
     if (elNextName.title !== (stats.nextModel || "")) elNextName.title = stats.nextModel || "";
   }
 
-  // Global Progress Card
+  // Global Progress Card (sub-cases of the model currently running, so
+  // partial work inside a multi-turn test is reflected as it happens).
   const elGlobalCount = $("battery-kpi-global-count");
   const elGlobalPct = $("battery-kpi-global-pct");
   const elRemaining = $("battery-kpi-remaining-text");
   const elFill = $("battery-progress-fill");
 
-  const displayIdx = done ? total : Math.max(0, idx - 1);
-  const globalPct = total > 0 ? (done ? 100 : Math.max(0, Math.min(100, Math.round((displayIdx / total) * 100)))) : 0;
-  const remainingCount = Math.max(0, total - displayIdx);
+  const expectedUnits = curStats ? curStats.expectedUnits : 0;
+  let displayUnits = curStats ? curStats.completedUnits : 0;
+  if (!done && Array.isArray(p.completed_cases) && p.completed_cases.length > 0) {
+    const alreadyRecorded = (batteryLiveResults || []).some(
+      (r) => r.model === currentModel && r.test_id === p.test_id
+    );
+    if (!alreadyRecorded) displayUnits += p.completed_cases.length;
+  }
+  if (expectedUnits > 0) displayUnits = Math.min(displayUnits, expectedUnits);
+  const globalPct = expectedUnits > 0
+    ? Math.max(0, Math.min(100, Math.round((displayUnits / expectedUnits) * 100)))
+    : 0;
+  const remainingUnits = Math.max(0, expectedUnits - displayUnits);
 
-  if (elGlobalCount) elGlobalCount.textContent = `${displayIdx} / ${total}`;
+  if (elGlobalCount) elGlobalCount.textContent = `${displayUnits} / ${expectedUnits}`;
   if (elGlobalPct) elGlobalPct.textContent = `${globalPct}%`;
-  if (elRemaining) elRemaining.textContent = t("battery.kpi_remaining", { count: String(remainingCount) });
+  if (elRemaining) elRemaining.textContent = t("battery.kpi_remaining", { count: String(remainingUnits) });
   if (elFill) elFill.style.width = `${globalPct}%`;
 
   // Global Pass Rate Card
@@ -1038,19 +1077,20 @@ function renderBatteryKPIs(p, stats) {
   const elFailCount = $("battery-kpi-fail-count-text");
 
   const passPctRound = Math.round(stats.globalPassRate);
+  const failedUnits = Math.max(0, (stats.totalCompletedUnits || 0) - (stats.totalPassedUnits || 0));
   if (elDonutVal) {
     elDonutVal.setAttribute("stroke-dasharray", `${passPctRound}, 100`);
-    if (passPctRound < 50 && stats.totalCompleted > 0) {
+    if (passPctRound < 50 && stats.totalCompletedUnits > 0) {
       elDonutVal.style.stroke = "var(--danger)";
-    } else if (passPctRound < 75 && stats.totalCompleted > 0) {
+    } else if (passPctRound < 75 && stats.totalCompletedUnits > 0) {
       elDonutVal.style.stroke = "var(--warn)";
     } else {
       elDonutVal.style.stroke = "var(--good)";
     }
   }
   if (elDonutPct) elDonutPct.textContent = `${passPctRound}%`;
-  if (elPassCount) elPassCount.textContent = `✔ ${stats.totalPassed} ${t("battery.pass")}`;
-  if (elFailCount) elFailCount.textContent = `✖ ${stats.totalFailed} ${t("battery.fail")}`;
+  if (elPassCount) elPassCount.textContent = `✔ ${stats.totalPassedUnits} ${t("battery.pass")}`;
+  if (elFailCount) elFailCount.textContent = `✖ ${failedUnits} ${t("battery.fail")}`;
 
   // Performance Card
   const elSpeed = $("battery-kpi-avg-speed");
@@ -1110,11 +1150,11 @@ function setupMarquees(container = document) {
 
 let _leaderboardRowModels = []; // model ids in the current DOM order (marquee nodes are preserved while this matches)
 function batteryLbStatsFor(modelMap, m, currentModel) {
-  return modelMap.get(m) || { expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, completedPassRate: 0, avgSpeed: 0, isCurrent: m === currentModel, isDone: false };
+  return modelMap.get(m) || { expected: 0, completed: 0, passed: 0, failed: 0, expectedUnits: 0, completedUnits: 0, passedUnits: 0, failedUnits: 0, passRate: 0, completedPassRate: 0, avgSpeed: 0, isCurrent: m === currentModel, isDone: false };
 }
 // Signature of everything rendered OUTSIDE the model-name marquee node.
 function batteryLbRowSig(st) {
-  return `${st.expected}|${st.completed}|${st.passed}|${st.failed}|${(st.avgSpeed || 0).toFixed(1)}|${st.isCurrent ? 1 : 0}|${st.isDone ? 1 : 0}`;
+  return `${st.expected}|${st.completed}|${st.passed}|${st.failed}|${st.expectedUnits}|${st.completedUnits}|${st.passedUnits}|${st.failedUnits}|${(st.avgSpeed || 0).toFixed(1)}|${st.isCurrent ? 1 : 0}|${st.isDone ? 1 : 0}`;
 }
 function batteryLbStatusKey(st) {
   if (st.isCurrent) return "running";
@@ -1180,16 +1220,17 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
   for (const m of modelIDs) {
     const st = batteryLbStatsFor(modelMap, m, currentModel);
     const totalExp = st.expected > 0 ? st.expected : st.completed;
+    const totalExpUnits = st.expectedUnits > 0 ? st.expectedUnits : st.completedUnits;
     const passPct = Math.round(st.passRate);
-    const passBarWidth = totalExp > 0 ? (st.passed / totalExp) * 100 : 0;
-    const failBarWidth = totalExp > 0 ? (st.failed / totalExp) * 100 : 0;
-    const pendingCount = Math.max(0, totalExp - st.completed);
+    const passBarWidth = totalExpUnits > 0 ? (st.passedUnits / totalExpUnits) * 100 : 0;
+    const failBarWidth = totalExpUnits > 0 ? (st.failedUnits / totalExpUnits) * 100 : 0;
+    const pendingUnits = Math.max(0, totalExpUnits - st.completedUnits);
 
     const rowClass = batteryLbRowClass(st);
     const statusLabel = batteryLbStatusLabel(st);
     const passPctColor = passPct >= 75 ? "var(--good)" : (passPct >= 50 ? "var(--warn)" : "var(--danger)");
-    const ratioTooltip = `${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}${pendingCount > 0 ? ` · ${pendingCount} ${t("battery.status_pending")}` : ""}`;
-    const pctTooltip = st.completed > 0 ? `${st.passed}/${totalExp} (${passPct}%)` : "";
+    const ratioTooltip = `${st.passedUnits} ${t("battery.pass")} · ${st.failedUnits} ${t("battery.fail")}${pendingUnits > 0 ? ` · ${pendingUnits} ${t("battery.status_pending")}` : ""}`;
+    const pctTooltip = st.completedUnits > 0 ? `${st.passedUnits}/${totalExpUnits} (${passPct}%)` : "";
 
     let modelDisplay = escapeHtml(m);
     if (m.startsWith("hf.co/")) {
@@ -1214,8 +1255,8 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
             <div class="ratio-bar-fail" style="width: ${failBarWidth}%"></div>
           </div>
         </td>
-        <td class="col-cell-pass mono font-bold" style="color:${st.completed > 0 ? passPctColor : 'var(--muted)'};" title="${escapeHtml(pctTooltip)}">
-          ${st.completed > 0 ? passPct + "%" : "—"}
+        <td class="col-cell-pass mono font-bold" style="color:${st.completedUnits > 0 ? passPctColor : 'var(--muted)'};" title="${escapeHtml(pctTooltip)}">
+          ${st.completedUnits > 0 ? passPct + "%" : "—"}
         </td>
         <td class="col-cell-speed mono muted">
           ${st.avgSpeed > 0 ? `${st.avgSpeed.toFixed(1)} <span class="speed-unit">tok/s</span>` : "—"}
@@ -1251,8 +1292,9 @@ function updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel) {
     row.title = `${m} · ${batteryLbStatusLabel(st)}`;
 
     const totalExp = st.expected > 0 ? st.expected : st.completed;
+    const totalExpUnits = st.expectedUnits > 0 ? st.expectedUnits : st.completedUnits;
     const passPct = Math.round(st.passRate);
-    const pendingCount = Math.max(0, totalExp - st.completed);
+    const pendingUnits = Math.max(0, totalExpUnits - st.completedUnits);
 
     const testsCell = row.querySelector(".col-cell-tests");
     if (testsCell) {
@@ -1262,18 +1304,18 @@ function updateBatteryLeaderboardRows(tbody, modelIDs, modelMap, currentModel) {
     }
     const ratioBar = row.querySelector(".leaderboard-ratio-bar");
     if (ratioBar) {
-      ratioBar.title = `${st.passed} ${t("battery.pass")} · ${st.failed} ${t("battery.fail")}${pendingCount > 0 ? ` · ${pendingCount} ${t("battery.status_pending")}` : ""}`;
+      ratioBar.title = `${st.passedUnits} ${t("battery.pass")} · ${st.failedUnits} ${t("battery.fail")}${pendingUnits > 0 ? ` · ${pendingUnits} ${t("battery.status_pending")}` : ""}`;
       const passBar = ratioBar.querySelector(".ratio-bar-pass");
       const failBar = ratioBar.querySelector(".ratio-bar-fail");
-      if (passBar) passBar.style.width = `${totalExp > 0 ? (st.passed / totalExp) * 100 : 0}%`;
-      if (failBar) failBar.style.width = `${totalExp > 0 ? (st.failed / totalExp) * 100 : 0}%`;
+      if (passBar) passBar.style.width = `${totalExpUnits > 0 ? (st.passedUnits / totalExpUnits) * 100 : 0}%`;
+      if (failBar) failBar.style.width = `${totalExpUnits > 0 ? (st.failedUnits / totalExpUnits) * 100 : 0}%`;
     }
     const passCell = row.querySelector(".col-cell-pass");
     if (passCell) {
       const passPctColor = passPct >= 75 ? "var(--good)" : (passPct >= 50 ? "var(--warn)" : "var(--danger)");
-      passCell.style.color = st.completed > 0 ? passPctColor : "var(--muted)";
-      passCell.title = st.completed > 0 ? `${st.passed}/${totalExp} (${passPct}%)` : "";
-      setTextIfChanged(passCell, st.completed > 0 ? passPct + "%" : "—");
+      passCell.style.color = st.completedUnits > 0 ? passPctColor : "var(--muted)";
+      passCell.title = st.completedUnits > 0 ? `${st.passedUnits}/${totalExpUnits} (${passPct}%)` : "";
+      setTextIfChanged(passCell, st.completedUnits > 0 ? passPct + "%" : "—");
     }
     const speedCell = row.querySelector(".col-cell-speed");
     if (speedCell) {
@@ -1297,7 +1339,7 @@ function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
 
   // Find models with stats
   const allModelStats = modelIDs.map((m) => {
-    return modelMap.get(m) || { model: m, expected: 0, completed: 0, passed: 0, failed: 0, passRate: 0, avgSpeed: 0 };
+    return modelMap.get(m) || { model: m, expected: 0, completed: 0, passed: 0, failed: 0, expectedUnits: 0, completedUnits: 0, passedUnits: 0, failedUnits: 0, passRate: 0, avgSpeed: 0 };
   });
 
   const maxSpeed = Math.max(...allModelStats.map((s) => s.avgSpeed || 0), 20);
@@ -1308,12 +1350,12 @@ function renderBatteryAnalyticsCharts(modelIDs, modelMap) {
   let passBars = "";
   allModelStats.forEach((st, idx) => {
     const y = idx * rowHeight + 8;
-    const isTested = st.completed > 0;
-    const totalExp = st.expected > 0 ? st.expected : st.completed;
+    const isTested = st.completedUnits > 0;
+    const totalExpUnits = st.expectedUnits > 0 ? st.expectedUnits : st.completedUnits;
     const barWidth = isTested ? Math.max(3, Math.round(st.passRate * 2.8)) : 0;
     const passColor = st.passRate >= 75 ? "#10b981" : (st.passRate >= 50 ? "#f59e0b" : "#ef4444");
     const shortName = st.model.length > 22 ? st.model.slice(0, 20) + "…" : st.model;
-    const valText = isTested ? `${Math.round(st.passRate)}% (${st.passed}/${totalExp})` : `-- (0/${totalExp || 0})`;
+    const valText = isTested ? `${Math.round(st.passRate)}% (${st.passedUnits}/${totalExpUnits})` : `-- (0/${totalExpUnits || 0})`;
 
     passBars += `
       <g class="chart-row">
@@ -1491,6 +1533,42 @@ function getTestCategoryName(testId, fallbackGroupId = "") {
   return gid.charAt(0).toUpperCase() + gid.slice(1);
 }
 
+// Scored sub-cases (units) a test contributes. Mirrors the Go side
+// (tests.Test.ComputeUnitCount): every case-level prompt/step turn counts.
+function batteryTestUnitCount(test) {
+  if (!test) return 1;
+  if (typeof test.unit_count === "number" && test.unit_count > 0) return test.unit_count;
+  if (Array.isArray(test.cases) && test.cases.length > 0) {
+    let total = 0;
+    for (const c of test.cases) {
+      const steps = Array.isArray(c.steps) ? c.steps : [];
+      total += steps.length;
+      if (steps.length === 0 || c.prompt) total++;
+    }
+    return total || 1;
+  }
+  if (Array.isArray(test.steps) && test.steps.length > 0) return test.steps.length;
+  return 1;
+}
+
+// Passed/total sub-cases (units) recorded in a finished test result.
+function batteryResultUnitStats(r) {
+  if (!r) return { passed: 0, total: 0 };
+  if (r.max_points != null && r.max_points > 0) {
+    return { passed: r.points || 0, total: r.max_points };
+  }
+  if (Array.isArray(r.sub_results) && r.sub_results.length > 0) {
+    let passed = 0;
+    for (const s of r.sub_results) {
+      if (s.passed === true && !s.error) passed++;
+    }
+    return { passed, total: r.sub_results.length };
+  }
+  if (r.passed === true) return { passed: 1, total: 1 };
+  if (r.passed === false) return { passed: 0, total: 1 };
+  return { passed: 0, total: 0 };
+}
+
 function buildBatteryTimelineQueue(groupFilter, modelIDs) {
   const ids = Array.isArray(groupFilter) ? groupFilter : (groupFilter === "all" || !groupFilter ? null : [groupFilter]);
   // Group by category (group order first, then test order within the group)
@@ -1520,7 +1598,7 @@ function buildBatteryTimelineQueue(groupFilter, modelIDs) {
       const required = [...batteryTestEffectiveCaps(test)];
       if (required.every((c) => caps.has(c))) {
         idx++;
-        queue.push({ index: idx, testId: test.id, testName: test.name, model, groupId: test.group_id });
+        queue.push({ index: idx, testId: test.id, testName: test.name, model, groupId: test.group_id, units: batteryTestUnitCount(test) });
       }
     }
   }
@@ -2896,8 +2974,9 @@ function showBatteryHistoryView(filterTestId = null, filterModel = null) {
 
 let batteryResultsViewMode = "matrix";
 
-// Fractional score for leaderboard: sub-cases count partially, bonus for all OK,
-// errors and pending human reviews are not countable.
+// Fractional score for a test result: every scored sub-case is one point,
+// so partial passes earn proportional credit. Errors and pending human
+// reviews are not countable.
 function batteryResultScore(r) {
   if (r.error) return null;
   if (r.max_points != null && r.max_points > 0) {
@@ -2907,6 +2986,7 @@ function batteryResultScore(r) {
     let earned = 0;
     let total = 0;
     for (const s of r.sub_results) {
+      if (s.error) continue;
       if (s.passed === true) {
         earned++;
         total++;
@@ -2914,17 +2994,11 @@ function batteryResultScore(r) {
         total++;
       }
     }
-    if (total > 0) {
-      if (earned === total) {
-        earned += 1; // bonus for all cases passing
-      }
-      total += 1; // max points includes bonus
-      return { earned, total };
-    }
+    if (total > 0) return { earned, total };
     return null;
   }
-  if (r.passed === true) return { earned: 2, total: 2 };
-  if (r.passed === false) return { earned: 0, total: 2 };
+  if (r.passed === true) return { earned: 1, total: 1 };
+  if (r.passed === false) return { earned: 0, total: 1 };
   return null;
 }
 
@@ -3040,12 +3114,16 @@ function renderBatteryResults(run) {
   // Build per-model stats.
   const modelStats = {};
   for (const m of run.models) {
-    modelStats[m] = { pass: 0, fail: 0, human: 0, total: 0, timeSum: 0, reasoning: 0, tpsSum: 0, tpsCount: 0 };
+    modelStats[m] = { pass: 0, fail: 0, human: 0, total: 0, passUnits: 0, failUnits: 0, totalUnits: 0, timeSum: 0, reasoning: 0, tpsSum: 0, tpsCount: 0 };
   }
   for (const r of run.results) {
     const s = modelStats[r.model];
     if (!s) continue;
     s.total++;
+    const u = batteryResultUnitStats(r);
+    s.totalUnits += u.total;
+    s.passUnits += u.passed;
+    s.failUnits += Math.max(0, u.total - u.passed);
     s.timeSum += r.response_time_ms;
     if (r.tokens_per_sec > 0) {
       s.tpsSum += r.tokens_per_sec;
@@ -3064,14 +3142,14 @@ function renderBatteryResults(run) {
     const avgMs = s.total > 0 ? Math.round(s.timeSum / s.total) : 0;
     const avgTps = s.tpsCount > 0 ? (s.tpsSum / s.tpsCount).toFixed(1) : null;
     const avgTpsColor = avgTps ? (typeof getToksRecordColor === "function" ? getToksRecordColor(Number(avgTps)) : "") : "";
-    const pct = Math.round((s.pass / (s.total || 1)) * 100);
-    const okClass = s.pass === s.total && s.total > 0 ? "pill-good" : (s.pass > 0 ? "pill-warn" : "pill-bad");
+    const pct = Math.round((s.passUnits / (s.totalUnits || 1)) * 100);
+    const okClass = s.passUnits === s.totalUnits && s.totalUnits > 0 ? "pill-good" : (s.passUnits > 0 ? "pill-warn" : "pill-bad");
 
     summaryHtml += `
       <div class="battery-summary-card">
         <h4>${escapeHtml(m)}</h4>
         <div class="battery-summary-card-body">
-          <div class="big">${s.pass} / ${s.total} <span class="pill ${okClass}" style="font-size:12px;margin-left:6px;">${pct}%</span></div>
+          <div class="big">${s.passUnits} / ${s.totalUnits} <span class="pill ${okClass}" style="font-size:12px;margin-left:6px;">${pct}%</span></div>
           <div class="battery-summary-metrics">
             <span class="battery-summary-time mono">⏱️ ${fmtDuration(avgMs)}</span>
             ${avgTps ? `<span class="battery-summary-tps mono" style="color: ${avgTpsColor}">⚡ <strong>${avgTps}</strong> <span class="unit">tok/s</span></span>` : ""}
@@ -3099,7 +3177,7 @@ function renderBatteryResults(run) {
     for (const m of run.models) {
       const s = modelStats[m];
       if (!s || s.total === 0) continue;
-      const pct = (s.pass / s.total) * 100;
+      const pct = (s.passUnits / (s.totalUnits || 1)) * 100;
       const avgTps = s.tpsCount > 0 ? (s.tpsSum / s.tpsCount) : 0;
       const avgMs = s.timeSum / s.total;
 

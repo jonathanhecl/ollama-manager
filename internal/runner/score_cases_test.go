@@ -8,82 +8,109 @@ import (
 )
 
 func TestCasesScoringCalculation(t *testing.T) {
-	// Test 1: Single case passing gets 1 case + 1 bonus = 2 points / 2 max points = 100%
-	t.Run("single case passed", func(t *testing.T) {
-		trueVal := true
+	pass := true
+	fail := false
+
+	// Every scored sub-case (turn) is one point: partial passes earn
+	// proportional credit and there is no perfect-run bonus.
+	t.Run("partial sub-cases earn proportional credit", func(t *testing.T) {
 		res := TestResult{
-			TestID:      "test-1",
-			Passed:      &trueVal,
-			CasesTotal:  1,
-			CasesPassed: 1,
-			Points:      2.0,
-			MaxPoints:   2.0,
-			Score:       100.0,
+			TestID: "test-partial",
+			Passed: &fail,
+			SubResults: []SubResult{
+				{Passed: &pass},
+				{Passed: &fail},
+				{Passed: &pass},
+				{Passed: &fail},
+			},
 		}
-		if res.Points != 2.0 || res.MaxPoints != 2.0 || res.Score != 100.0 {
-			t.Fatalf("unexpected res: %+v", res)
+		applyUnitScore(&res, 4)
+		if res.Points != 2.0 || res.MaxPoints != 4.0 || res.Score != 50.0 {
+			t.Fatalf("expected 2/4 = 50%%, got points=%v max=%v score=%v", res.Points, res.MaxPoints, res.Score)
 		}
 	})
 
-	// Test 2: Multi-case test where 2 out of 3 pass (50.0% score)
-	t.Run("partial cases passed", func(t *testing.T) {
-		falseVal := false
-		casesTotal := 3
-		casesPassed := 2
-		bonus := 0.0 // not all passed
-		pts := float64(casesPassed) + bonus
-		maxPts := float64(casesTotal) + 1.0 // 4.0
-		score := math.Min(100.0, math.Max(0.0, (pts/maxPts)*100.0))
-
-		res := TestResult{
-			TestID:      "test-3-cases",
-			Passed:      &falseVal,
-			CasesTotal:  casesTotal,
-			CasesPassed: casesPassed,
-			Points:      pts,
-			MaxPoints:   maxPts,
-			Score:       score,
-		}
-		if res.Points != 2.0 {
-			t.Fatalf("expected 2.0 points, got %f", res.Points)
-		}
-		if res.MaxPoints != 4.0 {
-			t.Fatalf("expected 4.0 max points, got %f", res.MaxPoints)
-		}
-		if res.Score != 50.0 {
-			t.Fatalf("expected 50.0 score, got %f", res.Score)
+	t.Run("single sub-case pass is 100%", func(t *testing.T) {
+		res := TestResult{TestID: "t1", Passed: &pass, SubResults: []SubResult{{Passed: &pass}}}
+		applyUnitScore(&res, 1)
+		if res.Points != 1.0 || res.MaxPoints != 1.0 || res.Score != 100.0 {
+			t.Fatalf("expected 1/1 = 100%%, got points=%v max=%v score=%v", res.Points, res.MaxPoints, res.Score)
 		}
 	})
 
-	// Test 3: Multi-case test where 3 out of 3 pass (100.0% score with bonus)
-	t.Run("all cases passed with bonus", func(t *testing.T) {
-		trueVal := true
-		casesTotal := 3
-		casesPassed := 3
-		bonus := 1.0 // all passed!
-		pts := float64(casesPassed) + bonus
-		maxPts := float64(casesTotal) + 1.0 // 4.0
-		score := math.Min(100.0, math.Max(0.0, (pts/maxPts)*100.0))
-
-		res := TestResult{
-			TestID:      "test-3-cases-perfect",
-			Passed:      &trueVal,
-			CasesTotal:  casesTotal,
-			CasesPassed: casesPassed,
-			Points:      pts,
-			MaxPoints:   maxPts,
-			Score:       score,
-		}
-		if res.Points != 4.0 {
-			t.Fatalf("expected 4.0 points, got %f", res.Points)
-		}
-		if res.MaxPoints != 4.0 {
-			t.Fatalf("expected 4.0 max points, got %f", res.MaxPoints)
-		}
-		if res.Score != 100.0 {
-			t.Fatalf("expected 100.0 score, got %f", res.Score)
+	t.Run("planned denominator keeps aborted work from inflating", func(t *testing.T) {
+		// Only 1 of 3 planned units ran (abort); the denominator stays 3.
+		res := TestResult{TestID: "t-abort", Passed: &fail, SubResults: []SubResult{{Passed: &pass}}}
+		applyUnitScore(&res, 3)
+		if res.Points != 1.0 || res.MaxPoints != 3.0 || res.Score < 33.3 || res.Score > 33.4 {
+			t.Fatalf("expected 1/3 ≈ 33%%, got points=%v max=%v score=%v", res.Points, res.MaxPoints, res.Score)
 		}
 	})
+
+	t.Run("skipped and pending units count in denominator only", func(t *testing.T) {
+		res := TestResult{
+			TestID: "t-skips",
+			Passed: &fail,
+			SubResults: []SubResult{
+				{Passed: &pass},
+				{Passed: &fail, Error: "manually skipped"},
+				{Passed: nil}, // awaiting human review
+			},
+		}
+		applyUnitScore(&res, 3)
+		if res.Points != 1.0 || res.MaxPoints != 3.0 {
+			t.Fatalf("expected 1/3, got points=%v max=%v", res.Points, res.MaxPoints)
+		}
+	})
+
+	t.Run("no sub-results falls back to the test verdict", func(t *testing.T) {
+		res := TestResult{TestID: "plain", Passed: &pass}
+		applyUnitScore(&res, 0)
+		if res.Points != 1.0 || res.MaxPoints != 1.0 || res.Score != 100.0 {
+			t.Fatalf("expected 1/1 = 100%%, got points=%v max=%v score=%v", res.Points, res.MaxPoints, res.Score)
+		}
+	})
+}
+
+func TestComputeUnitCount(t *testing.T) {
+	cases := []struct {
+		name string
+		test tests.Test
+		want int
+	}{
+		{"plain prompt", tests.Test{Prompt: "hi"}, 1},
+		{"top-level steps", tests.Test{Steps: []tests.Step{{Prompt: "a"}, {Prompt: "b"}}}, 2},
+		{
+			"case prompt only",
+			tests.Test{Cases: []tests.TestCase{{Prompt: "a"}}},
+			1,
+		},
+		{
+			"case with steps and prompt",
+			tests.Test{Cases: []tests.TestCase{{Prompt: "ctx", Steps: []tests.CaseStep{{Prompt: "s1"}, {Prompt: "s2"}}}}},
+			3,
+		},
+		{
+			"case with steps and no prompt",
+			tests.Test{Cases: []tests.TestCase{{Steps: []tests.CaseStep{{Prompt: "s1"}}}}},
+			1,
+		},
+		{
+			"mixed cases",
+			tests.Test{Cases: []tests.TestCase{
+				{Prompt: "a"},
+				{Prompt: "ctx", Steps: []tests.CaseStep{{Prompt: "s1"}}},
+			}},
+			3,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.test.ComputeUnitCount(); got != tc.want {
+				t.Fatalf("ComputeUnitCount = %d, want %d", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestStoreGroupHistoryCasesAggregation(t *testing.T) {
@@ -99,7 +126,7 @@ func TestStoreGroupHistoryCasesAggregation(t *testing.T) {
 		GroupName: "Coding",
 		Models:    []string{"model-a"},
 		Results: []TestResult{
-			// Test 1: 2 cases, 1 passed -> points: 1, max: 3
+			// Test 1: 2 cases (3 scored units), 1 unit passed -> 1/3 points
 			{
 				TestID:      "t1",
 				TestName:    "Test 1",
@@ -110,7 +137,7 @@ func TestStoreGroupHistoryCasesAggregation(t *testing.T) {
 				Points:      1.0,
 				MaxPoints:   3.0,
 			},
-			// Test 2: 1 case, 1 passed -> points: 2, max: 2 (clean pass with bonus)
+			// Test 2: 1 case / 1 unit, passed -> 1/1 points
 			{
 				TestID:      "t2",
 				TestName:    "Test 2",
@@ -118,8 +145,8 @@ func TestStoreGroupHistoryCasesAggregation(t *testing.T) {
 				Passed:      &trueVal,
 				CasesTotal:  1,
 				CasesPassed: 1,
-				Points:      2.0,
-				MaxPoints:   2.0,
+				Points:      1.0,
+				MaxPoints:   1.0,
 			},
 		},
 	}
@@ -139,17 +166,14 @@ func TestStoreGroupHistoryCasesAggregation(t *testing.T) {
 	if s.PassedCases != 2 {
 		t.Fatalf("expected 2 passed cases, got %d", s.PassedCases)
 	}
-	if s.ScorePoints != 3.0 {
-		t.Fatalf("expected 3.0 points earned, got %f", s.ScorePoints)
+	if s.ScorePoints != 2.0 {
+		t.Fatalf("expected 2.0 points earned, got %f", s.ScorePoints)
 	}
-	if s.MaxPoints != 5.0 {
-		t.Fatalf("expected 5.0 max points, got %f", s.MaxPoints)
+	if s.MaxPoints != 4.0 {
+		t.Fatalf("expected 4.0 max points, got %f", s.MaxPoints)
 	}
-	// 3 / 5 = 60.0%
-	if math.Abs(s.Score-60.0) > 0.001 {
-		t.Fatalf("expected score 60.0, got %f", s.Score)
+	// 2 / 4 = 50.0%
+	if math.Abs(s.Score-50.0) > 0.001 {
+		t.Fatalf("expected score 50.0, got %f", s.Score)
 	}
 }
-
-// Ensure tests package is referenced if needed
-var _ = tests.Test{}

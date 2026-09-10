@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gense/ollama-manager/internal/runner"
@@ -155,6 +156,32 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 			}
 			testsList[i].RequiredCaps = merged
 		}
+	}
+
+	// Order tests by category so multi-category runs execute (and save
+	// progress) one category at a time instead of interleaved: group
+	// order first, then test order within the group. The runner preserves
+	// this order and the frontend timeline queue mirrors it.
+	if len(testsList) > 1 {
+		grps, _ := s.testsStore.List()
+		gOrder := make(map[string]int, len(grps))
+		for _, g := range grps {
+			gOrder[g.ID] = g.Order
+		}
+		sort.SliceStable(testsList, func(i, j int) bool {
+			oi, oki := gOrder[testsList[i].GroupID]
+			oj, okj := gOrder[testsList[j].GroupID]
+			if oki && okj && oi != oj {
+				return oi < oj
+			}
+			if testsList[i].GroupID != testsList[j].GroupID {
+				return testsList[i].GroupID < testsList[j].GroupID
+			}
+			if testsList[i].Order != testsList[j].Order {
+				return testsList[i].Order < testsList[j].Order
+			}
+			return testsList[i].Name < testsList[j].Name
+		})
 	}
 
 	// Fetch capabilities for selected models.

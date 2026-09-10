@@ -1493,9 +1493,25 @@ function getTestCategoryName(testId, fallbackGroupId = "") {
 
 function buildBatteryTimelineQueue(groupFilter, modelIDs) {
   const ids = Array.isArray(groupFilter) ? groupFilter : (groupFilter === "all" || !groupFilter ? null : [groupFilter]);
+  // Group by category (group order first, then test order within the group)
+  // so runs execute — and save progress — one category at a time instead
+  // of interleaved. Mirrors the backend ordering in handleBatteryRun.
+  const groupOrder = new Map(
+    (typeof testsGroups !== "undefined" && Array.isArray(testsGroups) ? testsGroups : []).map((g) => [
+      g.id,
+      typeof g.order === "number" ? g.order : Number.MAX_SAFE_INTEGER,
+    ])
+  );
   const activeTests = tests
     .filter((t) => (ids === null || ids.includes(t.group_id)) && t.active && t.evaluation_type !== "agent")
-    .sort((a, b) => (a.order || 0) - (b.order || 0));
+    .sort((a, b) => {
+      const goa = groupOrder.has(a.group_id) ? groupOrder.get(a.group_id) : Number.MAX_SAFE_INTEGER;
+      const gob = groupOrder.has(b.group_id) ? groupOrder.get(b.group_id) : Number.MAX_SAFE_INTEGER;
+      if (goa !== gob) return goa - gob;
+      if (a.group_id !== b.group_id) return String(a.group_id).localeCompare(String(b.group_id));
+      if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
+      return String(a.name || a.id).localeCompare(String(b.name || b.id));
+    });
   const queue = [];
   let idx = 0;
   for (const model of modelIDs) {

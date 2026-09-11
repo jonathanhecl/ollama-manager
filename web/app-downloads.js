@@ -179,17 +179,23 @@ function jobsByStatus() {
 }
 
 function updateDownloadsBadge() {
-  let activeCount = 0;
+  let activeCount = 0; // running + queued, shown in the counter badge
+  let runningCount = 0; // actively downloading, drives the blue glow
   for (const j of jobs.values()) {
-    if (j.status === "running" || j.status === "queued" || j.status === "paused") activeCount++;
+    if (j.status === "running" || j.status === "queued") activeCount++;
+    if (j.status === "running") runningCount++;
   }
   const badge = $("downloads-count");
-  if (activeCount > 0) {
-    badge.textContent = String(activeCount);
-    badge.hidden = false;
-  } else {
-    badge.hidden = true;
+  if (badge) {
+    if (activeCount > 0) {
+      badge.textContent = String(activeCount);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
   }
+  const btn = $("downloads-btn");
+  if (btn) btn.classList.toggle("downloads-running", runningCount > 0);
 }
 
 function renderDownloads() {

@@ -232,6 +232,25 @@ function applySort(arr) {
       return dir === "asc" ? (timeA - timeB) : (timeB - timeA);
     });
   }
+  if (col === "bench_overall") {
+    // Models that are runnable (recorded tok/s) but never benched yet are the
+    // actionable ones, so they always float to the top of the bench sort.
+    const readyRank = (m) =>
+      (!m.isGhost && !m.isPending && !m.bench_tested && (Number(m.record_tokens_per_sec) || 0) > 0) ? 0 : 1;
+    const mul = dir === "asc" ? 1 : -1;
+    return [...arr].sort((a, b) => {
+      const ra = readyRank(a);
+      const rb = readyRank(b);
+      if (ra !== rb) return ra - rb;
+      const oa = (typeof a.bench_overall === "number") ? a.bench_overall : -1;
+      const ob = (typeof b.bench_overall === "number") ? b.bench_overall : -1;
+      let cmp = oa - ob;
+      if (cmp === 0) {
+        cmp = String(a.name || "").toLowerCase().localeCompare(String(b.name || "").toLowerCase());
+      }
+      return mul * cmp;
+    });
+  }
   const mul = dir === "asc" ? 1 : -1;
   return [...arr].sort((a, b) => {
     const ka = sortKey(a, col);

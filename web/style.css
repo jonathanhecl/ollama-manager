@@ -14084,6 +14084,34 @@ button.chat-send:disabled:hover {
   position: relative;
 }
 
+/* ---------- Active Downloads Pulse on Nav Downloads Icon ---------- */
+#downloads-btn.downloads-running {
+  animation: downloads-pulse-blue 1.8s ease-in-out infinite !important;
+  border-color: #7aa2ff !important;
+  position: relative;
+}
+#downloads-btn.downloads-running .dl-icon {
+  color: #a9c1ff;
+}
+@keyframes downloads-pulse-blue {
+  0% {
+    box-shadow: 0 0 0 0 rgba(122, 162, 255, 0.7);
+    border-color: rgba(122, 162, 255, 0.6);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px rgba(122, 162, 255, 0.85);
+    border-color: #7aa2ff;
+    background: rgba(122, 162, 255, 0.18);
+    transform: scale(1.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(122, 162, 255, 0);
+    border-color: rgba(122, 162, 255, 0.6);
+    transform: scale(1);
+  }
+}
+
 /* ---------- Active Battery Banner in Tests View ---------- */
 .tests-active-battery-banner {
   display: flex;

@@ -65,6 +65,10 @@ async function showSettingsView() {
   bindDefaultSystemPromptFileEvents();
   bindSystemPromptsModalEvents();
   bindChatDefaultsEvents();
+  bindHuggingFaceEvents();
+  updateHFTokenBadge();
+  if ($("set-hf-token")) $("set-hf-token").value = "";
+  void loadOllamaKey();
 
   const mobileBackBtn = $("settings-mobile-back-btn");
   if (mobileBackBtn && !mobileBackBtn._bound) {
@@ -78,6 +82,7 @@ async function showSettingsView() {
   else if (path === "/settings/testing") targetSecId = "sec-testing";
   else if (path === "/settings/prompts") targetSecId = "sec-prompts";
   else if (path === "/settings/network") targetSecId = "sec-network";
+  else if (path === "/settings/huggingface") targetSecId = "sec-hf";
   else if (path === "/settings/external") targetSecId = "sec-ext-models";
   else if (path === "/settings/archived" || path === "/archived") targetSecId = "sec-archived";
   else if (path === "/settings/gateway") targetSecId = "sec-gateway";
@@ -318,6 +323,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
     else if (sectionId === "sec-testing") subRoute = "/settings/testing";
     else if (sectionId === "sec-prompts") subRoute = "/settings/prompts";
     else if (sectionId === "sec-network") subRoute = "/settings/network";
+    else if (sectionId === "sec-hf") subRoute = "/settings/huggingface";
     else if (sectionId === "sec-ext-models") subRoute = "/settings/external";
     else if (sectionId === "sec-archived") subRoute = "/settings/archived";
     else if (sectionId === "sec-gateway") subRoute = "/settings/gateway";
@@ -338,6 +344,95 @@ function showSettingsMobileMenu() {
   }
 }
 window.showSettingsMobileMenu = showSettingsMobileMenu;
+
+// ---------- HuggingFace settings ----------
+
+function updateHFTokenBadge() {
+  const badge = $("hf-token-badge");
+  if (!badge) return;
+  if (currentConfig?.has_hf_token) {
+    badge.textContent = t("settings.hf_token_set");
+    badge.classList.remove("badge-na");
+  } else {
+    badge.textContent = t("settings.hf_token_unset");
+    badge.classList.add("badge-na");
+  }
+}
+window.updateHFTokenBadge = updateHFTokenBadge;
+
+function openHuggingFaceSettings() {
+  const go = async () => {
+    await showSettingsView();
+    showSettingsSection("sec-hf", true);
+  };
+  void go();
+}
+window.openHuggingFaceSettings = openHuggingFaceSettings;
+
+async function loadOllamaKey() {
+  const input = $("hf-ollama-key");
+  const note = $("hf-ollama-key-note");
+  if (!input) return;
+  input.value = "";
+  if (note) note.textContent = "";
+  let res = null;
+  try {
+    res = await api("/api/ollama/key");
+  } catch (e) {
+    res = null;
+  }
+  const path = res?.path || "~/.ollama/id_ed25519.pub";
+  if (res?.found && res.public_key) {
+    input.value = res.public_key;
+    if (note) note.textContent = path;
+  } else if (note) {
+    note.textContent = t("settings.hf_key_missing", { path });
+  }
+}
+
+function bindHuggingFaceEvents() {
+  const copyBtn = $("hf-ollama-key-copy");
+  if (copyBtn && !copyBtn._bound) {
+    copyBtn._bound = true;
+    copyBtn.addEventListener("click", async () => {
+      const val = $("hf-ollama-key")?.value || "";
+      if (!val) return;
+      try {
+        await navigator.clipboard.writeText(val);
+      } catch (e) {
+        const input = $("hf-ollama-key");
+        if (input) {
+          input.removeAttribute("readonly");
+          input.select();
+          try { document.execCommand("copy"); } catch (_) { /* ignore */ }
+          input.setAttribute("readonly", "readonly");
+        }
+      }
+      toast(t("settings.hf_key_copied"), "success");
+    });
+  }
+
+  const clearBtn = $("hf-token-clear-btn");
+  if (clearBtn && !clearBtn._bound) {
+    clearBtn._bound = true;
+    clearBtn.addEventListener("click", async () => {
+      try {
+        const res = await api("/api/config", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hf_token: "" }),
+        });
+        if (currentConfig) currentConfig.has_hf_token = res.has_hf_token;
+        if ($("set-hf-token")) $("set-hf-token").value = "";
+        updateHFTokenBadge();
+        toast(t("settings.hf_token_cleared"), "success");
+      } catch (e) {
+        toast(t("toast.error", { msg: e.message }), "error");
+      }
+    });
+  }
+}
+
 
 // ---------- testing auto-skip summary ----------
 

@@ -1432,6 +1432,10 @@
             <span class="settings-nav-icon">🔒</span>
             <span class="settings-nav-label" data-i18n="settings.nav_network">Network &amp; Security</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-hf">
+            <span class="settings-nav-icon">🤗</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_hf">HuggingFace</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-prompts">
             <span class="settings-nav-icon">📝</span>
             <span class="settings-nav-label" data-i18n="settings.nav_prompts">System Prompts</span>
@@ -1680,6 +1684,41 @@
               </div>
               <button id="pwd-clear-btn" class="ghost danger-text pwd-clear" hidden data-i18n="settings.clear_password">Remove password</button>
               <button id="settings-logout-btn" class="ghost danger-text pwd-clear" hidden data-i18n-attr="title" data-i18n="settings.sign_out" title="Sign out" data-i18n-text>Sign out</button>
+            </div>
+          </section>
+
+          <!-- HuggingFace -->
+          <section class="settings-section-card" id="sec-hf" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.hf_section">HuggingFace</h3>
+                <span class="badge" id="hf-token-badge"></span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.hf_token_hint">Optional access token used by the model explorer to list gated/private repos and avoid rate limits.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="field">
+                <label for="set-hf-token" data-i18n="settings.hf_token">Access token</label>
+                <div class="input-with-action">
+                  <input id="set-hf-token" type="password" autocomplete="new-password" spellcheck="false" placeholder="hf_...">
+                  <button id="hf-token-clear-btn" class="ghost danger-text" data-i18n="settings.hf_token_clear">Remove</button>
+                </div>
+                <small class="muted" data-i18n="settings.hf_token_field_hint">Create a read token at huggingface.co/settings/tokens. It is stored locally and only sent to huggingface.co.</small>
+              </div>
+              <hr class="settings-sep">
+              <div class="section-head">
+                <h3 data-i18n="settings.hf_key_section">Ollama SSH key (gated model downloads)</h3>
+              </div>
+              <p class="form-hint" data-i18n="settings.hf_key_hint">Ollama does not use an HF token to pull models. It authenticates with its own ed25519 key, so gated/private GGUF repos require adding this public key to your HuggingFace account. It lives on the machine running Ollama.</p>
+              <div class="field">
+                <label for="hf-ollama-key" data-i18n="settings.hf_key_label">Ollama public key</label>
+                <div class="input-with-action">
+                  <input id="hf-ollama-key" class="mono" type="text" readonly value="">
+                  <button id="hf-ollama-key-copy" class="ghost" data-i18n="settings.hf_key_copy">Copy</button>
+                </div>
+                <small class="muted mono" id="hf-ollama-key-note"></small>
+              </div>
+              <a id="hf-add-key-link" href="https://huggingface.co/settings/keys" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:12px;color:var(--accent);text-decoration:none;font-size:13px;" data-i18n="settings.hf_key_add">Add the key on HuggingFace ↗</a>
             </div>
           </section>
 

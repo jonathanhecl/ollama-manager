@@ -62,13 +62,13 @@ type HFModelDetail struct {
 }
 
 var (
-	quantRegex     = regexp.MustCompile(`(?i)(?:^|[-._])(q[0-9]+_[a-z0-9_]+|q[0-9]+_[0-9]+|q[0-9]+|iq[0-9]+_[a-z0-9_]+|ud-iq[0-9]+_[a-z0-9_]+|f16|f32|bf16)(?:[-._]|$)`)
-	mmprojRegex    = regexp.MustCompile(`(?i)mmproj`)
-	imatrixRegex   = regexp.MustCompile(`(?i)(?:^|[-._])imatrix(?:[-._]|$)`)
+	quantRegex   = regexp.MustCompile(`(?i)(?:^|[-._])(q[0-9]+_[a-z0-9_]+|q[0-9]+_[0-9]+|q[0-9]+|iq[0-9]+_[a-z0-9_]+|ud-iq[0-9]+_[a-z0-9_]+|f16|f32|bf16)(?:[-._]|$)`)
+	mmprojRegex  = regexp.MustCompile(`(?i)mmproj`)
+	imatrixRegex = regexp.MustCompile(`(?i)(?:^|[-._])imatrix(?:[-._]|$)`)
 	// The leading [a-z]* catches vendor-prefixed variants such as "FastMTP" or
 	// "SpecDraft"; the trailing digit allows suffixes like "FastMTP32K".
-	mtpRegex   = regexp.MustCompile(`(?i)(?:^|[-._])[a-z]*mtp(?:[-._0-9]|$)`)
-	draftRegex = regexp.MustCompile(`(?i)(?:^|[-._])[a-z]*draft(?:[-._0-9]|$)`)
+	mtpRegex       = regexp.MustCompile(`(?i)(?:^|[-._])[a-z]*mtp(?:[-._0-9]|$)`)
+	draftRegex     = regexp.MustCompile(`(?i)(?:^|[-._])[a-z]*draft(?:[-._0-9]|$)`)
 	paramSizeRegex = regexp.MustCompile(`(?i)(?:^|[-._])([0-9]+(?:\.[0-9]+)?[bm])(?:[-._]|$)`)
 )
 
@@ -136,6 +136,22 @@ func IsVisionProjector(filename string) bool {
 //   - sort: "downloads" (default), "likes", "lastModified", "trending"
 //   - limit: max items (default 30, max 100)
 //   - cursor: opaque cursor for next-page pagination (from previous response)
+//
+// hfAuthToken returns the configured HuggingFace token (may be empty).
+func (s *Server) hfAuthToken() string {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return strings.TrimSpace(s.cfg.HFToken)
+}
+
+// applyHFAuth sets the HuggingFace Authorization header when a token is
+// configured, so gated/private repos resolve and rate limits are relaxed.
+func (s *Server) applyHFAuth(req *http.Request) {
+	if token := s.hfAuthToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+}
+
 func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -213,6 +229,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("User-Agent", "Ollama-Manager/0.1.0")
+	s.applyHFAuth(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -399,6 +416,7 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("User-Agent", "Ollama-Manager/0.1.0")
+	s.applyHFAuth(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -440,6 +458,7 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	treeReq.Header.Set("User-Agent", "Ollama-Manager/0.1.0")
+	s.applyHFAuth(treeReq)
 
 	treeResp, err := http.DefaultClient.Do(treeReq)
 	if err != nil {
@@ -568,6 +587,7 @@ func (s *Server) handleHFReadme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("User-Agent", "Ollama-Manager/0.1.0")
+	s.applyHFAuth(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -347,6 +347,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"language":                s.cfg.Language,
 		"ollama_url":              s.cfg.OllamaURL,
 		"has_password":            s.cfg.HasPassword(),
+		"has_hf_token":            strings.TrimSpace(s.cfg.HFToken) != "",
 		"bind_address":            s.cfg.BindAddress(),
 		"chat_defaults":           s.cfg.ChatDefaults,
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
@@ -369,14 +370,15 @@ type patchGatewayBody struct {
 // patchConfigBody uses pointers so callers can update only the fields they
 // care about (PATCH semantics).
 type patchConfigBody struct {
-	Port                  *int                 `json:"port"`
-	ExposeNetwork         *bool                `json:"expose_network"`
-	Language              *string              `json:"language"`
-	OllamaURL             *string              `json:"ollama_url"`
-	ChatDefaults          *config.ChatDefaults `json:"chat_defaults"`
-	LeaderboardGroupOrder *[]string            `json:"leaderboard_group_order"`
+	Port                  *int                  `json:"port"`
+	ExposeNetwork         *bool                 `json:"expose_network"`
+	Language              *string               `json:"language"`
+	OllamaURL             *string               `json:"ollama_url"`
+	HFToken               *string               `json:"hf_token"`
+	ChatDefaults          *config.ChatDefaults  `json:"chat_defaults"`
+	LeaderboardGroupOrder *[]string             `json:"leaderboard_group_order"`
 	Testing               *config.TestingLimits `json:"testing"`
-	Gateway               *patchGatewayBody    `json:"gateway"`
+	Gateway               *patchGatewayBody     `json:"gateway"`
 }
 
 func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
@@ -430,6 +432,11 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		s.cfg.OllamaURL = u
 		// Note: this won't change the running client; takes effect on restart.
 		needsRestart = true
+	}
+	if body.HFToken != nil {
+		// Empty string clears the token. It is read live on every HF request,
+		// so no restart is needed.
+		s.cfg.HFToken = strings.TrimSpace(*body.HFToken)
 	}
 	if body.ChatDefaults != nil {
 		if !config.IsValidThinkLevel(body.ChatDefaults.ThinkLevel) {
@@ -552,6 +559,7 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"expose_network":          s.cfg.ExposeNetwork,
 		"language":                s.cfg.Language,
 		"ollama_url":              s.cfg.OllamaURL,
+		"has_hf_token":            strings.TrimSpace(s.cfg.HFToken) != "",
 		"chat_defaults":           s.cfg.ChatDefaults,
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
 		"testing":                 s.cfg.Testing,
@@ -1159,17 +1167,17 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 					_ = s.customModels.Register(m.Name, from)
 				}
 			}
-		out <- item{
-			digest:         m.Digest,
-			ok:             true,
-			contextLen:     extractContextLength(show),
-			capabilities:   append([]string(nil), show.Capabilities...),
-			parameterCount: extractParameterCount(show),
-			architecture:   extractArchitecture(show),
-			fileType:       extractFileType(show),
-			sizeLabel:      extractSizeLabel(show),
-			isMOE:          extractIsMOE(show),
-		}
+			out <- item{
+				digest:         m.Digest,
+				ok:             true,
+				contextLen:     extractContextLength(show),
+				capabilities:   append([]string(nil), show.Capabilities...),
+				parameterCount: extractParameterCount(show),
+				architecture:   extractArchitecture(show),
+				fileType:       extractFileType(show),
+				sizeLabel:      extractSizeLabel(show),
+				isMOE:          extractIsMOE(show),
+			}
 		}(m)
 	}
 	wg.Wait()
@@ -4042,4 +4050,3 @@ func isLocalFilePathOrDigest(pathOrName string) bool {
 	}
 	return false
 }
-

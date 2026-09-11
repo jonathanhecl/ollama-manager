@@ -152,12 +152,17 @@ func (g GatewayConfig) GatewayBindAddress() string {
 
 // Config holds the runtime configuration for ollama-manager.
 type Config struct {
-	Port                  int           `json:"port"`
-	ExposeNetwork         bool          `json:"expose_network"`
-	PasswordHash          string        `json:"password_hash"`
-	SessionSecret         string        `json:"session_secret"`
-	OllamaURL             string        `json:"ollama_url"`
-	Language              string        `json:"language"`
+	Port          int    `json:"port"`
+	ExposeNetwork bool   `json:"expose_network"`
+	PasswordHash  string `json:"password_hash"`
+	SessionSecret string `json:"session_secret"`
+	OllamaURL     string `json:"ollama_url"`
+	Language      string `json:"language"`
+	// HFToken authenticates the manager's own HuggingFace API calls (explorer
+	// search/details) so gated/private repos are visible and rate limits are
+	// higher. It is NOT used by Ollama pulls: Ollama authenticates to hf.co
+	// with its own ed25519 key (see /api/ollama/key).
+	HFToken               string        `json:"hf_token,omitempty"`
 	ChatDefaults          ChatDefaults  `json:"chat_defaults"`
 	LeaderboardGroupOrder []string      `json:"leaderboard_group_order,omitempty"`
 	Testing               TestingLimits `json:"testing"`

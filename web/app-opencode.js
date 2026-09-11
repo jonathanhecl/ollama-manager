@@ -479,6 +479,10 @@ $("settings-save").addEventListener("click", async () => {
       require_auth: $("gw-require-auth")?.checked ?? false,
     },
   };
+  // Only send the token when the user typed a new one; leaving the field
+  // empty must not wipe an already-saved token (use "Remove" for that).
+  const hfToken = ($("set-hf-token")?.value ?? "").trim();
+  if (hfToken) body.hf_token = hfToken;
   try {
     const res = await api("/api/config", {
       method: "PATCH",
@@ -487,6 +491,11 @@ $("settings-save").addEventListener("click", async () => {
     });
     currentConfig = { ...currentConfig, ...res };
     window.I18n.setLang(res.language);
+
+    if (hfToken) {
+      if ($("set-hf-token")) $("set-hf-token").value = "";
+      if (typeof window.updateHFTokenBadge === "function") window.updateHFTokenBadge();
+    }
 
     saveGlobalChatDefaults({
       system: chatDefaults.system_prompt,

@@ -418,7 +418,7 @@ function jobCardHTML(j) {
       <button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
   }
 
-  const errBlock = j.error ? `<div class="dl-error">${escapeHtml(j.error)}</div>` : "";
+  const errBlock = j.error ? `<div class="dl-error">${escapeHtml(j.error)}</div>${hfAuthHint(j.error)}` : "";
 
   const cardClass = j.status === "done"
     ? `dl-item dl-${j.status} dl-clickable`
@@ -447,6 +447,26 @@ function jobCardHTML(j) {
       ${errBlock}
     </div>
   `;
+}
+
+// hfAuthHint returns an inline help block when a download failed because
+// HuggingFace rejected Ollama's credentials (gated/private repo). Ollama does
+// not use an HF token for pulls: it authenticates with its own ed25519 key,
+// so the fix is registering that key on HuggingFace.
+function hfAuthHint(err) {
+  if (!err) return "";
+  const s = String(err).toLowerCase();
+  const authFail = s.includes("401") ||
+    s.includes("403") ||
+    s.includes("invalid username or password") ||
+    s.includes("unauthorized") ||
+    s.includes("authentication") ||
+    s.includes("gated");
+  if (!authFail) return "";
+  return `<div class="muted small" style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <span>${escapeHtml(t("downloads.hf_auth_hint"))}</span>
+    <button type="button" class="ghost" onclick="openHuggingFaceSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button>
+  </div>`;
 }
 
 function jobStatusLabel(j) {
@@ -658,7 +678,7 @@ async function promptDownloadModel(rawName) {
 
       let errHtml = "";
       if (m.history?.last_error && !m.is_installed) {
-        errHtml = `<div class="dl-hist-error">⚠️ ${escapeHtml(m.history.last_error)}</div>`;
+        errHtml = `<div class="dl-hist-error">⚠️ ${escapeHtml(m.history.last_error)}</div>${hfAuthHint(m.history.last_error)}`;
       }
 
       return `

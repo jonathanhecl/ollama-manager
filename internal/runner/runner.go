@@ -1819,6 +1819,65 @@ func hasOpenThinkTag(s string) bool {
 	return false
 }
 
+// inlineReasoningTags are the reasoning tags models may emit directly in the
+// message content (instead of as native thinking chunks) when the backend has
+// no reasoning parser for them. Structural checks must ignore this inline
+// narration so an otherwise-correct answer is not failed for it.
+var inlineReasoningTags = []string{"think", "thinking", "stitching", "throat"}
+
+// stripInlineReasoning removes complete <tag>...</tag> reasoning blocks and any
+// stray or unclosed reasoning tags, so only the actual answer remains.
+func stripInlineReasoning(s string) string {
+	for _, tag := range inlineReasoningTags {
+		block := regexp.MustCompile(`(?is)<` + tag + `\b[^>]*>.*?</` + tag + `\s*>`)
+		s = block.ReplaceAllString(s, "")
+	}
+	stray := regexp.MustCompile(`(?i)</?(?:think|thinking|stitching|throat)\b[^>]*>`)
+	s = stray.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
+}
+
+// parseResponseJSON extracts the JSON value from a model response for the
+// json_schema check. Inline reasoning is stripped first and the first complete
+// JSON value is decoded, so a duplicated answer or reasoning artifact after
+// the JSON does not fail the check. Markdown code fences are rejected to keep
+// the "raw JSON only" contract.
+func parseResponseJSON(response string) (any, error) {
+	cleaned := stripInlineReasoning(response)
+	if strings.Contains(cleaned, "```") {
+		return nil, fmt.Errorf("response is wrapped in markdown fences")
+	}
+	var raw any
+	if err := json.Unmarshal([]byte(cleaned), &raw); err == nil {
+		return raw, nil
+	}
+	start := firstJSONByte(cleaned)
+	if start < 0 {
+		return nil, fmt.Errorf("no JSON value found")
+	}
+	dec := json.NewDecoder(strings.NewReader(cleaned[start:]))
+	if err := dec.Decode(&raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+// firstJSONByte returns the index of the first opening JSON delimiter, or -1.
+func firstJSONByte(s string) int {
+	obj := strings.IndexByte(s, '{')
+	arr := strings.IndexByte(s, '[')
+	switch {
+	case obj < 0:
+		return arr
+	case arr < 0:
+		return obj
+	case obj < arr:
+		return obj
+	default:
+		return arr
+	}
+}
+
 func (c *Client) execChatTurn(ctx context.Context, runID, model string, messages []ollama.ChatMessage, opts map[string]any, think *ollama.ThinkLevel) turnResult {
 	req := ollama.ChatRequest{
 		Model:    model,
@@ -2235,8 +2294,8 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 		} else if len(cfgBytes) > 0 {
 			_ = json.Unmarshal(cfgBytes, &cfg)
 		}
-		var raw any
-		if err := json.Unmarshal([]byte(response), &raw); err != nil {
+		raw, err := parseResponseJSON(response)
+		if err != nil {
 			v := false
 			return &v
 		}

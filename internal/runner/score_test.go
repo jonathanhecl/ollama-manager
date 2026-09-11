@@ -166,6 +166,74 @@ func TestScoreAllOf(t *testing.T) {
 	}
 }
 
+func evalSchema(schema map[string]any) *tests.Evaluation {
+	return &tests.Evaluation{Type: "json_schema", Schema: schema}
+}
+
+func TestScoreJSONSchemaIgnoresInlineReasoning(t *testing.T) {
+	person := evalSchema(map[string]any{
+		"type":     "object",
+		"required": []string{"name", "age", "job", "city"},
+	})
+	cases := []struct {
+		name     string
+		eval     *tests.Evaluation
+		response string
+		want     bool
+	}{
+		{
+			name:     "plain object",
+			eval:     person,
+			response: `{"name": "John Doe", "age": 34, "job": "engineer", "city": "Berlin"}`,
+			want:     true,
+		},
+		{
+			name:     "think block before object",
+			eval:     person,
+			response: "<think>\nReasoning about the fields.\n</think>\n\n{\"name\": \"John Doe\", \"age\": 34, \"job\": \"engineer\", \"city\": \"Berlin\"}",
+			want:     true,
+		},
+		{
+			name:     "duplicated answer with stray closing tag",
+			eval:     person,
+			response: "{\"name\": \"Ada\", \"age\": 36, \"job\": \"scientist\", \"city\": \"London\"}\n</think>\n\n{\"name\": \"Ada\", \"age\": 36, \"job\": \"scientist\", \"city\": \"London\"}",
+			want:     true,
+		},
+		{
+			name:     "missing required field fails",
+			eval:     person,
+			response: `<think>thinking</think>{"name": "Ada", "age": 36}`,
+			want:     false,
+		},
+		{
+			name: "array with reasoning",
+			eval: evalSchema(map[string]any{
+				"type":     "array",
+				"minItems": 3,
+				"maxItems": 5,
+				"items":    map[string]any{"type": "string"},
+			}),
+			response: "<think>Pick fruits.</think>\n[\"apple\", \"banana\", \"orange\"]",
+			want:     true,
+		},
+		{
+			name:     "markdown fences still fail",
+			eval:     person,
+			response: "```json\n{\"name\": \"Ada\", \"age\": 36, \"job\": \"x\", \"city\": \"y\"}\n```",
+			want:     false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := scoreEval(tc.eval, "", nil, tc.response)
+			if got == nil || *got != tc.want {
+				t.Fatalf("scoreEval = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }
 
 func TestScoreHumanReview(t *testing.T) {

@@ -1,4 +1,5 @@
 id: reasoning
 name: Reasoning
 description: Logic puzzles, chained arithmetic, sequences and constraint problems with exact answers
+required: true
 order: 6

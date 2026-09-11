@@ -306,6 +306,7 @@ function buildReadySectionHtml(modelsData, lbRows = [], cols = []) {
       const caps = new Set((m.capabilities || []).map((c) => String(c).toLowerCase()));
       compatible = (cols || []).filter((col) => {
         if ((col.activeTotal || 0) <= 0) return false;
+        if (col.required === false) return false;
         const req = col.requiredCaps || [];
         return !req.some((cap) => !caps.has(cap));
       }).length;
@@ -487,6 +488,7 @@ async function buildLeaderboardTableHtml() {
       name: g.name || g.id,
       order: g.order,
       requiredCaps: (g.required_caps || []).map((c) => String(c).toLowerCase()),
+      required: g.required !== false,
       activeTotal: g.activeTotal || 0,
       activeCases: g.activeCases || 0,
       activeMaxPoints: g.activeMaxPoints || 0,
@@ -549,7 +551,7 @@ async function buildLeaderboardTableHtml() {
       const activeMaxPoints = activeMaxPointsByGroup.get(g.id) || 0;
       const activeCases = activeCasesByGroup.get(g.id) || 0;
       const requiredCaps = (g.required_caps || []).map((c) => String(c).toLowerCase());
-      cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases, requiredCaps });
+      cols.push({ id: g.id, name: g.name || g.id, summary: summaries[i] || [], activeTotal, activeMaxPoints, activeCases, requiredCaps, required: g.required !== false });
     });
 
     // Per model per group: last-run % (own denominator, no active penalty).
@@ -616,6 +618,7 @@ async function buildLeaderboardTableHtml() {
       let totalPoints = 0;
       let totalMaxPoints = 0;
       for (const col of cols) {
+        if (col.required === false) continue;
         const c = scores[m]?.[col.id];
         if (c && c.activeMaxPoints > 0) {
           totalPassed += c.passed;
@@ -674,7 +677,10 @@ async function buildLeaderboardTableHtml() {
     const capSuffix = (col.requiredCaps && col.requiredCaps.length > 0)
       ? ` (${t("tests.required_caps")}: ${col.requiredCaps.join(", ")})`
       : "";
-    headerCols += `<th class="cell-lb-group-head" data-lb-run data-lb-run-group="${escapeHtml(col.id)}" data-lb-run-model="" title="${escapeHtml(col.name)}${escapeHtml(capSuffix)} · ${escapeHtml(t("battery.lb_run_hint"))}">${escapeHtml(col.name)}${capBadges}</th>`;
+    const optBadge = col.required === false
+      ? ` <span class="pill" title="${escapeHtml(t("tests.group_optional_hint"))}">${escapeHtml(t("tests.group_optional"))}</span>`
+      : "";
+    headerCols += `<th class="cell-lb-group-head" data-lb-run data-lb-run-group="${escapeHtml(col.id)}" data-lb-run-model="" title="${escapeHtml(col.name)}${escapeHtml(capSuffix)}${col.required === false ? " · " + escapeHtml(t("tests.group_optional_hint")) : ""} · ${escapeHtml(t("battery.lb_run_hint"))}">${escapeHtml(col.name)}${capBadges}${optBadge}</th>`;
   }
 
   const runHint = t("battery.lb_run_hint");
@@ -696,7 +702,9 @@ async function buildLeaderboardTableHtml() {
   // results but their caps are unknown, so they count as compatible —
   // same rule the cells use (— instead of ✕). A 0.0 score still counts
   // as evaluated; only missing (—/✕) doesn't.
-  const lbActiveCols = cols.filter((col) => (col.activeTotal || 0) > 0);
+  // Optional categories are excluded from coverage/completeness too: only
+  // mandatory ones count as "must evaluate" for a model.
+  const lbActiveCols = cols.filter((col) => (col.activeTotal || 0) > 0 && col.required !== false);
   for (const row of lbRows) {
     const installed = modelInfo.has(row.model);
     let compatible = 0;
@@ -734,6 +742,7 @@ async function buildLeaderboardTableHtml() {
     missingByModel[row.model] = cols
       .filter((col) => {
         if ((col.activeTotal || 0) <= 0) return false;
+        if (col.required === false) return false;
         if (lbLacksCaps(row.model, col).length > 0) return false;
         const c = scores[row.model]?.[col.id];
         return !c || c.score == null || c.score <= 0.0001;

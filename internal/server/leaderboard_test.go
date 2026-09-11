@@ -125,6 +125,87 @@ func TestLeaderboardGenerationAndEndpoint(t *testing.T) {
 	_ = data
 }
 
+// TestLeaderboardOptionalCategoryExcluded verifies that a category marked as
+// not required does not influence the overall score, coverage or completeness.
+func TestLeaderboardOptionalCategoryExcluded(t *testing.T) {
+	ollamaSrv := fakeOllamaForBattery()
+	defer ollamaSrv.Close()
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	// Drop the seeded "examples" category so only the two groups below count.
+	if _, ok := srv.testsStore.GetGroup("examples"); ok {
+		if err := srv.testsStore.DeleteGroup("examples"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	opt := false
+	if _, err := srv.testsStore.CreateGroup(tests.Group{ID: "req", Name: "Required", Order: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.testsStore.CreateGroup(tests.Group{ID: "opt", Name: "Optional", Required: &opt, Order: 2}); err != nil {
+		t.Fatal(err)
+	}
+
+	reqTest, err := srv.testsStore.CreateTest(tests.Test{Name: "ReqT", Prompt: "hi", GroupID: "req", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	optTest, err := srv.testsStore.CreateTest(tests.Test{Name: "OptT", Prompt: "hi", GroupID: "opt", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	passed := true
+	if err := srv.runnerStore.SaveRun(&runner.BatteryRun{
+		ID:        "run-req",
+		GroupID:   "req",
+		Timestamp: time.Now().UTC(),
+		Results: []runner.TestResult{
+			{TestID: reqTest.ID, TestName: reqTest.Name, Model: "m", Passed: &passed, Points: 2, MaxPoints: 2},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	failed := false
+	if err := srv.runnerStore.SaveRun(&runner.BatteryRun{
+		ID:        "run-opt",
+		GroupID:   "opt",
+		Timestamp: time.Now().UTC(),
+		Results: []runner.TestResult{
+			{TestID: optTest.ID, TestName: optTest.Name, Model: "m", Passed: &failed, Points: 0, MaxPoints: 2},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := srv.BuildLeaderboardData()
+	if err != nil {
+		t.Fatalf("BuildLeaderboardData: %v", err)
+	}
+
+	var optCol *LeaderboardGroupCol
+	for i := range data.Groups {
+		if data.Groups[i].ID == "opt" {
+			optCol = &data.Groups[i]
+		}
+	}
+	if optCol == nil || optCol.IsRequired() {
+		t.Fatalf("expected optional column to report Required=false, got %+v", optCol)
+	}
+
+	if len(data.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(data.Models))
+	}
+	row := data.Models[0]
+	if row.Overall == nil || *row.Overall != 100.0 {
+		t.Fatalf("expected overall 100.0 (optional excluded), got %v", row.Overall)
+	}
+	if row.Compatible != 1 || row.Evaluated != 1 {
+		t.Fatalf("expected coverage 1/1 (optional excluded), got %d/%d", row.Evaluated, row.Compatible)
+	}
+}
+
 func TestLeaderboardCacheOnMutations(t *testing.T) {
 	ollamaSrv := fakeOllamaForBattery()
 	defer ollamaSrv.Close()

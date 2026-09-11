@@ -2091,6 +2091,15 @@
           <label for="manage-group-name-input" data-i18n="tests.group_name_label" style="font-size: 13px; font-weight: 600;">Group Name</label>
           <input type="text" id="manage-group-name-input" autocomplete="off" style="width: 100%;">
         </div>
+        <div class="field" style="display: flex; flex-direction: column; gap: 6px;">
+          <label class="battery-model-item" style="cursor: pointer; align-items: flex-start;">
+            <input type="checkbox" id="manage-group-required" checked />
+            <div class="battery-model-main">
+              <div class="battery-model-name" data-i18n="tests.group_required_label">Mandatory category</div>
+              <small class="muted" data-i18n="tests.group_required_hint">Counts toward the overall score. Uncheck it to make the category optional (not part of the overall; run it manually when you want).</small>
+            </div>
+          </label>
+        </div>
         <div class="field" style="display: flex; flex-direction: column; gap: 8px;">
           <label style="font-size: 13px; font-weight: 600;" data-i18n="tests.group_required_caps_label">Required capabilities for the whole category</label>
           <small class="muted" data-i18n="tests.group_required_caps_hint">Models lacking them show ✕ in the leaderboard and are skipped in battery runs.</small>

@@ -3427,6 +3427,12 @@ function renderBatteryResults(run) {
     const g = testsGroups.find((x) => x.id === gid);
     return g?.name || gid;
   };
+  // Optional categories still show as columns but are excluded from the run's
+  // overall, mirroring the global leaderboard.
+  const groupIsRequired = (gid) => {
+    const g = testsGroups.find((x) => x.id === gid);
+    return !g || g.required !== false;
+  };
 
   // Scores per model per group.
   const scores = {};
@@ -3446,6 +3452,7 @@ function renderBatteryResults(run) {
     let earned = 0;
     let total = 0;
     for (const gid of groupIdsPresent) {
+      if (!groupIsRequired(gid)) continue;
       const c = scores[m][gid];
       if (c) {
         earned += c.earned;
@@ -3484,7 +3491,8 @@ function renderBatteryResults(run) {
     const lbOverallLabel = escapeHtml(t("battery.leaderboard_overall"));
     let lbHeaderCols = `<th class="cell-lb-overall-head">${t("battery.leaderboard_overall")}</th>`;
     for (const gid of groupIdsPresent) {
-      lbHeaderCols += `<th class="cell-lb-group-head" title="${escapeHtml(groupName(gid))}">${escapeHtml(groupName(gid))}</th>`;
+      const optBadge = groupIsRequired(gid) ? "" : ` <span class="pill" title="${escapeHtml(t("tests.group_optional_hint"))}">${escapeHtml(t("tests.group_optional"))}</span>`;
+      lbHeaderCols += `<th class="cell-lb-group-head" title="${escapeHtml(groupName(gid))}">${escapeHtml(groupName(gid))}${optBadge}</th>`;
     }
 
     let lbBodyRows = "";

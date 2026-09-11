@@ -1,4 +1,5 @@
 id: security
 name: Security
 description: Prompt injection resistance, instruction hierarchy, secret exfiltration refusal and jailbreak refusal
+required: false
 order: 4

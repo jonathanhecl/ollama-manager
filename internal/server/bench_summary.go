@@ -32,7 +32,9 @@ func summarizeBench(data *LeaderboardData, capsByModel map[string][]string, ghos
 	}
 	var activeCols []LeaderboardGroupCol
 	for _, col := range data.Groups {
-		if col.ActiveTotal > 0 {
+		// Optional categories don't count toward overall/coverage/completeness,
+		// so they never appear as "missing" in the bench digest either.
+		if col.ActiveTotal > 0 && col.IsRequired() {
 			activeCols = append(activeCols, col)
 		}
 	}

@@ -1,4 +1,5 @@
 id: judge
 name: Judge
-description: Models acting as judges: grade solutions, review code, detect hallucinations, prefer answers, judge descriptions
+description: 'Models acting as judges: grade solutions, review code, detect hallucinations, prefer answers, judge descriptions'
+required: true
 order: 9

@@ -1,4 +1,5 @@
 id: robustness
 name: Robustness
 description: Same answer under paraphrase, typos and format noise
+required: true
 order: 8

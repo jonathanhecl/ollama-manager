@@ -1,4 +1,5 @@
 id: needle-in-haystack
 name: Needle in a Haystack
 description: Evaluates model performance in long contexts, needle retrieval in extensive documents/code, and cross-turn memory retention.
+required: true
 order: 3

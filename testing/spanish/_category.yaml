@@ -1,4 +1,5 @@
 id: spanish
 name: Spanish
 description: Comprensión, gramática, resumen y traducción en español neutro
+required: true
 order: 5

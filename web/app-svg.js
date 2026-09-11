@@ -1711,8 +1711,9 @@ function renderTestsSidebar() {
     const count = tests.filter((t) => t.group_id === g.id).length;
     const gcaps = new Set((g.required_caps || []).map((c) => String(c).toLowerCase()));
     const capBadges = `${gcaps.has("vision") ? `<span title="${escapeHtml(t("tests.group_required_vision"))}" style="margin-left:4px;">👁️</span>` : ""}${gcaps.has("audio") ? `<span title="${escapeHtml(t("tests.group_required_audio"))}" style="margin-left:4px;">🔊</span>` : ""}`;
+    const optBadge = g.required === false ? `<span class="pill" title="${escapeHtml(t("tests.group_optional_hint"))}" style="margin-left:4px;">${escapeHtml(t("tests.group_optional"))}</span>` : "";
     html += `<div class="${cls}" data-group-id="${escapeHtml(g.id)}">
-      <span class="tests-group-name">${escapeHtml(g.name)}${capBadges}</span>
+      <span class="tests-group-name">${escapeHtml(g.name)}${capBadges}${optBadge}</span>
       <span class="tests-group-actions">
         <button type="button" class="btn-icon te-group-settings" data-group-id="${escapeHtml(g.id)}" data-group-name="${escapeHtml(g.name)}" title="${t("tests.group_settings")}">⚙️</button>
       </span>
@@ -2353,6 +2354,8 @@ function openManageGroupModal(id, name) {
   const audioCb = $("manage-group-cap-audio");
   if (visionCb) visionCb.checked = caps.has("vision");
   if (audioCb) audioCb.checked = caps.has("audio");
+  const requiredCb = $("manage-group-required");
+  if (requiredCb) requiredCb.checked = group ? group.required !== false : true;
   modal.hidden = false;
   setTimeout(() => nameInput.focus(), 50);
 }
@@ -2373,6 +2376,7 @@ async function submitSaveManageGroup() {
   const required_caps = [];
   if ($("manage-group-cap-vision")?.checked) required_caps.push("vision");
   if ($("manage-group-cap-audio")?.checked) required_caps.push("audio");
+  const required = $("manage-group-required")?.checked !== false;
   const existing = (typeof testsGroups !== "undefined" ? testsGroups : []).find((g) => g.id === id) || {};
   try {
     await api("/api/test-groups/" + encodeURIComponent(id), {
@@ -2382,6 +2386,7 @@ async function submitSaveManageGroup() {
         name,
         description: existing.description || "",
         required_caps,
+        required,
         order: typeof existing.order === "number" ? existing.order : 0,
       }),
     });

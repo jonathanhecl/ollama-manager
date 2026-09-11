@@ -15,14 +15,25 @@ import (
 )
 
 // LeaderboardGroupCol represents a category column in the cached leaderboard.
+//
+// Required is nil for mandatory categories (the default) and points to false
+// for optional ones, which are excluded from the overall score, coverage and
+// completeness metrics.
 type LeaderboardGroupCol struct {
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
 	Order           int      `json:"order"`
 	RequiredCaps    []string `json:"required_caps,omitempty"`
+	Required        *bool    `json:"required,omitempty"`
 	ActiveTotal     int      `json:"activeTotal"`
 	ActiveCases     int      `json:"activeCases"`
 	ActiveMaxPoints float64  `json:"activeMaxPoints"`
+}
+
+// IsRequired reports whether the category counts toward the overall score.
+// A missing value defaults to true.
+func (c LeaderboardGroupCol) IsRequired() bool {
+	return c.Required == nil || *c.Required
 }
 
 // LeaderboardScore holds the precomputed scores of a model in a specific test category.
@@ -106,6 +117,7 @@ func (s *Server) BuildLeaderboardData() (*LeaderboardData, error) {
 		name         string
 		order        int
 		requiredCaps []string
+		required     *bool
 	}, len(groups))
 
 	for i, g := range groups {
@@ -118,11 +130,13 @@ func (s *Server) BuildLeaderboardData() (*LeaderboardData, error) {
 			name         string
 			order        int
 			requiredCaps []string
+			required     *bool
 		}{
 			id:           g.ID,
 			name:         g.Name,
 			order:        g.Order,
 			requiredCaps: caps,
+			required:     g.Required,
 		}
 	}
 
@@ -152,6 +166,7 @@ func (s *Server) BuildLeaderboardData() (*LeaderboardData, error) {
 			Name:            name,
 			Order:           g.order,
 			RequiredCaps:    g.requiredCaps,
+			Required:        g.required,
 			ActiveTotal:     activeCountByGroup[g.id],
 			ActiveCases:     activeCasesByGroup[g.id],
 			ActiveMaxPoints: activeMaxPointsByGroup[g.id],
@@ -265,6 +280,9 @@ func (s *Server) BuildLeaderboardData() (*LeaderboardData, error) {
 
 		modelScores := scoresByModel[model]
 		for _, col := range cols {
+			if !col.IsRequired() {
+				continue
+			}
 			c, ok := modelScores[col.ID]
 			if ok && c.ActiveMaxPoints > 0 {
 				totalPassed += c.Passed
@@ -285,7 +303,7 @@ func (s *Server) BuildLeaderboardData() (*LeaderboardData, error) {
 		compatible := 0
 		evaluated := 0
 		for _, col := range cols {
-			if col.ActiveTotal > 0 {
+			if col.ActiveTotal > 0 && col.IsRequired() {
 				compatible++
 				if c, ok := modelScores[col.ID]; ok && c.Score != nil {
 					evaluated++

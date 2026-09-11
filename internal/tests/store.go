@@ -25,12 +25,25 @@ import (
 )
 
 // Group is a collection of related tests (corresponds to a category directory).
+//
+// Required marks a category as mandatory for the overall model score. A nil
+// value means required (the default), so existing categories created before
+// this field existed keep counting toward the overall. Optional categories
+// (Required=false) are still runnable manually but are excluded from the
+// overall, coverage and completeness metrics.
 type Group struct {
 	ID           string   `json:"id" yaml:"id"`
 	Name         string   `json:"name" yaml:"name"`
 	Description  string   `json:"description,omitempty" yaml:"description,omitempty"`
 	RequiredCaps []string `json:"required_caps,omitempty" yaml:"required_caps,omitempty"`
+	Required     *bool    `json:"required,omitempty" yaml:"required,omitempty"`
 	Order        int      `json:"order" yaml:"order"`
+}
+
+// IsRequired reports whether the category counts toward the overall score.
+// A missing value defaults to true.
+func (g Group) IsRequired() bool {
+	return g.Required == nil || *g.Required
 }
 
 // Attachment is a file attached to a single case or step (image, audio, or
@@ -1202,6 +1215,7 @@ func (s *Store) CreateGroup(in Group) (Group, error) {
 		Name:         in.Name,
 		Description:  in.Description,
 		RequiredCaps: in.RequiredCaps,
+		Required:     in.Required,
 		Order:        in.Order,
 	}
 
@@ -1233,6 +1247,9 @@ func (s *Store) UpdateGroup(id string, in Group) (Group, error) {
 	}
 	g.Description = in.Description
 	g.RequiredCaps = in.RequiredCaps
+	if in.Required != nil {
+		g.Required = in.Required
+	}
 	g.Order = in.Order
 
 	if err := s.saveCategoryLocked(g); err != nil {

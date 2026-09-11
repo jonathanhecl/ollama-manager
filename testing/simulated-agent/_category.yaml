@@ -1,4 +1,5 @@
 id: simulated-agent
 name: Simulated Agent
 description: Simulated agent scenarios with fake tool results (success/failure) to test tool use, error recovery and strategy
+required: true
 order: 1

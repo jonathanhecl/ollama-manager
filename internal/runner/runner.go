@@ -1799,10 +1799,19 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 	return res
 }
 
+// reasoningTags is the single source of truth for the inline reasoning tags
+// the runner recognizes. Models may emit any of these directly in the message
+// content (instead of as native thinking chunks) when the backend has no
+// reasoning parser for them. <think> and <thinking> are treated identically,
+// case-insensitively and with optional attributes.
+var reasoningTags = []string{"think", "thinking", "stitching", "throat"}
+
+// reasoningOpenRE matches an opening reasoning tag and captures its name.
+var reasoningOpenRE = regexp.MustCompile(`(?i)<(think|thinking|stitching|throat)\b[^>]*>`)
+
 func hasOpenThinkTag(s string) bool {
 	lower := strings.ToLower(s)
-	tags := []string{"think", "thinking", "stitching", "throat"}
-	for _, tag := range tags {
+	for _, tag := range reasoningTags {
 		openTag := "<" + tag
 		closeTag := "</" + tag + ">"
 		openIdx := strings.LastIndex(lower, openTag)
@@ -1819,22 +1828,54 @@ func hasOpenThinkTag(s string) bool {
 	return false
 }
 
-// inlineReasoningTags are the reasoning tags models may emit directly in the
-// message content (instead of as native thinking chunks) when the backend has
-// no reasoning parser for them. Structural checks must ignore this inline
-// narration so an otherwise-correct answer is not failed for it.
-var inlineReasoningTags = []string{"think", "thinking", "stitching", "throat"}
-
 // stripInlineReasoning removes complete <tag>...</tag> reasoning blocks and any
 // stray or unclosed reasoning tags, so only the actual answer remains.
 func stripInlineReasoning(s string) string {
-	for _, tag := range inlineReasoningTags {
-		block := regexp.MustCompile(`(?is)<` + tag + `\b[^>]*>.*?</` + tag + `\s*>`)
-		s = block.ReplaceAllString(s, "")
+	_, answer := splitInlineReasoning(s)
+	return answer
+}
+
+// reasoningCloseRE matches a closing reasoning tag and captures its name.
+var reasoningCloseRE = regexp.MustCompile(`(?i)</(think|thinking|stitching|throat)\s*>`)
+
+// splitInlineReasoning separates inline reasoning from the answer. It returns
+// the concatenated reasoning text (without tags) and the remaining answer.
+// Any recognized reasoning tag starts a reasoning block: <think> and
+// <thinking> (and the stitching/throat variants) behave the same, are matched
+// case-insensitively, and may carry attributes. An unclosed block runs to the
+// end of the response, and a lone closing tag (emitted when the backend starts
+// streaming mid-reasoning) treats everything before it as reasoning.
+func splitInlineReasoning(s string) (thinking, answer string) {
+	var thoughts []string
+	var ans strings.Builder
+	rest := s
+	for {
+		open := reasoningOpenRE.FindStringSubmatchIndex(rest)
+		closing := reasoningCloseRE.FindStringIndex(rest)
+		if open == nil && closing == nil {
+			ans.WriteString(rest)
+			break
+		}
+		// A lone closing tag before any opening tag means the reasoning
+		// began before this text; keep the prefix as reasoning.
+		if open == nil || (closing != nil && closing[0] < open[0]) {
+			thoughts = append(thoughts, strings.TrimSpace(rest[:closing[0]]))
+			rest = rest[closing[1]:]
+			continue
+		}
+		name := strings.ToLower(rest[open[2]:open[3]])
+		closeRE := regexp.MustCompile(`(?i)</` + name + `\s*>`)
+		after := rest[open[1]:]
+		ans.WriteString(rest[:open[0]])
+		closeLoc := closeRE.FindStringIndex(after)
+		if closeLoc == nil {
+			thoughts = append(thoughts, strings.TrimSpace(after))
+			break
+		}
+		thoughts = append(thoughts, strings.TrimSpace(after[:closeLoc[0]]))
+		rest = after[closeLoc[1]:]
 	}
-	stray := regexp.MustCompile(`(?i)</?(?:think|thinking|stitching|throat)\b[^>]*>`)
-	s = stray.ReplaceAllString(s, "")
-	return strings.TrimSpace(s)
+	return strings.TrimSpace(strings.Join(thoughts, "\n")), strings.TrimSpace(ans.String())
 }
 
 // parseResponseJSON extracts the JSON value from a model response for the
@@ -2009,9 +2050,22 @@ retryLoop:
 	}
 
 	elapsed := time.Since(start).Milliseconds()
+	// Models without a native reasoning parser emit their reasoning inline in
+	// the content (as <think>/<thinking>/... tags). Move it into Thinking so
+	// every evaluator scores the actual answer and the UI can show it apart.
+	rawContent := fullContent.String()
+	nativeThinking := fullThinking.String()
+	inlineThinking, answer := splitInlineReasoning(rawContent)
+	thinking := nativeThinking
+	if inlineThinking != "" {
+		if thinking != "" {
+			thinking += "\n"
+		}
+		thinking += inlineThinking
+	}
 	res := turnResult{
-		Content:        fullContent.String(),
-		Thinking:       fullThinking.String(),
+		Content:        answer,
+		Thinking:       thinking,
 		ResponseTimeMs: elapsed,
 		Error:          chatErr,
 	}
@@ -2031,7 +2085,7 @@ retryLoop:
 	// OpenAI-compatible servers): estimate tok/s from content length so
 	// bench still reports a meaningful speed instead of 0.
 	if res.TokensPerSec == 0 && res.Error == nil && elapsed > 0 {
-		if n := len([]rune(fullContent.String())) + len([]rune(fullThinking.String())); n >= 4 {
+		if n := len([]rune(rawContent)) + len([]rune(nativeThinking)); n >= 4 {
 			res.TokensPerSec = float64(n/4) / (float64(elapsed) / 1000.0)
 			if res.EvalTokens == 0 {
 				res.EvalTokens = n / 4

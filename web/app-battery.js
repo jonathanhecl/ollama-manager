@@ -2144,7 +2144,7 @@ async function pollBatteryProgress(runID, modelIDs) {
         p.partial_thinking ||
         p.thinking_ms > 0 ||
         p.is_thinking ||
-        /<(think|thinking|stitching|throat)>[\s\S]*?<\/(think|thinking|stitching|throat)>/i.test(p.partial_response || "")
+        /<\s*(think|thinking|stitching|throat)\b[^>]*>[\s\S]*?<\s*\/\s*(think|thinking|stitching|throat)\s*>/i.test(p.partial_response || "")
       );
       const isThinking = !!p.is_thinking;
       const respActive = !isThinking && (!!p.partial_response || (p.response_ms || 0) > 0);

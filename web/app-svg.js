@@ -2868,8 +2868,17 @@ function renderChatMath(container) {
   });
 }
 
+// Models may emit any of these tags as their inline reasoning marker. Treat
+// them all the same as <think> so <think> and <thinking> behave identically,
+// regardless of case or attributes.
+function normalizeReasoningTags(text) {
+  return String(text || "")
+    .replace(/<\s*(think|thinking|stitching|throat)\b[^>]*>/gi, "<think>")
+    .replace(/<\s*\/\s*(think|thinking|stitching|throat)\s*>/gi, "</think>");
+}
+
 function splitThink(raw) {
-  const text = String(raw || "");
+  const text = normalizeReasoningTags(raw);
   const open = text.indexOf("<think>");
   if (open === -1) {
     return { think: "", answer: text.replace(/<\/?think>/g, ""), inThink: false };
@@ -2898,7 +2907,7 @@ function splitThink(raw) {
 }
 
 function splitThinkSegment(seg, wasInThink) {
-  const text = String(seg || "");
+  const text = normalizeReasoningTags(seg);
 
   if (wasInThink) {
     const close = text.indexOf("</think>");

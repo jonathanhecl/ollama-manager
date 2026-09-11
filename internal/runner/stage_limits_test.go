@@ -121,11 +121,74 @@ func TestHasOpenThinkTag(t *testing.T) {
 		{"<think>Nested</think> <stitching>stitching mode", true},
 		{"<stitching>stitching</stitching>", false},
 		{"<throat>throat</throat>", false},
+		{"<THINKING>upper case", true},
+		{"<think level=\"high\">with attrs", true},
 	}
 	for _, tc := range cases {
 		got := hasOpenThinkTag(tc.input)
 		if got != tc.want {
 			t.Errorf("hasOpenThinkTag(%q) = %v, want %v", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestSplitInlineReasoning(t *testing.T) {
+	cases := []struct {
+		name         string
+		input        string
+		wantThinking string
+		wantAnswer   string
+	}{
+		{
+			name:         "no tags",
+			input:        "just an answer",
+			wantThinking: "",
+			wantAnswer:   "just an answer",
+		},
+		{
+			name:         "think block then answer",
+			input:        "<think>reasoning</think>\n\n{\"a\": 1}",
+			wantThinking: "reasoning",
+			wantAnswer:   `{"a": 1}`,
+		},
+		{
+			name:         "thinking tag treated like think",
+			input:        "<thinking>reasoning</thinking>\n\nfinal",
+			wantThinking: "reasoning",
+			wantAnswer:   "final",
+		},
+		{
+			name:         "case-insensitive and attributes",
+			input:        "<THINK level=\"high\">reasoning</THINK>\nfinal",
+			wantThinking: "reasoning",
+			wantAnswer:   "final",
+		},
+		{
+			name:         "lone closing tag before answer",
+			input:        "{\"a\": 1}\n</think>\n\n{\"a\": 1}",
+			wantThinking: `{"a": 1}`,
+			wantAnswer:   `{"a": 1}`,
+		},
+		{
+			name:         "unclosed block runs to end",
+			input:        "<think>still reasoning",
+			wantThinking: "still reasoning",
+			wantAnswer:   "",
+		},
+		{
+			name:         "multiple blocks",
+			input:        "<think>one</think>mid<thinking>two</thinking>end",
+			wantThinking: "one\ntwo",
+			wantAnswer:   "midend",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			thinking, answer := splitInlineReasoning(tc.input)
+			if thinking != tc.wantThinking || answer != tc.wantAnswer {
+				t.Fatalf("splitInlineReasoning(%q) = (%q, %q), want (%q, %q)",
+					tc.input, thinking, answer, tc.wantThinking, tc.wantAnswer)
+			}
+		})
 	}
 }

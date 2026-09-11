@@ -242,7 +242,18 @@ function renderHFModelsList() {
 
 function normalizeHFModelName(name) {
   if (!name) return "";
-  return String(name).toLowerCase().replace(/^hf\.co\//, "").trim();
+  // hf.co and huggingface.co are the same registry (ollama#15661): strip both.
+  return String(name).toLowerCase().replace(/^(hf\.co|huggingface\.co)\//, "").trim();
+}
+
+// Rewrites hf.co/ → huggingface.co/ so Ollama doesn't fail with
+// `realm host "huggingface.co" does not match original host "hf.co"`.
+function canonicalHFPullName(name) {
+  if (!name) return name;
+  const s = String(name).trim();
+  if (/^hf\.co\//i.test(s)) return "huggingface.co/" + s.slice(6);
+  if (/^https?:\/\/hf\.co\//i.test(s)) return s.replace(/^https?:\/\/hf\.co\//i, "huggingface.co/");
+  return s;
 }
 
 function getHFModelInstallStatus(repoId) {
@@ -367,8 +378,8 @@ function getHFModelDownloadStatus(repoId) {
   let isQueued = false;
   for (const j of jobs.values()) {
     const jName = normalizeHFModelName(j.name || "");
-    // Match: hf.co/repo:quant or repo:quant, or loose contains for fallback
-    const matches = jName === target || jName.startsWith(target + ":") || jName.startsWith("hf.co/" + target + ":") || jName.includes(target);
+    // Match: huggingface.co/repo:quant, hf.co/repo:quant or repo:quant, or loose contains for fallback
+    const matches = jName === target || jName.startsWith(target + ":") || jName.includes(target);
     if (!matches) continue;
     if (j.status === "running") isDownloading = true;
     else if (j.status === "queued" || j.status === "paused") isQueued = true;
@@ -625,7 +636,7 @@ function renderHFQuantsTable(m) {
   const rows = [...validFiles]
     .sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0))
     .map((f) => {
-      const pullName = f.pull_name || f.pullName || (m.id ? `hf.co/${m.id}:${f.quant}` : "");
+      const pullName = canonicalHFPullName(f.pull_name || f.pullName || (m.id ? `huggingface.co/${m.id}:${f.quant}` : ""));
       return {
         file: f,
         pullName,

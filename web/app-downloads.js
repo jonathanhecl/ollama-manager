@@ -16,13 +16,18 @@ function normalizePullInput(raw) {
   }
   s = s.replace(/\s+/g, " ").trim();
   if (/^https?:\/\//i.test(s)) {
-    s = s.split(/\s+/)[0];
-    return s.replace(/[),.;:>\]}]+$/g, "");
+    s = s.split(/\s+/)[0].replace(/[),.;:>\]}]+$/g, "");
+  } else {
+    const u = s.match(/https?:\/\/[^\s<>"'()]+/i);
+    if (u) {
+      s = u[0].replace(/[),.;:>\]}]+$/g, "");
+    }
   }
-  const u = s.match(/https?:\/\/[^\s<>"'()]+/i);
-  if (u) {
-    return u[0].replace(/[),.;:>\]}]+$/g, "");
-  }
+  // Canonicalize HF short domain: hf.co fails on recent Ollama with
+  // `realm host "huggingface.co" does not match original host "hf.co"`.
+  if (/^hf\.co\//i.test(s)) return "huggingface.co/" + s.slice(6);
+  const hm = s.match(/^https?:\/\/(hf\.co|huggingface\.co)\/(.+)$/i);
+  if (hm) return "huggingface.co/" + hm[2];
   return s;
 }
 
@@ -467,7 +472,7 @@ function jobStatusLabel(j) {
 // names can be HF ids (`hf.co/repo:quant`, `repo`) while the installed model
 // carries a different prefix/tag or casing, so an exact match is not reliable.
 function dlNormalizeName(name) {
-  return String(name || "").toLowerCase().replace(/^hf\.co\//, "").trim();
+  return String(name || "").toLowerCase().replace(/^(hf\.co|huggingface\.co)\//, "").trim();
 }
 
 function resolveInstalledModelName(name) {

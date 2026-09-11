@@ -585,8 +585,9 @@ function renderBatteryModalModels() {
   container.innerHTML = items.map(({ m, disabled, title }) => {
     let modelName = m.name;
     let modelDisplay = escapeHtml(modelName);
-    if (modelName.startsWith("hf.co/")) {
-      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">hf.co/</span>${escapeHtml(modelName.slice(6))}`;
+    if (modelName.startsWith("hf.co/") || modelName.startsWith("huggingface.co/")) {
+      const prefix = modelName.startsWith("hf.co/") ? "hf.co/" : "huggingface.co/";
+      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">${escapeHtml(prefix)}</span>${escapeHtml(modelName.slice(prefix.length))}`;
     }
     const capsHtml = (m.capabilities || [])
       .map((c) => `<span class="pill" data-cap="${escapeHtml(c)}">${escapeHtml(c)}</span>`)
@@ -1244,8 +1245,9 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
     const pctTooltip = st.completedUnits > 0 ? `${st.passedUnits}/${totalExpUnits} (${passPct}%)` : "";
 
     let modelDisplay = escapeHtml(m);
-    if (m.startsWith("hf.co/")) {
-      modelDisplay = `<span class="model-ns-prefix">hf.co/</span>${escapeHtml(m.slice(6))}`;
+    if (m.startsWith("hf.co/") || m.startsWith("huggingface.co/")) {
+      const prefix = m.startsWith("hf.co/") ? "hf.co/" : "huggingface.co/";
+      modelDisplay = `<span class="model-ns-prefix">${escapeHtml(prefix)}</span>${escapeHtml(m.slice(prefix.length))}`;
     }
 
     html += `

@@ -64,8 +64,8 @@ function modelHomepageUrl(name, isCustom) {
   }
 
   let base = cleanName.split(":")[0];
-  if (base.startsWith("hf.co/")) {
-    const repo = base.slice("hf.co/".length);
+  if (base.startsWith("hf.co/") || base.startsWith("huggingface.co/")) {
+    const repo = base.replace(/^(hf\.co|huggingface\.co)\//, "");
     return repo ? "https://huggingface.co/" + repo : "";
   }
   if (isCustom || (typeof isFixedModelName === "function" && isFixedModelName(cleanName))) {

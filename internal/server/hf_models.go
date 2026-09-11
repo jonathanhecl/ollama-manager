@@ -494,15 +494,17 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 				Quant:        "MMPROJ",
 				SizeBytes:    f.Size,
 				IsVisionProj: true,
-				PullName:     fmt.Sprintf("hf.co/%s", rawDetail.ID),
+				// Canonical host: hf.co fails on recent Ollama with
+				// `realm host "huggingface.co" does not match original host "hf.co"`.
+				PullName: fmt.Sprintf("huggingface.co/%s", rawDetail.ID),
 			})
 			continue
 		}
 
 		quant := ExtractQuantization(baseName)
-		pullName := fmt.Sprintf("hf.co/%s:%s", rawDetail.ID, quant)
+		pullName := fmt.Sprintf("huggingface.co/%s:%s", rawDetail.ID, quant)
 		if quant == "OTHER" {
-			pullName = fmt.Sprintf("hf.co/%s", rawDetail.ID)
+			pullName = fmt.Sprintf("huggingface.co/%s", rawDetail.ID)
 		}
 
 		ggufFiles = append(ggufFiles, HFQuantFile{

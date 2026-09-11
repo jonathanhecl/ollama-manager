@@ -2977,6 +2977,10 @@ func modelRepoBase(name string) string {
 	}
 	s = strings.TrimPrefix(s, "ollama.com/library/")
 	s = strings.TrimPrefix(s, "ollama.com/")
+	// hf.co and huggingface.co are the same registry: group them together.
+	if strings.HasPrefix(s, "hf.co/") {
+		s = "huggingface.co/" + strings.TrimPrefix(s, "hf.co/")
+	}
 	idx := strings.Index(s, ":")
 	if idx != -1 {
 		s = s[:idx]

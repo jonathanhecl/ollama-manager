@@ -339,8 +339,9 @@ function buildReadySectionHtml(modelsData, lbRows = [], cols = []) {
 
     let modelName = m.name;
     let modelDisplay = escapeHtml(modelName);
-    if (modelName.startsWith("hf.co/")) {
-      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">hf.co/</span>${escapeHtml(modelName.slice(6))}`;
+    if (modelName.startsWith("hf.co/") || modelName.startsWith("huggingface.co/")) {
+      const prefix = modelName.startsWith("hf.co/") ? "hf.co/" : "huggingface.co/";
+      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">${escapeHtml(prefix)}</span>${escapeHtml(modelName.slice(prefix.length))}`;
     }
 
     const pills = (typeof renderCapabilityPills === "function") ? renderCapabilityPills(m.capabilities) : "";
@@ -786,8 +787,9 @@ async function buildLeaderboardTableHtml() {
 
     let modelName = row.model;
     let modelDisplay = escapeHtml(modelName);
-    if (modelName.startsWith("hf.co/")) {
-      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">hf.co/</span>${escapeHtml(modelName.slice(6))}`;
+    if (modelName.startsWith("hf.co/") || modelName.startsWith("huggingface.co/")) {
+      const prefix = modelName.startsWith("hf.co/") ? "hf.co/" : "huggingface.co/";
+      modelDisplay = `<span style="opacity:0.45;font-weight:normal;">${escapeHtml(prefix)}</span>${escapeHtml(modelName.slice(prefix.length))}`;
     }
 
     const info = modelInfo.get(row.model);

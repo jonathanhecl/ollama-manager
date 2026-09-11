@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,6 +46,79 @@ const (
 // IsTerminal reports whether s is a final, non-active state.
 func (s Status) IsTerminal() bool {
 	return s == StatusDone || s == StatusError || s == StatusCancelled
+}
+
+// NormalizePullName rewrites known Hugging Face aliases to the canonical
+// registry host that current Ollama versions accept.
+//
+// Background (ollama/ollama#15661): `ollama pull hf.co/org/model:tag` fails
+// with `realm host "huggingface.co" does not match original host "hf.co"`
+// because Ollama follows the manifest realm to huggingface.co and then
+// rejects the mismatch. `huggingface.co/org/model:tag` works, so we
+// canonicalize `hf.co/` → `huggingface.co/` up front. This is not a DNS
+// issue: no local resolver change would fix it.
+func NormalizePullName(name string) string {
+	s := strings.TrimSpace(name)
+	if s == "" {
+		return s
+	}
+	// Strip URL scheme if the user pasted a full URL: Ollama expects
+	// `huggingface.co/org/model:tag`, not `https://...`.
+	lower := strings.ToLower(s)
+	for _, scheme := range []string{"https://", "http://"} {
+		if strings.HasPrefix(lower, scheme) {
+			s = strings.TrimSpace(s[len(scheme):])
+			lower = strings.ToLower(s)
+			break
+		}
+	}
+	// Remove redundant slashes is not needed; just swap the host prefix
+	// case-insensitively while preserving the remainder's original case.
+	if len(s) >= len("hf.co/") && strings.EqualFold(s[:len("hf.co/")], "hf.co/") {
+		return "huggingface.co/" + s[len("hf.co/"):]
+	}
+	return s
+}
+
+// alternateHFHost returns the same model name with the HF registry host
+// swapped (hf.co ↔ huggingface.co). Empty string means no alternate exists.
+func alternateHFHost(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if strings.HasPrefix(lower, "hf.co/") {
+		return "huggingface.co/" + strings.TrimSpace(name)[len("hf.co/"):]
+	}
+	if strings.HasPrefix(lower, "huggingface.co/") {
+		return "hf.co/" + strings.TrimSpace(name)[len("huggingface.co/"):]
+	}
+	return ""
+}
+
+// isRealmHostMismatch reports whether err is the Ollama registry error
+// `realm host "..." does not match original host "..."`.
+func isRealmHostMismatch(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "realm host") && strings.Contains(msg, "does not match original host")
+}
+
+// samePullName reports whether two job names refer to the same model,
+// treating hf.co ↔ huggingface.co as aliases (case-insensitive).
+func samePullName(a, b string) bool {
+	na := NormalizePullName(a)
+	nb := NormalizePullName(b)
+	if strings.EqualFold(na, nb) {
+		return true
+	}
+	// Old persisted jobs may still carry the hf.co form; match them anyway.
+	if alt := alternateHFHost(na); alt != "" && strings.EqualFold(alt, nb) {
+		return true
+	}
+	if alt := alternateHFHost(nb); alt != "" && strings.EqualFold(alt, na) {
+		return true
+	}
+	return false
 }
 
 // speedSample records an instantaneous speed measurement for rolling-window averaging.
@@ -202,6 +276,8 @@ func (m *Manager) Load() error {
 		if j.ID == "" || j.Name == "" {
 			continue
 		}
+		// Migrate old hf.co names to the canonical host (ollama#15661).
+		j.Name = NormalizePullName(j.Name)
 		if j.Status == StatusRunning {
 			j.Status = StatusQueued
 			j.StartedAt = time.Time{}
@@ -286,15 +362,19 @@ func (m *Manager) List() []Job {
 //     queue. This avoids piling up duplicate "cancelled" cards every time the
 //     user re-adds (resumes) a model after cancelling.
 func (m *Manager) Enqueue(name string) (Job, error) {
+	name = NormalizePullName(strings.TrimSpace(name))
 	if name == "" {
 		return Job{}, errors.New("model name required")
 	}
 	m.mu.Lock()
 	for _, id := range m.order {
 		j := m.jobs[id]
-		if j == nil || j.Name != name {
+		if j == nil || !samePullName(j.Name, name) {
 			continue
 		}
+		// Migrate old hf.co names to the canonical host so retries and
+		// future pulls don't hit the realm mismatch again.
+		j.Name = name
 		switch j.Status {
 		case StatusQueued, StatusRunning, StatusPaused:
 			snap := j.clone()
@@ -692,7 +772,9 @@ func (m *Manager) run(ctx context.Context, id string) {
 		m.mu.Unlock()
 		return
 	}
-	name := startJob.Name
+	// Migrate persisted hf.co names to the canonical host before pulling.
+	name := NormalizePullName(startJob.Name)
+	startJob.Name = name
 	snap := startJob.clone()
 	// Persist the queued->running transition.
 	if err := m.saveLocked(); err != nil {
@@ -704,7 +786,8 @@ func (m *Manager) run(ctx context.Context, id string) {
 	var lastEmit time.Time
 	const emitEvery = 250 * time.Millisecond
 
-	err := m.ollama.Pull(ctx, name, func(ev ollama.PullProgress) error {
+	doPull := func(pullName string) error {
+		return m.ollama.Pull(ctx, pullName, func(ev ollama.PullProgress) error {
 		m.mu.Lock()
 		j := m.jobs[id]
 		if j == nil {
@@ -770,7 +853,45 @@ func (m *Manager) run(ctx context.Context, id string) {
 		m.mu.Unlock()
 		m.broadcast(Event{Kind: EventUpdate, Job: &cp})
 		return nil
-	})
+		})
+	}
+
+	err := doPull(name)
+	// Auto-fix for ollama/ollama#15661: if Ollama rejects hf.co with a
+	// realm host mismatch, retry once with the alternate HF host.
+	if isRealmHostMismatch(err) && ctx.Err() == nil {
+		if alt := alternateHFHost(name); alt != "" && !strings.EqualFold(alt, name) {
+			m.logger.Printf("jobs: realm host mismatch for %q, retrying as %q", name, alt)
+			m.mu.Lock()
+			if j := m.jobs[id]; j != nil {
+				j.Name = alt
+				j.StatusText = "retrying with " + alt
+			}
+			m.mu.Unlock()
+			lastEmit = time.Time{}
+			if retryErr := doPull(alt); retryErr == nil {
+				name = alt
+				err = nil
+			} else if !isRealmHostMismatch(retryErr) || ctx.Err() != nil {
+				// Retry gave a different (real) result: keep it.
+				name = alt
+				err = retryErr
+				m.mu.Lock()
+				if j := m.jobs[id]; j != nil {
+					j.Name = alt
+				}
+				m.mu.Unlock()
+			} else {
+				// Both hosts failed with mismatch: restore original name,
+				// keep the first error.
+				m.mu.Lock()
+				if j := m.jobs[id]; j != nil {
+					j.Name = name
+				}
+				m.mu.Unlock()
+			}
+		}
+	}
 
 	// Finalize state.
 	m.mu.Lock()

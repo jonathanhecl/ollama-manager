@@ -583,9 +583,12 @@ $("downloads-modal").addEventListener("click", async (e) => {
       await refreshModels();
     } catch (_) {}
   }
-  // Resolve to the installed model name (HF ids/tags may differ) and fall back
-  // to the raw job name so the chat still opens.
-  const target = resolveInstalledModelName(j.name) || j.name;
+  // Resolve to the installed model name (HF ids/tags may differ).
+  const target = resolveInstalledModelName(j.name);
+  if (!target) {
+    toast(t("downloads.model_deleted", { name: j.name }), "warn");
+    return;
+  }
   closeDownloads();
   showChatViewWithModel(target);
 });

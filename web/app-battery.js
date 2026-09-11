@@ -240,10 +240,6 @@ async function openBatteryModal(options = {}) {
   if (!options.testId && (!Array.isArray(testsGroups) || testsGroups.length === 0 || !Array.isArray(tests) || tests.length === 0)) {
     try { await refreshTests(); } catch { }
   }
-  // Pre-fetch models and usage if needed
-  if (typeof models === "undefined" || models.length === 0) {
-    try { await refreshModels(); } catch { }
-  }
 
   wireBatterySortButtons();
   updateBatterySortUI();
@@ -260,6 +256,10 @@ async function openBatteryModal(options = {}) {
     const titleEl = $("battery-modal-title");
     if (titleEl) titleEl.textContent = t("battery.run_single", { name: test?.name || options.testId });
     batteryModalShowStep("models");
+    // Ollama may still be probing capabilities/speeds right after startup.
+    // Show a skeleton and wait for fresh data instead of a blank list.
+    renderBatteryModalModelsLoading();
+    try { await refreshModels(); } catch { }
     renderBatteryModalModels();
     void refreshBatteryCoverage();
   } else {
@@ -282,6 +282,12 @@ async function openBatteryModal(options = {}) {
     }
     batteryModalShowStep("groups");
     renderBatteryModalGroups();
+    // Prepare the models step in the background (with a skeleton) so it is
+    // ready when the user continues.
+    renderBatteryModalModelsLoading();
+    if (typeof models === "undefined" || models.length === 0 || modelsLoading) {
+      void refreshModels();
+    }
   }
   updateBatteryModalSelectionUI();
 
@@ -517,9 +523,38 @@ function closeBatteryModal() {
   document.body.style.overflow = "";
 }
 
+// renderBatteryModalModelsLoading paints placeholder rows while the model
+// list is being fetched (e.g. Ollama probing capabilities right after a
+// start). It is replaced by the real list once refreshModels() resolves.
+function renderBatteryModalModelsLoading() {
+  const container = $("battery-modal-models");
+  if (!container) return;
+  const row = `
+    <div class="battery-model-item battery-model-skeleton" aria-hidden="true">
+      <div class="skeleton-box skeleton-check"></div>
+      <div class="battery-model-main">
+        <div class="skeleton-line skeleton-w-60"></div>
+        <div class="skeleton-line skeleton-w-30 skeleton-sm"></div>
+      </div>
+      <div class="battery-model-right-cols">
+        <div class="skeleton-line skeleton-w-50"></div>
+      </div>
+    </div>`;
+  container.innerHTML = `
+    <div class="battery-models-loading-label muted">${escapeHtml(t("battery.loading_models"))}</div>
+    ${row.repeat(6)}`;
+}
+
 function renderBatteryModalModels() {
   const container = $("battery-modal-models");
   if (!container) return;
+
+  // Still fetching: keep showing the skeleton instead of a blank/"no models"
+  // state.
+  if (modelsLoading) {
+    renderBatteryModalModelsLoading();
+    return;
+  }
 
   // Only show active models that have verified speed (record_tokens_per_sec > 0)
   const activeModels = (typeof models !== "undefined" ? models : []).filter((m) => {

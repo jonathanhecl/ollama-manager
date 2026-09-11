@@ -6998,6 +6998,53 @@ button.chat-send:disabled:hover {
   cursor: pointer;
   margin-top: 1px;
 }
+.battery-models-loading-label {
+  text-align: center;
+  font-size: 12px;
+  padding: 4px 0 2px;
+}
+.battery-model-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+.battery-model-skeleton:hover {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+.skeleton-box,
+.skeleton-line {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-dim) 14%, transparent);
+  border-radius: 6px;
+}
+.skeleton-box::after,
+.skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text-dim) 22%, transparent), transparent);
+  animation: batterySkeletonShimmer 1.3s ease-in-out infinite;
+}
+.skeleton-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.skeleton-line {
+  height: 13px;
+}
+.skeleton-sm {
+  height: 10px;
+}
+.skeleton-w-60 { width: 60%; }
+.skeleton-w-50 { width: 50%; }
+.skeleton-w-30 { width: 30%; }
+@keyframes batterySkeletonShimmer {
+  100% { transform: translateX(100%); }
+}
 .battery-model-main {
   display: flex;
   flex-direction: column;

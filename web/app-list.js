@@ -2,6 +2,7 @@
 
 // ---------- list ----------
 async function refreshModels() {
+  modelsLoading = true;
   try {
     const data = await api("/api/models");
     models = data.models || [];
@@ -14,6 +15,14 @@ async function refreshModels() {
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
     $("models-tbody").innerHTML = `<tr class="empty"><td colspan="9">${escapeHtml(t("state.error_prefix") + e.message)}</td></tr>`;
+  } finally {
+    modelsLoading = false;
+    // If the battery model picker is open, replace its skeleton with the
+    // freshly loaded list (avoids a blank list while Ollama warms up).
+    const modal = document.getElementById("battery-modal");
+    if (modal && !modal.hidden && typeof renderBatteryModalModels === "function") {
+      renderBatteryModalModels();
+    }
   }
 }
 

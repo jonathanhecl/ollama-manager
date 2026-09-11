@@ -2,6 +2,7 @@
 
 // ---------- state ----------
 let models = [];
+let modelsLoading = false;
 let ghostModels = [];
 let showGhostModels = localStorage.getItem("ollama_show_ghost_models") === "true";
 let activeName = null;

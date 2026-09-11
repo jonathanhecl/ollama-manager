@@ -457,8 +457,27 @@ function jobStatusLabel(j) {
   }
 }
 
-function openDownloads() {
-  renderDownloads();
+// Resolves a finished download's job name to the installed model name. Job
+// names can be HF ids (`hf.co/repo:quant`, `repo`) while the installed model
+// carries a different prefix/tag or casing, so an exact match is not reliable.
+function dlNormalizeName(name) {
+  return String(name || "").toLowerCase().replace(/^hf\.co\//, "").trim();
+}
+
+function resolveInstalledModelName(name) {
+  if (!name || typeof models === "undefined" || !Array.isArray(models) || models.length === 0) return "";
+  const exact = models.find((m) => m.name === name);
+  if (exact) return exact.name;
+  const target = dlNormalizeName(name);
+  if (!target) return "";
+  const norm = (m) => dlNormalizeName(m?.name);
+  return (models.find((m) => norm(m) === target)
+    || models.find((m) => norm(m).startsWith(target + ":") || norm(m).startsWith(target + "/"))
+    || models.find((m) => norm(m).includes(target))
+    || { name: "" }).name;
+}
+
+function openDownloads() {  renderDownloads();
   $("downloads-modal").hidden = false;
   setTimeout(() => $("dl-add-input").focus(), 20);
 }
@@ -528,10 +547,16 @@ $("downloads-modal").addEventListener("click", async (e) => {
   if (!id) return;
   const j = jobs.get(id);
   if (!j || j.status !== "done" || !j.name) return;
-  await refreshModels();
-  if (!modelByName(j.name)) return;
+  if (typeof refreshModels === "function") {
+    try {
+      await refreshModels();
+    } catch (_) {}
+  }
+  // Resolve to the installed model name (HF ids/tags may differ) and fall back
+  // to the raw job name so the chat still opens.
+  const target = resolveInstalledModelName(j.name) || j.name;
   closeDownloads();
-  showChatViewWithModel(j.name);
+  showChatViewWithModel(target);
 });
 
 $("dl-pause-btn").addEventListener("click", async () => {

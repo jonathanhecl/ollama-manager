@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260910_13">
+  <link rel="stylesheet" href="/static/style.css?v=20260911_05">
 </head>
 <body>
   <header class="topbar">
@@ -1262,7 +1262,10 @@
             <span id="hf-detail-likes" class="badge badge-subtle"></span>
           </div>
         </div>
-        <button id="hf-detail-close" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+        <div class="hf-detail-head-actions">
+          <button type="button" id="hf-detail-chat-btn" class="hf-chat-btn" hidden title="Open chat">💬 <span data-i18n="hf.chat_btn">Chat</span></button>
+          <button id="hf-detail-close" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+        </div>
       </header>
 
       <div id="hf-detail-vision-box" class="callout callout-vision" hidden></div>
@@ -2728,7 +2731,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20260910_11"></script>
+  <script src="/static/i18n.js?v=20260911_05"></script>
   <script src="/static/app-helpers.js?v=20260908_02"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20260820"></script>
@@ -2742,7 +2745,7 @@
   <script src="/static/app-artifacts.js?v=20260820"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260910_10"></script>
-  <script src="/static/app-hf-search.js?v=20260827_06"></script>
+  <script src="/static/app-hf-search.js?v=20260911_05"></script>
   <script src="/static/app-modelfile.js?v=20260822"></script>
   <script src="/static/app-topbar.js?v=20260820"></script>
   <script src="/static/app-settings.js?v=20260909_03"></script>

@@ -296,13 +296,14 @@ function getHFModelInstallStatus(repoId) {
   return {
     installedCount: installedMatches.length,
     ghostCount: ghostMatches.length,
+    installedModels: installedMatches,
     bestTps,
     bestBench,
   };
 }
 
 function getHFQuantInstallStatus(pullName) {
-  if (!pullName) return { isInstalled: false, wasInstalled: false, record: null };
+  if (!pullName) return { isInstalled: false, wasInstalled: false, record: null, installedModel: null };
   const target = normalizeHFModelName(pullName);
   const targetRepo = target.includes("/") ? target.split("/")[1] : target;
 
@@ -321,6 +322,7 @@ function getHFQuantInstallStatus(pullName) {
     isInstalled: !!installed,
     wasInstalled: !!ghost,
     record: installed || ghost,
+    installedModel: installed,
   };
 }
 
@@ -630,6 +632,21 @@ function renderHFModelDetail(m) {
     }
   }
 
+  // Header chat button if model has installed quants
+  const installStatus = getHFModelInstallStatus(m.id);
+  const headChatBtn = $("hf-detail-chat-btn");
+  if (headChatBtn) {
+    if (installStatus.installedCount > 0) {
+      headChatBtn.hidden = false;
+      const targetModelName = installStatus.installedModels?.[0]?.name || canonicalHFPullName(m.id);
+      headChatBtn.dataset.modelName = targetModelName;
+      headChatBtn.title = t("hf.chat_btn_title", { name: targetModelName });
+    } else {
+      headChatBtn.hidden = true;
+      headChatBtn.dataset.modelName = "";
+    }
+  }
+
   // Render Quants Table
   renderHFQuantsTable(m);
 }
@@ -776,7 +793,12 @@ function renderHFQuantsTable(m) {
 
     let statusBtn = "";
     if (isInstalled) {
-      statusBtn = `<span class="badge badge-success">💾 ${escapeHtml(t("hf.installed_badge"))}</span>`;
+      const chatModelName = quantStatus.installedModel?.name || canonicalHFPullName(pullName);
+      statusBtn = `
+        <button type="button" class="hf-chat-btn" data-model-name="${escapeHtml(chatModelName)}" title="${escapeHtml(t("hf.chat_btn_title", { name: chatModelName }))}">
+          💬 ${escapeHtml(t("hf.chat_btn"))}
+        </button>
+      `;
     } else if (isDownloading) {
       statusBtn = `<span class="badge hf-badge-downloading">⏳ ${escapeHtml(t("hf.downloading_badge"))}</span>`;
     } else if (isQueued) {
@@ -807,7 +829,8 @@ function renderHFQuantsTable(m) {
     const rowClasses = ["hf-quant-row"];
     if (isRec) rowClasses.push("hf-row-recommended");
     if (isInstalled) rowClasses.push("hf-row-installed");
-    else if (wasInstalled) rowClasses.push("hf-row-had");
+    const hasPerf = (Number(usageRecord?.record_tokens_per_sec) > 0) || (typeof usageRecord?.bench_overall === "number" && isFinite(usageRecord?.bench_overall));
+    const usageClass = hasPerf ? "hf-cell-usage has-perf" : "hf-cell-usage no-perf";
 
     return `
       <tr class="${rowClasses.join(" ")}">
@@ -824,7 +847,7 @@ function renderHFQuantsTable(m) {
         <td class="hf-cell-fit">
           <span class="badge ${fit.badgeClass}" title="${escapeHtml(fit.label + " — " + fit.desc)}">${escapeHtml(fit.shortLabel || fit.label)}</span>
         </td>
-        <td class="hf-cell-usage">${hfQuantUsageHTML(usageRecord)}</td>
+        <td class="${usageClass}">${hfQuantUsageHTML(usageRecord)}</td>
         <td class="hf-cell-action">${statusBtn}</td>
       </tr>
     `;
@@ -1417,8 +1440,29 @@ function bindHFExplorerEvents() {
     if (!$("hf-detail-modal")?.hidden) updateHFQuantMarquees();
   });
 
-  // Install button inside Quants table
+  // Header Chat button click
+  $("hf-detail-chat-btn")?.addEventListener("click", (e) => {
+    const modelName = e.currentTarget?.dataset?.modelName;
+    if (!modelName) return;
+    closeHFModelDetail();
+    if (typeof showChatViewWithModel === "function") {
+      void showChatViewWithModel(modelName);
+    }
+  });
+
+  // Chat and Install buttons inside Quants table
   $("hf-quants-tbody")?.addEventListener("click", async (e) => {
+    const chatBtn = e.target.closest(".hf-chat-btn");
+    if (chatBtn) {
+      const modelName = chatBtn.dataset.modelName;
+      if (!modelName) return;
+      closeHFModelDetail();
+      if (typeof showChatViewWithModel === "function") {
+        void showChatViewWithModel(modelName);
+      }
+      return;
+    }
+
     const btn = e.target.closest(".hf-install-btn");
     if (!btn) return;
     const pullName = btn.dataset.pullName;

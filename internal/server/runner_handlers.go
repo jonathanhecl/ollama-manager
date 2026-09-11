@@ -281,29 +281,80 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
 }
 
+// handleListRuns returns a lightweight, newest-first view of stored runs with
+// optional filtering (q / model / category / test_id) and AJAX pagination
+// (offset / limit). When limit is 0 all matching runs are returned, which keeps
+// older callers working.
 func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
-	runs := s.runnerStore.GetRuns()
-	// Return lightweight view.
-	type lightRun struct {
-		ID         string   `json:"id"`
-		Timestamp  string   `json:"timestamp"`
-		GroupName  string   `json:"group_name"`
-		Models     []string `json:"models"`
-		TestIDs    []string `json:"test_ids"`
-		TestCount  int      `json:"test_count"`
-		PassCount  int      `json:"pass_count"`
-		FailCount  int      `json:"fail_count"`
-		TotalCount int      `json:"total_count"`
+	query := r.URL.Query()
+	q := strings.ToLower(strings.TrimSpace(query.Get("q")))
+	modelFilter := strings.ToLower(strings.TrimSpace(query.Get("model")))
+	category := strings.TrimSpace(query.Get("category"))
+	testID := strings.TrimSpace(query.Get("test_id"))
+	offset := atoiDefault(query.Get("offset"), 0)
+	limit := atoiDefault(query.Get("limit"), 0)
+	if offset < 0 {
+		offset = 0
 	}
+	if limit < 0 {
+		limit = 0
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	// testID -> groupID, used to match a category by any of the run's tests.
+	testGroup := map[string]string{}
+	if category != "" && s.testsStore != nil {
+		_, allTests := s.testsStore.List()
+		for _, t := range allTests {
+			testGroup[t.ID] = t.GroupID
+		}
+	}
+	categoryLower := strings.ToLower(category)
+
+	type modelRunStat struct {
+		Pass   int     `json:"pass"`
+		Total  int     `json:"total"`
+		AvgTps float64 `json:"avg_tps,omitempty"`
+	}
+	type lightRun struct {
+		ID         string                  `json:"id"`
+		Timestamp  string                  `json:"timestamp"`
+		GroupName  string                  `json:"group_name"`
+		Models     []string                `json:"models"`
+		TestIDs    []string                `json:"test_ids"`
+		TestCount  int                     `json:"test_count"`
+		PassCount  int                     `json:"pass_count"`
+		FailCount  int                     `json:"fail_count"`
+		TotalCount int                     `json:"total_count"`
+		ModelStats map[string]modelRunStat `json:"model_stats,omitempty"`
+	}
+
+	type summaryAcc struct {
+		pass    int
+		total   int
+		timeSum int64
+		tpsSum  float64
+		tpsN    int
+	}
+
+	runs := s.runnerStore.GetRuns() // newest first
 	out := make([]lightRun, 0, len(runs))
+	var summary *summaryAcc
+	if modelFilter != "" {
+		summary = &summaryAcc{}
+	}
+
 	for _, run := range runs {
+		tids := make(map[string]bool)
+		modelStats := map[string]modelRunStat{}
 		lr := lightRun{
 			ID:        run.ID,
 			Timestamp: run.Timestamp.Format("2006-01-02T15:04:05Z"),
 			GroupName: run.GroupName,
 			Models:    run.Models,
 		}
-		tids := make(map[string]bool)
 		for _, res := range run.Results {
 			if res.TestID != "" {
 				tids[res.TestID] = true
@@ -318,14 +369,168 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			} else {
 				lr.TestCount++ // human_review or skipped
 			}
+			if res.Model != "" {
+				st := modelStats[res.Model]
+				st.Total++
+				if res.Passed != nil && *res.Passed {
+					st.Pass++
+				}
+				if res.TokensPerSec > 0 {
+					st.AvgTps += res.TokensPerSec
+				}
+				modelStats[res.Model] = st
+			}
+		}
+		// Finalize per-model average tok/s.
+		for name, st := range modelStats {
+			if st.Total > 0 && st.AvgTps > 0 {
+				st.AvgTps = st.AvgTps / float64(st.Total)
+				modelStats[name] = st
+			}
 		}
 		lr.TestIDs = make([]string, 0, len(tids))
 		for tid := range tids {
 			lr.TestIDs = append(lr.TestIDs, tid)
 		}
+		if len(modelStats) > 0 {
+			lr.ModelStats = modelStats
+		}
+
+		// ---- filters ----
+		if modelFilter != "" && !runHasModel(run.Models, modelFilter) {
+			continue
+		}
+		if testID != "" && !tids[testID] {
+			continue
+		}
+		if category != "" && !runMatchesCategory(run.GroupName, lr.TestIDs, testGroup, categoryLower) {
+			continue
+		}
+		if q != "" && !runMatchesQuery(run.GroupName, run.Models, lr.TestIDs, q) {
+			continue
+		}
+
+		if summary != nil {
+			for _, res := range run.Results {
+				if strings.ToLower(res.Model) != modelFilter {
+					continue
+				}
+				summary.total++
+				if res.Passed != nil && *res.Passed {
+					summary.pass++
+				}
+				summary.timeSum += res.ResponseTimeMs
+				if res.TokensPerSec > 0 {
+					summary.tpsSum += res.TokensPerSec
+					summary.tpsN++
+				}
+			}
+		}
+
 		out = append(out, lr)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
+
+	total := len(out)
+	hasMore := false
+	if limit > 0 {
+		if offset > total {
+			offset = total
+		}
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		out = out[offset:end]
+		hasMore = offset+len(out) < total
+	}
+
+	resp := map[string]any{
+		"runs":     out,
+		"total":    total,
+		"offset":   offset,
+		"limit":    limit,
+		"has_more": hasMore,
+	}
+	if summary != nil {
+		avgMs := int64(0)
+		if summary.total > 0 {
+			avgMs = summary.timeSum / int64(summary.total)
+		}
+		avgTps := 0.0
+		if summary.tpsN > 0 {
+			avgTps = summary.tpsSum / float64(summary.tpsN)
+		}
+		resp["model_summary"] = map[string]any{
+			"model":   modelFilter,
+			"pass":    summary.pass,
+			"total":   summary.total,
+			"avg_ms":  avgMs,
+			"avg_tps": avgTps,
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func atoiDefault(s string, def int) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return def
+	}
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return def
+		}
+		n = n*10 + int(c-'0')
+		if n > 1_000_000 {
+			return def
+		}
+	}
+	return n
+}
+
+func runHasModel(models []string, target string) bool {
+	for _, m := range models {
+		if strings.ToLower(m) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func runMatchesCategory(groupName string, testIDs []string, testGroup map[string]string, categoryLower string) bool {
+	if categoryLower == "" {
+		return true
+	}
+	if categoryLower == "all" {
+		return true
+	}
+	if groupName != "" && strings.Contains(strings.ToLower(groupName), categoryLower) {
+		return true
+	}
+	for _, tid := range testIDs {
+		if g, ok := testGroup[tid]; ok && strings.ToLower(g) == categoryLower {
+			return true
+		}
+	}
+	return false
+}
+
+func runMatchesQuery(groupName string, models, testIDs []string, q string) bool {
+	if strings.Contains(strings.ToLower(groupName), q) {
+		return true
+	}
+	for _, m := range models {
+		if strings.Contains(strings.ToLower(m), q) {
+			return true
+		}
+	}
+	for _, tid := range testIDs {
+		if strings.Contains(strings.ToLower(tid), q) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {

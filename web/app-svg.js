@@ -2552,7 +2552,8 @@ async function handleRouting() {
     const filterTestId = path.startsWith("/tests/history/") ? decodeURIComponent(path.substring(15)) : null;
     const urlParams = new URLSearchParams(window.location.search);
     const filterModel = urlParams.get("model") || null;
-    showBatteryHistoryView(filterTestId, filterModel);
+    const filterCategory = urlParams.get("category") || null;
+    showBatteryHistoryView(filterTestId, filterModel, filterCategory);
     if (filterTestId && typeof openTestHistoryModal === "function") {
       openTestHistoryModal(filterTestId);
     }

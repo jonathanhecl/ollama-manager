@@ -4,6 +4,7 @@
 let currentRunTarget = null; // { type: 'single' | 'group' | 'multi' | 'all', testId?, groupId?, groupIds?, name? }
 let currentHistoryFilterTestId = null;
 let currentHistoryFilterModel = null;
+let currentHistoryFilterCategory = null;
 
 const BATTERY_SORT_KEY = "om_battery_sort";
 let batterySort = { col: "name", dir: "asc" };
@@ -2972,19 +2973,22 @@ async function finishBlindReview() {
   showBatteryResultsView(runId);
 }
 
-function showBatteryHistoryView(filterTestId = null, filterModel = null) {
+function showBatteryHistoryView(filterTestId = null, filterModel = null, filterCategory = null) {
   hideAllMainViews();
   currentView = "battery-history";
   currentHistoryFilterTestId = filterTestId || null;
   currentHistoryFilterModel = filterModel || null;
+  currentHistoryFilterCategory = filterCategory || null;
+  batteryHistoryState = null;
   $("battery-history-view").hidden = false;
   let path = "/tests/battery/history";
   if (filterTestId) {
     path = "/tests/history/" + encodeURIComponent(filterTestId);
   }
-  if (filterModel) {
-    path += (path.includes("?") ? "&" : "?") + "model=" + encodeURIComponent(filterModel);
-  }
+  const qs = [];
+  if (filterModel) qs.push("model=" + encodeURIComponent(filterModel));
+  if (filterCategory) qs.push("category=" + encodeURIComponent(filterCategory));
+  if (qs.length) path += (path.includes("?") ? "&" : "?") + qs.join("&");
   if (window.location.pathname + window.location.search !== path) {
     history.pushState(null, "", path);
   }
@@ -3536,20 +3540,40 @@ function renderBatteryResults(run) {
   // 3. Detailed Table View
   let detailedTableHtml = "";
   if (isDetailed) {
-    let rowsHtml = "";
-    for (const tid of testIds) {
-      const results = byTest[tid];
-      const test = tests.find((t) => t.id === tid);
-      const isHumanReview = test?.evaluation_type === "human_review";
-      const testName = results[0]?.test_name || tid;
-      const evalLabel = test?.evaluation_type ? `<div class="battery-eval-label">${escapeHtml(t("tests.eval_" + test.evaluation_type) || test.evaluation_type)}</div>` : "";
-      const promptBtn = `<div class="battery-prompt-link-wrap"><button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button></div>`;
-      const humanReviewLabel = isHumanReview
-        ? `<div class="battery-human-review-label">${t("battery.human_review")}</div>`
-        : "";
+    // Group by model so the model name appears once per section instead of
+    // once per test row. Within a model, tests keep the stored order.
+    const modelOrder = (Array.isArray(run.models) && run.models.length > 0)
+      ? run.models
+      : [...new Set(run.results.map((r) => r.model))];
 
-      for (let i = 0; i < results.length; i++) {
-        const r = results[i];
+    const modelSections = modelOrder.map((model) => {
+      const modelResults = run.results.filter((r) => r.model === model);
+      if (modelResults.length === 0) return "";
+
+      const total = modelResults.length;
+      const passed = modelResults.filter((r) => r.passed === true).length;
+      const pct = total > 0 ? Math.round((passed / total) * 100) : 0;
+      const passClass = passed === total && total > 0 ? "pill-good" : (passed > 0 ? "pill-warn" : "pill-bad");
+      const timeSum = modelResults.reduce((a, r) => a + (r.response_time_ms || 0), 0);
+      const avgMs = total > 0 ? Math.round(timeSum / total) : 0;
+      const tpsVals = modelResults.filter((r) => r.tokens_per_sec > 0).map((r) => r.tokens_per_sec);
+      const avgTps = tpsVals.length > 0 ? tpsVals.reduce((a, b) => a + b, 0) / tpsVals.length : 0;
+      const reasoningCount = modelResults.filter((r) => r.reasoning_used).length;
+
+      const rows = testIds.map((tid) => {
+        const r = modelResults.find((x) => x.test_id === tid);
+        if (!r) return "";
+        const test = tests.find((t) => t.id === tid);
+        const isHumanReview = test?.evaluation_type === "human_review";
+        const testName = r.test_name || tid;
+        const evalLabel = test?.evaluation_type
+          ? `<span class="battery-eval-label">${escapeHtml(t("tests.eval_" + test.evaluation_type) || test.evaluation_type)}</span>`
+          : "";
+        const humanReviewLabel = isHumanReview
+          ? `<span class="battery-human-review-label">${t("battery.human_review")}</span>`
+          : "";
+        const promptBtn = `<button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button>`;
+
         let resultCell = "";
         if (isHumanReview) {
           resultCell = `
@@ -3584,7 +3608,9 @@ function renderBatteryResults(run) {
           }
         }
 
-        const reasoningIcon = r.reasoning_used ? "🧠" : "";
+        const reasoningIcon = r.reasoning_used
+          ? `<span class="battery-detail-chip" title="${escapeHtml(t("battery.reasoning_used"))}">🧠</span>`
+          : "";
         const tokColor = (typeof getToksRecordColor === "function" && r.tokens_per_sec > 0) ? getToksRecordColor(r.tokens_per_sec) : "";
         const resp = r.model_response || "";
         const respId = `br-${run.id}-${r.test_id}-${escapeHtml(r.model)}`;
@@ -3648,44 +3674,50 @@ function renderBatteryResults(run) {
           `;
         }
 
-        rowsHtml += `
-          <tr>
-            ${i === 0 ? `<td class="cell-test" rowspan="${results.length}"><strong>${escapeHtml(testName)}</strong>${evalLabel}${humanReviewLabel}${promptBtn}</td>` : ""}
-            <td class="cell-model">${escapeHtml(r.model)}</td>
-            <td>${resultCell}</td>
-            <td class="cell-time">
-              <div class="battery-res-time mono">⏱️ ${fmtDuration(r.response_time_ms)} ${reasoningIcon}</div>
-              ${r.tokens_per_sec > 0
-                ? `<div class="battery-res-tps mono" style="color: ${tokColor}">⚡ <strong>${r.tokens_per_sec.toFixed(1)}</strong> <span class="unit">tok/s</span></div>`
-                : `<div class="battery-res-tps mono muted">— <span class="unit">tok/s</span></div>`
-              }
-            </td>
-            <td class="cell-response">
-              ${responseCellHtml}
-            </td>
-          </tr>
+        return `
+          <div class="battery-detail-row">
+            <div class="battery-detail-head">
+              <div class="battery-detail-test">
+                <span class="battery-detail-test-name">${escapeHtml(testName)}</span>
+                ${evalLabel}
+                ${humanReviewLabel}
+                ${promptBtn}
+              </div>
+              <div class="battery-detail-result">
+                ${resultCell}
+                <span class="battery-detail-chip mono" title="${escapeHtml(t("battery.response_time"))}">⏱️ ${fmtDuration(r.response_time_ms)}</span>
+                ${r.tokens_per_sec > 0
+                  ? `<span class="battery-detail-chip mono" style="color:${tokColor}">⚡ ${r.tokens_per_sec.toFixed(1)} <span class="unit">tok/s</span></span>`
+                  : `<span class="battery-detail-chip mono muted">— <span class="unit">tok/s</span></span>`
+                }
+                ${reasoningIcon}
+              </div>
+            </div>
+            <div class="battery-detail-response">${responseCellHtml}</div>
+          </div>
         `;
-      }
-    }
+      }).join("");
 
-    detailedTableHtml = `
-      <div class="battery-table-wrap">
-        <table class="battery-table">
-          <thead>
-            <tr>
-              <th>${t("tests.name")}</th>
-              <th>${t("chat.model")}</th>
-              <th>${t("battery.results")}</th>
-              <th>${t("battery.response_time")}</th>
-              <th>${t("chat.response")}</th>
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-      </div>
-    `;
+      return `
+        <section class="battery-model-group">
+          <header class="battery-model-group-head">
+            <div class="battery-model-group-name" title="${escapeHtml(model)}">${escapeHtml(model)}</div>
+            <div class="battery-model-group-stats">
+              <span class="pill ${passClass}">${passed} / ${total} (${pct}%)</span>
+              <span class="mono muted">⏱️ ${fmtDuration(avgMs)}</span>
+              ${avgTps > 0 ? `<span class="mono muted">⚡ ${avgTps.toFixed(1)} tok/s</span>` : ""}
+              ${reasoningCount > 0 ? `<span class="mono muted">🧠 ${reasoningCount}</span>` : ""}
+            </div>
+          </header>
+          <div class="battery-model-group-rows">${rows}</div>
+        </section>
+      `;
+    }).join("");
+
+    detailedTableHtml = modelOrder.length > 0
+      ? `<div class="battery-detailed-groups">${modelSections}</div>`
+      : "";
   }
-
   body.innerHTML = podiumHtml + summaryHtml + viewToggleHtml + matrixTableHtml + leaderboardTableHtml + chartsHtml + detailedTableHtml;
 
   const btnMatrix = body.querySelector("#btn-view-matrix");
@@ -3913,264 +3945,385 @@ function closeResponseViewModal() {
   $("response-view-modal").hidden = true;
 }
 
-async function renderBatteryHistory() {
-  const body = $("battery-history-body");
-  if (!body) return;
-  body.innerHTML = `<div class="muted">${t("status.loading")}</div>`;
-  try {
-    const data = await api("/api/runner/runs");
-    let allRuns = data.runs || [];
+let batteryHistoryState = null;
 
-    // Setup header model dropdown
-    const modelSel = $("battery-history-model-select");
-    if (modelSel) {
-      const activeModels = (typeof models !== "undefined" ? models : []).filter((m) => !m.archived);
-      let opts = `<option value="">${escapeHtml(t("tests.all_models"))}</option>`;
-      for (const m of activeModels) {
-        const sel = m.name === currentHistoryFilterModel;
-        opts += `<option value="${escapeHtml(m.name)}" ${sel ? "selected" : ""}>${escapeHtml(m.name)}</option>`;
-      }
-      modelSel.innerHTML = opts;
-      if (!modelSel.dataset.wired) {
-        modelSel.dataset.wired = "1";
-        modelSel.addEventListener("change", () => {
-          currentHistoryFilterModel = modelSel.value || null;
-          let path = "/tests/battery/history";
-          if (currentHistoryFilterTestId) path = "/tests/history/" + encodeURIComponent(currentHistoryFilterTestId);
-          if (currentHistoryFilterModel) path += (path.includes("?") ? "&" : "?") + "model=" + encodeURIComponent(currentHistoryFilterModel);
-          history.pushState(null, "", path);
-          void renderBatteryHistory();
-        });
-      }
-    }
+function batteryHistoryResetState() {
+  batteryHistoryState = {
+    q: "",
+    model: currentHistoryFilterModel || "",
+    category: currentHistoryFilterCategory || "",
+    testId: currentHistoryFilterTestId || null,
+    offset: 0,
+    limit: 25,
+    total: 0,
+    hasMore: false,
+    runs: [],
+    summary: null,
+    loading: false,
+  };
+}
 
-    let runs = allRuns;
-    if (currentHistoryFilterTestId) {
-      runs = runs.filter((r) => (r.test_ids || []).includes(currentHistoryFilterTestId) || (r.results || []).some((res) => res.test_id === currentHistoryFilterTestId));
-    }
-    if (currentHistoryFilterModel) {
-      runs = runs.filter((r) => (r.models || []).includes(currentHistoryFilterModel));
-    }
+function batteryHistoryResetPage() {
+  if (!batteryHistoryState) batteryHistoryResetState();
+  batteryHistoryState.offset = 0;
+  batteryHistoryState.total = 0;
+  batteryHistoryState.hasMore = false;
+  batteryHistoryState.runs = [];
+  batteryHistoryState.summary = null;
+}
 
-    let bannerHtml = "";
-    if (currentHistoryFilterTestId || currentHistoryFilterModel) {
-      const test = currentHistoryFilterTestId ? tests.find((t) => t.id === currentHistoryFilterTestId) : null;
-      const testName = test?.name || currentHistoryFilterTestId;
-      const filterParts = [];
-      if (testName) filterParts.push(t("battery.history_for", { name: testName }));
-      if (currentHistoryFilterModel) filterParts.push(`🤖 ${currentHistoryFilterModel}`);
-      const lbBtn = currentHistoryFilterTestId
-        ? `<button type="button" class="primary battery-mini-btn" id="battery-history-open-leaderboard" style="margin-left:auto;margin-right:8px;">🏆 ${t("tests.leaderboard_title")}</button>`
-        : "";
-      bannerHtml = `
-        <div class="battery-history-filter-banner">
-          <span>${escapeHtml(filterParts.join(" · "))}</span>
-          ${lbBtn}
-          <button type="button" class="ghost battery-mini-btn" id="battery-history-clear-filter">✕ ${t("analytics.source_all")}</button>
-        </div>
-      `;
-    }
+function batteryHistoryQuery(state, offsetOverride) {
+  const params = new URLSearchParams();
+  params.set("offset", String(offsetOverride == null ? state.offset : offsetOverride));
+  params.set("limit", String(state.limit));
+  if (state.q) params.set("q", state.q);
+  if (state.model) params.set("model", state.model);
+  if (state.category) params.set("category", state.category);
+  if (state.testId) params.set("test_id", state.testId);
+  return params.toString();
+}
 
-    let modelSummaryHtml = "";
-    if (currentHistoryFilterModel) {
-      let modelTotalTests = 0;
-      let modelPassTests = 0;
-      let modelTimeSum = 0;
-      let modelTpsSum = 0;
-      let modelTpsCount = 0;
-
-      for (const run of runs) {
-        for (const res of run.results || []) {
-          if (res.model === currentHistoryFilterModel) {
-            modelTotalTests++;
-            if (res.passed === true) modelPassTests++;
-            modelTimeSum += res.response_time_ms || 0;
-            if (res.tokens_per_sec > 0) {
-              modelTpsSum += res.tokens_per_sec;
-              modelTpsCount++;
-            }
-          }
-        }
-      }
-
-      const avgMs = modelTotalTests > 0 ? Math.round(modelTimeSum / modelTotalTests) : 0;
-      const avgTps = modelTpsCount > 0 ? (modelTpsSum / modelTpsCount).toFixed(1) : null;
-      const avgTpsColor = avgTps ? (typeof getToksRecordColor === "function" ? getToksRecordColor(Number(avgTps)) : "") : "";
-      const passPct = modelTotalTests > 0 ? Math.round((modelPassTests / modelTotalTests) * 100) : 0;
-      const passClass = passPct === 100 ? "pill-good" : (passPct > 0 ? "pill-warn" : "pill-bad");
-
-      modelSummaryHtml = `
-        <div class="battery-history-model-summary">
-          <div class="battery-history-model-summary-left">
-            <h3>🤖 ${escapeHtml(currentHistoryFilterModel)}</h3>
-            <p>${escapeHtml(t("battery.model_stats_title"))}</p>
-          </div>
-          <div class="battery-history-model-summary-stats">
-            <div class="battery-history-model-stat-item">
-              <span class="battery-history-model-stat-val pill ${passClass}" style="font-size:16px;">${modelPassTests} / ${modelTotalTests} (${passPct}%)</span>
-              <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.model_overall_pass"))}</span>
-            </div>
-            <div class="battery-history-model-stat-item">
-              <span class="battery-history-model-stat-val mono">⏱️ ${fmtDuration(avgMs)}</span>
-              <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.response_time"))}</span>
-            </div>
-            ${avgTps ? `
-              <div class="battery-history-model-stat-item">
-                <span class="battery-history-model-stat-val mono" style="color:${avgTpsColor}">⚡ ${avgTps} tok/s</span>
-                <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.avg_tok_sec"))}</span>
-              </div>
-            ` : ""}
-          </div>
-        </div>
-      `;
-    }
-
-    if (runs.length === 0) {
-      const emptyAction = currentHistoryFilterTestId
-        ? `<div style="margin-top:12px;"><button type="button" class="primary" id="battery-empty-open-lb">🏆 ${t("tests.leaderboard_title")}</button></div>`
-        : "";
-      body.innerHTML = bannerHtml + modelSummaryHtml + `
-        <div class="battery-empty">
-          <div>${t("battery.no_history")}</div>
-          ${emptyAction}
-        </div>`;
-      setupHistoryClearFilterListener();
-      return;
-    }
-
-    // Trend chart: pass rate of recent runs, oldest → newest.
-    let trendHtml = "";
-    {
-      const trendRuns = [...runs].reverse().slice(-15);
-      const rows = trendRuns.map((run) => {
-        const pass = run.pass_count || 0;
-        const total = run.total_count || 0;
-        if (!total) return null;
-        const pct = (pass / total) * 100;
-        const date = String(run.timestamp || "").slice(5, 16).replace("T", " ");
-        const label = `${date} · ${run.group_name || ""}`;
-        const title = `${run.id} — ${pass}/${total} — ${(run.models || []).join(", ")}`;
-        return batteryBarRow(label, title, pct, `${pct.toFixed(0)}%`, "");
-      }).filter(Boolean);
-      if (rows.length > 1) {
-        trendHtml = `<section class="battery-chart-section">
-          <h4>📈 ${escapeHtml(t("battery.charts_trend"))}</h4>
-          ${rows.join("")}
-        </section>`;
-      }
-    }
-
-    body.innerHTML = bannerHtml + modelSummaryHtml + trendHtml + `
-      <div class="battery-history-list">
-        ${runs.map((run) => {
-          const date = fmtDateTimeFull(run.timestamp);
-          const modelsBadges = (run.models || []).map((m) => {
-            const isTarget = m === currentHistoryFilterModel;
-            return `<span class="pill ${isTarget ? "pill-good" : ""}">${escapeHtml(m)}</span>`;
-          }).join("");
-          const passCount = run.pass_count || 0;
-          const totalCount = run.total_count || 0;
-          const passClass = passCount === totalCount && totalCount > 0 ? "pill-good" : (passCount > 0 ? "pill-warn" : "pill-bad");
-
-          let scoreBadgeHtml = `<span class="pill ${passClass}">${passCount} / ${totalCount} OK</span>`;
-          if (currentHistoryFilterModel) {
-            const modelResults = (run.results || []).filter((r) => r.model === currentHistoryFilterModel);
-            const mPass = modelResults.filter((r) => r.passed === true).length;
-            const mTotal = modelResults.length;
-            const mTpsList = modelResults.filter((r) => r.tokens_per_sec > 0).map((r) => r.tokens_per_sec);
-            const mAvgTps = mTpsList.length > 0 ? (mTpsList.reduce((a, b) => a + b, 0) / mTpsList.length).toFixed(1) : null;
-            scoreBadgeHtml = `<span class="pill ${mPass === mTotal && mTotal > 0 ? "pill-good" : (mPass > 0 ? "pill-warn" : "pill-bad")}">${mPass} / ${mTotal} OK ${mAvgTps ? `· ⚡ ${mAvgTps} tok/s` : ""}</span>`;
-          }
-
-          return `
-            <div class="battery-history-card" data-run-id="${escapeHtml(run.id)}">
-              <div class="battery-history-card-left">
-                <div class="battery-history-card-title-row">
-                  <span class="battery-history-group-name">${escapeHtml(run.group_name || t("battery.all_tests"))}</span>
-                  ${scoreBadgeHtml}
-                </div>
-                <div class="battery-history-meta-row">
-                  <span class="battery-history-date muted mono">${escapeHtml(date)}</span>
-                  <div class="battery-history-models-wrap">${modelsBadges}</div>
-                </div>
-              </div>
-              <div class="battery-history-card-actions">
-                <button type="button" class="primary battery-history-view-btn" data-run-id="${escapeHtml(run.id)}">${t("battery.results")}</button>
-                <button type="button" class="ghost danger-text battery-history-delete" data-run-id="${escapeHtml(run.id)}" title="${t("action.delete")}">🗑️</button>
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
-
-    setupHistoryClearFilterListener();
-
-    body.querySelectorAll(".battery-history-view-btn").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.runId;
-        history.pushState(null, "", "/tests/battery/results/" + id);
-        showBatteryResultsView(id);
-      });
-    });
-
-    body.querySelectorAll(".battery-history-card").forEach((card) => {
-      card.addEventListener("click", (e) => {
-        if (e.target.closest("button")) return;
-        const id = card.dataset.runId;
-        history.pushState(null, "", "/tests/battery/results/" + id);
-        showBatteryResultsView(id);
-      });
-    });
-
-    body.querySelectorAll(".battery-history-delete").forEach((btn) => {
-      btn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.runId;
-        const ok = await askConfirm({
-          title: t("action.delete"),
-          text: t("tests.delete_text"),
-          okText: t("action.delete"),
-          okClass: "danger",
-        });
-        if (!ok.ok) return;
-        try {
-          await api("/api/runner/runs/" + encodeURIComponent(id), { method: "DELETE" });
-          await renderBatteryHistory();
-        } catch (err) {
-          toast(t("toast.error", { msg: err.message }), "error");
-        }
-      });
-    });
-  } catch (err) {
-    body.innerHTML = `<div class="muted">${escapeHtml(err.message)}</div>`;
+function batteryHistorySyncUrl() {
+  const state = batteryHistoryState;
+  let path = "/tests/battery/history";
+  if (state.testId) path = "/tests/history/" + encodeURIComponent(state.testId);
+  const qs = [];
+  if (state.model) qs.push("model=" + encodeURIComponent(state.model));
+  if (state.category) qs.push("category=" + encodeURIComponent(state.category));
+  if (qs.length) path += (path.includes("?") ? "&" : "?") + qs.join("&");
+  if (window.location.pathname + window.location.search !== path) {
+    history.pushState(null, "", path);
   }
 }
 
-function setupHistoryClearFilterListener() {
-  const clearBtn = $("battery-history-clear-filter");
-  if (clearBtn) {
+function populateBatteryHistoryFilters() {
+  const state = batteryHistoryState;
+
+  const modelSel = $("battery-history-model-select");
+  if (modelSel) {
+    const names = new Set();
+    for (const m of (Array.isArray(models) ? models : [])) {
+      if (!m.archived) names.add(m.name);
+    }
+    for (const g of (typeof ghostModels !== "undefined" && Array.isArray(ghostModels) ? ghostModels : [])) {
+      if (g && g.name) names.add(g.name);
+    }
+    if (state.model) names.add(state.model);
+    let opts = `<option value="">${escapeHtml(t("tests.all_models"))}</option>`;
+    for (const n of [...names].sort((a, b) => a.localeCompare(b))) {
+      opts += `<option value="${escapeHtml(n)}"${n === state.model ? " selected" : ""}>${escapeHtml(n)}</option>`;
+    }
+    modelSel.innerHTML = opts;
+  }
+
+  const catSel = $("battery-history-category-select");
+  if (catSel) {
+    const groups = Array.isArray(testsGroups) ? testsGroups : [];
+    let opts = `<option value="">${escapeHtml(t("battery.all_categories"))}</option>`;
+    for (const g of groups) {
+      opts += `<option value="${escapeHtml(g.id)}"${g.id === state.category ? " selected" : ""}>${escapeHtml(g.name || g.id)}</option>`;
+    }
+    catSel.innerHTML = opts;
+  }
+
+  const search = $("battery-history-search");
+  if (search && search.value !== state.q) search.value = state.q;
+
+  const clearBtn = $("battery-history-clear-filters");
+  if (clearBtn) clearBtn.hidden = !(state.q || state.model || state.category || state.testId);
+}
+
+function batteryHistoryRefresh() {
+  if (!batteryHistoryState) batteryHistoryResetState();
+  batteryHistoryResetPage();
+  void renderBatteryHistory();
+}
+
+function wireBatteryHistoryFilters() {
+  const search = $("battery-history-search");
+  if (search && !search.dataset.wired) {
+    search.dataset.wired = "1";
+    let timer = null;
+    search.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!batteryHistoryState) batteryHistoryResetState();
+        batteryHistoryState.q = search.value.trim();
+        batteryHistoryRefresh();
+      }, 250);
+    });
+  }
+  const modelSel = $("battery-history-model-select");
+  if (modelSel && !modelSel.dataset.wired) {
+    modelSel.dataset.wired = "1";
+    modelSel.addEventListener("change", () => {
+      if (!batteryHistoryState) batteryHistoryResetState();
+      batteryHistoryState.model = modelSel.value || "";
+      currentHistoryFilterModel = batteryHistoryState.model || null;
+      batteryHistorySyncUrl();
+      batteryHistoryRefresh();
+    });
+  }
+  const catSel = $("battery-history-category-select");
+  if (catSel && !catSel.dataset.wired) {
+    catSel.dataset.wired = "1";
+    catSel.addEventListener("change", () => {
+      if (!batteryHistoryState) batteryHistoryResetState();
+      batteryHistoryState.category = catSel.value || "";
+      currentHistoryFilterCategory = batteryHistoryState.category || null;
+      batteryHistorySyncUrl();
+      batteryHistoryRefresh();
+    });
+  }
+  const clearBtn = $("battery-history-clear-filters");
+  if (clearBtn && !clearBtn.dataset.wired) {
+    clearBtn.dataset.wired = "1";
     clearBtn.addEventListener("click", () => {
       currentHistoryFilterTestId = null;
       currentHistoryFilterModel = null;
-      const modelSel = $("battery-history-model-select");
-      if (modelSel) modelSel.value = "";
-      history.pushState(null, "", "/tests/battery/history");
+      currentHistoryFilterCategory = null;
+      batteryHistoryResetState();
+      batteryHistorySyncUrl();
       void renderBatteryHistory();
-    });
-  }
-  const lbBtn = $("battery-history-open-leaderboard");
-  if (lbBtn && currentHistoryFilterTestId) {
-    lbBtn.addEventListener("click", () => {
-      openTestHistoryModal(currentHistoryFilterTestId);
-    });
-  }
-  const emptyLbBtn = $("battery-empty-open-lb");
-  if (emptyLbBtn && currentHistoryFilterTestId) {
-    emptyLbBtn.addEventListener("click", () => {
-      openTestHistoryModal(currentHistoryFilterTestId);
     });
   }
 }
 
+async function renderBatteryHistory() {
+  const body = $("battery-history-body");
+  if (!body) return;
+  if (!batteryHistoryState) batteryHistoryResetState();
+  const state = batteryHistoryState;
+
+  // Deep-linked view: make sure category/model dropdowns have data.
+  if ((!Array.isArray(testsGroups) || testsGroups.length === 0 || !Array.isArray(tests) || tests.length === 0) && typeof refreshTests === "function") {
+    try { await refreshTests(); } catch (_) {}
+  }
+  if ((typeof models === "undefined" || !Array.isArray(models) || models.length === 0) && typeof refreshModels === "function") {
+    try { await refreshModels(); } catch (_) {}
+  }
+
+  populateBatteryHistoryFilters();
+  wireBatteryHistoryFilters();
+  wireBatteryHistoryBody();
+
+  body.innerHTML = `<div class="muted" style="padding:24px 0;">${t("status.loading")}</div>`;
+  try {
+    const data = await api("/api/runner/runs?" + batteryHistoryQuery(state, 0));
+    state.runs = data.runs || [];
+    state.total = typeof data.total === "number" ? data.total : state.runs.length;
+    state.offset = state.runs.length;
+    state.hasMore = !!data.has_more;
+    state.summary = data.model_summary || null;
+    renderBatteryHistoryBody();
+  } catch (err) {
+    body.innerHTML = `<div class="muted" style="padding:24px 0;">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function loadMoreBatteryHistory() {
+  const state = batteryHistoryState;
+  if (!state || state.loading || !state.hasMore) return;
+  state.loading = true;
+  const btn = $("battery-history-load-more");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = t("status.loading");
+  }
+  try {
+    const data = await api("/api/runner/runs?" + batteryHistoryQuery(state, state.offset));
+    const more = data.runs || [];
+    state.runs = state.runs.concat(more);
+    state.offset += more.length;
+    state.hasMore = !!data.has_more;
+    state.total = typeof data.total === "number" ? data.total : state.total;
+    renderBatteryHistoryBody();
+  } catch (err) {
+    toast(t("toast.error", { msg: err.message }), "error");
+  } finally {
+    state.loading = false;
+  }
+}
+
+function batteryHistoryTrendHtml(runs) {
+  const recent = runs.slice(0, 15).reverse();
+  const rows = recent.map((run) => {
+    const pass = run.pass_count || 0;
+    const total = run.total_count || 0;
+    if (!total) return null;
+    const pct = (pass / total) * 100;
+    const date = String(run.timestamp || "").slice(5, 16).replace("T", " ");
+    const label = `${date} · ${run.group_name || ""}`;
+    const title = `${run.id} — ${pass}/${total} — ${(run.models || []).join(", ")}`;
+    return batteryBarRow(label, title, pct, `${pct.toFixed(0)}%`, "");
+  }).filter(Boolean);
+  if (rows.length < 2) return "";
+  return `<section class="battery-chart-section">
+    <h4>📈 ${escapeHtml(t("battery.charts_trend"))}</h4>
+    ${rows.join("")}
+  </section>`;
+}
+
+function batteryHistorySummaryHtml() {
+  const s = batteryHistoryState?.summary;
+  if (!s || !batteryHistoryState.model) return "";
+  const total = s.total || 0;
+  const pass = s.pass || 0;
+  const pct = total > 0 ? Math.round((pass / total) * 100) : 0;
+  const passClass = pct === 100 ? "pill-good" : (pct > 0 ? "pill-warn" : "pill-bad");
+  const avgMs = s.avg_ms || 0;
+  const avgTps = s.avg_tps || 0;
+  const avgTpsColor = avgTps > 0 && typeof getToksRecordColor === "function" ? getToksRecordColor(avgTps) : "";
+  return `
+    <div class="battery-history-model-summary">
+      <div class="battery-history-model-summary-left">
+        <h3>🤖 ${escapeHtml(batteryHistoryState.model)}</h3>
+        <p>${escapeHtml(t("battery.model_stats_title"))}</p>
+      </div>
+      <div class="battery-history-model-summary-stats">
+        <div class="battery-history-model-stat-item">
+          <span class="battery-history-model-stat-val pill ${passClass}" style="font-size:16px;">${pass} / ${total} (${pct}%)</span>
+          <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.model_overall_pass"))}</span>
+        </div>
+        <div class="battery-history-model-stat-item">
+          <span class="battery-history-model-stat-val mono">⏱️ ${fmtDuration(avgMs)}</span>
+          <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.response_time"))}</span>
+        </div>
+        ${avgTps > 0 ? `
+          <div class="battery-history-model-stat-item">
+            <span class="battery-history-model-stat-val mono" style="color:${avgTpsColor}">⚡ ${avgTps.toFixed(1)} tok/s</span>
+            <span class="battery-history-model-stat-lbl">${escapeHtml(t("battery.avg_tok_sec"))}</span>
+          </div>
+        ` : ""}
+      </div>
+    </div>`;
+}
+
+function batteryHistoryBannerHtml() {
+  const state = batteryHistoryState;
+  if (!state.testId) return "";
+  const test = (Array.isArray(tests) ? tests : []).find((x) => x.id === state.testId);
+  const testName = test?.name || state.testId;
+  return `
+    <div class="battery-history-filter-banner">
+      <span>${escapeHtml(t("battery.history_for", { name: testName }))}</span>
+      <button type="button" class="primary battery-mini-btn" id="battery-history-open-leaderboard" style="margin-left:auto;margin-right:8px;">🏆 ${escapeHtml(t("tests.leaderboard_title"))}</button>
+    </div>`;
+}
+
+function batteryHistoryCardHtml(run) {
+  const state = batteryHistoryState;
+  const date = fmtDateTimeFull(run.timestamp);
+  const modelsBadges = (run.models || []).map((m) =>
+    `<span class="pill${m === state.model ? " pill-good" : ""}">${escapeHtml(m)}</span>`
+  ).join("");
+
+  let scoreHtml;
+  if (state.model) {
+    const st = (run.model_stats || {})[state.model] || { pass: 0, total: 0 };
+    const cls = st.pass === st.total && st.total > 0 ? "pill-good" : (st.pass > 0 ? "pill-warn" : "pill-bad");
+    const tps = st.avg_tps ? ` · ⚡ ${st.avg_tps.toFixed(1)} tok/s` : "";
+    scoreHtml = `<span class="pill ${cls}">${st.pass} / ${st.total} OK${tps}</span>`;
+  } else {
+    const pass = run.pass_count || 0;
+    const total = run.total_count || 0;
+    const cls = pass === total && total > 0 ? "pill-good" : (pass > 0 ? "pill-warn" : "pill-bad");
+    scoreHtml = `<span class="pill ${cls}">${pass} / ${total} OK</span>`;
+  }
+
+  return `
+    <div class="battery-history-card" data-run-id="${escapeHtml(run.id)}">
+      <div class="battery-history-card-left">
+        <div class="battery-history-card-title-row">
+          <span class="battery-history-group-name">${escapeHtml(run.group_name || t("battery.all_tests"))}</span>
+          ${scoreHtml}
+        </div>
+        <div class="battery-history-meta-row">
+          <span class="battery-history-date muted mono">${escapeHtml(date)}</span>
+          <div class="battery-history-models-wrap">${modelsBadges}</div>
+        </div>
+      </div>
+      <div class="battery-history-card-actions">
+        <button type="button" class="primary battery-history-view-btn" data-run-id="${escapeHtml(run.id)}">${escapeHtml(t("battery.results"))}</button>
+        <button type="button" class="ghost danger-text battery-history-delete" data-run-id="${escapeHtml(run.id)}" title="${escapeHtml(t("action.delete"))}">🗑️</button>
+      </div>
+    </div>`;
+}
+
+function renderBatteryHistoryBody() {
+  const body = $("battery-history-body");
+  if (!body) return;
+  const state = batteryHistoryState;
+
+  if (state.runs.length === 0) {
+    body.innerHTML = batteryHistoryBannerHtml() + batteryHistorySummaryHtml() + `
+      <div class="battery-empty">
+        <div>${escapeHtml(t("battery.no_history"))}</div>
+      </div>`;
+    wireBatteryHistoryBody();
+    return;
+  }
+
+  const shown = state.runs.length;
+  const loadMoreHtml = state.hasMore
+    ? `<div class="battery-history-load-more-wrap">
+        <button type="button" class="ghost battery-mini-btn" id="battery-history-load-more">${escapeHtml(t("battery.load_more"))}</button>
+      </div>`
+    : "";
+
+  body.innerHTML = batteryHistoryBannerHtml()
+    + batteryHistorySummaryHtml()
+    + batteryHistoryTrendHtml(state.runs)
+    + `<div class="battery-history-count muted">${escapeHtml(t("battery.history_showing", { shown: String(shown), total: String(state.total) }))}</div>`
+    + `<div class="battery-history-list">${state.runs.map(batteryHistoryCardHtml).join("")}</div>`
+    + loadMoreHtml;
+
+  wireBatteryHistoryBody();
+}
+
+function wireBatteryHistoryBody() {
+  const body = $("battery-history-body");
+  if (!body || body.dataset.wired) return;
+  body.dataset.wired = "1";
+
+  body.addEventListener("click", async (e) => {
+    const loadMore = e.target.closest("#battery-history-load-more");
+    if (loadMore) {
+      e.stopPropagation();
+      void loadMoreBatteryHistory();
+      return;
+    }
+    const lbBtn = e.target.closest("#battery-history-open-leaderboard");
+    if (lbBtn) {
+      openTestHistoryModal(batteryHistoryState.testId);
+      return;
+    }
+    const delBtn = e.target.closest(".battery-history-delete");
+    if (delBtn) {
+      e.stopPropagation();
+      const id = delBtn.dataset.runId;
+      const ok = await askConfirm({
+        title: t("action.delete"),
+        text: t("tests.delete_text"),
+        okText: t("action.delete"),
+        okClass: "danger",
+      });
+      if (!ok.ok) return;
+      try {
+        await api("/api/runner/runs/" + encodeURIComponent(id), { method: "DELETE" });
+        batteryHistoryRefresh();
+      } catch (err) {
+        toast(t("toast.error", { msg: err.message }), "error");
+      }
+      return;
+    }
+    const viewBtn = e.target.closest(".battery-history-view-btn");
+    const card = e.target.closest(".battery-history-card");
+    if (viewBtn || card) {
+      const id = (viewBtn || card).dataset.runId;
+      if (!id) return;
+      history.pushState(null, "", "/tests/battery/results/" + id);
+      showBatteryResultsView(id);
+    }
+  });
+}

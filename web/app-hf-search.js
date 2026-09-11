@@ -122,6 +122,7 @@ function getVisibleHFCount() {
   const now = Date.now();
   const ONE_DAY = 24 * 60 * 60 * 1000;
   return hfModels.filter((m) => {
+    if (!m.gguf_count || m.gguf_count <= 0) return false;
     if (hfCurrentFilter === "ollama" && !m.has_ollama) return false;
     if (hfCurrentFilter === "vision" && !m.has_vision) return false;
 
@@ -210,6 +211,7 @@ function renderHFModelsList() {
   const ONE_DAY = 24 * 60 * 60 * 1000;
 
   const filtered = hfModels.filter((m) => {
+    if (!m.gguf_count || m.gguf_count <= 0) return false;
     if (hfCurrentFilter === "ollama" && !m.has_ollama) return false;
     if (hfCurrentFilter === "vision" && !m.has_vision) return false;
 
@@ -257,34 +259,59 @@ function canonicalHFPullName(name) {
 }
 
 function getHFModelInstallStatus(repoId) {
-  if (!repoId) return { installedCount: 0, ghostCount: 0 };
+  if (!repoId) return { installedCount: 0, ghostCount: 0, bestTps: 0, bestBench: null };
   const target = normalizeHFModelName(repoId);
+  const targetRepo = target.includes("/") ? target.split("/")[1] : target;
 
-  const installedMatches = (models || []).filter((m) => {
-    const norm = normalizeHFModelName(m.name || "");
-    return norm === target || norm.startsWith(target + ":") || norm.includes(target);
-  });
+  const matches = (m) => {
+    const norm = normalizeHFModelName(m?.name || "");
+    if (norm === target || norm.startsWith(target + ":") || norm.includes(target)) return true;
+    const normRepo = norm.includes("/") ? norm.split("/")[1] : norm;
+    const normBase = normRepo.split(":")[0];
+    if (targetRepo && (normBase === targetRepo || normRepo.startsWith(targetRepo + ":"))) return true;
+    return false;
+  };
 
+  const installedMatches = (models || []).filter(matches);
   const installedNames = new Set(installedMatches.map((m) => normalizeHFModelName(m.name)));
 
   const ghostMatches = (ghostModels || []).filter((g) => {
     const norm = normalizeHFModelName(g.name || "");
-    return (norm === target || norm.startsWith(target + ":") || norm.includes(target)) && !installedNames.has(norm);
+    return matches(g) && !installedNames.has(norm);
   });
+
+  let bestTps = 0;
+  let bestBench = null;
+
+  for (const m of [...installedMatches, ...ghostMatches]) {
+    const tps = Number(m.record_tokens_per_sec) || 0;
+    if (tps > bestTps) bestTps = tps;
+    if (typeof m.bench_overall === "number" && isFinite(m.bench_overall)) {
+      if (bestBench === null || m.bench_overall > bestBench) {
+        bestBench = m.bench_overall;
+      }
+    }
+  }
 
   return {
     installedCount: installedMatches.length,
     ghostCount: ghostMatches.length,
+    bestTps,
+    bestBench,
   };
 }
 
 function getHFQuantInstallStatus(pullName) {
   if (!pullName) return { isInstalled: false, wasInstalled: false, record: null };
   const target = normalizeHFModelName(pullName);
+  const targetRepo = target.includes("/") ? target.split("/")[1] : target;
 
   const matches = (entry) => {
     const norm = normalizeHFModelName(entry?.name || "");
-    return norm === target || norm.startsWith(target + ":");
+    if (norm === target || norm.startsWith(target + ":")) return true;
+    const normRepo = norm.includes("/") ? norm.split("/")[1] : norm;
+    if (targetRepo && (normRepo === targetRepo || normRepo.startsWith(targetRepo + ":"))) return true;
+    return false;
   };
 
   const installed = (models || []).find(matches) || null;
@@ -297,19 +324,38 @@ function getHFQuantInstallStatus(pullName) {
   };
 }
 
+function getHFToksColor(tps) {
+  if (!tps || tps <= 0) return "";
+  const rel = Math.max(0, Math.min(1, (tps - 10) / 70));
+  const hue = Math.round(rel * 125);
+  return `hsl(${hue}, 85%, 62%)`;
+}
+
+function getHFBenchHeatStyle(score) {
+  if (score == null || !isFinite(score)) return "";
+  if (typeof batteryLbHeatStyle === "function") {
+    return batteryLbHeatStyle(score, { min: 0, max: 100 }, true);
+  }
+  const rel = Math.max(0, Math.min(1, score / 100));
+  const hue = Math.round(rel * 120);
+  const bgPct = (18 + rel * 38).toFixed(0);
+  const textL = (58 + rel * 18).toFixed(0);
+  return `background: color-mix(in srgb, hsl(${hue}, 75%, 42%) ${bgPct}%, transparent); color: hsl(${hue}, 88%, ${textL}%); font-weight: ${rel >= 0.95 ? "700" : "600"};`;
+}
+
 /**
  * Builds the "Your Record" cell for a quant: best tokens/s ever measured plus
- * the accumulated tokens and calls. Data comes from the persistent usage store
- * and survives uninstalling the model, so ghost entries keep their history.
+ * the accumulated tokens and calls, and overall benchmark score if evaluated.
  */
 function hfQuantUsageHTML(rec) {
   const tps = Number(rec?.record_tokens_per_sec) || 0;
   const totalTokens = Number(rec?.total_tokens) || 0;
   const totalCalls = Number(rec?.total_calls) || 0;
   const coldLoadMs = Number(rec?.min_cold_load_ms) || 0;
+  const benchScore = (typeof rec?.bench_overall === "number" && isFinite(rec.bench_overall)) ? rec.bench_overall : null;
   const reasonHTML = hfUninstallReasonHTML(rec);
 
-  if (tps <= 0 && totalTokens <= 0 && totalCalls <= 0) {
+  if (tps <= 0 && totalTokens <= 0 && totalCalls <= 0 && benchScore === null) {
     // A quant you removed before it ever ran has no numbers, but the reason you
     // gave when uninstalling it explains exactly why.
     if (reasonHTML) return `<div class="hf-usage-cell">${reasonHTML}</div>`;
@@ -320,6 +366,9 @@ function hfQuantUsageHTML(rec) {
   if (rec?.record_tokens_per_sec_at) {
     tooltipParts.push(t("detail.record_at", { date: fmtDateTimeFull(rec.record_tokens_per_sec_at) }));
   }
+  if (benchScore !== null) {
+    tooltipParts.push(`${t("hf.bench_overall_label")}: ${benchScore.toFixed(1)}`);
+  }
   if (coldLoadMs > 0) {
     tooltipParts.push(`${t("detail.min_cold_load")}: ${fmtColdLoad(coldLoadMs)}`);
   }
@@ -329,11 +378,17 @@ function hfQuantUsageHTML(rec) {
 
   let tpsHTML;
   if (tps > 0) {
-    const color = (typeof getToksRecordColor === "function") ? getToksRecordColor(tps) : "";
+    const color = getHFToksColor(tps);
     const colorStyle = color ? ` style="color: ${color};"` : "";
     tpsHTML = `<span class="hf-usage-tps"${colorStyle}>${tps.toFixed(1)}</span> <span class="hf-usage-unit">tok/s</span>`;
   } else {
     tpsHTML = `<span class="hf-usage-tps hf-usage-tps-none">—</span> <span class="hf-usage-unit">tok/s</span>`;
+  }
+
+  let benchHTML = "";
+  if (benchScore !== null) {
+    const heatStyle = getHFBenchHeatStyle(benchScore);
+    benchHTML = `<span class="hf-usage-bench" style="${heatStyle}" title="${escapeHtml(t("hf.bench_overall_label"))}: ${benchScore.toFixed(1)}">🎯 ${benchScore.toFixed(1)}</span>`;
   }
 
   const subParts = [];
@@ -346,7 +401,10 @@ function hfQuantUsageHTML(rec) {
 
   return `
     <div class="hf-usage-cell" title="${escapeHtml(tooltipParts.join(" · "))}">
-      <div class="hf-usage-main">⚡ ${tpsHTML}</div>
+      <div class="hf-usage-main">
+        <span class="hf-usage-tps-wrap">⚡ ${tpsHTML}</span>
+        ${benchHTML ? `<span class="hf-usage-bench-wrap">${benchHTML}</span>` : ""}
+      </div>
       ${subParts.length ? `<div class="hf-usage-sub">${subParts.join(" · ")}</div>` : ""}
       ${reasonHTML}
     </div>
@@ -410,25 +468,34 @@ function hfModelCardHTML(m) {
 
   const installStatus = getHFModelInstallStatus(m.id);
   const dlStatus = getHFModelDownloadStatus(m.id);
-  let statusBadge = "";
-  let cardClass = "hf-card";
+  let statusEmoji = "";
+  let statusTooltip = "";
+  let cardClass = "hf-model-row hf-card";
 
   if (installStatus.installedCount > 0) {
     cardClass += " hf-card-installed";
-    statusBadge = `<span class="badge badge-success" title="${escapeHtml(t("hf.card_installed_tooltip", { count: installStatus.installedCount }))}">💾 ${escapeHtml(t("hf.card_installed"))}</span>`;
+    statusEmoji = "💾";
+    statusTooltip = t("hf.status_installed_tip", { count: installStatus.installedCount });
   } else if (dlStatus.isDownloading) {
     cardClass += " hf-card-downloading";
-    statusBadge = `<span class="badge hf-badge-downloading" title="${escapeHtml(t("hf.downloading_badge"))}">⏳ ${escapeHtml(t("hf.downloading_badge"))}</span>`;
+    statusEmoji = "⏳";
+    statusTooltip = t("hf.downloading_badge");
   } else if (dlStatus.isQueued) {
     cardClass += " hf-card-downloading";
-    statusBadge = `<span class="badge hf-badge-downloading" title="${escapeHtml(t("hf.queued_badge"))}">⏳ ${escapeHtml(t("hf.queued_badge"))}</span>`;
+    statusEmoji = "⏳";
+    statusTooltip = t("hf.queued_badge");
   } else if (installStatus.ghostCount > 0) {
     cardClass += " hf-card-had";
-    statusBadge = `<span class="badge hf-badge-history" title="${escapeHtml(t("hf.card_had_tooltip", { count: installStatus.ghostCount }))}">🕒 ${escapeHtml(t("hf.card_had"))}</span>`;
+    statusEmoji = "🕒";
+    statusTooltip = t("hf.status_had_tip", { count: installStatus.ghostCount });
+  }
+
+  let statusTagHTML = "";
+  if (statusEmoji) {
+    statusTagHTML = `<span class="hf-status-tag" title="${escapeHtml(statusTooltip)}">${statusEmoji}</span>`;
   }
 
   let tagsHTML = "";
-  if (statusBadge) tagsHTML += statusBadge + " ";
   const qCountText = m.gguf_count > 0 ? t("hf.quants_tag", { n: m.gguf_count }) : t("hf.tag_gguf");
   tagsHTML += `<span class="badge badge-subtle">${escapeHtml(qCountText)}</span>`;
   if (m.has_ollama) {
@@ -438,14 +505,44 @@ function hfModelCardHTML(m) {
     tagsHTML += ` <span class="badge badge-vision">${t("hf.tag_vision")}</span>`;
   }
 
+  // Personal performance record chip (if user previously had or currently has this model)
+  let perfRecordHTML = "";
+  if (installStatus.bestTps > 0 || installStatus.bestBench != null) {
+    const perfParts = [];
+    if (installStatus.bestTps > 0) {
+      const color = getHFToksColor(installStatus.bestTps);
+      const colorStyle = color ? ` style="color: ${color};"` : "";
+      perfParts.push(`<span class="hf-row-perf-tps"${colorStyle} title="${escapeHtml(t("models.col_toks"))}">⚡ ${installStatus.bestTps.toFixed(1)} <span class="hf-row-perf-unit">tok/s</span></span>`);
+    }
+    if (installStatus.bestBench != null) {
+      const heatStyle = getHFBenchHeatStyle(installStatus.bestBench);
+      perfParts.push(`<span class="hf-row-perf-bench" style="${heatStyle}" title="${escapeHtml(t("hf.bench_overall_label"))}">🎯 ${installStatus.bestBench.toFixed(1)}</span>`);
+    }
+    perfRecordHTML = `<div class="hf-row-perf">${perfParts.join(" ")}</div>`;
+  }
+
   const hfUrl = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
 
   return `
     <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="${escapeHtml(m.id)}">
-      <div class="hf-card-head">
-        <div class="hf-card-title-wrap">
-          <span class="hf-card-author">${author} /</span>
-          <h4 class="hf-card-title">${name}</h4>
+      <div class="hf-row-main">
+        <div class="hf-row-primary">
+          ${statusTagHTML}
+          <div class="hf-row-title-wrap">
+            <span class="hf-row-author">${author} /</span>
+            <span class="hf-row-name">${name}</span>
+          </div>
+        </div>
+        <div class="hf-row-secondary">
+          <div class="hf-row-tags">${tagsHTML}</div>
+          ${perfRecordHTML}
+        </div>
+      </div>
+      <div class="hf-row-meta">
+        <div class="hf-row-stats">
+          <span class="hf-stat" title="${dlCount} downloads">⬇️ ${dlCount}</span>
+          <span class="hf-stat" title="${likesCount} likes">❤️ ${likesCount}</span>
+          ${updatedTime ? `<span class="hf-stat hf-stat-time muted">${escapeHtml(updatedTime)}</span>` : ""}
         </div>
         <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -454,14 +551,6 @@ function hfModelCardHTML(m) {
             <line x1="10" y1="14" x2="21" y2="3"></line>
           </svg>
         </a>
-      </div>
-      <div class="hf-card-tags">
-        ${tagsHTML}
-      </div>
-      <div class="hf-card-stats">
-        <span class="hf-stat" title="${dlCount} downloads">⬇️ ${dlCount}</span>
-        <span class="hf-stat" title="${likesCount} likes">❤️ ${likesCount}</span>
-        ${updatedTime ? `<span class="hf-stat muted">${escapeHtml(t("hf.updated", { time: updatedTime }))}</span>` : ""}
       </div>
     </div>
   `;
@@ -604,7 +693,7 @@ function renderHFQuantsTable(m) {
     renderHFQuantsSummary([]);
     tbody.innerHTML = `
       <tr>
-        <td colspan="6" class="muted text-center" style="padding: 36px 20px;">
+        <td colspan="5" class="muted text-center" style="padding: 36px 20px;">
           <div style="font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text);">⚠️ ${escapeHtml(t("hf.no_gguf_files"))}</div>
           <div class="small muted" style="max-width: 480px; margin: 0 auto; line-height: 1.5;">${escapeHtml(t("hf.no_gguf_files_desc"))}</div>
         </td>
@@ -722,11 +811,11 @@ function renderHFQuantsTable(m) {
 
     return `
       <tr class="${rowClasses.join(" ")}">
-        <td class="hf-cell-quant">
-          <div class="hf-quant-name mono">${escapeHtml(f.quant)}</div>
-          ${quantBadges ? `<div class="hf-quant-badges">${quantBadges}</div>` : ""}
-        </td>
-        <td class="hf-cell-filename">
+        <td class="hf-cell-quant-file">
+          <div class="hf-quant-header-row">
+            <span class="hf-quant-name mono">${escapeHtml(f.quant)}</span>
+            ${quantBadges ? `<span class="hf-quant-badges">${quantBadges}</span>` : ""}
+          </div>
           <div class="hf-filename-track" title="${escapeHtml(f.filename)}">
             <span class="hf-filename-text mono">${escapeHtml(f.filename)}</span>
           </div>

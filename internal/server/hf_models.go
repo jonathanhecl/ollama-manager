@@ -293,9 +293,8 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// If siblings list was provided and has 0 GGUF files, filter out this repo
-		// to guarantee only actual GGUF models appear in the explorer.
-		if len(m.Siblings) > 0 && ggufCount == 0 && !hasVisionFile {
+		// Filter out any repo that has 0 usable GGUF files so only models with quants appear
+		if ggufCount == 0 {
 			continue
 		}
 

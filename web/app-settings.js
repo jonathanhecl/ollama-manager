@@ -67,7 +67,7 @@ async function showSettingsView() {
   bindChatDefaultsEvents();
   bindHuggingFaceEvents();
   updateHFTokenBadge();
-  if ($("set-hf-token")) $("set-hf-token").value = "";
+  syncHFTokenInput();
   void loadOllamaKey();
 
   const mobileBackBtn = $("settings-mobile-back-btn");
@@ -360,6 +360,19 @@ function updateHFTokenBadge() {
 }
 window.updateHFTokenBadge = updateHFTokenBadge;
 
+// syncHFTokenInput clears the field and shows a "saved" placeholder when a
+// token is already stored, so an empty box never looks like the token was
+// erased.
+function syncHFTokenInput() {
+  const input = $("set-hf-token");
+  if (!input) return;
+  input.value = "";
+  input.placeholder = currentConfig?.has_hf_token
+    ? t("settings.hf_token_saved_placeholder")
+    : "hf_...";
+}
+window.syncHFTokenInput = syncHFTokenInput;
+
 function openHuggingFaceSettings() {
   const go = async () => {
     await showSettingsView();
@@ -424,6 +437,7 @@ function bindHuggingFaceEvents() {
         });
         if (currentConfig) currentConfig.has_hf_token = res.has_hf_token;
         if ($("set-hf-token")) $("set-hf-token").value = "";
+        syncHFTokenInput();
         updateHFTokenBadge();
         toast(t("settings.hf_token_cleared"), "success");
       } catch (e) {

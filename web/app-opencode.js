@@ -493,7 +493,11 @@ $("settings-save").addEventListener("click", async () => {
     window.I18n.setLang(res.language);
 
     if (hfToken) {
-      if ($("set-hf-token")) $("set-hf-token").value = "";
+      // Leave the typed value in the field so it doesn't look like the save
+      // erased it. Next time settings open, the field resets and shows the
+      // "(saved)" placeholder instead.
+      const hfInput = $("set-hf-token");
+      if (hfInput) hfInput.placeholder = t("settings.hf_token_saved_placeholder");
       if (typeof window.updateHFTokenBadge === "function") window.updateHFTokenBadge();
     }
 

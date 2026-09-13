@@ -12008,9 +12008,19 @@ button.chat-send:disabled:hover {
 }
 
 .hf-stat-time {
-  max-width: 140px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hf-stat-time-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 
 .hf-ext-link {
@@ -12665,8 +12675,13 @@ button.chat-send:disabled:hover {
   }
 
   .hf-row-stats {
-    gap: 8px;
+    gap: 10px;
     font-size: 11px;
+    flex-wrap: wrap;
+  }
+
+  .hf-stat-time {
+    max-width: none;
   }
 
   /* Table responsive card layout on mobile */
@@ -12844,8 +12859,14 @@ button.chat-send:disabled:hover {
 
 /* Extra small mobile (max-width: 480px) */
 @media (max-width: 480px) {
+  .hf-row-stats {
+    gap: 6px 10px;
+    font-size: 10.5px;
+    flex-wrap: wrap;
+  }
   .hf-stat-time {
-    display: none;
+    display: inline-flex;
+    max-width: 100%;
   }
   .hf-detail-card {
     padding: 12px 10px 8px;

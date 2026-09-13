@@ -78,6 +78,59 @@ function modelHomepageUrl(name, isCustom) {
 }
 window.modelHomepageUrl = modelHomepageUrl;
 
+function getHFRepoFromModel(name) {
+  if (!name) return "";
+  let clean = String(name).trim();
+  if (clean.startsWith("https://ollama.com/") || clean.startsWith("http://ollama.com/")) {
+    clean = clean.replace(/^https?:\/\/ollama\.com\/(library\/)?/, "");
+  }
+  const base = clean.split(":")[0];
+  if (/^(hf\.co|huggingface\.co)\//i.test(base)) {
+    return base.replace(/^(hf\.co|huggingface\.co)\//i, "").trim();
+  }
+  return "";
+}
+
+const _hfRepoCache = new Map();
+
+function loadHFRepoUpdatedDate(modelName, repoId) {
+  const applyData = (data) => {
+    if (activeName !== modelName) return;
+    const el = $("detail-hf-updated");
+    const textEl = $("detail-hf-updated-text");
+    if (!el || !textEl) return;
+    const raw = data?.last_modified;
+    if (raw && !String(raw).startsWith("0001")) {
+      const relTime = fmtRelativeTime(raw);
+      const fullDate = fmtDateTimeFull(raw);
+      const label = relTime && relTime !== "—" ? (t("hf.updated", { time: relTime }) || relTime) : fullDate;
+      const tip = fullDate && fullDate !== "—" ? (t("hf.updated", { time: fullDate }) || fullDate) : "";
+      el.classList.remove("muted");
+      textEl.textContent = label;
+      el.title = tip;
+    } else {
+      textEl.textContent = "—";
+    }
+  };
+
+  if (_hfRepoCache.has(repoId)) {
+    applyData(_hfRepoCache.get(repoId));
+    return;
+  }
+
+  api(`/api/hf/model?id=${encodeURIComponent(repoId)}`)
+    .then((data) => {
+      _hfRepoCache.set(repoId, data);
+      applyData(data);
+    })
+    .catch(() => {
+      if (activeName === modelName) {
+        const textEl = $("detail-hf-updated-text");
+        if (textEl) textEl.textContent = "—";
+      }
+    });
+}
+
 function isBlobOrLocalPath(s) {
   if (!s || typeof s !== "string") return false;
   const str = s.trim().toLowerCase();
@@ -132,6 +185,11 @@ function renderDetail(d) {
     : "—";
   const siteUrl = !isExternal ? modelHomepageUrl(d.name, isCustom) : "";
   const hostLabel = siteUrl ? (siteUrl.startsWith("https://huggingface.co") ? "Hugging Face" : "Ollama") : "";
+  let hfRepoId = getHFRepoFromModel(d.name);
+  if (!hfRepoId && baseModel) hfRepoId = getHFRepoFromModel(baseModel);
+  if (!hfRepoId && siteUrl && siteUrl.startsWith("https://huggingface.co/")) {
+    hfRepoId = siteUrl.replace("https://huggingface.co/", "").trim();
+  }
   const rows = [];
   if (isExternal) {
     rows.push([t("detail.external_model"), `<span class="model-external-tag">${escapeHtml(t("models.external_badge"))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(t("detail.external_desc"))}</span>`, false]);
@@ -160,6 +218,13 @@ function renderDetail(d) {
       [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
       [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false]
     );
+    if (hfRepoId) {
+      rows.push([
+        t("detail.hf_updated") || "HF Last Update",
+        `<span id="detail-hf-updated" class="detail-hf-updated muted" title="${escapeHtml(t("state.loading"))}"><span class="hf-stat-time-icon">🕒</span> <span id="detail-hf-updated-text">${escapeHtml(t("state.loading"))}</span></span>`,
+        false
+      ]);
+    }
   }
   if (siteUrl) {
     rows.push([t("detail.site"), `<a class="detail-site-link" href="${siteUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(hostLabel)}</a>`, false]);
@@ -189,6 +254,9 @@ function renderDetail(d) {
   </div>` : "";
 
   $("detail-body").innerHTML = `<div class="detail-grid">${grid}</div>${updateBlock}${extActionBlock}${capsBlock}${repairBlock}${paramsBlock}${tmplBlock}${systemBlock}`;
+  if (hfRepoId) {
+    loadHFRepoUpdatedDate(d.name, hfRepoId);
+  }
   if (!isExternal) {
     bindRepairEntry(d);
     bindUpdateButton();

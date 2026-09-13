@@ -466,7 +466,11 @@ function hfModelCardHTML(m) {
   const name = escapeHtml(m.name || m.id);
   const dlCount = Number(m.downloads || 0).toLocaleString();
   const likesCount = Number(m.likes || 0).toLocaleString();
-  const updatedTime = m.last_modified ? fmtRelativeTime(m.last_modified) : "";
+  const rawUpdated = m.last_modified && !m.last_modified.startsWith("0001") ? m.last_modified : null;
+  const updatedRelTime = rawUpdated ? fmtRelativeTime(rawUpdated) : "";
+  const updatedFullDate = rawUpdated ? fmtDateTimeFull(rawUpdated) : "";
+  const updatedLabel = updatedRelTime && updatedRelTime !== "—" ? (t("hf.updated", { time: updatedRelTime }) || updatedRelTime) : "";
+  const updatedTooltip = updatedFullDate && updatedFullDate !== "—" ? (t("hf.updated", { time: updatedFullDate }) || updatedFullDate) : "";
 
   const installStatus = getHFModelInstallStatus(m.id);
   const dlStatus = getHFModelDownloadStatus(m.id);
@@ -542,9 +546,9 @@ function hfModelCardHTML(m) {
       </div>
       <div class="hf-row-meta">
         <div class="hf-row-stats">
-          <span class="hf-stat" title="${dlCount} downloads">⬇️ ${dlCount}</span>
-          <span class="hf-stat" title="${likesCount} likes">❤️ ${likesCount}</span>
-          ${updatedTime ? `<span class="hf-stat hf-stat-time muted">${escapeHtml(updatedTime)}</span>` : ""}
+          <span class="hf-stat" title="${dlCount} ${escapeHtml(t("hf.downloads_count", { n: dlCount }) || "downloads")}">⬇️ ${dlCount}</span>
+          <span class="hf-stat" title="${likesCount} ${escapeHtml(t("hf.likes_count", { n: likesCount }) || "likes")}">❤️ ${likesCount}</span>
+          ${updatedLabel ? `<span class="hf-stat hf-stat-time muted" title="${escapeHtml(updatedTooltip)}"><span class="hf-stat-time-icon">🕒</span> <span class="hf-stat-time-text">${escapeHtml(updatedLabel)}</span></span>` : ""}
         </div>
         <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -566,6 +570,8 @@ async function openHFModelDetail(repoId) {
   hfDetailReturnFocus = document.activeElement;
 
   $("hf-detail-name").textContent = repoId;
+  const initUpdatedBadge = $("hf-detail-updated");
+  if (initUpdatedBadge) initUpdatedBadge.hidden = true;
   $("hf-detail-loading").hidden = false;
   $("hf-detail-body").hidden = true;
   modal.hidden = false;
@@ -612,6 +618,26 @@ function renderHFModelDetail(m) {
   $("hf-detail-name").textContent = m.name || m.id;
   $("hf-detail-downloads").textContent = `⬇️ ${Number(m.downloads || 0).toLocaleString()}`;
   $("hf-detail-likes").textContent = `❤️ ${Number(m.likes || 0).toLocaleString()}`;
+
+  const updatedBadge = $("hf-detail-updated");
+  if (updatedBadge) {
+    const rawUpdated = m.last_modified && !m.last_modified.startsWith("0001") ? m.last_modified : null;
+    if (rawUpdated) {
+      const relTime = fmtRelativeTime(rawUpdated);
+      const fullDate = fmtDateTimeFull(rawUpdated);
+      const label = relTime && relTime !== "—" ? (t("hf.updated", { time: relTime }) || relTime) : "";
+      if (label) {
+        updatedBadge.textContent = `🕒 ${label}`;
+        updatedBadge.title = fullDate && fullDate !== "—" ? (t("hf.updated", { time: fullDate }) || fullDate) : "";
+        updatedBadge.hidden = false;
+      } else {
+        updatedBadge.hidden = true;
+      }
+    } else {
+      updatedBadge.hidden = true;
+    }
+  }
+
   $("hf-detail-link").href = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
 
   // Vision Projector Notice

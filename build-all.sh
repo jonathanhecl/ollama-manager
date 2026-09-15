@@ -93,7 +93,16 @@ for target in "${TARGETS[@]}"; do
 
   echo "Empaquetando en ${pack_name} (binario interno: ${binary_name})..."
   if [ "$format" = "zip" ]; then
-    (cd "${temp_dir}" && zip -q -9 "${pack_path}" "${binary_name}")
+    if command -v zip >/dev/null 2>&1; then
+      (cd "${temp_dir}" && zip -q -9 "${pack_path}" "${binary_name}")
+    elif command -v python3 >/dev/null 2>&1; then
+      (cd "${temp_dir}" && python3 -m zipfile -c "${pack_path}" "${binary_name}")
+    elif command -v 7z >/dev/null 2>&1; then
+      (cd "${temp_dir}" && 7z a -tzip -bso0 -bsp0 "${pack_path}" "${binary_name}")
+    else
+      echo "Error: No se encontró herramienta para crear archivos .zip (zip, python3 o 7z)." >&2
+      exit 1
+    fi
   else
     (cd "${temp_dir}" && tar -czf "${pack_path}" "${binary_name}")
   fi

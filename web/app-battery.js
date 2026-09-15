@@ -3346,8 +3346,6 @@ function renderBatteryResults(run) {
       const test = tests.find((t) => t.id === tid);
       const testName = results[0]?.test_name || tid;
       const evalLabel = test?.evaluation_type ? `<span class="battery-matrix-eval-tag">${escapeHtml(t("tests.eval_" + test.evaluation_type) || test.evaluation_type)}</span>` : "";
-      const promptBtn = `<button type="button" class="battery-prompt-link battery-matrix-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button>`;
-
       let modelCells = "";
       for (const m of run.models) {
         const r = results.find((x) => x.model === m);
@@ -3398,7 +3396,7 @@ function renderBatteryResults(run) {
         <tr>
           <td class="cell-matrix-test-info">
             <div class="matrix-test-title"><strong>${escapeHtml(testName)}</strong></div>
-            <div class="matrix-test-meta">${evalLabel} ${promptBtn}</div>
+            <div class="matrix-test-meta">${evalLabel}</div>
           </td>
           ${modelCells}
         </tr>
@@ -3617,7 +3615,6 @@ function renderBatteryResults(run) {
         const humanReviewLabel = isHumanReview
           ? `<span class="battery-human-review-label">${t("battery.human_review")}</span>`
           : "";
-        const promptBtn = `<button type="button" class="battery-prompt-link" data-test-id="${escapeHtml(tid)}">${t("battery.prompt")}</button>`;
 
         let resultCell = "";
         if (isHumanReview) {
@@ -3726,7 +3723,6 @@ function renderBatteryResults(run) {
                 <span class="battery-detail-test-name">${escapeHtml(testName)}</span>
                 ${evalLabel}
                 ${humanReviewLabel}
-                ${promptBtn}
               </div>
               <div class="battery-detail-result">
                 ${resultCell}
@@ -3902,15 +3898,7 @@ function renderBatteryResults(run) {
     });
   });
 
-  body.querySelectorAll(".battery-prompt-link").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const testId = btn.dataset.testId;
-      const firstResult = run.results.find((r) => r.test_id === testId);
-      if (firstResult) {
-        openHumanReviewModal(run, testId, firstResult.model);
-      }
-    });
-  });
+
 }
 
 async function submitTestResult(run, testId, model, passed) {

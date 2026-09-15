@@ -184,8 +184,8 @@ if [ ! -f "$BUILD_SCRIPT" ]; then
   exit 1
 fi
 
-chmod +x "$BUILD_SCRIPT"
-"$BUILD_SCRIPT" "$VERSION"
+chmod +x "$BUILD_SCRIPT" 2>/dev/null || true
+bash "$BUILD_SCRIPT" "$VERSION"
 
 DIST_DIR="${SCRIPT_DIR}/dist"
 ASSETS=("${DIST_DIR}"/*)

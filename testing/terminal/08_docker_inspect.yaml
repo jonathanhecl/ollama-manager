@@ -31,6 +31,8 @@ cases:
           CONTAINER ID   IMAGE          COMMAND                  CREATED         STATUS                        PORTS     NAMES
           c891af23e412   backend:v2.1   "gunicorn app:app"       2 hours ago     Exited (137) 5 minutes ago              api_service
           [exit_code: 0]
+
+          Based on the exit status above, conclude the diagnosis or run the next inspection command.
         evaluation:
           type: regex
-          pattern: '(?i)FINAL:.*(137|oom|memory|out of memory)'
+          pattern: '(?i)(FINAL:.*(137|oom|memory|out of memory)|docker\s+(logs|inspect)\s+.*c891af23e412)'

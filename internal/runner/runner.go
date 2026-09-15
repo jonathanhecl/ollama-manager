@@ -38,6 +38,7 @@ type SubResult struct {
 	Prompt         string             `json:"prompt,omitempty"`
 	SystemPrompt   string             `json:"system_prompt,omitempty"`
 	Options        *tests.TestOptions `json:"options,omitempty"`
+	Evaluation     *tests.Evaluation  `json:"evaluation,omitempty"`
 	Passed         *bool              `json:"passed,omitempty"`
 	ResponseTimeMs int64              `json:"response_time_ms"`
 	TokensPerSec   float64            `json:"tokens_per_sec,omitempty"`
@@ -1070,6 +1071,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						Prompt:       step.Prompt,
 						SystemPrompt: effStepSys[i],
 						Options:      effStepOpts[i],
+						Evaluation:   step.Evaluation,
 						Passed:       &falseVal,
 						Error:        "manually skipped",
 					})
@@ -1133,11 +1135,12 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					allPassed = false
 					anySkippedOrLoop = true
 					res.SubResults = append(res.SubResults, SubResult{
-						Index:  i + 1,
-						Name:   stepLabel,
-						Prompt: step.Prompt,
-						Passed: &falseVal,
-						Error:  "manually skipped",
+						Index:      i + 1,
+						Name:       stepLabel,
+						Prompt:     step.Prompt,
+						Evaluation: step.Evaluation,
+						Passed:     &falseVal,
+						Error:      "manually skipped",
 					})
 					responsesSummary = append(responsesSummary, fmt.Sprintf("[SKIP] %s: (Error: manually skipped)", stepLabel))
 					stepFailed = true
@@ -1162,6 +1165,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 							Prompt:         step.Prompt,
 							SystemPrompt:   effStepSys[i],
 							Options:        effStepOpts[i],
+							Evaluation:     step.Evaluation,
 							Passed:         &falseVal,
 							ResponseTimeMs: turn.ResponseTimeMs,
 							TokensPerSec:   turn.TokensPerSec,
@@ -1188,6 +1192,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						Prompt:         step.Prompt,
 						SystemPrompt:   effStepSys[i],
 						Options:        effStepOpts[i],
+						Evaluation:     step.Evaluation,
 						Passed:         &falseVal,
 						ResponseTimeMs: turn.ResponseTimeMs,
 						TokensPerSec:   turn.TokensPerSec,
@@ -1233,6 +1238,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					Prompt:         step.Prompt,
 					SystemPrompt:   effStepSys[i],
 					Options:        effStepOpts[i],
+					Evaluation:     step.Evaluation,
 					Passed:         stepPassed,
 					ResponseTimeMs: turn.ResponseTimeMs,
 					TokensPerSec:   turn.TokensPerSec,
@@ -1451,6 +1457,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 							Prompt:         prompt,
 							SystemPrompt:   sys,
 							Options:        effOpts,
+							Evaluation:     eval,
 							Passed:         &falseVal,
 							ResponseTimeMs: turn.ResponseTimeMs,
 							TokensPerSec:   turn.TokensPerSec,
@@ -1478,6 +1485,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 						Prompt:         prompt,
 						SystemPrompt:   sys,
 						Options:        effOpts,
+						Evaluation:     eval,
 						Passed:         &falseVal,
 						ResponseTimeMs: turn.ResponseTimeMs,
 						TokensPerSec:   turn.TokensPerSec,
@@ -1521,6 +1529,7 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					Prompt:         prompt,
 					SystemPrompt:   sys,
 					Options:        effOpts,
+					Evaluation:     eval,
 					Passed:         passed,
 					ResponseTimeMs: turn.ResponseTimeMs,
 					TokensPerSec:   turn.TokensPerSec,
@@ -1643,11 +1652,12 @@ func (c *Client) runTest(ctx context.Context, runID string, model string, test t
 					unitIdx++
 					falseVal := false
 					res.SubResults = append(res.SubResults, SubResult{
-						Index:  unitIdx,
-						Name:   turnLabel,
-						Prompt: st.Prompt,
-						Passed: &falseVal,
-						Error:  remainingErr,
+						Index:      unitIdx,
+						Name:       turnLabel,
+						Prompt:     st.Prompt,
+						Evaluation: st.Evaluation,
+						Passed:     &falseVal,
+						Error:      remainingErr,
 					})
 					casesSummary = append(casesSummary, fmt.Sprintf("[SKIP] %s: (Error: %s)", turnLabel, remainingErr))
 				}
@@ -2251,10 +2261,43 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 		return &v
 
 	case "contains":
+		if eval != nil && len(eval.All) > 0 {
+			for _, item := range eval.All {
+				exp := fmt.Sprintf("%v", item)
+				if !containsText(response, exp) {
+					v := false
+					return &v
+				}
+			}
+			v := true
+			return &v
+		}
+		if eval != nil && len(eval.Any) > 0 {
+			for _, item := range eval.Any {
+				exp := fmt.Sprintf("%v", item)
+				if containsText(response, exp) {
+					v := true
+					return &v
+				}
+			}
+			v := false
+			return &v
+		}
 		v := containsText(response, resolveExpected(directExpected, cfgBytes))
 		return &v
 
 	case "not_contains":
+		if eval != nil && len(eval.All) > 0 {
+			for _, item := range eval.All {
+				exp := fmt.Sprintf("%v", item)
+				if containsText(response, exp) {
+					v := false
+					return &v
+				}
+			}
+			v := true
+			return &v
+		}
 		// Negation of contains. If pattern is set, the response must NOT
 		// match the regex (this covers what RE2 lookahead would do).
 		// Otherwise the expected substring must be absent. An empty

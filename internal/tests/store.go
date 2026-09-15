@@ -92,6 +92,8 @@ type Message struct {
 type Evaluation struct {
 	Type        string          `json:"type" yaml:"type"`
 	Expected    any             `json:"expected,omitempty" yaml:"expected,omitempty"`
+	All         []any           `json:"all,omitempty" yaml:"all,omitempty"`
+	Any         []any           `json:"any,omitempty" yaml:"any,omitempty"`
 	Pattern     string          `json:"pattern,omitempty" yaml:"pattern,omitempty"`
 	Schema      any             `json:"schema,omitempty" yaml:"schema,omitempty"`
 	Config      json.RawMessage `json:"config,omitempty" yaml:"config,omitempty"`
@@ -843,6 +845,12 @@ func (t *Test) normalizeEvaluation() {
 			}
 			if t.Evaluation.Pattern != "" {
 				cfgMap["pattern"] = t.Evaluation.Pattern
+			}
+			if len(t.Evaluation.All) > 0 {
+				cfgMap["all"] = t.Evaluation.All
+			}
+			if len(t.Evaluation.Any) > 0 {
+				cfgMap["any"] = t.Evaluation.Any
 			}
 			if t.Evaluation.Schema != nil {
 				cfgMap["schema"] = t.Evaluation.Schema

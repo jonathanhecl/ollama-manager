@@ -3827,22 +3827,22 @@ function renderBatteryResults(run) {
       const test = tests.find((t) => t.id === testId);
       const sub = res?.sub_results?.[sidx];
       const caseName = sub?.name || `Case #${sidx + 1}`;
-      // Collect per-case attachments (index-matched from test.cases) or test-level sidecars
-      let caseAttachments = [];
-      const testCase = test?.cases?.[sidx];
-      if (test) {
-        caseAttachments = [
-          ...(testCase?.attachments || []),
-          ...(test.sidecars || []),
-        ];
-      }
-      // Resolve evaluation from per-case first, then test-level (modern + legacy)
-      const { evalType, evalConfig } = resolveEval(test, testCase);
+      const unit = getTestUnit(test, sidx);
+
+      // Collect attachments from unit + test-level sidecars
+      const caseAttachments = [
+        ...(unit?.attachments || []),
+        ...(test?.sidecars || []),
+      ];
+
+      // Resolve evaluation from sub-result, unit, or test
+      const { evalType, evalConfig } = resolveEval(test, unit, sub);
+
       openCaseViewModal({
         title: `${res?.test_name || testId} — ${caseName}`,
         model,
-        systemPrompt: sub?.system_prompt || testCase?.system_prompt || test?.system_prompt || "",
-        prompt: sub?.prompt || testCase?.prompt || "",
+        systemPrompt: sub?.system_prompt || unit?.systemPrompt || test?.system_prompt || "",
+        prompt: sub?.prompt || unit?.prompt || "",
         attachments: caseAttachments,
         evalType,
         evalConfig,
@@ -3993,32 +3993,112 @@ function closeHumanReviewModal() {
   $("human-review-modal").hidden = true;
 }
 
-// resolveEval extracts { evalType, evalConfig } from a test and optional per-case object.
-// Supports both modern (test.evaluation / caseObj.evaluation) and legacy (evaluation_type/evaluation_config) formats.
-// Per-case evaluation takes precedence over test-level.
-function resolveEval(test, caseObj) {
-  // Per-case evaluation (modern)
-  const caseEval = caseObj?.evaluation;
+// getTestUnit resolves the corresponding case or step unit for a given sub-result index.
+// Handles multi-case suites (with or without steps) and multi-step tests.
+function getTestUnit(test, sidx) {
+  if (!test) return null;
+  if (Array.isArray(test.cases) && test.cases.length > 0) {
+    let count = 0;
+    for (const c of test.cases) {
+      const hasCaseTurn = !Array.isArray(c.steps) || c.steps.length === 0 || !!c.prompt;
+      if (hasCaseTurn) {
+        if (count === sidx) {
+          return {
+            caseObj: c,
+            stepObj: null,
+            evaluation: c.evaluation,
+            attachments: c.attachments || [],
+            prompt: c.prompt || "",
+            systemPrompt: c.system_prompt || test.system_prompt || "",
+          };
+        }
+        count++;
+      }
+      if (Array.isArray(c.steps)) {
+        for (const st of c.steps) {
+          if (count === sidx) {
+            return {
+              caseObj: c,
+              stepObj: st,
+              evaluation: st.evaluation || c.evaluation,
+              attachments: st.attachments || c.attachments || [],
+              prompt: st.prompt || "",
+              systemPrompt: st.system_prompt || c.system_prompt || test.system_prompt || "",
+            };
+          }
+          count++;
+        }
+      }
+    }
+    const cFallback = test.cases[sidx];
+    if (cFallback) {
+      return {
+        caseObj: cFallback,
+        stepObj: null,
+        evaluation: cFallback.evaluation,
+        attachments: cFallback.attachments || [],
+        prompt: cFallback.prompt || "",
+        systemPrompt: cFallback.system_prompt || test.system_prompt || "",
+      };
+    }
+  } else if (Array.isArray(test.steps) && test.steps.length > 0) {
+    const st = test.steps[sidx];
+    if (st) {
+      return {
+        caseObj: null,
+        stepObj: st,
+        evaluation: st.evaluation,
+        attachments: st.attachments || [],
+        prompt: st.prompt || "",
+        systemPrompt: st.system_prompt || test.system_prompt || "",
+      };
+    }
+  }
+  return null;
+}
+
+// resolveEval extracts { evalType, evalConfig } from test, unit and sub-result objects.
+// Priority:
+// 1. sub.evaluation (direct from runner sub-result)
+// 2. unit.evaluation (step or case level)
+// 3. unit.caseObj.evaluation
+// 4. test.evaluation (modern top-level)
+// 5. test.evaluation_type / test.evaluation_config (legacy)
+function resolveEval(test, unit, sub) {
+  // 1. Direct from sub-result
+  const subEval = sub?.evaluation;
+  if (subEval?.type) {
+    return { evalType: subEval.type, evalConfig: evalToConfig(subEval) };
+  }
+  // 2. From resolved step/case unit
+  const unitEval = unit?.evaluation || unit?.eval;
+  if (unitEval?.type) {
+    return { evalType: unitEval.type, evalConfig: evalToConfig(unitEval) };
+  }
+  // 3. From parent case object
+  const caseEval = unit?.caseObj?.evaluation;
   if (caseEval?.type) {
     return { evalType: caseEval.type, evalConfig: evalToConfig(caseEval) };
   }
-  // Test-level evaluation (modern)
+  // 4. Test-level evaluation (modern)
   const testEval = test?.evaluation;
   if (testEval?.type) {
     return { evalType: testEval.type, evalConfig: evalToConfig(testEval) };
   }
-  // Legacy flat fields
+  // 5. Legacy flat fields
   return {
     evalType: test?.evaluation_type || "",
     evalConfig: test?.evaluation_config || null,
   };
 }
 
-// evalToConfig converts a modern Evaluation object into a flat config object for display.
+// evalToConfig converts an Evaluation object into a flat config object for display.
 function evalToConfig(ev) {
   if (!ev) return null;
   const cfg = {};
   if (ev.expected !== undefined && ev.expected !== null) cfg.expected = ev.expected;
+  if (Array.isArray(ev.all) && ev.all.length > 0) cfg.all = ev.all;
+  if (Array.isArray(ev.any) && ev.any.length > 0) cfg.any = ev.any;
   if (ev.pattern) cfg.pattern = ev.pattern;
   if (ev.schema) cfg.schema = ev.schema;
   if (ev.config) {
@@ -4029,7 +4109,14 @@ function evalToConfig(ev) {
   }
   // For all_of: list sub-evaluations
   if (ev.evaluations && ev.evaluations.length > 0) {
-    cfg._evaluations = ev.evaluations.map((e) => `${e.type}${e.expected !== undefined ? ": " + String(e.expected) : ""}${e.pattern ? " ~/" + e.pattern + "/" : ""}`);
+    cfg._evaluations = ev.evaluations.map((e) => {
+      let desc = e.type || "";
+      if (e.expected !== undefined && e.expected !== null) desc += `: ${String(e.expected)}`;
+      if (Array.isArray(e.all) && e.all.length > 0) desc += ` (all: ${e.all.join(", ")})`;
+      if (Array.isArray(e.any) && e.any.length > 0) desc += ` (any: ${e.any.join(", ")})`;
+      if (e.pattern) desc += ` ~/${e.pattern}/`;
+      return desc;
+    });
   }
   return Object.keys(cfg).length > 0 ? cfg : null;
 }
@@ -4052,11 +4139,14 @@ function openCaseViewModal(opts) {
     modelEl.closest(".hr-section").hidden = !opts.model;
   }
 
-  // System prompt
+  // System prompt — always show (display fallback if none configured)
   const sysEl = $("response-view-system");
   if (sysEl) {
-    sysEl.textContent = opts.systemPrompt || "";
-    sysEl.closest(".hr-section").hidden = !(opts.systemPrompt && opts.systemPrompt.trim());
+    const hasSys = !!(opts.systemPrompt && opts.systemPrompt.trim());
+    sysEl.textContent = hasSys ? opts.systemPrompt : (t("battery.no_system_prompt") || "(none / model default)");
+    sysEl.style.fontStyle = hasSys ? "normal" : "italic";
+    sysEl.style.opacity = hasSys ? "1" : "0.65";
+    sysEl.closest(".hr-section").hidden = false;
   }
 
   // Per-case prompt
@@ -4089,13 +4179,13 @@ function openCaseViewModal(opts) {
     }
   }
 
-  // Evaluation / acceptance condition
+  // Evaluation / acceptance condition — always show
   const evalTypeEl = $("response-view-eval-type");
   const evalCfgEl = $("response-view-eval-config");
   if (evalTypeEl) {
-    const evalText = opts.evalType ? (t("tests.eval_" + opts.evalType) || opts.evalType) : "";
+    const evalText = opts.evalType ? (t("tests.eval_" + opts.evalType) || opts.evalType) : (t("tests.eval_none") || "None");
     evalTypeEl.textContent = evalText;
-    evalTypeEl.closest(".hr-section").hidden = !evalText;
+    evalTypeEl.closest(".hr-section").hidden = false;
   }
   if (evalCfgEl) {
     let cfgText = "";
@@ -4108,11 +4198,19 @@ function openCaseViewModal(opts) {
           // all_of: list each sub-condition
           cfgObj._evaluations.forEach((e, i) => lines.push(`${i + 1}. ${e}`));
         } else {
+          if (cfgObj.all && Array.isArray(cfgObj.all) && cfgObj.all.length > 0) {
+            lines.push(`${t("battery.contains_all") || "Contains all"}:`);
+            cfgObj.all.forEach((item) => lines.push(`  • ${item}`));
+          }
+          if (cfgObj.any && Array.isArray(cfgObj.any) && cfgObj.any.length > 0) {
+            lines.push(`${t("battery.contains_any") || "Contains any"}:`);
+            cfgObj.any.forEach((item) => lines.push(`  • ${item}`));
+          }
           if (cfgObj.expected !== undefined) lines.push(`${t("battery.expected") || "Expected"}: ${String(cfgObj.expected)}`);
           if (cfgObj.pattern !== undefined) lines.push(`${t("battery.pattern") || "Pattern"}: ${String(cfgObj.pattern)}`);
           if (cfgObj.schema !== undefined) lines.push(`Schema:\n${JSON.stringify(cfgObj.schema, null, 2)}`);
           // Show any other keys
-          const skip = new Set(["expected", "pattern", "schema", "_evaluations"]);
+          const skip = new Set(["expected", "pattern", "schema", "all", "any", "_evaluations"]);
           for (const [k, v] of Object.entries(cfgObj)) {
             if (!skip.has(k)) lines.push(`${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
           }
@@ -4123,7 +4221,10 @@ function openCaseViewModal(opts) {
         cfgText = String(cfgObj);
       }
     }
-    evalCfgEl.textContent = cfgText;
+    if (!cfgText && (!opts.evalType || opts.evalType === "human_review")) {
+      cfgText = t("tests.eval_human_review_desc") || "(Manual review / no automated condition)";
+    }
+    evalCfgEl.textContent = cfgText || "—";
     evalCfgEl.hidden = !cfgText;
   }
 

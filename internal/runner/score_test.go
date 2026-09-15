@@ -78,6 +78,32 @@ func TestScoreContainsUnchanged(t *testing.T) {
 	}
 }
 
+func TestScoreContainsAllAndAny(t *testing.T) {
+	evalAll := &tests.Evaluation{
+		Type: "contains",
+		All:  []any{"VALKYRIE-9021-OMEGA", "Tier-3"},
+	}
+	passResp := "Here is VALKYRIE-9021-OMEGA with Tier-3 protocol."
+	failResp := "Here is VALKYRIE-9021-OMEGA only."
+	if got := scoreEval(evalAll, "", nil, passResp); got == nil || !*got {
+		t.Fatalf("evalAll with both should pass, got %v", got)
+	}
+	if got := scoreEval(evalAll, "", nil, failResp); got == nil || *got {
+		t.Fatalf("evalAll missing one should fail, got %v", got)
+	}
+
+	evalAny := &tests.Evaluation{
+		Type: "contains",
+		Any:  []any{"apple", "banana"},
+	}
+	if got := scoreEval(evalAny, "", nil, "I like banana."); got == nil || !*got {
+		t.Fatalf("evalAny with one match should pass, got %v", got)
+	}
+	if got := scoreEval(evalAny, "", nil, "I like orange."); got == nil || *got {
+		t.Fatalf("evalAny with no match should fail, got %v", got)
+	}
+}
+
 func TestScoreAllOf(t *testing.T) {
 	allOf := func(subs ...*tests.Evaluation) *tests.Evaluation {
 		return &tests.Evaluation{Type: "all_of", Evaluations: subs}

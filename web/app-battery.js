@@ -3829,21 +3829,23 @@ function renderBatteryResults(run) {
       const caseName = sub?.name || `Case #${sidx + 1}`;
       // Collect per-case attachments (index-matched from test.cases) or test-level sidecars
       let caseAttachments = [];
+      const testCase = test?.cases?.[sidx];
       if (test) {
-        const testCase = test.cases?.[sidx];
         caseAttachments = [
           ...(testCase?.attachments || []),
           ...(test.sidecars || []),
         ];
       }
+      // Resolve evaluation from per-case first, then test-level (modern + legacy)
+      const { evalType, evalConfig } = resolveEval(test, testCase);
       openCaseViewModal({
         title: `${res?.test_name || testId} — ${caseName}`,
         model,
-        systemPrompt: sub?.system_prompt || test?.system_prompt || "",
-        prompt: sub?.prompt || "",
+        systemPrompt: sub?.system_prompt || testCase?.system_prompt || test?.system_prompt || "",
+        prompt: sub?.prompt || testCase?.prompt || "",
         attachments: caseAttachments,
-        evalType: test?.evaluation_type || "",
-        evalConfig: test?.evaluation_config || null,
+        evalType,
+        evalConfig,
         response: sub?.model_response || "",
         passed: sub?.passed,
         error: sub?.error || "",
@@ -3866,14 +3868,15 @@ function renderBatteryResults(run) {
         ...((test?.steps || []).flatMap((s) => s.attachments || [])),
         ...(test?.sidecars || []),
       ];
+      const { evalType, evalConfig } = resolveEval(test, null);
       openCaseViewModal({
         title: `${res?.test_name || testId} (${model})`,
         model,
         systemPrompt: res?.system_prompt || test?.system_prompt || "",
         prompt: test?.prompt || "",
         attachments: allAtts,
-        evalType: test?.evaluation_type || "",
-        evalConfig: test?.evaluation_config || null,
+        evalType,
+        evalConfig,
         response: res?.model_response || "",
         passed: res?.passed,
         error: res?.error || "",
@@ -3990,6 +3993,47 @@ function closeHumanReviewModal() {
   $("human-review-modal").hidden = true;
 }
 
+// resolveEval extracts { evalType, evalConfig } from a test and optional per-case object.
+// Supports both modern (test.evaluation / caseObj.evaluation) and legacy (evaluation_type/evaluation_config) formats.
+// Per-case evaluation takes precedence over test-level.
+function resolveEval(test, caseObj) {
+  // Per-case evaluation (modern)
+  const caseEval = caseObj?.evaluation;
+  if (caseEval?.type) {
+    return { evalType: caseEval.type, evalConfig: evalToConfig(caseEval) };
+  }
+  // Test-level evaluation (modern)
+  const testEval = test?.evaluation;
+  if (testEval?.type) {
+    return { evalType: testEval.type, evalConfig: evalToConfig(testEval) };
+  }
+  // Legacy flat fields
+  return {
+    evalType: test?.evaluation_type || "",
+    evalConfig: test?.evaluation_config || null,
+  };
+}
+
+// evalToConfig converts a modern Evaluation object into a flat config object for display.
+function evalToConfig(ev) {
+  if (!ev) return null;
+  const cfg = {};
+  if (ev.expected !== undefined && ev.expected !== null) cfg.expected = ev.expected;
+  if (ev.pattern) cfg.pattern = ev.pattern;
+  if (ev.schema) cfg.schema = ev.schema;
+  if (ev.config) {
+    try {
+      const parsed = typeof ev.config === "string" ? JSON.parse(ev.config) : ev.config;
+      Object.assign(cfg, parsed);
+    } catch { /* ignore */ }
+  }
+  // For all_of: list sub-evaluations
+  if (ev.evaluations && ev.evaluations.length > 0) {
+    cfg._evaluations = ev.evaluations.map((e) => `${e.type}${e.expected !== undefined ? ": " + String(e.expected) : ""}${e.pattern ? " ~/" + e.pattern + "/" : ""}`);
+  }
+  return Object.keys(cfg).length > 0 ? cfg : null;
+}
+
 // openCaseViewModal — rich modal showing all details of a single sub-case or standalone test result.
 // opts = { title, model, systemPrompt, prompt, attachments, evalType, evalConfig, response, passed, error, timeMs, tps }
 function openCaseViewModal(opts) {
@@ -4059,10 +4103,22 @@ function openCaseViewModal(opts) {
     if (cfgObj) {
       if (typeof cfgObj === "string") { try { cfgObj = JSON.parse(cfgObj); } catch { cfgObj = null; } }
       if (cfgObj && typeof cfgObj === "object") {
-        if (cfgObj.expected !== undefined) cfgText = `${t("battery.expected") || "Expected"}: ${String(cfgObj.expected)}`;
-        else if (cfgObj.pattern !== undefined) cfgText = `${t("battery.pattern") || "Pattern"}: ${String(cfgObj.pattern)}`;
-        else if (cfgObj.schema !== undefined) cfgText = `Schema:\n${JSON.stringify(cfgObj.schema, null, 2)}`;
-        else cfgText = JSON.stringify(cfgObj, null, 2);
+        const lines = [];
+        if (cfgObj._evaluations && cfgObj._evaluations.length > 0) {
+          // all_of: list each sub-condition
+          cfgObj._evaluations.forEach((e, i) => lines.push(`${i + 1}. ${e}`));
+        } else {
+          if (cfgObj.expected !== undefined) lines.push(`${t("battery.expected") || "Expected"}: ${String(cfgObj.expected)}`);
+          if (cfgObj.pattern !== undefined) lines.push(`${t("battery.pattern") || "Pattern"}: ${String(cfgObj.pattern)}`);
+          if (cfgObj.schema !== undefined) lines.push(`Schema:\n${JSON.stringify(cfgObj.schema, null, 2)}`);
+          // Show any other keys
+          const skip = new Set(["expected", "pattern", "schema", "_evaluations"]);
+          for (const [k, v] of Object.entries(cfgObj)) {
+            if (!skip.has(k)) lines.push(`${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
+          }
+        }
+        cfgText = lines.join("\n");
+        if (!cfgText) cfgText = JSON.stringify(cfgObj, null, 2);
       } else if (cfgObj) {
         cfgText = String(cfgObj);
       }

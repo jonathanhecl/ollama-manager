@@ -2,7 +2,9 @@
 # Compiles binaries locally, tags the code, pushes commits & tags, and creates a GitHub Release uploading the assets.
 #
 # Usage:
-#   ./release.sh v0.1.0
+#   ./release.sh                  # Interactive: reads latest tag, prompts version, token, builds, zips, uploads
+#   ./release.sh v1.0.0           # Specific version
+#   ./release.sh v1.0.0 -f        # Force / override existing release
 
 set -euo pipefail
 
@@ -17,43 +19,109 @@ if [[ "${2:-}" == "-f" ]] || [[ "${2:-}" == "--force" ]] || [[ "${1:-}" == "-f" 
   fi
 fi
 
-# 1. Validate version format (e.g., v1.0.0 or v1.0.0-beta.1)
-VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'
-if [[ -z "$VERSION" ]] || ! [[ "$VERSION" =~ $VERSION_REGEX ]]; then
-  echo -e "\033[0;31mError: La versión debe tener el formato vX.Y.Z (ej. v1.0.0)\033[0m" >&2
-  echo "Uso: $0 vX.Y.Z [-f|--force]" >&2
-  exit 1
-fi
-
-# 2. Check for Git repository
+# 1. Check for Git repository
 if [ ! -d "${SCRIPT_DIR}/.git" ]; then
   echo -e "\033[0;31mError: Este script debe ser ejecutado en la raíz del repositorio de Git.\033[0m" >&2
   exit 1
 fi
 
-# 3. Check for uncommitted changes
+# 2. Check for uncommitted changes
 if [ -n "$(git status --porcelain)" ]; then
   echo -e "\033[0;31mError: Hay cambios locales sin commitear en el repositorio:\033[0m" >&2
   git status --porcelain
-  echo -e "\033[0;31mPor favor, haz commit o stash antes de continuar.\033[0m" >&2
+  echo -e "\033[0;31mPor favor, haz commit o stash antes de continuar con el release.\033[0m" >&2
   exit 1
 fi
 
-# 4. Get current branch
-BRANCH="$(git branch --show-current | tr -d '[:space:]')"
+# 3. Get current branch
+BRANCH="$(git branch --show-current 2>/dev/null | tr -d '[:space:]' || true)"
 if [ -z "$BRANCH" ]; then
   echo -e "\033[0;31mError: No se pudo determinar la rama actual (¿estás en estado HEAD separado?).\033[0m" >&2
   exit 1
 fi
 
-# 5. Check if tag already exists locally
+# 4. Parse Owner and Repo from remote origin URL
+REMOTE_URL="$(git remote get-url origin 2>/dev/null | tr -d '[:space:]' || true)"
+REMOTE_REGEX='github\.com[:/]([^/]+)/([^/]+)'
+if [[ "$REMOTE_URL" =~ $REMOTE_REGEX ]]; then
+  OWNER="${BASH_REMATCH[1]}"
+  REPO="${BASH_REMATCH[2]%.git}"
+else
+  echo -e "\033[0;31mError: No se pudo determinar el propietario/repositorio de GitHub desde la URL de origin: $REMOTE_URL\033[0m" >&2
+  exit 1
+fi
+
+# 5. Read latest Git version tag & calculate suggested next patch version
+LATEST_TAG="$(git tag --sort=-v:refname 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+if [ -z "$LATEST_TAG" ]; then
+  LATEST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+fi
+
+SUGGESTED_VERSION=""
+if [[ -n "$LATEST_TAG" ]] && [[ "$LATEST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(.*)$ ]]; then
+  MAJOR="${BASH_REMATCH[1]}"
+  MINOR="${BASH_REMATCH[2]}"
+  PATCH=$(( BASH_REMATCH[3] + 1 ))
+  SUGGESTED_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+fi
+
+# 6. Interactive prompt for version if not supplied as argument
+if [ -z "$VERSION" ]; then
+  echo -e "\033[0;36m=============================================\033[0m"
+  echo -e "\033[0;36m   LANZAMIENTO DE NUEVA VERSIÓN (RELEASE)   \033[0m"
+  echo -e "\033[0;36m=============================================\033[0m"
+  if [ -n "$LATEST_TAG" ]; then
+    echo -e "\033[0;90mTag / Versión actual más reciente: \033[0m\033[0;33m$LATEST_TAG\033[0m"
+    if [ -n "$SUGGESTED_VERSION" ]; then
+      echo -e "\033[0;90mSiguiente versión sugerida:        \033[0m\033[0;32m$SUGGESTED_VERSION\033[0m"
+    fi
+  else
+    echo -e "\033[0;90mNo se encontraron tags de versión previos en el repositorio.\033[0m"
+  fi
+  echo -e "\033[0;36m=============================================\033[0m"
+  echo
+  if [ -n "$SUGGESTED_VERSION" ]; then
+    read -r -p "Introduce la versión a publicar (o '$LATEST_TAG' para pisarla) [Default: $SUGGESTED_VERSION]: " USER_INPUT
+    if [ -z "$USER_INPUT" ]; then
+      VERSION="$SUGGESTED_VERSION"
+    else
+      VERSION="$(echo "$USER_INPUT" | xargs)"
+    fi
+  else
+    read -r -p "Introduce la versión a publicar (ej. v1.0.0): " USER_INPUT
+    VERSION="$(echo "$USER_INPUT" | xargs)"
+    if [ -z "$VERSION" ]; then
+      echo -e "\033[0;31mError: No se especificó ninguna versión.\033[0m" >&2
+      exit 1
+    fi
+  fi
+fi
+
+# 7. Validate version format (e.g., v1.0.0 or v1.0.0-beta.1)
+VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'
+if ! [[ "$VERSION" =~ $VERSION_REGEX ]]; then
+  echo -e "\033[0;31mError: La versión debe tener el formato vX.Y.Z (ej. v1.0.0)\033[0m" >&2
+  exit 1
+fi
+
+# 8. Check if tag already exists locally or remotely
 OVERRIDE_TAG=false
+TAG_EXISTS=false
 if git tag -l "$VERSION" | grep -q "^${VERSION}$"; then
+  TAG_EXISTS=true
+fi
+if [ "$TAG_EXISTS" = false ]; then
+  if git ls-remote --tags origin "refs/tags/${VERSION}" 2>/dev/null | grep -q "${VERSION}"; then
+    TAG_EXISTS=true
+  fi
+fi
+
+if [ "$TAG_EXISTS" = true ]; then
   if [ "$FORCE" = true ]; then
     OVERRIDE_TAG=true
     echo -e "\033[0;33mAviso: El tag '$VERSION' ya existe. Se sobrescribirá (--force activo).\033[0m"
   else
-    echo -e "\033[0;33mAviso: El tag '$VERSION' ya existe localmente.\033[0m"
+    echo -e "\033[0;33mAviso: El tag / versión '$VERSION' ya existe.\033[0m"
     read -r -p "¿Deseas sobrescribir / pisar el tag existente y reemplazar el Release en GitHub? (y/n): " OVERRIDE_CONFIRM
     case "$OVERRIDE_CONFIRM" in
       y|Y|si|Si|SI|yes|Yes|YES)
@@ -67,22 +135,12 @@ if git tag -l "$VERSION" | grep -q "^${VERSION}$"; then
   fi
 fi
 
-# 6. Parse Owner and Repo from remote origin URL
-REMOTE_URL="$(git remote get-url origin | tr -d '[:space:]')"
-REMOTE_REGEX='github\.com[:/]([^/]+)/([^/]+)'
-if [[ "$REMOTE_URL" =~ $REMOTE_REGEX ]]; then
-  OWNER="${BASH_REMATCH[1]}"
-  REPO="${BASH_REMATCH[2]%.git}"
-else
-  echo -e "\033[0;31mError: No se pudo determinar el propietario/repositorio de GitHub desde la URL de remote origin: $REMOTE_URL\033[0m" >&2
-  exit 1
-fi
-
-# 7. Get GitHub Personal Access Token (PAT)
+# 9. Request GitHub Token BEFORE running build (so no time is wasted if token is missing)
 TOKEN="${GITHUB_TOKEN:-}"
 if [ -z "$TOKEN" ]; then
+  echo
   echo -e "\033[0;33mGitHub Personal Access Token (GITHUB_TOKEN) no detectado en el entorno.\033[0m"
-  read -s -r -p "Por favor, introduce tu Token de GitHub (con permisos de lectura/escritura de releases): " TOKEN
+  read -s -r -p "Por favor, introduce tu Token de GitHub (con permisos de repo/releases): " TOKEN
   echo
   if [ -z "$TOKEN" ]; then
     echo -e "\033[0;31mError: Se requiere un token de GitHub para subir el release.\033[0m" >&2
@@ -90,19 +148,25 @@ if [ -z "$TOKEN" ]; then
   fi
 fi
 
+echo
 echo -e "\033[0;36m=============================================\033[0m"
-echo -e "\033[0;36m   PREPARANDO LANZAMIENTO LOCAL DE VERSION   \033[0m"
+echo -e "\033[0;36m   PREPARANDO LANZAMIENTO                    \033[0m"
 echo -e "\033[0;36m=============================================\033[0m"
-echo "Versión:        $VERSION"
+if [ -n "$LATEST_TAG" ]; then
+  echo -e "Tag previo:     \033[0;33m$LATEST_TAG\033[0m"
+fi
+echo -e "Versión final:  \033[0;32m$VERSION\033[0m"
 if [ "$OVERRIDE_TAG" = true ]; then
-  echo "Modo:           PISAR / REEMPLAZAR RELEASE EXISTENTE"
+  echo -e "Modo:           \033[0;33mPISAR / REEMPLAZAR RELEASE EXISTENTE\033[0m"
+else
+  echo -e "Modo:           \033[0;32mNUEVA VERSIÓN\033[0m"
 fi
 echo "Repositorio:    $OWNER/$REPO"
 echo "Rama origen:    $BRANCH"
 echo -e "\033[0;36m=============================================\033[0m"
 echo
 
-read -r -p "¿Quieres continuar con la compilación local y subida del Release a GitHub? (y/n): " CONFIRMATION
+read -r -p "¿Deseas continuar con la compilación y subida? (y/n): " CONFIRMATION
 case "$CONFIRMATION" in
   y|Y|si|Si|SI|yes|Yes|YES) ;;
   *)
@@ -111,9 +175,9 @@ case "$CONFIRMATION" in
     ;;
 esac
 
-# 8. Run local compilation and packaging
+# 10. Run local compilation and packaging (builds & zips)
 echo
-echo -e "\033[0;36m[1/4] Compilando binarios locales multiplataforma...\033[0m"
+echo -e "\033[0;36m[1/4] Compilando binarios locales multiplataforma y empaquetando (.zip / .tar.gz)...\033[0m"
 BUILD_SCRIPT="${SCRIPT_DIR}/build-all.sh"
 if [ ! -f "$BUILD_SCRIPT" ]; then
   echo -e "\033[0;31mError: No se encontró el script de compilación local '$BUILD_SCRIPT'.\033[0m" >&2
@@ -123,7 +187,15 @@ fi
 chmod +x "$BUILD_SCRIPT"
 "$BUILD_SCRIPT" "$VERSION"
 
-# 9. Create Git tag and push commits/tags
+DIST_DIR="${SCRIPT_DIR}/dist"
+ASSETS=("${DIST_DIR}"/*)
+
+if [ ${#ASSETS[@]} -eq 0 ] || [ ! -e "${ASSETS[0]}" ]; then
+  echo -e "\033[0;31mError: La compilación falló o no se generaron archivos empaquetados en la carpeta dist/.\033[0m" >&2
+  exit 1
+fi
+
+# 11. Everything built successfully — now tag and push to Git
 echo
 echo -e "\033[0;36m[2/4] Creando tag local y empujando a GitHub...\033[0m"
 if [ "$OVERRIDE_TAG" = true ]; then
@@ -152,11 +224,10 @@ fi
 
 trap - ERR
 
-# 10. Create Release in GitHub via API
+# 12. Create / Recreate Release in GitHub via API
 echo
 echo -e "\033[0;36m[3/4] Gestionando Release en la API de GitHub...\033[0m"
 
-# If overriding, delete existing release first
 if [ "$OVERRIDE_TAG" = true ]; then
   EXISTING_REL_ID=$(curl -sSL \
     -H "Authorization: Bearer ${TOKEN}" \
@@ -209,16 +280,9 @@ UPLOAD_URL_BASE="${UPLOAD_URL_TMPL%\{*\}}"
 
 echo -e "\033[0;32mRelease creado exitosamente en GitHub: ${HTML_URL}\033[0m"
 
-# 11. Upload packages as release assets
+# 13. Upload packaged assets (.zip / .tar.gz)
 echo
 echo -e "\033[0;36m[4/4] Subiendo binarios empaquetados como assets...\033[0m"
-DIST_DIR="${SCRIPT_DIR}/dist"
-ASSETS=("${DIST_DIR}"/*)
-
-if [ ${#ASSETS[@]} -eq 0 ] || [ ! -e "${ASSETS[0]}" ]; then
-  echo -e "\033[0;31mError: No se encontraron archivos empaquetados en la carpeta dist/.\033[0m" >&2
-  exit 1
-fi
 
 for asset_path in "${DIST_DIR}"/*; do
   [ -f "$asset_path" ] || continue
@@ -251,5 +315,8 @@ for asset_path in "${DIST_DIR}"/*; do
 done
 
 echo
-echo -e "\033[0;32m¡Proceso de lanzamiento completado!\033[0m"
-echo -e "\033[0;32mTu release ya está disponible en: ${HTML_URL}\033[0m"
+echo -e "\033[0;32m=============================================\033[0m"
+echo -e "\033[0;32m¡Proceso de lanzamiento completado con éxito!\033[0m"
+echo -e "\033[0;32mTu release ya está disponible en:\033[0m"
+echo -e "\033[0;36m${HTML_URL}\033[0m"
+echo -e "\033[0;32m=============================================\033[0m"

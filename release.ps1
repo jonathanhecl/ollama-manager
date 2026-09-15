@@ -22,7 +22,23 @@ if (-not (Test-Path .git)) {
     exit 1
 }
 
-# 2. Detect latest Git version tag & calculate suggested next patch version
+# 2. Check for uncommitted changes
+$status = git status --porcelain
+if ($status) {
+    Write-Host "Error: Hay cambios locales sin commitear en el repositorio:" -ForegroundColor Red
+    Write-Host $status -ForegroundColor Yellow
+    Write-Host "Por favor, haz commit o stash antes de continuar con el release." -ForegroundColor Red
+    exit 1
+}
+
+# 3. Get current branch
+$branch = (git branch --show-current).Trim()
+if ([string]::IsNullOrEmpty($branch)) {
+    Write-Host "Error: No se pudo determinar la rama actual (¿estás en estado HEAD separado?)." -ForegroundColor Red
+    exit 1
+}
+
+# 4. Detect latest Git version tag & calculate suggested next patch version
 $latestTag = ""
 try {
     $tags = (git tag --sort=-v:refname)
@@ -39,7 +55,7 @@ if ($latestTag -and ($latestTag -match '^v(\d+)\.(\d+)\.(\d+)(.*)$')) {
     $suggestedVersion = "v$major.$minor.$patch"
 }
 
-# 3. Prompt for version if not supplied as argument
+# 5. Prompt for version if not supplied as argument
 if ([string]::IsNullOrWhiteSpace($Version)) {
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host "   LANZAMIENTO DE NUEVA VERSIÓN (RELEASE)   " -ForegroundColor Cyan
@@ -57,7 +73,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host ""
     
-    $promptText = if ($suggestedVersion) { "Introduce la versión a publicar [Default: $suggestedVersion]: " } else { "Introduce la versión a publicar (ej. v1.0.0): " }
+    $promptText = if ($suggestedVersion) { "Introduce la versión a publicar (o '$latestTag' para pisarla) [Default: $suggestedVersion]: " } else { "Introduce la versión a publicar (ej. v1.0.0): " }
     $userInput = Read-Host $promptText
     if ([string]::IsNullOrWhiteSpace($userInput)) {
         if ($suggestedVersion) {
@@ -71,37 +87,27 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     }
 }
 
-# 4. Validate version format (e.g., v1.0.0)
+# 6. Validate version format (e.g., v1.0.0)
 if ($Version -notmatch '^v\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
     Write-Host "Error: La versión debe tener el formato vX.Y.Z (ej. v1.0.0)" -ForegroundColor Red
     exit 1
 }
 
-# 5. Check for uncommitted changes
-$status = git status --porcelain
-if ($status) {
-    Write-Host "Error: Hay cambios locales sin commitear en el repositorio:" -ForegroundColor Red
-    Write-Host $status -ForegroundColor Yellow
-    Write-Host "Por favor, haz commit o stash antes de continuar." -ForegroundColor Red
-    exit 1
-}
-
-# 6. Get current branch
-$branch = (git branch --show-current).Trim()
-if ([string]::IsNullOrEmpty($branch)) {
-    Write-Host "Error: No se pudo determinar la rama actual (¿estás en estado HEAD separado?)." -ForegroundColor Red
-    exit 1
-}
-
-# 7. Check if tag already exists locally
+# 7. Check if tag already exists locally or remotely
 $tagExists = (git tag -l $Version)
+if (-not $tagExists) {
+    try {
+        $remoteTag = git ls-remote --tags origin "refs/tags/$Version"
+        if ($remoteTag) { $tagExists = $true }
+    } catch {}
+}
 $overrideTag = $false
 if ($tagExists) {
     if ($Force) {
         $overrideTag = $true
         Write-Host "Aviso: El tag '$Version' ya existe. Se sobrescribirá (-Force activo)." -ForegroundColor Yellow
     } else {
-        Write-Host "Aviso: El tag '$Version' ya existe localmente." -ForegroundColor Yellow
+        Write-Host "Aviso: El tag / versión '$Version' ya existe." -ForegroundColor Yellow
         $resp = Read-Host "¿Deseas sobrescribir / pisar el tag existente y reemplazar el Release en GitHub? (y/n)"
         if ($resp -eq "y" -or $resp -eq "si" -or $resp -eq "yes") {
             $overrideTag = $true

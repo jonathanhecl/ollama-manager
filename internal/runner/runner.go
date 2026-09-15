@@ -2257,7 +2257,7 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 			_ = json.Unmarshal(cfgBytes, &cfg)
 			expected = cfg.Expected
 		}
-		v := strings.TrimSpace(response) == strings.TrimSpace(expected)
+		v := exactMatchEqual(response, expected)
 		return &v
 
 	case "contains":
@@ -2586,6 +2586,46 @@ func normalizeForContains(s string) string {
 	s = strings.ReplaceAll(s, "<tool_call>", "")
 	s = strings.ReplaceAll(s, "</tool_call>", "")
 	return s
+}
+
+// exactMatchEqual compares response with expected answer. It is case-insensitive,
+// tolerant of surrounding quotes, code fences, markdown, and trailing sentence punctuation.
+func exactMatchEqual(response, expected string) bool {
+	r := strings.TrimSpace(response)
+	e := strings.TrimSpace(expected)
+	if r == e {
+		return true
+	}
+	if strings.EqualFold(r, e) {
+		return true
+	}
+	cleanR := cleanForExactMatch(r)
+	cleanE := cleanForExactMatch(e)
+	if cleanR != "" && strings.EqualFold(cleanR, cleanE) {
+		return true
+	}
+	return false
+}
+
+func cleanForExactMatch(s string) string {
+	s = strings.TrimSpace(s)
+	// Strip enclosing markdown code fences e.g. ```text\nknave\n``` or ```knave```
+	for strings.HasPrefix(s, "```") && strings.HasSuffix(s, "```") && len(s) >= 6 {
+		s = s[3 : len(s)-3]
+		if idx := strings.IndexByte(s, '\n'); idx != -1 && !strings.Contains(s[:idx], " ") {
+			s = s[idx+1:]
+		}
+		s = strings.TrimSpace(s)
+	}
+	// Strip common surrounding formatting: markdown bold/italic, backticks, quotes
+	s = strings.Trim(s, "`*\"'_~«»“”‘’")
+	s = strings.TrimSpace(s)
+	// Strip trailing sentence punctuation often added by LLMs (., !, ?, :, ;)
+	s = strings.TrimRight(s, ".!?:;,")
+	s = strings.TrimSpace(s)
+	// In case of surrounding quotes again after trimming punctuation
+	s = strings.Trim(s, "`*\"'_~«»“”‘’")
+	return strings.TrimSpace(s)
 }
 
 func stripWhitespace(s string) string {

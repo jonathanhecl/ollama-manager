@@ -104,6 +104,43 @@ func TestScoreContainsAllAndAny(t *testing.T) {
 	}
 }
 
+func TestScoreExactMatchTolerant(t *testing.T) {
+	eval := evalOf("exact_match", "knave", "")
+
+	validResponses := []string{
+		"knave",
+		"Knave",
+		"KNAVE",
+		"Knave.",
+		"knave!",
+		"**Knave**",
+		"`knave`",
+		`"knave"`,
+		`"Knave."`,
+		"  knave \n",
+		"```\nknave\n```",
+	}
+	for _, resp := range validResponses {
+		got := scoreEval(eval, "", nil, resp)
+		if got == nil || !*got {
+			t.Errorf("exact_match for %q should pass, got %v", resp, got)
+		}
+	}
+
+	invalidResponses := []string{
+		"knight",
+		"Knight",
+		"A is a knave",
+		"not knave",
+	}
+	for _, resp := range invalidResponses {
+		got := scoreEval(eval, "", nil, resp)
+		if got == nil || *got {
+			t.Errorf("exact_match for %q should fail, got %v", resp, got)
+		}
+	}
+}
+
 func TestScoreAllOf(t *testing.T) {
 	allOf := func(subs ...*tests.Evaluation) *tests.Evaluation {
 		return &tests.Evaluation{Type: "all_of", Evaluations: subs}

@@ -2274,9 +2274,17 @@
           <div class="hr-label" data-i18n="chat.model">Model</div>
           <div id="response-view-model" class="hr-block hr-eval-type"></div>
         </div>
+        <div class="hr-section" id="response-view-desc-section" hidden>
+          <div class="hr-label" data-i18n="tests.description">Description</div>
+          <div id="response-view-desc" class="hr-block hr-system" style="font-style:italic;"></div>
+        </div>
         <div class="hr-section">
           <div class="hr-label" data-i18n="battery.system_prompt">System prompt</div>
           <div id="response-view-system" class="hr-block hr-system"></div>
+        </div>
+        <div class="hr-section" id="response-view-context-section" hidden>
+          <div class="hr-label" data-i18n="battery.conversation_history">Prior Conversation Context</div>
+          <div id="response-view-context" class="hr-block" style="white-space:pre-wrap;word-break:break-word;max-height:30vh;overflow-y:auto;background:rgba(255,255,255,0.03);border:1px dashed var(--border-color, #444);padding:10px;border-radius:6px;font-size:12px;line-height:1.5;"></div>
         </div>
         <div class="hr-section">
           <div class="hr-label" data-i18n="battery.prompt">Prompt</div>

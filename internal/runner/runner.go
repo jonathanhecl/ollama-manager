@@ -2245,6 +2245,36 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 
 	switch evalType {
 	case "exact_match":
+		if eval != nil && len(eval.Any) > 0 {
+			for _, item := range eval.Any {
+				if exactMatchEqual(response, fmt.Sprintf("%v", item)) {
+					v := true
+					return &v
+				}
+			}
+			v := false
+			return &v
+		}
+		if list, ok := directExpected.([]any); ok && len(list) > 0 {
+			for _, it := range list {
+				if exactMatchEqual(response, fmt.Sprintf("%v", it)) {
+					v := true
+					return &v
+				}
+			}
+			v := false
+			return &v
+		}
+		if list, ok := directExpected.([]string); ok && len(list) > 0 {
+			for _, it := range list {
+				if exactMatchEqual(response, it) {
+					v := true
+					return &v
+				}
+			}
+			v := false
+			return &v
+		}
 		expected := ""
 		if s, ok := directExpected.(string); ok {
 			expected = s
@@ -2276,6 +2306,26 @@ func scoreEval(eval *tests.Evaluation, defaultType string, defaultCfg json.RawMe
 			for _, item := range eval.Any {
 				exp := fmt.Sprintf("%v", item)
 				if containsText(response, exp) {
+					v := true
+					return &v
+				}
+			}
+			v := false
+			return &v
+		}
+		if list, ok := directExpected.([]any); ok && len(list) > 0 {
+			for _, it := range list {
+				if containsText(response, fmt.Sprintf("%v", it)) {
+					v := true
+					return &v
+				}
+			}
+			v := false
+			return &v
+		}
+		if list, ok := directExpected.([]string); ok && len(list) > 0 {
+			for _, it := range list {
+				if containsText(response, it) {
 					v := true
 					return &v
 				}
@@ -2556,7 +2606,7 @@ func resolveExpected(directExpected any, cfgBytes json.RawMessage) string {
 }
 
 // containsText reports whether response contains expected, using the same
-// normalization as the contains check (case-insensitive, formatting-tolerant).
+// normalization as the contains check (case-insensitive, formatting-tolerant, diacritic-tolerant).
 func containsText(response, expected string) bool {
 	normResponse := normalizeForContains(response)
 	normExpected := normalizeForContains(expected)
@@ -2564,7 +2614,36 @@ func containsText(response, expected string) bool {
 		normResponse = stripWhitespace(normResponse)
 		normExpected = stripWhitespace(normExpected)
 	}
-	return strings.Contains(strings.ToLower(normResponse), strings.ToLower(normExpected))
+	rLow := strings.ToLower(normResponse)
+	eLow := strings.ToLower(normExpected)
+	if strings.Contains(rLow, eLow) {
+		return true
+	}
+	return strings.Contains(stripDiacritics(rLow), stripDiacritics(eLow))
+}
+
+// stripDiacritics folds common accented characters to unaccented ASCII
+// (e.g. á->a, é->e, í->i, ó->o, ú->u, ü->u).
+func stripDiacritics(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case 'á', 'à', 'â', 'ä', 'ã', 'å', 'Á', 'À', 'Â', 'Ä', 'Ã', 'Å':
+			b.WriteRune('a')
+		case 'é', 'è', 'ê', 'ë', 'É', 'È', 'Ê', 'Ë':
+			b.WriteRune('e')
+		case 'í', 'ì', 'î', 'ï', 'Í', 'Ì', 'Î', 'Ï':
+			b.WriteRune('i')
+		case 'ó', 'ò', 'ô', 'ö', 'õ', 'Ó', 'Ò', 'Ô', 'Ö', 'Õ':
+			b.WriteRune('o')
+		case 'ú', 'ù', 'û', 'ü', 'Ú', 'Ù', 'Û', 'Ü':
+			b.WriteRune('u')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // normalizeForContains strips LaTeX/markdown/JSON formatting so that
@@ -2602,6 +2681,9 @@ func exactMatchEqual(response, expected string) bool {
 	cleanR := cleanForExactMatch(r)
 	cleanE := cleanForExactMatch(e)
 	if cleanR != "" && strings.EqualFold(cleanR, cleanE) {
+		return true
+	}
+	if cleanR != "" && strings.EqualFold(stripDiacritics(cleanR), stripDiacritics(cleanE)) {
 		return true
 	}
 	return false

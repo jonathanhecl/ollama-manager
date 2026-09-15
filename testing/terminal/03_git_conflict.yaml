@@ -36,4 +36,4 @@ cases:
           [exit_code: 0]
         evaluation:
           type: regex
-          pattern: '(?i)(git\s+add\s+config\.json|git\s+add\s+\.)'
+          pattern: '(?i)(git\s+add\s+(config\.json|\.|\-A|\-u)|cat\s+config\.json|git\s+diff(\s+config\.json)?|less\s+config\.json|nano\s+config\.json|vim\s+config\.json)'

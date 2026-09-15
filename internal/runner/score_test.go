@@ -141,6 +141,59 @@ func TestScoreExactMatchTolerant(t *testing.T) {
 	}
 }
 
+func TestScoreContainsAndExactMatchWithList(t *testing.T) {
+	// contains with any
+	evalAny := &tests.Evaluation{
+		Type: "contains",
+		Any:  []any{"avergonza", "vergüenza", "apenad"},
+	}
+	if got := scoreEval(evalAny, "", nil, "En realidad, estoy tan avergonzado ahora mismo."); got == nil || !*got {
+		t.Fatalf("expected avergonzado to match avergonza")
+	}
+	if got := scoreEval(evalAny, "", nil, "Estoy embarazada"); got == nil || *got {
+		t.Fatalf("expected embarazada to fail")
+	}
+
+	// contains with expected as slice
+	evalSlice := &tests.Evaluation{
+		Type:     "contains",
+		Expected: []string{"avergonza", "vergüenza"},
+	}
+	if got := scoreEval(evalSlice, "", nil, "Tengo mucha vergüenza."); got == nil || !*got {
+		t.Fatalf("expected slice to match")
+	}
+
+	// exact_match with list
+	evalExactList := &tests.Evaluation{
+		Type:     "exact_match",
+		Expected: []string{"knight", "knave"},
+	}
+	if got := scoreEval(evalExactList, "", nil, "Knave"); got == nil || !*got {
+		t.Fatalf("expected Knave to match exact_match list")
+	}
+	if got := scoreEval(evalExactList, "", nil, "Knight"); got == nil || !*got {
+		t.Fatalf("expected Knight to match exact_match list")
+	}
+	if got := scoreEval(evalExactList, "", nil, "Villain"); got == nil || *got {
+		t.Fatalf("expected Villain to fail")
+	}
+
+	// diacritics / accents: biol vs bióloga
+	evalBiol := evalOf("contains", "biol", "")
+	if got := scoreEval(evalBiol, "", nil, "Es una bióloga marina que estudia pulpos."); got == nil || !*got {
+		t.Fatalf("expected biol to match bióloga")
+	}
+	if got := scoreEval(evalBiol, "", nil, "Es un biólogo marino."); got == nil || !*got {
+		t.Fatalf("expected biol to match biólogo")
+	}
+
+	// exact_match with diacritic differences
+	evalFrio := evalOf("exact_match", "frio", "")
+	if got := scoreEval(evalFrio, "", nil, "frío"); got == nil || !*got {
+		t.Fatalf("expected frío to match exact_match frio")
+	}
+}
+
 func TestScoreAllOf(t *testing.T) {
 	allOf := func(subs ...*tests.Evaluation) *tests.Evaluation {
 		return &tests.Evaluation{Type: "all_of", Evaluations: subs}

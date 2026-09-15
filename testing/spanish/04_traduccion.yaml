@@ -16,4 +16,9 @@ cases:
     prompt: 'Traduce al español, responde SOLO con la traducción: "Actually, I am so embarrassed right now."'
     evaluation:
       type: contains
-      expected: "vergüenza"
+      any:
+        - "avergonza"
+        - "vergüenza"
+        - "verguenza"
+        - "apenad"
+        - "bochorno"

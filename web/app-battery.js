@@ -3838,10 +3838,33 @@ function renderBatteryResults(run) {
       // Resolve evaluation from sub-result, unit, or test
       const { evalType, evalConfig } = resolveEval(test, unit, sub);
 
+      // Build prior conversation context if this is a step in a multi-turn sequence
+      let priorContextHtml = "";
+      if (sidx > 0 && Array.isArray(res?.sub_results)) {
+        const turns = [];
+        for (let i = 0; i < sidx; i++) {
+          const prevSub = res.sub_results[i];
+          const prevUnit = getTestUnit(test, i);
+          const name = prevSub?.name || prevUnit?.stepObj?.name || prevUnit?.caseObj?.name || `Step #${i + 1}`;
+          const promptText = prevSub?.prompt || prevUnit?.prompt || "";
+          const respText = prevSub?.model_response || "";
+          turns.push(`
+            <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.08);">
+              <div style="font-weight:600;color:var(--accent-color, #70a5ff);margin-bottom:3px;">${escapeHtml(name)}</div>
+              ${promptText ? `<div style="color:var(--text-muted, #aaa);margin-bottom:2px;"><strong>User:</strong> ${escapeHtml(promptText)}</div>` : ""}
+              ${respText ? `<div style="color:var(--text-secondary, #ddd);white-space:pre-wrap;"><strong>Assistant:</strong> ${escapeHtml(respText)}</div>` : ""}
+            </div>
+          `);
+        }
+        priorContextHtml = turns.join("");
+      }
+
       openCaseViewModal({
         title: `${res?.test_name || testId} — ${caseName}`,
         model,
+        description: test?.description || "",
         systemPrompt: sub?.system_prompt || unit?.systemPrompt || test?.system_prompt || "",
+        priorContext: priorContextHtml,
         prompt: sub?.prompt || unit?.prompt || "",
         attachments: caseAttachments,
         evalType,
@@ -3868,10 +3891,11 @@ function renderBatteryResults(run) {
         ...((test?.steps || []).flatMap((s) => s.attachments || [])),
         ...(test?.sidecars || []),
       ];
-      const { evalType, evalConfig } = resolveEval(test, null);
+      const { evalType, evalConfig } = resolveEval(test, null, null);
       openCaseViewModal({
         title: `${res?.test_name || testId} (${model})`,
         model,
+        description: test?.description || "",
         systemPrompt: res?.system_prompt || test?.system_prompt || "",
         prompt: test?.prompt || "",
         attachments: allAtts,
@@ -4139,6 +4163,14 @@ function openCaseViewModal(opts) {
     modelEl.closest(".hr-section").hidden = !opts.model;
   }
 
+  // Test description — show if present
+  const descSec = $("response-view-desc-section");
+  const descEl = $("response-view-desc");
+  if (descSec && descEl) {
+    descEl.textContent = opts.description || "";
+    descSec.hidden = !opts.description;
+  }
+
   // System prompt — always show (display fallback if none configured)
   const sysEl = $("response-view-system");
   if (sysEl) {
@@ -4147,6 +4179,19 @@ function openCaseViewModal(opts) {
     sysEl.style.fontStyle = hasSys ? "normal" : "italic";
     sysEl.style.opacity = hasSys ? "1" : "0.65";
     sysEl.closest(".hr-section").hidden = false;
+  }
+
+  // Prior conversation context for multi-turn / multi-step tests
+  const ctxSec = $("response-view-context-section");
+  const ctxEl = $("response-view-context");
+  if (ctxSec && ctxEl) {
+    if (opts.priorContext) {
+      ctxEl.innerHTML = opts.priorContext;
+      ctxSec.hidden = false;
+    } else {
+      ctxEl.innerHTML = "";
+      ctxSec.hidden = true;
+    }
   }
 
   // Per-case prompt
@@ -4206,7 +4251,14 @@ function openCaseViewModal(opts) {
             lines.push(`${t("battery.contains_any") || "Contains any"}:`);
             cfgObj.any.forEach((item) => lines.push(`  • ${item}`));
           }
-          if (cfgObj.expected !== undefined) lines.push(`${t("battery.expected") || "Expected"}: ${String(cfgObj.expected)}`);
+          if (cfgObj.expected !== undefined && cfgObj.expected !== null) {
+            if (Array.isArray(cfgObj.expected)) {
+              lines.push(`${t("battery.expected") || "Expected"} (${t("battery.any_of") || "any of"}):`);
+              cfgObj.expected.forEach((item) => lines.push(`  • ${item}`));
+            } else {
+              lines.push(`${t("battery.expected") || "Expected"}: ${String(cfgObj.expected)}`);
+            }
+          }
           if (cfgObj.pattern !== undefined) lines.push(`${t("battery.pattern") || "Pattern"}: ${String(cfgObj.pattern)}`);
           if (cfgObj.schema !== undefined) lines.push(`Schema:\n${JSON.stringify(cfgObj.schema, null, 2)}`);
           // Show any other keys

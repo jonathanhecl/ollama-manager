@@ -1078,9 +1078,15 @@ func (s *Store) UpdateTest(id string, in Test) (Test, error) {
 	}
 	if in.Steps != nil {
 		t.Steps = in.Steps
+		if len(in.Steps) > 0 && len(in.Cases) == 0 {
+			t.Cases = nil
+		}
 	}
 	if in.Cases != nil {
 		t.Cases = in.Cases
+		if len(in.Cases) > 0 && len(in.Steps) == 0 {
+			t.Steps = nil
+		}
 	}
 	if in.EvaluationType != "" {
 		t.EvaluationType = in.EvaluationType

@@ -7,17 +7,15 @@ order: 4
 
 system_prompt: Be concise.
 
-steps:
-  - step: 1
-    name: Set fact EN
+cases:
+  - name: Set fact EN
     prompt: My sister Clara is a marine biologist who studies octopuses. Remember this.
     evaluation:
       type: contains
       expected: Clara
-
-  - step: 2
-    name: Recall ES
-    prompt: ¿A qué se dedica mi hermana? Responde en una frase corta.
-    evaluation:
-      type: contains
-      expected: biol
+    steps:
+      - name: Recall ES
+        prompt: ¿A qué se dedica mi hermana? Responde en una frase corta.
+        evaluation:
+          type: contains
+          expected: biol

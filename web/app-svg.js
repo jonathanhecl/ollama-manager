@@ -1202,7 +1202,7 @@ function renderEditorCasesList() {
             <textarea class="te-case-step-prompt" rows="2" placeholder="${t("tests.step_prompt_placeholder")}" autocomplete="off">${escapeHtml(s.prompt || "")}</textarea>
             <div class="te-case-step-eval">
               <select class="te-case-step-eval-type" autocomplete="off">${evalOptionsHtml(s.type || "contains")}</select>
-              <input type="text" class="te-case-step-expected" value="${escapeHtml(sIsRegex ? (s.pattern || "") : (s.expected || ""))}" placeholder="${sIsRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off" ${sIsHuman || sIsAllOf ? "hidden" : ""}>
+              <input type="text" class="te-case-step-expected" value="${escapeHtml(sIsRegex ? (s.pattern || s.expected || "") : (s.expected || s.pattern || ""))}" placeholder="${sIsRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off" ${sIsHuman || sIsAllOf ? "hidden" : ""}>
               <div class="te-subeval-block" ${sIsAllOf ? "" : "hidden"}>
                 <span class="te-case-label">${t("tests.subevals_title")}</span>
                 <div class="te-subeval-list">${subevalsHtml(s.subevals)}</div>
@@ -1243,7 +1243,7 @@ function renderEditorCasesList() {
               </div>
               <div class="field te-case-expected-field" ${isHuman || isAllOf ? "hidden" : ""}>
                 <label class="te-case-label">${isRegex ? t("tests.eval_pattern") : t("tests.case_expected")}</label>
-                <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || "") : (c.expected || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
+                <input type="text" class="te-case-expected" value="${escapeHtml(isRegex ? (c.pattern || c.expected || "") : (c.expected || c.pattern || ""))}" placeholder="${isRegex ? "^[A-Z]+$" : t("tests.case_expected_placeholder")}" autocomplete="off">
               </div>
               <div class="field te-case-subevals-field" ${isAllOf ? "" : "hidden"}>
                 <label class="te-case-label">${t("tests.subevals_title")}</label>
@@ -1519,38 +1519,70 @@ async function showTestEditorView(id) {
       $("te-order").value = String(test.order || 0);
 
       const toEditorSub = (e) => {
+        if (!e) return { type: "contains", expected: "", pattern: "" };
         const t = e.type || "contains";
-        const isPat = t === "regex" || t === "not_contains";
+        const isPat = isPatternEvalType(t);
+        const rawVal = e.pattern != null && e.pattern !== ""
+          ? e.pattern
+          : (e.expected != null
+              ? e.expected
+              : (Array.isArray(e.all) && e.all.length > 0
+                  ? e.all
+                  : (Array.isArray(e.any) && e.any.length > 0 ? e.any : "")));
+        const valStr = Array.isArray(rawVal) ? rawVal.join(", ") : (rawVal != null ? String(rawVal) : "");
         return {
           type: t,
-          expected: !isPat && e.expected != null ? String(e.expected) : "",
-          pattern: isPat ? (e.pattern || "") : "",
+          expected: !isPat ? valStr : "",
+          pattern: isPat ? valStr : "",
         };
       };
-      const toEditorStep = (s, i) => ({
-        name: s.name || `Step ${i + 1}`,
-        prompt: s.prompt || "",
-        type: s.evaluation?.type || test.evaluation_type || "contains",
-        expected: s.evaluation?.expected != null ? String(s.evaluation.expected) : "",
-        pattern: s.evaluation?.pattern || "",
-        subevals: s.evaluation?.type === "all_of" && Array.isArray(s.evaluation.evaluations)
-          ? s.evaluation.evaluations.map(toEditorSub) : [],
-        system_prompt: s.system_prompt || "",
-        temperature: s.options?.temperature ?? "",
-      });
+      const toEditorStep = (s, i) => {
+        let evalObj = s.evaluation;
+        let evalType = evalObj?.type || test.evaluation_type || "contains";
+        let isPat = isPatternEvalType(evalType);
+        let rawVal = evalObj?.expected != null
+          ? evalObj.expected
+          : (Array.isArray(evalObj?.all) && evalObj.all.length > 0
+              ? evalObj.all
+              : (Array.isArray(evalObj?.any) && evalObj.any.length > 0
+                  ? evalObj.any
+                  : (evalObj?.pattern || "")));
+        let valStr = Array.isArray(rawVal) ? rawVal.join(", ") : (rawVal != null ? String(rawVal) : "");
+        let subevals = (evalType === "all_of" || evalType === "any_of") && Array.isArray(evalObj?.evaluations)
+          ? evalObj.evaluations.map(toEditorSub) : [];
+        return {
+          name: s.name || `Step ${i + 1}`,
+          prompt: s.prompt || "",
+          type: evalType,
+          expected: !isPat ? valStr : "",
+          pattern: isPat ? valStr : "",
+          subevals: subevals,
+          system_prompt: s.system_prompt || "",
+          temperature: s.options?.temperature ?? "",
+        };
+      };
       const toEditorCase = (c, i) => {
         let name = c.name || `Case ${i + 1}`;
         let prompt = c.prompt || "";
         let evalObj = c.evaluation || test.evaluation;
         let evalType = evalObj?.type || test.evaluation_type || "contains";
-        let expected = evalObj?.expected != null ? String(evalObj.expected) : (test.evaluation_config?.expected != null ? String(test.evaluation_config.expected) : "");
-        let pattern = evalObj?.pattern || test.evaluation_config?.pattern || "";
+        let isPat = isPatternEvalType(evalType);
+        let rawVal = evalObj?.expected != null
+          ? evalObj.expected
+          : (test.evaluation_config?.expected != null
+              ? test.evaluation_config.expected
+              : (Array.isArray(evalObj?.all) && evalObj.all.length > 0
+                  ? evalObj.all
+                  : (Array.isArray(evalObj?.any) && evalObj.any.length > 0
+                      ? evalObj.any
+                      : (evalObj?.pattern || test.evaluation_config?.pattern || ""))));
+        let valStr = Array.isArray(rawVal) ? rawVal.join(", ") : (rawVal != null ? String(rawVal) : "");
         let sys = c.system_prompt || "";
         let temp = c.options?.temperature ?? "";
         let topP = c.options?.top_p ?? "";
         let maxTok = c.options?.max_tokens ?? "";
         let thinkLevel = c.options?.think_level || "";
-        let subevals = evalObj?.type === "all_of" && Array.isArray(evalObj.evaluations)
+        let subevals = (evalType === "all_of" || evalType === "any_of") && Array.isArray(evalObj?.evaluations)
           ? evalObj.evaluations.map(toEditorSub) : [];
         let steps = Array.isArray(c.steps) ? c.steps.map(toEditorStep) : [];
         let sidecars = (c.attachments || []).map((a) => ({ ...a }));
@@ -1559,8 +1591,8 @@ async function showTestEditorView(id) {
           const s = steps[0];
           prompt = s.prompt || "";
           evalType = s.type || evalType;
-          expected = s.expected || expected;
-          pattern = s.pattern || pattern;
+          isPat = isPatternEvalType(evalType);
+          valStr = isPat ? (s.pattern || s.expected || "") : (s.expected || s.pattern || "");
           sys = s.system_prompt || sys;
           temp = s.temperature ?? temp;
           subevals = s.subevals || subevals;
@@ -1581,8 +1613,8 @@ async function showTestEditorView(id) {
           name,
           prompt,
           type: evalType,
-          expected,
-          pattern,
+          expected: !isPat ? valStr : "",
+          pattern: isPat ? valStr : "",
           system_prompt: sys,
           temperature: temp,
           top_p: topP,
@@ -1597,6 +1629,18 @@ async function showTestEditorView(id) {
       // Load cases
       if (Array.isArray(test.cases) && test.cases.length > 0) {
         currentEditorCases = test.cases.map(toEditorCase);
+      } else if (Array.isArray(test.steps) && test.steps.length > 0) {
+        const firstStep = test.steps[0];
+        const restSteps = test.steps.slice(1);
+        currentEditorCases = [toEditorCase({
+          name: firstStep.name || "Case 1",
+          prompt: firstStep.prompt || "",
+          evaluation: firstStep.evaluation,
+          system_prompt: firstStep.system_prompt,
+          options: firstStep.options,
+          attachments: firstStep.attachments,
+          steps: restSteps,
+        }, 0)];
       } else {
         currentEditorCases = [toEditorCase({
           name: "Case 1",
@@ -2156,12 +2200,17 @@ async function saveTestEditor() {
 
   const buildEval = (type, expected, pattern, subevals) => {
     const evaluation = { type: type || "contains" };
-    if (type === "all_of") {
+    if (type === "all_of" || type === "any_of") {
+      evaluation.type = type;
       evaluation.evaluations = (subevals || []).map((s) => {
         const st = s.type || "contains";
-        if (st === "regex" || st === "not_contains") {
+        if (st === "regex") {
           const p = s.pattern || s.expected || "";
           return p ? { type: st, pattern: p } : null;
+        }
+        if (st === "not_contains") {
+          const p = s.pattern || s.expected || "";
+          return p ? { type: st, pattern: p, expected: p } : null;
         }
         if (st === "human_review") return { type: st };
         const e = (s.expected ?? s.pattern ?? "").toString();
@@ -2169,8 +2218,14 @@ async function saveTestEditor() {
       }).filter(Boolean);
       return evaluation;
     }
-    if (type === "regex" || type === "not_contains") {
+    if (type === "regex") {
       if (pattern || expected) evaluation.pattern = pattern || expected;
+    } else if (type === "not_contains") {
+      const p = pattern || expected || "";
+      if (p) {
+        evaluation.pattern = p;
+        evaluation.expected = p;
+      }
     } else if (type !== "human_review" && expected) {
       evaluation.expected = expected;
     }

@@ -1256,6 +1256,7 @@ $("response-view-modal")?.addEventListener("click", (e) => {
   if (e.target === $("response-view-modal")) closeResponseViewModal();
 });
 $("response-view-modal-close")?.addEventListener("click", closeResponseViewModal);
+$("response-view-modal-done")?.addEventListener("click", closeResponseViewModal);
 
 // NOTE: tests-group-history-btn / tests-run-battery-btn are wired once in
 // renderTestsList (app-svg.js) with a dataset.wired guard — do not add

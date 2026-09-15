@@ -7542,8 +7542,22 @@ button.chat-send:disabled:hover {
 .resp-view-btn { display: inline-block; background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
 .resp-view-btn:hover { text-decoration: underline; }
 
-/* Response view modal */
-.response-view-modal-card { width: min(700px, 100%); max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
+/* Response view modal (rich case detail) */
+.response-view-modal-card {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+#response-view-modal .modal-actions {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  margin-top: 0;
+  background: var(--panel-2);
+}
 
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge-pass { background: rgba(111,207,151,.15); color: var(--good); }

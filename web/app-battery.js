@@ -3828,21 +3828,33 @@ function renderBatteryResults(run) {
       const model = btn.dataset.model;
       const sidx = Number(btn.dataset.subIdx);
       const res = run.results.find((x) => x.test_id === testId && x.model === model);
+      const test = tests.find((t) => t.id === testId);
       const sub = res?.sub_results?.[sidx];
       const caseName = sub?.name || `Case #${sidx + 1}`;
-      const titleEl = $("response-view-modal-title");
-      if (titleEl) titleEl.textContent = `${res?.test_name || testId} — ${caseName}`;
-      let detail = "";
-      if (sub?.options?.temperature != null) detail += `${t("battery.temperature_label")}: ${sub.options.temperature}\n\n`;
-      if (sub?.system_prompt) detail += `${t("battery.system_label")}\n${sub.system_prompt}\n\n`;
-      if (sub?.prompt) detail += `${t("battery.user_label")}\n${sub.prompt}\n\n`;
-      detail += `${t("battery.assistant_label")}\n${sub?.model_response || sub?.error || t("battery.no_response")}`;
-      if (sub?.error) {
-        const subErrLower = sub.error.toLowerCase();
-        const tag = subErrLower.includes("loop") ? (t("battery.loop_detected") || "Repetition loop detected") : (subErrLower.includes("skip") ? (t("battery.skipped_manually") || "Manually skipped") : sub.error);
-        detail += `\n\n[${tag}]`;
+      // Collect per-case attachments (index-matched from test.cases) or test-level sidecars
+      let caseAttachments = [];
+      if (test) {
+        const testCase = test.cases?.[sidx];
+        caseAttachments = [
+          ...(testCase?.attachments || []),
+          ...(test.sidecars || []),
+        ];
       }
-      openResponseViewModal(model, detail);
+      openCaseViewModal({
+        title: `${res?.test_name || testId} — ${caseName}`,
+        model,
+        systemPrompt: sub?.system_prompt || test?.system_prompt || "",
+        prompt: sub?.prompt || "",
+        attachments: caseAttachments,
+        evalType: test?.evaluation_type || "",
+        evalConfig: test?.evaluation_config || null,
+        response: sub?.model_response || "",
+        passed: sub?.passed,
+        error: sub?.error || "",
+        timeMs: sub?.response_time_ms || 0,
+        tps: sub?.tokens_per_sec || 0,
+        reasoning: sub?.reasoning_used || false,
+      });
     });
   });
 
@@ -3852,15 +3864,27 @@ function renderBatteryResults(run) {
       const testId = btn.dataset.testId;
       const model = btn.dataset.model;
       const res = run.results.find((x) => x.test_id === testId && x.model === model);
-      const titleEl = $("response-view-modal-title");
-      if (titleEl) titleEl.textContent = `${res?.test_name || testId} (${model})`;
-      let detail = res?.model_response || res?.error || t("battery.no_response");
-      if (res?.error && res?.model_response) {
-        const errLower = res.error.toLowerCase();
-        const tag = errLower.includes("loop") ? (t("battery.loop_detected") || "Repetition loop detected") : (errLower.includes("skip") ? (t("battery.skipped_manually") || "Manually skipped") : res.error);
-        detail += `\n\n[${tag}]`;
-      }
-      openResponseViewModal(model, detail);
+      const test = tests.find((t) => t.id === testId);
+      const allAtts = [
+        ...((test?.cases || []).flatMap((c) => c.attachments || [])),
+        ...((test?.steps || []).flatMap((s) => s.attachments || [])),
+        ...(test?.sidecars || []),
+      ];
+      openCaseViewModal({
+        title: `${res?.test_name || testId} (${model})`,
+        model,
+        systemPrompt: res?.system_prompt || test?.system_prompt || "",
+        prompt: test?.prompt || "",
+        attachments: allAtts,
+        evalType: test?.evaluation_type || "",
+        evalConfig: test?.evaluation_config || null,
+        response: res?.model_response || "",
+        passed: res?.passed,
+        error: res?.error || "",
+        timeMs: res?.response_time_ms || 0,
+        tps: res?.tokens_per_sec || 0,
+        reasoning: res?.reasoning_used || false,
+      });
     });
   });
 
@@ -3978,12 +4002,134 @@ function closeHumanReviewModal() {
   $("human-review-modal").hidden = true;
 }
 
-function openResponseViewModal(model, response) {
+// openCaseViewModal — rich modal showing all details of a single sub-case or standalone test result.
+// opts = { title, model, systemPrompt, prompt, attachments, evalType, evalConfig, response, passed, error, timeMs, tps }
+function openCaseViewModal(opts) {
+  opts = opts || {};
+  const modal = $("response-view-modal");
+  if (!modal) return;
+
+  // Title
+  const titleEl = $("response-view-modal-title");
+  if (titleEl) titleEl.textContent = opts.title || opts.model || "—";
+
+  // Model
   const modelEl = $("response-view-model");
+  if (modelEl) {
+    modelEl.textContent = opts.model || "—";
+    modelEl.closest(".hr-section").hidden = !opts.model;
+  }
+
+  // System prompt
+  const sysEl = $("response-view-system");
+  if (sysEl) {
+    sysEl.textContent = opts.systemPrompt || "";
+    sysEl.closest(".hr-section").hidden = !(opts.systemPrompt && opts.systemPrompt.trim());
+  }
+
+  // Per-case prompt
+  const promptEl = $("response-view-prompt");
+  if (promptEl) {
+    promptEl.textContent = opts.prompt || "";
+    promptEl.closest(".hr-section").hidden = !(opts.prompt && opts.prompt.trim());
+  }
+
+  // Attachments
+  const attachEl = $("response-view-attachments");
+  if (attachEl) {
+    const atts = opts.attachments || [];
+    if (atts.length > 0) {
+      attachEl.innerHTML = atts.map((att) => {
+        if (att.kind === "image") {
+          const src = `data:${att.mime || "image/jpeg"};base64,${att.data}`;
+          return `<div class="hr-attach-item"><img src="${src}" alt="${escapeHtml(att.name || "")}" class="hr-attach-img" loading="lazy" /></div>`;
+        }
+        if (att.kind === "audio") {
+          const src = `data:${att.mime || "audio/webm"};base64,${att.data}`;
+          return `<div class="hr-attach-item"><audio controls src="${src}" class="hr-attach-audio"></audio><span class="hr-attach-name">${escapeHtml(att.name || "")}</span></div>`;
+        }
+        return `<div class="hr-attach-item"><span class="pill">txt</span><span class="hr-attach-name">${escapeHtml(att.name || "")}</span></div>`;
+      }).join("");
+      attachEl.closest(".hr-section").hidden = false;
+    } else {
+      attachEl.innerHTML = "";
+      attachEl.closest(".hr-section").hidden = true;
+    }
+  }
+
+  // Evaluation / acceptance condition
+  const evalTypeEl = $("response-view-eval-type");
+  const evalCfgEl = $("response-view-eval-config");
+  if (evalTypeEl) {
+    const evalText = opts.evalType ? (t("tests.eval_" + opts.evalType) || opts.evalType) : "";
+    evalTypeEl.textContent = evalText;
+    evalTypeEl.closest(".hr-section").hidden = !evalText;
+  }
+  if (evalCfgEl) {
+    let cfgText = "";
+    let cfgObj = opts.evalConfig;
+    if (cfgObj) {
+      if (typeof cfgObj === "string") { try { cfgObj = JSON.parse(cfgObj); } catch { cfgObj = null; } }
+      if (cfgObj && typeof cfgObj === "object") {
+        if (cfgObj.expected !== undefined) cfgText = `${t("battery.expected") || "Expected"}: ${String(cfgObj.expected)}`;
+        else if (cfgObj.pattern !== undefined) cfgText = `${t("battery.pattern") || "Pattern"}: ${String(cfgObj.pattern)}`;
+        else if (cfgObj.schema !== undefined) cfgText = `Schema:\n${JSON.stringify(cfgObj.schema, null, 2)}`;
+        else cfgText = JSON.stringify(cfgObj, null, 2);
+      } else if (cfgObj) {
+        cfgText = String(cfgObj);
+      }
+    }
+    evalCfgEl.textContent = cfgText;
+    evalCfgEl.hidden = !cfgText;
+  }
+
+  // Agent response
   const contentEl = $("response-view-content");
-  if (modelEl) modelEl.textContent = model || "—";
-  if (contentEl) contentEl.textContent = response || "";
-  $("response-view-modal").hidden = false;
+  if (contentEl) contentEl.textContent = opts.response || t("battery.no_response") || "(no response)";
+
+  // Verdict
+  const verdictEl = $("response-view-verdict");
+  if (verdictEl) {
+    const section = verdictEl.closest(".hr-section");
+    const errLower = (opts.error || "").toLowerCase();
+    const isLoop = errLower.includes("loop") || errLower.includes("bucle");
+    const isSkip = errLower.includes("skip") || errLower.includes("salteo");
+    let verdictHtml = "";
+    if (opts.passed === true) {
+      verdictHtml = `<span class="badge badge-pass" style="font-size:13px;padding:4px 12px;">✔ ${t("battery.pass") || "Pass"}</span>`;
+    } else if (opts.passed === false) {
+      if (isLoop) {
+        verdictHtml = `<span class="badge badge-fail" style="font-size:13px;padding:4px 12px;">🔁 ${t("battery.fail") || "Fail"} — ${t("battery.loop_detected") || "Repetition loop"}</span>`;
+      } else if (isSkip) {
+        verdictHtml = `<span class="badge badge-warn" style="font-size:13px;padding:4px 12px;">⏭️ ${t("battery.skipped_manually") || "Skipped"}</span>`;
+      } else {
+        verdictHtml = `<span class="badge badge-fail" style="font-size:13px;padding:4px 12px;">✖ ${t("battery.fail") || "Fail"}${opts.error ? " — " + escapeHtml(opts.error) : ""}</span>`;
+      }
+    } else if (opts.error) {
+      verdictHtml = `<span class="badge badge-na" style="font-size:13px;padding:4px 12px;">${t("battery.error") || "Error"} — ${escapeHtml(opts.error)}</span>`;
+    } else {
+      verdictHtml = `<span class="badge badge-human" style="font-size:13px;padding:4px 12px;">${t("battery.human_review") || "Pending review"}</span>`;
+    }
+    // Stats
+    const parts = [];
+    if (opts.timeMs > 0) parts.push(`⏱️ ${fmtDuration(opts.timeMs)}`);
+    if (opts.tps > 0) parts.push(`⚡ ${opts.tps.toFixed(1)} tok/s`);
+    if (opts.reasoning) parts.push("🧠");
+    if (parts.length > 0) verdictHtml += `<span class="muted mono" style="font-size:12px;margin-left:10px;">${parts.join("  ")}</span>`;
+    verdictEl.innerHTML = verdictHtml;
+    if (section) section.hidden = false;
+  }
+
+  modal.hidden = false;
+}
+
+// Backward-compat wrapper used by leaderboard history modal and matrix view.
+function openResponseViewModal(model, response) {
+  openCaseViewModal({
+    title: model,
+    model,
+    response,
+  });
 }
 
 function closeResponseViewModal() {

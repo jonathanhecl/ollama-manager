@@ -3165,6 +3165,9 @@ function batteryChartsHtml(run, lbRows, groupIdsPresent, groupName, scores) {
 
 function renderBatteryResults(run) {
   if (!run) return;
+  // Defensive: backend may serialize empty Go slices as null.
+  if (!Array.isArray(run.results)) run.results = [];
+  if (!Array.isArray(run.models)) run.models = [];
   const title = $("battery-results-title");
   if (title) title.textContent = t("battery.results") + " — " + escapeHtml(run.group_name);
 
@@ -3801,7 +3804,7 @@ function renderBatteryResults(run) {
       e.stopPropagation();
       const testId = btn.dataset.testId;
       const model = btn.dataset.model;
-      const res = run.results.find((x) => x.test_id === testId && x.model === model);
+      const res = (run.results || []).find((x) => x.test_id === testId && x.model === model);
       const titleEl = $("response-view-modal-title");
       if (titleEl) titleEl.textContent = `${res?.test_name || testId} (${model})`;
       openResponseViewModal(model, res?.model_response || res?.error || t("battery.no_response"));
@@ -3823,7 +3826,7 @@ function renderBatteryResults(run) {
       const testId = btn.dataset.testId;
       const model = btn.dataset.model;
       const sidx = Number(btn.dataset.subIdx);
-      const res = run.results.find((x) => x.test_id === testId && x.model === model);
+      const res = (run.results || []).find((x) => x.test_id === testId && x.model === model);
       const test = tests.find((t) => t.id === testId);
       const sub = res?.sub_results?.[sidx];
       const caseName = sub?.name || `Case #${sidx + 1}`;
@@ -3884,7 +3887,7 @@ function renderBatteryResults(run) {
       e.stopPropagation();
       const testId = btn.dataset.testId;
       const model = btn.dataset.model;
-      const res = run.results.find((x) => x.test_id === testId && x.model === model);
+      const res = (run.results || []).find((x) => x.test_id === testId && x.model === model);
       const test = tests.find((t) => t.id === testId);
       const allAtts = [
         ...((test?.cases || []).flatMap((c) => c.attachments || [])),
@@ -3934,7 +3937,7 @@ async function submitTestResult(run, testId, model, passed) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ test_id: testId, model, passed }),
   });
-  const result = run.results.find((r) => r.test_id === testId && r.model === model);
+  const result = (run.results || []).find((r) => r.test_id === testId && r.model === model);
   if (result) {
     result.passed = passed;
   }

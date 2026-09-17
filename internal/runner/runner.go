@@ -493,6 +493,7 @@ func (c *Client) ExecuteBatteryAsync(ctx context.Context, group tests.Group, tes
 		GroupID:   group.ID,
 		GroupName: group.Name,
 		Models:    append([]string(nil), modelIDs...),
+		Results:   []TestResult{},
 		SysInfo:   sysInfo,
 	}
 

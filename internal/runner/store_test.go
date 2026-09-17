@@ -471,3 +471,83 @@ func TestGetLatestRunPendingReview_EmptyOutput(t *testing.T) {
 	}
 }
 
+
+func TestLoadQuarantinesCorruptHistory(t *testing.T) {
+	dir := t.TempDir()
+	catDir := filepath.Join(dir, "coding")
+	if err := os.MkdirAll(catDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	badFile := filepath.Join(catDir, "ex._history.json")
+	if err := os.WriteFile(badFile, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewResultStore(dir)
+	if err := store.Load(); err != nil {
+		t.Fatalf("Load should not fail on corrupt history: %v", err)
+	}
+	if _, err := os.Stat(badFile); !os.IsNotExist(err) {
+		t.Fatalf("expected corrupt history to be quarantined (renamed), still exists: %s", badFile)
+	}
+	matches, _ := filepath.Glob(badFile + ".corrupt-*")
+	if len(matches) != 1 {
+		t.Fatalf("expected one quarantined file, got %v", matches)
+	}
+	// A later save must not destroy the quarantined evidence.
+	passed := true
+	if err := store.SaveRun(&BatteryRun{
+		ID:        "run-1",
+		Timestamp: time.Now().UTC(),
+		GroupID:   "coding",
+		GroupName: "Coding",
+		Models:    []string{"m1"},
+		Results:   []TestResult{{TestID: "other", TestName: "Other", Model: "m1", Passed: &passed}},
+	}); err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+	matches, _ = filepath.Glob(badFile + ".corrupt-*")
+	if len(matches) != 1 {
+		t.Fatalf("quarantined evidence must survive later saves, got %v", matches)
+	}
+}
+
+func TestDeleteTestHistoryKeepsSharedExerciseFile(t *testing.T) {
+	dir := t.TempDir()
+	store := NewResultStore(dir)
+	// Force two test IDs to share one exercise base (can happen via
+	// resolve fallbacks): deleting one must not wipe the other's file.
+	store.exerciseMap["t1"] = exerciseLocation{GroupID: "core", Base: "shared"}
+	store.exerciseMap["t2"] = exerciseLocation{GroupID: "core", Base: "shared"}
+
+	passed := true
+	store.runs = []BatteryRun{
+		{
+			ID:        "run-1",
+			Timestamp: time.Now().UTC(),
+			GroupID:   "core",
+			GroupName: "Core",
+			Models:    []string{"m1"},
+			Results: []TestResult{
+				{TestID: "t1", TestName: "A", Model: "m1", Passed: &passed},
+				{TestID: "t2", TestName: "B", Model: "m1", Passed: &passed},
+			},
+		},
+	}
+
+	if err := store.DeleteTestHistory("t1"); err != nil {
+		t.Fatalf("DeleteTestHistory: %v", err)
+	}
+	sharedFile := filepath.Join(dir, "core", "shared._history.json")
+	data, err := os.ReadFile(sharedFile)
+	if err != nil {
+		t.Fatalf("expected shared._history.json to be re-saved with t2, got error: %v", err)
+	}
+	var pf persistFile
+	if err := json.Unmarshal(data, &pf); err != nil {
+		t.Fatalf("unmarshal shared history: %v", err)
+	}
+	if len(pf.Runs) != 1 || len(pf.Runs[0].Results) != 1 || pf.Runs[0].Results[0].TestID != "t2" {
+		t.Fatalf("unexpected shared history content: %+v", pf)
+	}
+}

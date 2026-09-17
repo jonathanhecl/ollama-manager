@@ -248,6 +248,16 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 	// Use background context so async execution survives HTTP request completion.
 	bgCtx := context.Background()
 	runID := s.runner.ExecuteBatteryAsync(bgCtx, group, testsList, body.ModelIDs, modelCaps, sysInfo, func(run *runner.BatteryRun) {
+		if run == nil {
+			return
+		}
+		if len(run.Results) == 0 {
+			// Discarded aborts, fully-skipped runs (no caps match) and total
+			// failures carry no results: don't persist an empty shell. It
+			// would pollute the history list, serialize as "results": null
+			// and create bogus per-exercise history files.
+			return
+		}
 		_ = s.runnerStore.SaveRun(run)
 		if run != nil {
 			for _, testRes := range run.Results {

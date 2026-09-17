@@ -1893,10 +1893,25 @@ async function renderGatewayModels(lang = null, forceRefresh = false) {
 }
 
 function getGatewayModelsSelection() {
-  if (gatewayModelsCache.length === 0 && currentConfig && Array.isArray(currentConfig.gateway?.models)) {
-    return [...currentConfig.gateway.models];
+  // If the gateway model list hasn't loaded yet (cache empty), don't claim
+  // "no models": return the saved config value as-is (or undefined so the
+  // key is omitted from PATCH and the server preserves it). Sending []
+  // here would silently convert null ("all models") into [] ("none").
+  if (gatewayModelsCache.length === 0) {
+    const saved = currentConfig?.gateway?.models;
+    if (Array.isArray(saved)) return [...saved];
+    return undefined;
   }
-  return [...gatewaySelectedModels];
+  const sel = [...gatewaySelectedModels];
+  // Preserve null ("all models") across unrelated saves: if the config never
+  // had an explicit list and everything visible is selected, omit the key
+  // instead of freezing the current list.
+  if (!Array.isArray(currentConfig?.gateway?.models) &&
+      sel.length === gatewayModelsCache.length &&
+      gatewayModelsCache.every((n) => gatewaySelectedModels.has(n))) {
+    return undefined;
+  }
+  return sel;
 }
 
 async function loadGatewayKeys(lang = null) {

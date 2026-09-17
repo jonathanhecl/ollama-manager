@@ -168,7 +168,23 @@ func (s *ResultStore) resolveExerciseLocked(testID, fallbackGroup string) (strin
 	return gid, base
 }
 
-func mergeRunIntoMap(runMap map[string]BatteryRun, incoming BatteryRun) {
+// quarantineRunnerHistory renames a corrupt history file aside so a failed
+// Load never leads to silent data loss when the store later saves fresh
+// state over it.
+func quarantineRunnerHistory(path string) {
+	if path == "" {
+		return
+	}
+	q := path + ".corrupt-" + time.Now().Format("20060102-150405")
+	_ = os.Rename(path, q)
+}
+
+func mergeRunIntoMap(runMap map[string]BatteryRun, incoming BatteryRun) {	if incoming.Results == nil {
+		incoming.Results = []TestResult{}
+	}
+	if incoming.Models == nil {
+		incoming.Models = []string{}
+	}
 	existing, ok := runMap[incoming.ID]
 	if !ok {
 		runMap[incoming.ID] = incoming
@@ -278,8 +294,9 @@ func (s *ResultStore) Load() error {
 
 				// Check for per-exercise history: <base>._history.json
 				if strings.HasSuffix(lower, "._history.json") {
+					histPath := filepath.Join(catDir, name)
 					base := name[:len(name)-len("._history.json")]
-					data, err := os.ReadFile(filepath.Join(catDir, name))
+					data, err := os.ReadFile(histPath)
 					if err != nil {
 						continue
 					}
@@ -295,7 +312,13 @@ func (s *ResultStore) Load() error {
 								mergeRunIntoMap(runMap, r)
 							}
 						}
+						continue
 					}
+					// Corrupt history file: quarantine it for forensics instead
+					// of silently dropping its runs. Without this, the next
+					// saveExerciseLocked would overwrite the file and the
+					// history would be lost forever.
+					quarantineRunnerHistory(histPath)
 					continue
 				}
 
@@ -326,6 +349,12 @@ func (s *ResultStore) Load() error {
 	// rewritten so the correction is persisted.
 	rescoredExercises := make(map[exerciseLocation]struct{})
 	for _, r := range runMap {
+		if r.Results == nil {
+			r.Results = []TestResult{}
+		}
+		if r.Models == nil {
+			r.Models = []string{}
+		}
 		SanitizeEmptyReviewResults(r.Results)
 		for i := range r.Results {
 			if rescoreResultFromSubResults(&r.Results[i]) {
@@ -361,6 +390,12 @@ func (s *ResultStore) SaveRun(run *BatteryRun) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if run.Results == nil {
+		run.Results = []TestResult{}
+	}
+	if run.Models == nil {
+		run.Models = []string{}
+	}
 	SanitizeEmptyReviewResults(run.Results)
 	for i := range run.Results {
 		rescoreResultFromSubResults(&run.Results[i])
@@ -402,6 +437,14 @@ func (s *ResultStore) GetRuns() []BatteryRun {
 	defer s.mu.Unlock()
 	out := make([]BatteryRun, len(s.runs))
 	copy(out, s.runs)
+	for i := range out {
+		if out[i].Results == nil {
+			out[i].Results = []TestResult{}
+		}
+		if out[i].Models == nil {
+			out[i].Models = []string{}
+		}
+	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Timestamp.After(out[j].Timestamp)
 	})
@@ -414,6 +457,12 @@ func (s *ResultStore) GetRun(id string) (BatteryRun, bool) {
 	defer s.mu.Unlock()
 	for _, r := range s.runs {
 		if r.ID == id {
+			if r.Results == nil {
+				r.Results = []TestResult{}
+			}
+			if r.Models == nil {
+				r.Models = []string{}
+			}
 			return r, true
 		}
 	}
@@ -946,9 +995,29 @@ func (s *ResultStore) DeleteTestHistory(testID string) error {
 
 	s.runs = kept
 
-	// Remove target exercise history file
-	targetFile := filepath.Join(s.dir, targetGid, targetBase+"._history.json")
-	_ = os.Remove(targetFile)
+	// Remove the target exercise history file only when no remaining
+	// results still map to it (several test IDs can resolve to one exercise
+	// base via fallbacks). Otherwise re-save it with what is left instead
+	// of deleting other tests' history.
+	targetStillUsed := false
+	for _, run := range kept {
+		for _, res := range run.Results {
+			gid, base := s.resolveExerciseLocked(res.TestID, run.GroupID)
+			if gid == targetGid && base == targetBase {
+				targetStillUsed = true
+				break
+			}
+		}
+		if targetStillUsed {
+			break
+		}
+	}
+	if targetStillUsed {
+		_ = s.saveExerciseLocked(targetGid, targetBase)
+	} else {
+		targetFile := filepath.Join(s.dir, targetGid, targetBase+"._history.json")
+		_ = os.Remove(targetFile)
+	}
 
 	// Save any other affected exercises
 	for ex := range affected {

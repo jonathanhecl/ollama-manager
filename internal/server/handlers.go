@@ -1097,6 +1097,30 @@ type modelMetaCache struct {
 	IsMOE          bool
 }
 
+// projectorCaps are the capabilities that only work when a vision/audio
+// projector (mmproj) is attached.
+var projectorCaps = map[string]bool{"vision": true, "audio": true}
+
+// withoutProjectorCaps drops vision/audio from caps when no projector is
+// attached. Ollama's /api/show reports them from the GGUF architecture
+// metadata even for community imports that ship no projector, which would
+// otherwise mark a text-only model as vision-capable and force it through
+// vision tests it cannot run. A present projector_info means a real mmproj
+// blob exists, so its capabilities are kept as-is.
+func withoutProjectorCaps(caps []string, hasProjector bool) []string {
+	if hasProjector {
+		return caps
+	}
+	out := make([]string, 0, len(caps))
+	for _, c := range caps {
+		if projectorCaps[strings.ToLower(strings.TrimSpace(c))] {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // fetchModelMeta returns digest-keyed model metadata for list rendering,
 // using an in-memory cache. Cache misses are resolved in parallel via
 // /api/show. Failed lookups are NOT cached (values stay zero/empty for that
@@ -1171,7 +1195,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 				digest:         m.Digest,
 				ok:             true,
 				contextLen:     extractContextLength(show),
-				capabilities:   append([]string(nil), show.Capabilities...),
+				capabilities:   withoutProjectorCaps(append([]string(nil), show.Capabilities...), len(show.ProjectorInfo) > 0),
 				parameterCount: extractParameterCount(show),
 				architecture:   extractArchitecture(show),
 				fileType:       extractFileType(show),
@@ -1417,7 +1441,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		Template:     show.Template,
 		System:       show.System,
 		Details:      show.Details,
-		Capabilities: show.Capabilities,
+		Capabilities: withoutProjectorCaps(append([]string(nil), show.Capabilities...), len(show.ProjectorInfo) > 0),
 		ModifiedAt:   show.ModifiedAt,
 		IsCustom:     isCustom,
 		BaseModel:    baseModel,

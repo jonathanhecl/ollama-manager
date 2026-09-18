@@ -621,8 +621,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 
 	hasVision := false
 	if show, err := s.ollama.Show(ctx, body.Model); err == nil && show != nil {
-		for _, c := range show.Capabilities {
-			if c == "vision" {
+		caps := withoutProjectorCaps(show.Capabilities, len(show.ProjectorInfo) > 0)
+		for _, c := range caps {
+			if strings.EqualFold(c, "vision") {
 				hasVision = true
 				break
 			}

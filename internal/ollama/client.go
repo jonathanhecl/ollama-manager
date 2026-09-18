@@ -74,15 +74,20 @@ type RunningModel struct {
 // kept as raw JSON values because keys are namespaced by family
 // (e.g. qwen3.context_length, gemma3.context_length).
 type ShowResponse struct {
-	License      string                     `json:"license"`
-	Modelfile    string                     `json:"modelfile"`
-	Parameters   string                     `json:"parameters"`
-	Template     string                     `json:"template"`
-	System       string                     `json:"system,omitempty"`
-	Details      ModelDetails               `json:"details"`
-	ModelInfo    map[string]json.RawMessage `json:"model_info"`
-	Capabilities []string                   `json:"capabilities"`
-	ModifiedAt   time.Time                  `json:"modified_at"`
+	License    string                     `json:"license"`
+	Modelfile  string                     `json:"modelfile"`
+	Parameters string                     `json:"parameters"`
+	Template   string                     `json:"template"`
+	System     string                     `json:"system,omitempty"`
+	Details    ModelDetails               `json:"details"`
+	ModelInfo  map[string]json.RawMessage `json:"model_info"`
+	// ProjectorInfo is present only when a vision/audio projector (mmproj)
+	// blob is attached. Ollama may still list "vision"/"audio" in
+	// Capabilities for multimodal GGUFs imported without a projector, so
+	// callers use this to tell a real vision model from a text-only import.
+	ProjectorInfo map[string]json.RawMessage `json:"projector_info"`
+	Capabilities  []string                   `json:"capabilities"`
+	ModifiedAt    time.Time                  `json:"modified_at"`
 }
 
 // PullProgress is one streamed event from POST /api/pull.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
@@ -51,5 +52,51 @@ func TestFetchModelMetaRetriesShowFailures(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("show calls = %d, want 2", calls.Load())
+	}
+}
+
+// /api/show can list vision/audio for a multimodal-family GGUF imported
+// without an mmproj, so text-only models must not be marked vision-capable
+// (which would force them through vision tests they cannot run).
+func TestFetchModelMetaStripsVisionWithoutProjector(t *testing.T) {
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/show" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"capabilities": []string{"completion", "tools", "thinking", "vision", "audio"},
+		})
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	models := []ollama.Model{{Name: "text-only:latest", Digest: "sha256:no-proj"}}
+	got := srv.fetchModelMeta(context.Background(), models)["sha256:no-proj"].Capabilities
+	want := []string{"completion", "tools", "thinking"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("caps = %v, want %v (vision/audio without projector)", got, want)
+	}
+}
+
+func TestFetchModelMetaKeepsVisionWithProjector(t *testing.T) {
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/show" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"capabilities":   []string{"completion", "vision"},
+			"projector_info": map[string]any{"clip.has_vision_encoder": true},
+		})
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	models := []ollama.Model{{Name: "vlm:latest", Digest: "sha256:proj"}}
+	got := srv.fetchModelMeta(context.Background(), models)["sha256:proj"].Capabilities
+	want := []string{"completion", "vision"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("caps = %v, want %v (projector keeps vision)", got, want)
 	}
 }

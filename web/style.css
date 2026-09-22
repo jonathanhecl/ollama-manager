@@ -12014,6 +12014,9 @@ button.chat-send:disabled:hover {
   align-items: center;
   gap: 14px;
   flex-shrink: 0;
+  /* Left rail: keep a stable width so the name column stays aligned across
+     rows even though the download/like counts vary in length. */
+  min-width: 172px;
 }
 
 .hf-row-stats {
@@ -12686,10 +12689,12 @@ button.chat-send:disabled:hover {
   }
 
   .hf-row-meta {
+    order: 1;
     justify-content: space-between;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
     padding-top: 8px;
     width: 100%;
+    min-width: 0;
   }
 
   .hf-row-stats {

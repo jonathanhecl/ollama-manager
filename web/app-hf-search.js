@@ -529,8 +529,25 @@ function hfModelCardHTML(m) {
 
   const hfUrl = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
 
+  // Left rail: popularity stats + link to the Hugging Face page.
+  // Right (main): model name, then updated + capability/record chips.
+  const hfLinkHTML = `<a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+        </a>`;
+
   return `
     <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="${escapeHtml(m.id)}">
+      <div class="hf-row-meta">
+        <div class="hf-row-stats">
+          <span class="hf-stat" title="${dlCount} ${escapeHtml(t("hf.downloads_count", { n: dlCount }) || "downloads")}">⬇️ ${dlCount}</span>
+          <span class="hf-stat" title="${likesCount} ${escapeHtml(t("hf.likes_count", { n: likesCount }) || "likes")}">❤️ ${likesCount}</span>
+        </div>
+        ${hfLinkHTML}
+      </div>
       <div class="hf-row-main">
         <div class="hf-row-primary">
           ${statusTagHTML}
@@ -540,23 +557,10 @@ function hfModelCardHTML(m) {
           </div>
         </div>
         <div class="hf-row-secondary">
+          ${updatedLabel ? `<span class="hf-stat hf-stat-time muted" title="${escapeHtml(updatedTooltip)}"><span class="hf-stat-time-icon">🕒</span> <span class="hf-stat-time-text">${escapeHtml(updatedLabel)}</span></span>` : ""}
           <div class="hf-row-tags">${tagsHTML}</div>
           ${perfRecordHTML}
         </div>
-      </div>
-      <div class="hf-row-meta">
-        <div class="hf-row-stats">
-          <span class="hf-stat" title="${dlCount} ${escapeHtml(t("hf.downloads_count", { n: dlCount }) || "downloads")}">⬇️ ${dlCount}</span>
-          <span class="hf-stat" title="${likesCount} ${escapeHtml(t("hf.likes_count", { n: likesCount }) || "likes")}">❤️ ${likesCount}</span>
-          ${updatedLabel ? `<span class="hf-stat hf-stat-time muted" title="${escapeHtml(updatedTooltip)}"><span class="hf-stat-time-icon">🕒</span> <span class="hf-stat-time-text">${escapeHtml(updatedLabel)}</span></span>` : ""}
-        </div>
-        <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-            <polyline points="15 3 21 3 21 9"></polyline>
-            <line x1="10" y1="14" x2="21" y2="3"></line>
-          </svg>
-        </a>
       </div>
     </div>
   `;

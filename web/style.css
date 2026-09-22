@@ -5502,8 +5502,9 @@ button.chat-send:disabled:hover {
 
 /* Tablet (<=900px): the full table squeezes Record/Bench instead of the
    name (long hf.co/... names force the table wider than the viewport).
-   Switch early to a fixed, mobile-like layout: Name + Record + Bench only,
-   with ellipsis on the name so metric columns are never crushed. */
+   Switch early to a fixed, mobile-like layout: Name + Record + Bench only.
+   Metric columns keep fixed widths; the name column takes the remaining
+   space and long names scroll via the marquee animation. */
 @media (max-width: 900px) {
   .table-wrap {
     overflow-x: hidden;
@@ -5560,11 +5561,14 @@ button.chat-send:disabled:hover {
     min-width: 0;
     max-width: 100%;
   }
+  /* Let the name keep its natural width so the marquee can measure the
+     overflow and scroll it. Clipping/ellipsis here caps scrollWidth at the
+     track width and disables the animation. */
   .model-name-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
     white-space: nowrap;
-    max-width: 100%;
   }
   .model-parent-name {
     overflow: hidden;

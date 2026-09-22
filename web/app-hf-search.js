@@ -561,7 +561,7 @@ function hfModelCardHTML(m) {
           ${statusTagHTML}
           <div class="hf-row-title-wrap">
             <div class="hf-row-title-inner">
-              <span class="hf-row-author">${author} /</span>
+              <span class="hf-row-author">${author}/</span>
               <span class="hf-row-name">${name}</span>
             </div>
           </div>

@@ -579,12 +579,18 @@ function renderTable() {
       ? `<div class="model-parent-name mono muted" title="${escapeHtml(t("models.custom_based_on", { base: baseModel }))}"><span class="model-parent-arrow">↳</span> ${escapeHtml(baseModel)}</div>`
       : "";
 
+    // Split "namespace/model" so the namespace can be de-emphasized and the
+    // model name highlighted (same treatment as the HF list).
+    const nameSlash = m.name.indexOf("/");
+    const nsPart = nameSlash > 0 ? m.name.slice(0, nameSlash) : "";
+    const basePart = nameSlash > 0 ? m.name.slice(nameSlash + 1) : m.name;
+
     return `
       <td class="col-state">${stateDotHtml}</td>
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name model-name-track"><span class="model-name-text">${escapeHtml(m.name)}</span>${extTag}${customTag}${ghostTag}</div>
+            <div class="model-name model-name-track"><span class="model-name-text">${nsPart ? `<span class="model-name-author">${escapeHtml(nsPart)}/</span>` : ""}<span class="model-name-base">${escapeHtml(basePart)}</span></span>${extTag}${customTag}${ghostTag}</div>
             ${parentHtml}
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}

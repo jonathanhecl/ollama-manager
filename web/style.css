@@ -464,6 +464,17 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
   font-family: var(--mono);
   vertical-align: middle;
 }
+
+.model-name-author {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.model-name-base {
+  font-size: 14.5px;
+  font-weight: 600;
+}
 .model-family-tag {
   font-size: 11px;
   font-weight: 400;
@@ -12024,7 +12035,7 @@ button.chat-send:disabled:hover {
 .hf-row-title-inner {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 0;
   white-space: nowrap;
 }
 

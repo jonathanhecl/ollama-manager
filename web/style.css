@@ -473,7 +473,7 @@ tbody tr.empty td { text-align: center; color: var(--muted); padding: 30px; }
 
 .model-name-base {
   font-size: 14.5px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .model-family-tag {
   font-size: 11px;
@@ -12047,7 +12047,7 @@ button.chat-send:disabled:hover {
 
 .hf-row-name {
   font-size: 14.5px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text);
   white-space: nowrap;
 }

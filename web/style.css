@@ -2611,6 +2611,36 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   word-break: break-word;
 }
 
+/* Anchor that matches button.ghost, used for "Open repo on HuggingFace"
+   actions inside error/hint blocks (anchors don't inherit button.ghost). */
+.hf-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.hf-link-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--panel-2);
+}
+.hf-link-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 .dl-foot {
   display: flex;
   justify-content: space-between;

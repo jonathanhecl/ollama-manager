@@ -672,8 +672,8 @@ function renderHFModelDetail(m) {
     if (m.is_gated || m.gated) {
       const repoUrl = `https://huggingface.co/${m.id}`;
       gatedBox.innerHTML = `<div>${escapeHtml(t("hf.gated_warn", { url: repoUrl }))}</div>
-        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-          <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="ghost" style="text-decoration:none;padding:4px 10px;border:1px solid var(--border);border-radius:8px;">${escapeHtml(t("hf.gated_open"))} ↗</a>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="hf-link-btn">${escapeHtml(t("hf.gated_open"))} ↗</a>
           <button type="button" class="ghost" onclick="openHuggingFaceSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button>
         </div>`;
       gatedBox.hidden = false;

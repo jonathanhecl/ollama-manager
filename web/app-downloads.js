@@ -470,7 +470,7 @@ function hfAuthHint(err, jobName) {
   const s = String(err).toLowerCase();
   const repoUrl = hfRepoUrlFromJobName(jobName);
   const openRepoBtn = repoUrl
-    ? `<a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="ghost" style="text-decoration:none;padding:4px 10px;border:1px solid var(--border);border-radius:8px;">${escapeHtml(t("downloads.hf_open_repo"))} ↗</a>`
+    ? `<a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="hf-link-btn">${escapeHtml(t("downloads.hf_open_repo"))} ↗</a>`
     : "";
   // 1. Blocked redirect to XET CDN: transient HF/Ollama issue, not your keys.
   if (s.includes("blocked redirect")) {

@@ -236,11 +236,39 @@ function renderHFModelsList() {
   }
   if (emptyEl) emptyEl.hidden = true;
 
-  listEl.innerHTML = filtered.map((m) => hfModelCardHTML(m)).join("");
+  const headHTML = `
+    <div class="hf-list-head" aria-hidden="true">
+      <span class="hf-col hf-col-model">${escapeHtml(t("col.name"))}</span>
+      <span class="hf-col hf-col-quants">${escapeHtml(t("hf.col_quants"))}</span>
+      <span class="hf-col hf-col-record">${escapeHtml(t("hf.col_record"))}</span>
+      <span class="hf-col hf-col-bench">${escapeHtml(t("hf.col_bench"))}</span>
+      <span class="hf-col hf-col-updated">${escapeHtml(t("hf.col_updated"))}</span>
+      <span class="hf-col hf-col-downloads">${escapeHtml(t("hf.col_downloads"))}</span>
+      <span class="hf-col hf-col-likes">${escapeHtml(t("hf.col_likes"))}</span>
+      <span class="hf-col hf-col-link"></span>
+    </div>`;
+  listEl.innerHTML = headHTML + filtered.map((m) => hfModelCardHTML(m)).join("");
   if (loadMoreWrap) {
     loadMoreWrap.hidden = !hfHasMore;
   }
+  updateHFMarquees();
 }
+
+// Scrolls truncated model names (like the models list). Names only truncate in
+// the single-line column layout; on mobile they wrap, so no animation runs.
+function updateHFMarquees() {
+  if (typeof updateMarquee !== "function") return;
+  document.querySelectorAll("#hf-models-list .hf-row-title-wrap").forEach((track) => {
+    const text = track.querySelector(".hf-row-title-inner");
+    if (text) updateMarquee(track, text);
+  });
+}
+
+window.addEventListener("resize", () => {
+  if (typeof currentView !== "undefined" && currentView === "hf") {
+    updateHFMarquees();
+  }
+});
 
 function normalizeHFModelName(name) {
   if (!name) return "";
@@ -501,37 +529,20 @@ function hfModelCardHTML(m) {
     statusTagHTML = `<span class="hf-status-tag" title="${escapeHtml(statusTooltip)}">${statusEmoji}</span>`;
   }
 
-  let tagsHTML = "";
   const qCountText = m.gguf_count > 0 ? t("hf.quants_tag", { n: m.gguf_count }) : t("hf.tag_gguf");
-  tagsHTML += `<span class="badge badge-subtle">${escapeHtml(qCountText)}</span>`;
-  if (m.has_ollama) {
-    tagsHTML += ` <span class="badge badge-accent">${t("hf.tag_ollama")}</span>`;
-  }
-  if (m.has_vision) {
-    tagsHTML += ` <span class="badge badge-vision">${t("hf.tag_vision")}</span>`;
-  }
+  const updatedCellText = updatedRelTime && updatedRelTime !== "—" ? updatedRelTime : "—";
 
-  // Personal performance record chip (if user previously had or currently has this model)
-  let perfRecordHTML = "";
-  if (installStatus.bestTps > 0 || installStatus.bestBench != null) {
-    const perfParts = [];
-    if (installStatus.bestTps > 0) {
-      const color = getHFToksColor(installStatus.bestTps);
-      const colorStyle = color ? ` style="color: ${color};"` : "";
-      perfParts.push(`<span class="hf-row-perf-tps"${colorStyle} title="${escapeHtml(t("models.col_toks"))}">⚡ ${installStatus.bestTps.toFixed(1)} <span class="hf-row-perf-unit">tok/s</span></span>`);
-    }
-    if (installStatus.bestBench != null) {
-      const heatStyle = getHFBenchHeatStyle(installStatus.bestBench);
-      perfParts.push(`<span class="hf-row-perf-bench" style="${heatStyle}" title="${escapeHtml(t("hf.bench_overall_label"))}">🎯 ${installStatus.bestBench.toFixed(1)}</span>`);
-    }
-    perfRecordHTML = `<div class="hf-row-perf">${perfParts.join(" ")}</div>`;
-  }
+  const recordColor = installStatus.bestTps > 0 ? getHFToksColor(installStatus.bestTps) : "";
+  const recordCell = installStatus.bestTps > 0
+    ? `<span class="hf-chip hf-chip-record" title="${escapeHtml(t("models.col_toks"))}"><span class="hf-row-perf-tps"${recordColor ? ` style="color: ${recordColor};"` : ""}>⚡ ${installStatus.bestTps.toFixed(1)} <span class="hf-row-perf-unit">tok/s</span></span></span>`
+    : `<span class="hf-chip hf-chip-record hf-chip-empty">—</span>`;
+  const benchCell = installStatus.bestBench != null
+    ? `<span class="hf-chip hf-chip-bench" title="${escapeHtml(t("hf.bench_overall_label"))}"><span class="hf-row-perf-bench" style="${getHFBenchHeatStyle(installStatus.bestBench)}">🎯 ${installStatus.bestBench.toFixed(1)}</span></span>`
+    : `<span class="hf-chip hf-chip-bench hf-chip-empty">—</span>`;
 
   const hfUrl = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
 
-  // Left rail: popularity stats + link to the Hugging Face page.
-  // Right (main): model name, then updated + capability/record chips.
-  const hfLinkHTML = `<a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
+  const hfLinkHTML = `<a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link hf-cell-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
             <polyline points="15 3 21 3 21 9"></polyline>
@@ -539,28 +550,35 @@ function hfModelCardHTML(m) {
           </svg>
         </a>`;
 
+  const visionBadge = m.has_vision ? `<span class="badge badge-vision">${t("hf.tag_vision")}</span>` : "";
+
+  // Columnar row: model columns are fixed-width cells so the values align
+  // across rows. On mobile the wrappers reflow into a compact card.
   return `
     <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="${escapeHtml(m.id)}">
-      <div class="hf-row-meta">
-        <div class="hf-row-stats">
-          <span class="hf-stat" title="${dlCount} ${escapeHtml(t("hf.downloads_count", { n: dlCount }) || "downloads")}">⬇️ ${dlCount}</span>
-          <span class="hf-stat" title="${likesCount} ${escapeHtml(t("hf.likes_count", { n: likesCount }) || "likes")}">❤️ ${likesCount}</span>
-        </div>
-        ${hfLinkHTML}
-      </div>
-      <div class="hf-row-main">
-        <div class="hf-row-primary">
+      <div class="hf-cell-model">
+        <div class="hf-cell-model-line">
           ${statusTagHTML}
           <div class="hf-row-title-wrap">
-            <span class="hf-row-author">${author} /</span>
-            <span class="hf-row-name">${name}</span>
+            <div class="hf-row-title-inner">
+              <span class="hf-row-author">${author} /</span>
+              <span class="hf-row-name">${name}</span>
+            </div>
           </div>
         </div>
-        <div class="hf-row-secondary">
-          ${updatedLabel ? `<span class="hf-stat hf-stat-time muted" title="${escapeHtml(updatedTooltip)}"><span class="hf-stat-time-icon">🕒</span> <span class="hf-stat-time-text">${escapeHtml(updatedLabel)}</span></span>` : ""}
-          <div class="hf-row-tags">${tagsHTML}</div>
-          ${perfRecordHTML}
-        </div>
+        ${m.has_vision ? `<div class="hf-cell-caps hf-caps-desktop">${visionBadge}</div>` : ""}
+      </div>
+      <div class="hf-cell-chips">
+        ${m.has_vision ? `<span class="hf-chip hf-chip-vision hf-caps-mobile">${visionBadge}</span>` : ""}
+        <span class="hf-chip hf-chip-quants" title="${escapeHtml(t("hf.quants_count", { n: m.gguf_count }) || qCountText)}"><span class="badge badge-subtle"><span class="hf-q-long">${escapeHtml(qCountText)}</span><span class="hf-q-short">${m.gguf_count}q</span></span></span>
+        ${recordCell}
+        ${benchCell}
+      </div>
+      <span class="hf-cell-updated hf-stat hf-stat-time muted" title="${escapeHtml(updatedTooltip)}"><span class="hf-stat-time-icon hf-cell-ico">🕒</span> <span class="hf-stat-time-text">${escapeHtml(updatedCellText)}</span></span>
+      <div class="hf-cell-footer">
+        <span class="hf-stat hf-stat-downloads" title="${dlCount} ${escapeHtml(t("hf.downloads_count", { n: dlCount }) || "downloads")}"><span class="hf-cell-ico">⬇️</span> ${dlCount}</span>
+        <span class="hf-stat hf-stat-likes" title="${likesCount} ${escapeHtml(t("hf.likes_count", { n: likesCount }) || "likes")}"><span class="hf-cell-ico">❤️</span> ${likesCount}</span>
+        ${hfLinkHTML}
       </div>
     </div>
   `;

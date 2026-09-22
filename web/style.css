@@ -11835,10 +11835,52 @@ button.chat-send:disabled:hover {
   padding: 12px 16px;
   cursor: pointer;
   transition: all 0.15s ease;
-  display: flex;
+  display: grid;
+  /* Model | Quants | Record | Bench | Updated | Downloads | Likes | Link */
+  grid-template-columns:
+    minmax(0, 1fr)
+    86px
+    104px
+    72px
+    108px
+    112px
+    88px
+    34px;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  column-gap: 14px;
+}
+
+/* Non-sortable column header, aligned to the same grid as the rows. */
+.hf-list-head {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    86px
+    104px
+    72px
+    108px
+    112px
+    88px
+    34px;
+  column-gap: 14px;
+  align-items: center;
+  padding: 2px 16px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  user-select: none;
+}
+
+.hf-col-quants,
+.hf-col-record,
+.hf-col-bench,
+.hf-col-updated,
+.hf-col-downloads,
+.hf-col-likes {
+  justify-self: end;
+  text-align: right;
 }
 
 .hf-model-row:hover,
@@ -11921,28 +11963,68 @@ button.chat-send:disabled:hover {
   white-space: nowrap;
 }
 
-.hf-row-main {
+.hf-cell-model {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  flex: 1;
 }
 
-.hf-row-primary {
+.hf-cell-model-line {
   display: flex;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
 }
 
+.hf-cell-caps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Desktop shows Vision under the name; mobile shows it inline with the chips. */
+.hf-chip.hf-caps-mobile,
+.hf-q-short {
+  display: none;
+}
+
+/* Wrappers are layout-transparent on desktop so each metric becomes its own
+   grid column, but group into a row/stack on mobile. */
+.hf-cell-chips,
+.hf-cell-footer {
+  display: contents;
+}
+
+.hf-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.hf-chip-empty {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
 .hf-row-title-wrap {
   display: flex;
   align-items: baseline;
-  gap: 6px;
   min-width: 0;
   flex: 1;
   overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Inner track: keeps its natural width so the marquee can measure and scroll
+   long names; the wrapper clips. */
+.hf-row-title-inner {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   white-space: nowrap;
 }
 
@@ -11956,23 +12038,7 @@ button.chat-send:disabled:hover {
   font-size: 14.5px;
   font-weight: 600;
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.hf-row-secondary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.hf-row-tags {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
 }
 
 .hf-row-perf {
@@ -12009,23 +12075,24 @@ button.chat-send:disabled:hover {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.hf-row-meta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
-  /* Left rail: keep a stable width so the name column stays aligned across
-     rows even though the download/like counts vary in length. */
-  min-width: 172px;
+.hf-cell-updated {
+  justify-self: end;
+  text-align: right;
 }
 
-.hf-row-stats {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 11.5px;
-  color: var(--muted);
+/* Icons are redundant under a column header: show them only in the mobile card. */
+.hf-cell-ico {
+  display: none;
+}
+
+.hf-stat-downloads,
+.hf-stat-likes {
+  justify-self: end;
   white-space: nowrap;
+}
+
+.hf-cell-link {
+  justify-self: end;
 }
 
 .hf-stat-time {
@@ -12608,13 +12675,23 @@ button.chat-send:disabled:hover {
 @media (max-width: 1024px) {
   .hf-model-row {
     padding: 10px 14px;
-    gap: 12px;
+    /* Drop the Bench column. */
+    grid-template-columns: minmax(0, 1fr) 82px 100px 104px 108px 84px 34px;
+    column-gap: 12px;
+  }
+  .hf-list-head {
+    grid-template-columns: minmax(0, 1fr) 82px 100px 104px 108px 84px 34px;
+    column-gap: 12px;
+    padding: 2px 14px 8px;
+  }
+  .hf-chip-bench,
+  .hf-col-bench {
+    display: none;
   }
   .hf-row-name {
     font-size: 14px;
   }
-  .hf-row-stats {
-    gap: 10px;
+  .hf-stat-time {
     font-size: 11px;
   }
   .hf-quants-table .hf-cell-quant-file { width: 34%; }
@@ -12629,6 +12706,130 @@ button.chat-send:disabled:hover {
     max-height: 90dvh;
     padding: 18px 16px;
     overflow: hidden;
+  }
+}
+
+/* Narrow tablet (max-width: 900px): drop Vision and Record too. */
+@media (max-width: 900px) {
+  .hf-model-row {
+    grid-template-columns: minmax(0, 1fr) 72px 96px 100px 72px 30px;
+    column-gap: 8px;
+  }
+  .hf-list-head {
+    grid-template-columns: minmax(0, 1fr) 72px 96px 100px 72px 30px;
+    column-gap: 8px;
+  }
+  .hf-chip-record,
+  .hf-col-record {
+    display: none;
+  }
+}
+
+/* Tablet portrait (max-width: 700px): fall back to the compact card. */
+@media (max-width: 700px) {
+  .hf-list-head {
+    display: none;
+  }
+
+  .hf-model-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .hf-cell-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* The card has room again, so bring back the columns hidden for tablet. */
+  .hf-chip-record,
+  .hf-chip-bench {
+    display: inline-flex;
+  }
+
+  /* Vision joins the chips line; quants collapses to "5q"; the HF link lives
+     in the detail modal only. */
+  .hf-caps-desktop {
+    display: none;
+  }
+
+  .hf-chip.hf-caps-mobile {
+    display: inline-flex;
+  }
+
+  .hf-q-long {
+    display: none;
+  }
+
+  .hf-q-short {
+    display: inline;
+  }
+
+  .hf-cell-link {
+    display: none;
+  }
+
+  /* No column headers on mobile, so placeholders ("—") are just noise. */
+  .hf-chip-empty {
+    display: none;
+  }
+
+  /* ...and the icons are needed again to label the stats. */
+  .hf-cell-ico {
+    display: inline;
+  }
+
+  .hf-chip {
+    justify-content: flex-start;
+  }
+
+  .hf-cell-updated {
+    justify-self: auto;
+    text-align: left;
+  }
+
+  .hf-cell-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    width: 100%;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 8px;
+  }
+
+  .hf-cell-link {
+    margin-left: auto;
+  }
+
+  .hf-stat-downloads,
+  .hf-stat-likes {
+    justify-self: auto;
+    font-size: 11px;
+  }
+
+  .hf-row-title-wrap {
+    white-space: normal;
+  }
+
+  .hf-row-title-inner {
+    display: flex;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .hf-row-name {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .hf-stat-time {
+    max-width: none;
   }
 }
 
@@ -12664,47 +12865,6 @@ button.chat-send:disabled:hover {
   .hf-time-chip {
     flex-shrink: 0;
     white-space: nowrap;
-  }
-
-  .hf-model-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    padding: 12px 14px;
-  }
-
-  .hf-row-primary {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .hf-row-title-wrap {
-    white-space: normal;
-    flex-wrap: wrap;
-  }
-
-  .hf-row-name {
-    white-space: normal;
-    word-break: break-word;
-  }
-
-  .hf-row-meta {
-    order: 1;
-    justify-content: space-between;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    padding-top: 8px;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .hf-row-stats {
-    gap: 10px;
-    font-size: 11px;
-    flex-wrap: wrap;
-  }
-
-  .hf-stat-time {
-    max-width: none;
   }
 
   /* Table responsive card layout on mobile */
@@ -12882,7 +13042,7 @@ button.chat-send:disabled:hover {
 
 /* Extra small mobile (max-width: 480px) */
 @media (max-width: 480px) {
-  .hf-row-stats {
+  .hf-cell-footer {
     gap: 6px 10px;
     font-size: 10.5px;
     flex-wrap: wrap;

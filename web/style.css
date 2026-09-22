@@ -12052,6 +12052,17 @@ button.chat-send:disabled:hover {
   white-space: nowrap;
 }
 
+.hf-gated-key {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1;
+  margin-left: 6px;
+  flex-shrink: 0;
+  user-select: none;
+  cursor: help;
+}
+
 .hf-row-perf {
   display: inline-flex;
   align-items: center;

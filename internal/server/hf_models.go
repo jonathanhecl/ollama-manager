@@ -25,10 +25,14 @@ type HFModelSummary struct {
 	Tags         []string  `json:"tags"`
 	PipelineTag  string    `json:"pipeline_tag"`
 	IsPrivate    bool      `json:"private"`
-	HasGGUF      bool      `json:"has_gguf"`
-	HasOllama    bool      `json:"has_ollama"`
-	HasVision    bool      `json:"has_vision"`
-	GGUFCount    int       `json:"gguf_count"`
+	// IsGated is true when the repo requires accepting conditions on
+	// huggingface.co before Ollama can pull it (HF "gated": "manual"/"auto").
+	IsGated   bool   `json:"is_gated,omitempty"`
+	Gated     string `json:"gated,omitempty"`
+	HasGGUF   bool   `json:"has_gguf"`
+	HasOllama bool   `json:"has_ollama"`
+	HasVision bool   `json:"has_vision"`
+	GGUFCount int    `json:"gguf_count"`
 }
 
 // HFQuantFile represents a single GGUF or mmproj file in a repository.
@@ -59,6 +63,83 @@ type HFModelDetail struct {
 	HasVision      bool          `json:"has_vision"`
 	TotalGGUFCount int           `json:"total_gguf_count"`
 	SuggestedQuant string        `json:"suggested_quant,omitempty"`
+	// IsGated mirrors HFModelSummary.IsGated for the detail view.
+	IsGated bool   `json:"is_gated,omitempty"`
+	Gated   string `json:"gated,omitempty"`
+	// UsesXet is a best-effort probe: true when the first GGUF resolves to
+	// an XET CDN host (xet-bridge / cdn.hf.co). Those pulls currently fail
+	// on Ollama with "blocked redirect to a different host" — usually
+	// transient, retry later or use `ollama pull --insecure` in a terminal.
+	UsesXet bool `json:"uses_xet,omitempty"`
+}
+
+// parseHFGated normalizes the HF "gated" field, which is either boolean
+// false or a string ("manual", "auto", "true").
+func parseHFGated(raw json.RawMessage) (bool, string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false, ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		sl := strings.ToLower(strings.TrimSpace(s))
+		if sl == "" || sl == "false" || sl == "no" {
+			return false, ""
+		}
+		return true, sl
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		if b {
+			return true, "true"
+		}
+		return false, ""
+	}
+	// Unknown shape: treat truthy non-empty as gated.
+	t := strings.TrimSpace(string(raw))
+	if t != "" && t != "false" && t != "0" {
+		return true, t
+	}
+	return false, ""
+}
+
+// probeHFXet does a no-redirect HEAD against the resolve URL of one GGUF
+// file. Returns true when HF answers with a redirect to an XET/CDN host.
+func probeHFXet(ctx context.Context, repoID, filePath string) bool {
+	if repoID == "" || filePath == "" {
+		return false
+	}
+	encParts := make([]string, 0, 4)
+	for _, p := range strings.Split(strings.TrimPrefix(path.Clean("/"+filePath), "/"), "/") {
+		if p != "" {
+			encParts = append(encParts, url.PathEscape(p))
+		}
+	}
+	if len(encParts) == 0 {
+		return false
+	}
+	resolveURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", cleanRepoPath(repoID), strings.Join(encParts, "/"))
+	reqCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodHead, resolveURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", "Ollama-Manager/0.1.0")
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+		Timeout:       5 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 300 || resp.StatusCode > 399 {
+		return false
+	}
+	loc := strings.ToLower(resp.Header.Get("Location"))
+	return strings.Contains(loc, "xet-bridge") || strings.Contains(loc, "cdn.hf.co") ||
+		strings.Contains(loc, "cas-bridge") || strings.Contains(loc, "xethub")
 }
 
 var (
@@ -252,14 +333,15 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rawModels []struct {
-		ID           string    `json:"id"`
-		Author       string    `json:"author"`
-		Downloads    int       `json:"downloads"`
-		Likes        int       `json:"likes"`
-		LastModified time.Time `json:"lastModified"`
-		Tags         []string  `json:"tags"`
-		PipelineTag  string    `json:"pipeline_tag"`
-		Private      bool      `json:"private"`
+		ID           string          `json:"id"`
+		Author       string          `json:"author"`
+		Downloads    int             `json:"downloads"`
+		Likes        int             `json:"likes"`
+		LastModified time.Time       `json:"lastModified"`
+		Tags         []string        `json:"tags"`
+		PipelineTag  string          `json:"pipeline_tag"`
+		Private      bool            `json:"private"`
+		Gated        json.RawMessage `json:"gated"`
 		Siblings     []struct {
 			RFilename string `json:"rfilename"`
 		} `json:"siblings"`
@@ -343,6 +425,11 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 			HasVision:    hasVision,
 			GGUFCount:    ggufCount,
 		})
+		// Fill gated flag after append to keep the literal above readable.
+		if isG, gLabel := parseHFGated(m.Gated); isG {
+			results[len(results)-1].IsGated = true
+			results[len(results)-1].Gated = gLabel
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -431,14 +518,17 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rawDetail struct {
-		ID           string    `json:"id"`
-		Author       string    `json:"author"`
-		Downloads    int       `json:"downloads"`
-		Likes        int       `json:"likes"`
-		LastModified time.Time `json:"lastModified"`
-		Tags         []string  `json:"tags"`
-		PipelineTag  string    `json:"pipeline_tag"`
-		Description  string    `json:"description"`
+		ID           string          `json:"id"`
+		Author       string          `json:"author"`
+		Downloads    int             `json:"downloads"`
+		Likes        int             `json:"likes"`
+		LastModified time.Time       `json:"lastModified"`
+		Tags         []string        `json:"tags"`
+		PipelineTag  string          `json:"pipeline_tag"`
+		Description  string          `json:"description"`
+		Gated        json.RawMessage `json:"gated"`
+		Private      bool            `json:"private"`
+		Disabled     bool            `json:"disabled"`
 		CardData     struct {
 			License string `json:"license"`
 		} `json:"cardData"`
@@ -558,6 +648,23 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 		VisionFiles:    visionFiles,
 		HasVision:      hasVision,
 		TotalGGUFCount: len(ggufFiles),
+	}
+	if isG, gLabel := parseHFGated(rawDetail.Gated); isG {
+		detail.IsGated = true
+		detail.Gated = gLabel
+	}
+	// Best-effort XET probe on the smallest GGUF (cheapest HEAD). Never
+	// fails the detail request: on any error UsesXet just stays false.
+	if len(ggufFiles) > 0 {
+		probeFile := ggufFiles[0].Filename
+		for _, f := range ggufFiles {
+			if f.SizeBytes > 0 && f.SizeBytes < ggufFiles[0].SizeBytes {
+				probeFile = f.Filename
+			}
+		}
+		if probeHFXet(ctx, rawDetail.ID, probeFile) {
+			detail.UsesXet = true
+		}
 	}
 
 	writeJSON(w, http.StatusOK, detail)

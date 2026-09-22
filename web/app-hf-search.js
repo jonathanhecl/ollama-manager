@@ -551,6 +551,9 @@ function hfModelCardHTML(m) {
         </a>`;
 
   const visionBadge = m.has_vision ? `<span class="badge badge-vision">${t("hf.tag_vision")}</span>` : "";
+  const isGated = !!(m.is_gated || m.gated);
+  const gatedBadge = isGated ? `<span class="badge badge-warn" title="${escapeHtml(t("hf.gated_badge_tip"))}">${escapeHtml(t("hf.gated_badge"))}</span>` : "";
+  const gatedKeyIcon = isGated ? `<span class="hf-gated-key" title="${escapeHtml(t("hf.gated_badge_tip"))}" aria-label="${escapeHtml(t("hf.gated_badge"))}">🔑</span>` : "";
 
   // Columnar row: model columns are fixed-width cells so the values align
   // across rows. On mobile the wrappers reflow into a compact card.
@@ -562,14 +565,15 @@ function hfModelCardHTML(m) {
           <div class="hf-row-title-wrap">
             <div class="hf-row-title-inner">
               <span class="hf-row-author">${author}/</span>
-              <span class="hf-row-name">${name}</span>
+              <span class="hf-row-name">${name}</span>${gatedKeyIcon}
             </div>
           </div>
         </div>
-        ${m.has_vision ? `<div class="hf-cell-caps hf-caps-desktop">${visionBadge}</div>` : ""}
+        ${m.has_vision || isGated ? `<div class="hf-cell-caps hf-caps-desktop">${visionBadge}${gatedBadge}</div>` : ""}
       </div>
       <div class="hf-cell-chips">
         ${m.has_vision ? `<span class="hf-chip hf-chip-vision hf-caps-mobile">${visionBadge}</span>` : ""}
+        ${isGated ? `<span class="hf-chip hf-chip-gated hf-caps-mobile">${gatedBadge}</span>` : ""}
         <span class="hf-chip hf-chip-quants" title="${escapeHtml(t("hf.quants_count", { n: m.gguf_count }) || qCountText)}"><span class="badge badge-subtle"><span class="hf-q-long">${escapeHtml(qCountText)}</span><span class="hf-q-short">${m.gguf_count}q</span></span></span>
         ${recordCell}
         ${benchCell}
@@ -661,6 +665,38 @@ function renderHFModelDetail(m) {
   }
 
   $("hf-detail-link").href = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
+
+  // Gated repo notice: accept conditions on HF before downloading.
+  const gatedBox = $("hf-detail-gated-box");
+  if (gatedBox) {
+    if (m.is_gated || m.gated) {
+      const repoUrl = `https://huggingface.co/${m.id}`;
+      gatedBox.innerHTML = `<div>${escapeHtml(t("hf.gated_warn", { url: repoUrl }))}</div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="ghost" style="text-decoration:none;padding:4px 10px;border:1px solid var(--border);border-radius:8px;">${escapeHtml(t("hf.gated_open"))} ↗</a>
+          <button type="button" class="ghost" onclick="openHuggingFaceSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button>
+        </div>`;
+      gatedBox.hidden = false;
+    } else {
+      gatedBox.hidden = true;
+      gatedBox.innerHTML = "";
+    }
+  }
+
+  // XET CDN notice: pulls may fail with "blocked redirect", usually temporary.
+  const xetBox = $("hf-detail-xet-box");
+  if (xetBox) {
+    if (m.uses_xet) {
+      const firstQuant = Array.isArray(m.gguf_files) && m.gguf_files[0]
+        ? (m.gguf_files[0].pull_name || `huggingface.co/${m.id}`)
+        : `huggingface.co/${m.id}`;
+      xetBox.textContent = t("hf.xet_warn", { name: firstQuant });
+      xetBox.hidden = false;
+    } else {
+      xetBox.hidden = true;
+      xetBox.textContent = "";
+    }
+  }
 
   // Vision Projector Notice
   const visionBox = $("hf-detail-vision-box");

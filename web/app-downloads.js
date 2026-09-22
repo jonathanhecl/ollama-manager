@@ -418,7 +418,7 @@ function jobCardHTML(j) {
       <button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
   }
 
-  const errBlock = j.error ? `<div class="dl-error">${escapeHtml(j.error)}</div>${hfAuthHint(j.error)}` : "";
+  const errBlock = j.error ? `<div class="dl-error">${escapeHtml(j.error)}</div>${hfAuthHint(j.error, j.name)}` : "";
 
   const cardClass = j.status === "done"
     ? `dl-item dl-${j.status} dl-clickable`
@@ -450,21 +450,52 @@ function jobCardHTML(j) {
 }
 
 // hfAuthHint returns an inline help block when a download failed because
-// HuggingFace rejected Ollama's credentials (gated/private repo). Ollama does
+// HuggingFace rejected Ollama's credentials (gated/private repo) or because
+// Ollama blocked a cross-host redirect to the HF XET CDN. Ollama does
 // not use an HF token for pulls: it authenticates with its own ed25519 key,
-// so the fix is registering that key on HuggingFace.
-function hfAuthHint(err) {
+// so the fix for gated repos is accepting conditions + registering that key.
+// Redirect failures are usually transient: retry later or pull with --insecure.
+function hfRepoUrlFromJobName(jobName) {
+  if (!jobName) return "";
+  const s = String(jobName).trim().replace(/^https?:\/\//i, "");
+  const mm = s.match(/^(?:hf\.co|huggingface\.co)\/([^\s:]+)(?::[^\s]*)?$/i);
+  if (mm && mm[1]) {
+    const parts = mm[1].split("/").map(encodeURIComponent).join("/");
+    return `https://huggingface.co/${parts}`;
+  }
+  return "";
+}
+function hfAuthHint(err, jobName) {
   if (!err) return "";
   const s = String(err).toLowerCase();
+  const repoUrl = hfRepoUrlFromJobName(jobName);
+  const openRepoBtn = repoUrl
+    ? `<a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="ghost" style="text-decoration:none;padding:4px 10px;border:1px solid var(--border);border-radius:8px;">${escapeHtml(t("downloads.hf_open_repo"))} ↗</a>`
+    : "";
+  // 1. Blocked redirect to XET CDN: transient HF/Ollama issue, not your keys.
+  if (s.includes("blocked redirect")) {
+    const name = String(jobName || "").trim() || "huggingface.co/...";
+    return `<div class="muted small" style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span>${escapeHtml(t("downloads.hf_redirect_hint", { name }))}</span>
+      ${openRepoBtn}
+    </div>`;
+  }
+  // 2. Gated/private: needs accept + SSH key on the same account.
   const authFail = s.includes("401") ||
     s.includes("403") ||
     s.includes("invalid username or password") ||
     s.includes("unauthorized") ||
     s.includes("authentication") ||
-    s.includes("gated");
+    s.includes("gated") ||
+    s.includes("restricted") ||
+    s.includes("authorized list");
   if (!authFail) return "";
+  const gatedMsg = repoUrl
+    ? t("downloads.hf_gated_hint", { url: repoUrl })
+    : t("downloads.hf_auth_hint");
   return `<div class="muted small" style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-    <span>${escapeHtml(t("downloads.hf_auth_hint"))}</span>
+    <span>${escapeHtml(gatedMsg)}</span>
+    ${openRepoBtn}
     <button type="button" class="ghost" onclick="openHuggingFaceSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button>
   </div>`;
 }
@@ -681,7 +712,7 @@ async function promptDownloadModel(rawName) {
 
       let errHtml = "";
       if (m.history?.last_error && !m.is_installed) {
-        errHtml = `<div class="dl-hist-error">⚠️ ${escapeHtml(m.history.last_error)}</div>${hfAuthHint(m.history.last_error)}`;
+        errHtml = `<div class="dl-hist-error">⚠️ ${escapeHtml(m.history.last_error)}</div>${hfAuthHint(m.history.last_error, m.name)}`;
       }
 
       return `

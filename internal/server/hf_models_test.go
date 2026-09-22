@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -90,5 +91,31 @@ func TestIsVisionProjector(t *testing.T) {
 				t.Errorf("IsVisionProjector(%q) = %v, want %v", tt.filename, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestParseHFGated(t *testing.T) {
+	tests := []struct {
+		raw     string
+		isGated bool
+		label   string
+	}{
+		{`false`, false, ""},
+		{`null`, false, ""},
+		{`"manual"`, true, "manual"},
+		{`"auto"`, true, "auto"},
+		{`"false"`, false, ""},
+		{`true`, true, "true"},
+		{``, false, ""},
+	}
+	for _, tt := range tests {
+		var raw json.RawMessage
+		if tt.raw != "" {
+			raw = json.RawMessage(tt.raw)
+		}
+		got, label := parseHFGated(raw)
+		if got != tt.isGated || label != tt.label {
+			t.Errorf("parseHFGated(%s) = (%v,%q), want (%v,%q)", tt.raw, got, label, tt.isGated, tt.label)
+		}
 	}
 }

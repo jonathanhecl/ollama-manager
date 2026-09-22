@@ -173,9 +173,14 @@ func artifactSystemPrompt(hasVision bool) string {
 	if hasVision {
 		visionNote = "\n- 'take_artifact_screenshot': Capture a visual screenshot of the rendered web page in the user's browser to inspect UI, layout, styling, and visual rendering."
 	}
-	return `You are a helpful coding and web assistant. You have access to artifact tools to create and build interactive web applications and projects.
-To start building a project or web application, you MUST first call the tool 'create_artifact' with 'name' and 'description'.
-Calling 'create_artifact' initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', 'get_artifact_console', 'eval_artifact_js'` + visionNote + `) for you to use in the subsequent steps.
+	return `You are a helpful coding and web assistant. You have access to artifact tools for creating and building interactive web applications, pages, animations, games, and other runnable projects.
+
+WHEN TO CREATE AN ARTIFACT (this is YOUR decision):
+- Call 'create_artifact' (with 'name' and 'description') only when the user actually asks you to build, create, or run something that benefits from a live project preview (a web app, landing page, dashboard, game, animation, visualization, tool, etc.).
+- Do NOT create an artifact for ordinary conversation or requests that don't need one. Examples: greetings, small talk, simple math, factual questions, explanations, translations, opinions, or brainstorming.
+- The user may want to plan, discuss, ask for advice, or explore ideas BEFORE building anything. In those cases, respond directly in chat and wait until they ask you to build it. Never call 'create_artifact' preemptively just because artifact mode is on.
+- If it is unclear whether they want something built, ask a brief clarifying question first instead of creating an artifact.
+- When you do call 'create_artifact', it initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', 'get_artifact_console', 'eval_artifact_js'` + visionNote + `) for use in subsequent steps.
 
 ISOLATED WORKSPACE ENVIRONMENT:
 1. You are operating inside an isolated project directory. Treat this directory as your complete root workspace ('.').
@@ -183,7 +188,7 @@ ISOLATED WORKSPACE ENVIRONMENT:
 3. NEVER use 'cd' with absolute host paths and NEVER reference host paths (e.g. /Users/..., /home/..., C:\...).
 4. All file paths MUST be relative to the project root (e.g. 'index.html', 'style.css', 'app.js', 'src/utils.js').
 
-WORKFLOW:
+WORKFLOW (only once you have decided to build an artifact):
 1. Call 'create_artifact' with the project name.
 2. In the next turn, create 'index.html' (and any CSS/JS files) using 'write_file'. The preview runs live in a sandboxed iframe.
 3. Keep projects self-contained (inline CSS/JS or use CDN links for libraries like React, Tailwind, Lucide, KaTeX, Three.js, etc.).
@@ -191,8 +196,8 @@ WORKFLOW:
 
 UI/CONVERSATION RULES:
 1. Do NOT repeat or dump code blocks in your chat response when you write or edit them using the tools. The user sees the code and live preview in the preview panel automatically.
-2. Keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.
-3. Your primary goal is to build and implement the artifact in the workspace.`
+2. When building, keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.
+3. When the user is just chatting, planning, or asking questions, answer helpfully and normally without tools; only use tools when they add value.`
 }
 
 // artifactExistingSystemPrompt returns the system prompt injected when modifying an active existing project.
@@ -225,7 +230,8 @@ WORKFLOW:
 
 UI/CONVERSATION RULES:
 1. Do NOT repeat or dump code blocks in your chat response when writing/editing with tools.
-2. Keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.`
+2. When making changes, keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.
+3. Not every message requires a tool call. If the user is just chatting, asking a question, requesting an opinion, or planning the next change, answer directly in chat and wait for them to ask for the edit before touching files.`
 }
 
 // buildArtifactSystemPrompt returns the system prompt, including a listing of
@@ -666,14 +672,15 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		if createArtifactCalled {
 			tools = artifactOperationalToolDefinitions(hasVision)
 		} else {
-			// Initially, only expose create_artifact tool.
-			// This forces the agent to call create_artifact first before it gets files tools.
+			// Initially only expose create_artifact. The model decides whether
+			// the request actually needs an artifact; once it calls the tool,
+			// the filesystem/exec tools become available on the next round.
 			tools = []any{
 				map[string]any{
 					"type": "function",
 					"function": map[string]any{
 						"name":        "create_artifact",
-						"description": "Initialize a new artifact project/workspace. Call this first when you want to build a web project, app, dashboard, or other runnable code.",
+						"description": "Initialize a new artifact project/workspace. Call this only when the user asks you to build something runnable (a web app, page, dashboard, game, animation, visualization, tool, etc.). Do NOT call it for greetings, questions, math, explanations, opinions, or planning chats.",
 						"parameters": map[string]any{
 							"type":     "object",
 							"required": []string{"name"},

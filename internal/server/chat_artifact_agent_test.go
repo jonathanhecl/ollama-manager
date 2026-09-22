@@ -443,6 +443,32 @@ func TestArtifactScreenshotHandler(t *testing.T) {
 	}
 }
 
+// TestArtifactToolsHaveProperties guards against no-argument tools omitting
+// the "properties" field. Ollama's api.ToolFunctionParameters serializes a nil
+// Properties as `"properties": null`, which strict (cloud) tool-schema
+// validators reject with "properties must be an object".
+func TestArtifactToolsHaveProperties(t *testing.T) {
+	for _, hasVision := range []bool{false, true} {
+		for _, raw := range artifactOperationalToolDefinitions(hasVision) {
+			m, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("tool definition is not a map: %T", raw)
+			}
+			fn, ok := m["function"].(map[string]any)
+			if !ok {
+				t.Fatalf("tool missing function map: %v", m)
+			}
+			params, ok := fn["parameters"].(map[string]any)
+			if !ok {
+				t.Fatalf("tool %v missing parameters map", fn["name"])
+			}
+			if props, ok := params["properties"].(map[string]any); !ok || props == nil {
+				t.Errorf("tool %v must define a non-nil object properties field", fn["name"])
+			}
+		}
+	}
+}
+
 func TestArtifactEvalToolDefinitions(t *testing.T) {
 	tools := artifactOperationalToolDefinitions(false)
 	hasEvalTool := false
@@ -490,4 +516,3 @@ func TestArtifactEvalHandler(t *testing.T) {
 		t.Fatalf("timed out waiting for eval channel response")
 	}
 }
-

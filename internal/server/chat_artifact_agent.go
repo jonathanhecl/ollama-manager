@@ -128,7 +128,8 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 				"name":        "get_artifact_console",
 				"description": "Retrieve the console logs, outputs, and javascript runtime errors captured from the active artifact preview. Use this to verify your code execution or debug runtime issues if the user reports that the app is blank, not working, or has errors.",
 				"parameters": map[string]any{
-					"type": "object",
+					"type":       "object",
+					"properties": map[string]any{},
 				},
 			},
 		},
@@ -157,7 +158,8 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 				"name":        "take_artifact_screenshot",
 				"description": "Capture a visual screenshot of the current rendered artifact web page from the user's live browser preview. Use this to inspect the UI, visual layout, color contrast, styling, element positioning, and see what the user is seeing.",
 				"parameters": map[string]any{
-					"type": "object",
+					"type":       "object",
+					"properties": map[string]any{},
 				},
 			},
 		})

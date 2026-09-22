@@ -2753,19 +2753,41 @@ function extractGFMTables(text, outTables) {
   return out.join("\n");
 }
 
+// Guards against the synthetic "ghost click" that a tap emits after pointerdown.
+// addFastTapListener reacts on pointerdown for instant feedback, but the browser
+// still fires a click afterwards at the same spot. When that action reveals or
+// moves an element under the finger (e.g. opening the chat options overlay puts
+// its close "×" where the "⚙" toggle was, or removing a queue item shifts the
+// next one into place), the ghost click would activate the new element and undo
+// the action. Swallow a click that lands on (roughly) the same point.
+let _fastTapGhostGuard = null;
+function _armFastTapGhostGuard(x, y) {
+  _fastTapGhostGuard = { x, y, t: performance.now() };
+}
+document.addEventListener("click", (e) => {
+  const g = _fastTapGhostGuard;
+  if (!g) return;
+  _fastTapGhostGuard = null;
+  if (performance.now() - g.t > 700) return;
+  if (Math.abs(e.clientX - g.x) > 14 || Math.abs(e.clientY - g.y) > 14) return;
+  e.stopPropagation();
+  e.preventDefault();
+}, true);
+
 function addFastTapListener(el, handler) {
   if (!el) return;
   let lastTriggerTime = 0;
   const run = (e) => {
     const now = Date.now();
-    if (now - lastTriggerTime < 300) return;
+    if (now - lastTriggerTime < 300) return false;
     lastTriggerTime = now;
     handler(e);
+    return true;
   };
   el.addEventListener("pointerdown", (e) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (e.pointerType === "touch" || e.pointerType === "pen") {
-      run(e);
+      if (run(e)) _armFastTapGhostGuard(e.clientX, e.clientY);
     }
   }, { passive: true });
   el.addEventListener("click", (e) => {

@@ -3466,6 +3466,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
     }
   }
   if (isEditingUser) {
+    const showAddFileBtn = !chatEditingAttachments.length;
     bodyHTML = `<div class="chat-edit-box" data-msg-id="${escapeHtml(m.id)}">
   <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}" placeholder="${escapeHtml(t("chat.input_placeholder") || "Write your message…")}">${escapeHtml(chatEditingDraft)}</textarea>
   <div class="chat-edit-attachments" id="chat-edit-attachments">
@@ -3473,6 +3474,13 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   </div>
   <div class="chat-edit-actions">
     <div class="chat-edit-upload-actions">
+      ${showAddFileBtn ? `<button type="button" class="chat-edit-add-file-btn" title="${escapeHtml(t("chat.add_attachment") || "Add attachment")}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>${escapeHtml(t("chat.add_attachment") || "Add file")}</span>
+      </button>` : ""}
       <input type="file" class="chat-edit-add-file-input" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" multiple />
     </div>
     <div class="chat-edit-btn-group">
@@ -3570,6 +3578,15 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   `;
 }
 
+function autoResizeEditTextarea(ta) {
+  if (!ta) return;
+  const max = Math.round(window.innerHeight * 0.6);
+  ta.style.height = "auto";
+  const needed = ta.scrollHeight + 2;
+  ta.style.height = `${Math.min(needed, max)}px`;
+  ta.style.overflowY = needed > max ? "auto" : "hidden";
+}
+
 function renderChatMessages() {
   const host = $("chat-messages");
   if (!chatMessages.length) {
@@ -3643,6 +3660,8 @@ function renderChatMessages() {
       }
     }
   });
+
+  host.querySelectorAll(".chat-edit-textarea").forEach((ta) => autoResizeEditTextarea(ta));
 
   if (typeof saveActiveChatSession === "function") {
     saveActiveChatSession();
@@ -3924,7 +3943,7 @@ async function appendFilesToEditingAttachments(files) {
   const accepted = [];
   for (const file of files) {
     const type = String(file.type || "");
-    if (type.startsWith("image/")) accepted.push({ file, kind: "image" });
+    if (type.startsWith("image/") && canVision) accepted.push({ file, kind: "image" });
     else if (type.startsWith("audio/") && canAudio) accepted.push({ file, kind: "audio" });
     else if (isTextAttachmentFile(file)) accepted.push({ file, kind: "text" });
   }

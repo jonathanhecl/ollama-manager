@@ -1100,6 +1100,7 @@ function bindChatEvents() {
     const ta = e.target.closest(".chat-edit-textarea");
     if (ta) {
       chatEditingDraft = ta.value;
+      autoResizeEditTextarea(ta);
     }
   });
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("change", async (e) => {

@@ -991,14 +991,6 @@ function bindChatEvents() {
       }
       return;
     }
-    const repB = e.target.closest(".chat-edit-replace-btn");
-    if (repB) {
-      e.preventDefault();
-      e.stopPropagation();
-      const card = repB.closest(".chat-edit-attach-item");
-      card?.querySelector(".chat-edit-replace-file-input")?.click();
-      return;
-    }
     const delB = e.target.closest(".chat-edit-delete-btn");
     if (delB) {
       e.preventDefault();
@@ -1104,17 +1096,6 @@ function bindChatEvents() {
     }
   });
   ($("chat-scroll-shell") || $("chat-messages"))?.addEventListener("change", async (e) => {
-    const repInp = e.target.closest(".chat-edit-replace-file-input");
-    if (repInp && repInp.files?.length) {
-      const attId = repInp.getAttribute("data-att-id");
-      const file = repInp.files[0];
-      await replaceEditingAttachment(attId, file);
-      repInp.value = "";
-      renderChatMessages();
-      const ta = document.querySelector(`.chat-edit-textarea[data-msg-id="${CSS.escape(chatEditingMessageId)}"]`);
-      if (ta) ta.focus();
-      return;
-    }
     const addInp = e.target.closest(".chat-edit-add-file-input");
     if (addInp && addInp.files?.length) {
       await appendFilesToEditingAttachments(Array.from(addInp.files));
@@ -1311,6 +1292,13 @@ function bindChatEvents() {
   });
 
   document.addEventListener("click", (e) => {
+    const textOpen = e.target.closest(".chat-text-preview-open");
+    if (textOpen) {
+      e.preventDefault();
+      const att = findPreviewAttachment(textOpen);
+      if (att && att.text != null) openTextPreview(att.text, att.name);
+      return;
+    }
     const open = e.target.closest(".image-preview-open");
     if (!open) return;
     const im = open.querySelector("img");
@@ -1327,8 +1315,24 @@ function bindChatEvents() {
   if (imgPrevClose) {
     imgPrevClose.addEventListener("click", closeImagePreview);
   }
+  const textPrevBack = $("text-preview-backdrop");
+  if (textPrevBack) {
+    textPrevBack.addEventListener("click", closeTextPreview);
+  }
+  const textPrevClose = $("text-preview-close");
+  if (textPrevClose) {
+    textPrevClose.addEventListener("click", closeTextPreview);
+  }
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    const textModal = $("text-preview-modal");
+    if (textModal && !textModal.hidden) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      closeTextPreview();
+      return;
+    }
     const modal = $("image-preview-modal");
     if (modal && !modal.hidden) {
       e.preventDefault();

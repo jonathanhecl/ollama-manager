@@ -3361,7 +3361,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
     if (a.kind === "text") {
       const prev = attachmentTextPreview(a);
       return `<div class="chat-file-item chat-file-item-text">
-        <div class="chat-text-snippet mono">${escapeHtml(prev || "text file")}</div>
+        <button type="button" class="chat-text-preview-open chat-text-snippet mono" data-msg-id="${escapeHtml(m.id)}" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.text_preview_title") || "Text preview")}">${escapeHtml(prev || "text file")}</button>
         <span class="chat-file-name mono">${escapeHtml(a.name)}</span>
       </div>`;
     }
@@ -3481,7 +3481,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
         </svg>
         <span>${escapeHtml(t("chat.add_attachment") || "Add file")}</span>
       </button>` : ""}
-      <input type="file" class="chat-edit-add-file-input" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" multiple />
+      <input type="file" class="chat-edit-add-file-input" hidden accept="${CHAT_ATTACHMENT_ACCEPT}" multiple />
     </div>
     <div class="chat-edit-btn-group">
       <button type="button" class="chat-edit-save primary" data-msg-id="${escapeHtml(m.id)}">${escapeHtml(t("chat.edit_save") || "Save")}</button>
@@ -3978,49 +3978,27 @@ async function appendFilesToEditingAttachments(files) {
   }
 }
 
-async function replaceEditingAttachment(attId, file) {
-  const idx = chatEditingAttachments.findIndex((x) => x.id === attId);
-  if (idx < 0) return;
-  if (file.size > 20 * 1024 * 1024) {
-    toast(t("chat.file_too_large", { name: file.name }), "error");
-    return;
+function findPreviewAttachment(open) {
+  const attId = open.getAttribute("data-att-id");
+  if (!attId) return null;
+  if (open.closest(".chat-edit-box")) {
+    return (chatEditingAttachments || []).find((a) => a.id === attId) || null;
   }
-  const type = String(file.type || "");
-  let kind = "image";
-  if (type.startsWith("audio/")) kind = "audio";
-  else if (isTextAttachmentFile(file)) kind = "text";
-  else if (type.startsWith("image/")) kind = "image";
-
-  if (kind === "text") {
-    const text = await file.text();
-    chatEditingAttachments[idx] = {
-      id: attId,
-      kind,
-      name: file.name,
-      mime: file.type || "text/plain",
-      text,
-    };
-  } else {
-    const data = await toBase64(file);
-    chatEditingAttachments[idx] = {
-      id: attId,
-      kind,
-      name: file.name,
-      mime: file.type,
-      data,
-    };
-  }
+  const msgId = open.getAttribute("data-msg-id");
+  const msg = chatMessages.find((m) => m.id === msgId);
+  return (msg?.attachments || []).find((a) => a.id === attId) || null;
 }
 
 function renderEditAttachmentsHTML(attachments) {
   if (!attachments || !attachments.length) return "";
+  const removeIconSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
   const items = attachments.map((a) => {
     let previewHTML = "";
     if (a.kind === "image" && a.data) {
       const src = attachmentImageSrc(a);
-      previewHTML = `<div class="chat-edit-attach-thumb-wrap">
+      previewHTML = `<button type="button" class="image-preview-open chat-edit-attach-thumb-wrap" data-name="${escapeHtml(a.name)}" title="${escapeHtml(t("chat.image_preview_title") || "Image preview")}">
         <img src="${src}" alt="${escapeHtml(a.name)}" class="chat-edit-attach-thumb" />
-      </div>`;
+      </button>`;
     } else if (a.kind === "audio" && a.data) {
       const src = attachmentAudioSrc(a);
       previewHTML = `<div class="chat-edit-attach-thumb-wrap chat-edit-attach-audio-wrap">
@@ -4028,31 +4006,18 @@ function renderEditAttachmentsHTML(attachments) {
       </div>`;
     } else {
       const prev = attachmentTextPreview(a);
-      previewHTML = `<div class="chat-edit-attach-thumb-wrap chat-edit-attach-text-wrap">
-        <div class="chat-text-snippet mono">${escapeHtml(prev || "text")}</div>
-      </div>`;
+      previewHTML = `<button type="button" class="chat-text-preview-open chat-edit-attach-thumb-wrap chat-edit-attach-text-wrap" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.text_preview_title") || "Text preview")}">
+        <span class="chat-text-snippet mono">${escapeHtml(prev || "text")}</span>
+      </button>`;
     }
 
     return `<div class="chat-edit-attach-item" data-att-id="${escapeHtml(a.id)}">
-      ${previewHTML}
+      <div class="chat-edit-attach-preview">
+        ${previewHTML}
+        <button type="button" class="btn-icon chat-edit-delete-btn chat-edit-attach-x" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment") || "Remove")}" aria-label="${escapeHtml(t("chat.remove_attachment") || "Remove")}">${removeIconSVG}</button>
+      </div>
       <div class="chat-edit-attach-meta">
         <span class="chat-edit-attach-name mono" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
-        <div class="chat-edit-attach-btns">
-          <button type="button" class="btn-icon chat-edit-replace-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.replace_attachment") || "Replace")}" aria-label="${escapeHtml(t("chat.replace_attachment") || "Replace")}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-              <path d="M3 3v5h5"/>
-              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-              <path d="M16 21h5v-5"/>
-            </svg>
-          </button>
-          <button type="button" class="btn-icon chat-edit-delete-btn" data-att-id="${escapeHtml(a.id)}" title="${escapeHtml(t("chat.remove_attachment") || "Delete")}" aria-label="${escapeHtml(t("chat.remove_attachment") || "Delete")}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-            </svg>
-          <input type="file" class="chat-edit-replace-file-input" data-att-id="${escapeHtml(a.id)}" hidden accept="image/*,audio/*,text/*,.txt,.md,.json,.js,.ts,.go,.py,.css,.html,.c,.cpp,.h,.rs,.yaml,.yml,.toml" />
-        </div>
       </div>
     </div>`;
   }).join("");

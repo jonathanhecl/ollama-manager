@@ -214,14 +214,59 @@ function attachmentTextPreview(a, max = 140) {
   return `${txt.slice(0, max - 1)}…`;
 }
 
+const TEXT_ATTACHMENT_EXTS = new Set([
+  "txt", "text", "md", "markdown", "mdx", "rst", "adoc", "org", "tex", "log",
+  "json", "jsonc", "json5", "geojson", "yaml", "yml", "toml", "ini", "cfg", "conf", "config",
+  "env", "properties", "csv", "tsv", "xml", "xsd", "xsl", "svg",
+  "html", "htm", "xhtml", "vue", "svelte", "astro",
+  "css", "scss", "sass", "less", "styl",
+  "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts",
+  "go", "py", "pyi", "rb", "rs", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx",
+  "java", "kt", "kts", "scala", "cs", "fs", "php", "swift", "m", "mm", "dart",
+  "sh", "bash", "zsh", "fish", "ps1", "psm1", "bat", "cmd",
+  "sql", "graphql", "gql", "proto", "prisma",
+  "pl", "pm", "lua", "r", "jl", "ex", "exs", "erl", "hrl", "hs", "lhs", "clj", "cljs", "cljc", "edn", "elm", "nim", "zig", "v", "sol", "asm", "s",
+  "tf", "tfvars", "hcl", "nix", "dockerfile", "makefile", "mk", "cmake", "gradle", "bazel",
+  "diff", "patch", "srt", "vtt", "gitignore", "gitattributes", "editorconfig", "lock",
+]);
+
+const TEXT_ATTACHMENT_MIMES = new Set([
+  "application/json", "application/ld+json", "application/x-json",
+  "application/javascript", "application/x-javascript", "application/ecmascript",
+  "application/xml", "application/xhtml+xml",
+  "application/x-yaml", "application/yaml", "application/toml", "application/x-toml",
+  "application/x-sh", "application/x-shellscript",
+  "application/sql", "application/graphql", "application/x-httpd-php",
+  "application/x-python", "application/x-ruby", "application/x-perl",
+]);
+
+const TEXT_ATTACHMENT_BASENAMES = new Set([
+  "dockerfile", "makefile", "cmakelists.txt", "procfile", "readme", "license",
+  "licence", "changelog", "authors", "contributing", ".gitignore", ".gitattributes",
+  ".editorconfig", ".env", ".env.example", ".npmrc", ".babelrc", ".eslintrc",
+]);
+
+const TEXT_ATTACHMENT_ACCEPT = ".txt,.text,.md,.markdown,.mdx,.rst,.adoc,.org,.tex,.log,.json,.jsonc,.json5,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.properties,.csv,.tsv,.xml,.svg,.html,.htm,.css,.scss,.sass,.less,.js,.mjs,.cjs,.jsx,.ts,.tsx,.go,.py,.rb,.rs,.c,.h,.cpp,.hpp,.java,.kt,.cs,.php,.swift,.sh,.bash,.zsh,.ps1,.bat,.cmd,.sql,.graphql,.proto,.pl,.lua,.r,.dart,.ex,.erl,.hs,.clj,.elm,.tf,.nix,text/*";
+const CHAT_ATTACHMENT_ACCEPT = `image/*,audio/*,${TEXT_ATTACHMENT_ACCEPT}`;
+
+function attachmentExtension(name) {
+  const base = String(name || "").toLowerCase().split(/[\\/]/).pop() || "";
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot + 1) : "";
+}
+
+function attachmentBasename(name) {
+  return String(name || "").toLowerCase().split(/[\\/]/).pop() || "";
+}
+
 function isTextAttachmentFile(file) {
   const name = String(file?.name || "").toLowerCase();
   const type = String(file?.type || "").toLowerCase();
-  return type === "text/plain"
-    || type === "text/markdown"
-    || name.endsWith(".txt")
-    || name.endsWith(".md")
-    || name.endsWith(".markdown");
+  const ext = attachmentExtension(name);
+  const base = attachmentBasename(name);
+  if (TEXT_ATTACHMENT_EXTS.has(ext) || TEXT_ATTACHMENT_BASENAMES.has(base)) return true;
+  if (type.startsWith("text/") || TEXT_ATTACHMENT_MIMES.has(type)) return true;
+  return false;
 }
 
 function openImagePreview(src, name) {
@@ -248,6 +293,29 @@ function closeImagePreview() {
     img.removeAttribute("src");
     img.alt = "";
   }
+  document.body.style.overflow = "";
+}
+
+function openTextPreview(text, name) {
+  const modal = $("text-preview-modal");
+  const pre = $("text-preview-content");
+  const cap = $("text-preview-caption");
+  if (!modal || !pre) return;
+  pre.textContent = String(text || "");
+  if (cap) {
+    cap.textContent = name || "";
+    cap.hidden = !String(name || "").trim();
+  }
+  modal.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeTextPreview() {
+  const modal = $("text-preview-modal");
+  const pre = $("text-preview-content");
+  if (!modal) return;
+  modal.hidden = true;
+  if (pre) pre.textContent = "";
   document.body.style.overflow = "";
 }
 

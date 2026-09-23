@@ -197,7 +197,7 @@
             </button>
             <input id="chat-image-input" type="file" accept="image/*" multiple hidden autocomplete="off">
             <input id="chat-audio-input" type="file" accept="audio/*" multiple hidden autocomplete="off">
-            <input id="chat-text-input" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple hidden autocomplete="off">
+            <input id="chat-text-input" type="file" accept=".txt,.text,.md,.markdown,.mdx,.rst,.adoc,.org,.tex,.log,.json,.jsonc,.json5,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.properties,.csv,.tsv,.xml,.svg,.html,.htm,.css,.scss,.sass,.less,.js,.mjs,.cjs,.jsx,.ts,.tsx,.go,.py,.rb,.rs,.c,.h,.cpp,.hpp,.java,.kt,.cs,.php,.swift,.sh,.bash,.zsh,.ps1,.bat,.cmd,.sql,.graphql,.proto,.pl,.lua,.r,.dart,.ex,.erl,.hs,.clj,.elm,.tf,.nix,text/*" multiple hidden autocomplete="off">
           </div>
           <textarea id="chat-input" rows="3" data-i18n-attr="placeholder" data-i18n="chat.input_placeholder" placeholder="Write your message..." autocomplete="off"></textarea>
           <button id="chat-send-btn" class="primary chat-send" data-i18n="chat.send">Send</button>
@@ -2085,6 +2085,15 @@
       <button type="button" id="image-preview-close" class="btn-icon image-preview-close" data-i18n-attr="aria-label" data-i18n="action.close">×</button>
       <img id="image-preview-img" class="image-preview-img" alt="" />
       <p id="image-preview-caption" class="image-preview-caption muted mono"></p>
+    </div>
+  </div>
+
+  <div id="text-preview-modal" class="image-preview-modal text-preview-modal" hidden role="dialog" aria-modal="true" data-i18n-attr="aria-label" data-i18n="chat.text_preview_title">
+    <div id="text-preview-backdrop" class="image-preview-backdrop"></div>
+    <div class="image-preview-dialog text-preview-dialog">
+      <button type="button" id="text-preview-close" class="btn-icon image-preview-close" data-i18n-attr="aria-label" data-i18n="action.close">×</button>
+      <pre id="text-preview-content" class="text-preview-content mono"></pre>
+      <p id="text-preview-caption" class="image-preview-caption muted mono"></p>
     </div>
   </div>
 

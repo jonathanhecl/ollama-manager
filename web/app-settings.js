@@ -1277,10 +1277,9 @@ function editExternalModel(m) {
   if (addBtn) addBtn.textContent = t("settings.ext_model_save_btn");
 
   const allCaps = sortCapabilityList(["completion", "tools", "thinking", "vision"]);
-  const activeCaps = Array.isArray(m.capabilities) && m.capabilities.length > 0 ? m.capabilities : allCaps;
+  const activeCaps = Array.isArray(m.capabilities) && m.capabilities.length > 0 ? m.capabilities : ["completion", "tools", "thinking"];
   lastTestedExtModel = m.name;
   lastTestedCapabilities = activeCaps;
-
   if (resultEl) {
     resultEl.hidden = false;
     resultEl.className = "ext-test-result ext-test-success";
@@ -1368,7 +1367,7 @@ function cloneExternalModel(m) {
   if (cancelBtn) cancelBtn.hidden = false;
 
   const allCaps = sortCapabilityList(["completion", "tools", "thinking", "vision"]);
-  const activeCaps = Array.isArray(m.capabilities) && m.capabilities.length > 0 ? m.capabilities : allCaps;
+  const activeCaps = Array.isArray(m.capabilities) && m.capabilities.length > 0 ? m.capabilities : ["completion", "tools", "thinking"];
   lastTestedExtModel = `${m.name}-copy`;
   lastTestedCapabilities = activeCaps;
 
@@ -1431,7 +1430,7 @@ async function loadExternalModels(lang = null) {
       return;
     }
     listEl.innerHTML = list.map((m) => {
-      const caps = sortCapabilityList(m.capabilities || ["completion", "tools", "thinking", "vision"])
+      const caps = sortCapabilityList(m.capabilities || ["completion", "tools", "thinking"])
         .map((c) => {
           const slug = String(c).toLowerCase().trim();
           const label = typeof formatCapabilityLabel === "function" ? formatCapabilityLabel(c) : (slug.charAt(0).toUpperCase() + slug.slice(1));
@@ -1638,7 +1637,7 @@ async function addExternalModel() {
     if (lastTestedExtModel === name && Array.isArray(lastTestedCapabilities) && lastTestedCapabilities.length > 0) {
       caps = lastTestedCapabilities;
     } else {
-      caps = ["completion", "tools", "thinking", "vision"];
+      caps = ["completion", "tools", "thinking"];
     }
   }
   caps = sortCapabilityList(caps);

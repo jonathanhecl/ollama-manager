@@ -806,7 +806,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			}
 			caps := ext.Capabilities
 			if len(caps) == 0 {
-				caps = []string{"completion", "tools", "thinking", "vision"}
+				caps = []string{"completion", "tools", "thinking"}
 			}
 			ev := modelView{
 				Name:         ext.Name,
@@ -916,7 +916,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			}
 			caps := ext.Capabilities
 			if len(caps) == 0 {
-				caps = []string{"completion", "tools", "thinking", "vision"}
+				caps = []string{"completion", "tools", "thinking"}
 			}
 			capsByModel[ext.Name] = caps
 		}
@@ -1382,7 +1382,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		rec, _ := s.externalModels.Get(name)
 		caps := rec.Capabilities
 		if len(caps) == 0 {
-			caps = []string{"completion", "tools", "thinking", "vision"}
+			caps = []string{"completion", "tools", "thinking"}
 		}
 		detail := modelDetail{
 			Name:         rec.Name,

@@ -213,7 +213,7 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 			if rec, ok := s.externalModels.Get(sel); ok {
 				caps := append([]string(nil), rec.Capabilities...)
 				if len(caps) == 0 {
-					caps = []string{"completion", "tools", "thinking", "vision"}
+					caps = []string{"completion", "tools", "thinking"}
 				}
 				modelCaps[sel] = caps
 			}

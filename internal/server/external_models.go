@@ -130,7 +130,7 @@ func (s *externalModelsStore) Register(name, targetURL, apiKey string, capabilit
 	}
 
 	if len(capabilities) == 0 {
-		capabilities = []string{"completion", "tools", "thinking", "vision"}
+		capabilities = []string{"completion", "tools", "thinking"}
 	}
 
 	s.mu.Lock()

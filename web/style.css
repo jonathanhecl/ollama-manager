@@ -7068,6 +7068,23 @@ button.chat-send:disabled:hover {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.battery-model-item.disabled input {
+  cursor: not-allowed;
+}
+.battery-group-incompat {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  background: rgba(255, 107, 107, 0.12);
+  border-radius: 999px;
+  padding: 1px 7px;
+  vertical-align: middle;
+}
 .battery-model-item input {
   cursor: pointer;
   margin-top: 1px;

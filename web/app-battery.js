@@ -53,6 +53,9 @@ function wireBatterySortButtons() {
 let batterySelectedGroups = new Set(); // group ids picked in the categories step
 let batteryModalStep = "models"; // "groups" | "models"
 let batteryModalSingleTestId = null;
+// Model preselected when the modal opened (e.g. the ⚡ bench button for one
+// model). Used to grey out categories it cannot run before model selection.
+let batteryModalSeedModel = "";
 let batteryCoverageByModel = new Map(); // model name -> Set of group ids with history
 let batteryCoverageLoaded = false;
 let batteryCoverageSeq = 0;
@@ -224,6 +227,7 @@ async function openBatteryModal(options = {}) {
 
   batterySelectedModels.clear();
   const defaultModel = options.initialModel || (typeof selectedTestModel !== "undefined" ? selectedTestModel : "");
+  batteryModalSeedModel = defaultModel || "";
   if (defaultModel) {
     batterySelectedModels.add(defaultModel);
   }
@@ -430,6 +434,14 @@ function wireBatteryModalStepButtons() {
   }
 }
 
+function batteryModalGroupIncompatible(g, modelName) {
+  if (!modelName) return false;
+  const req = (g?.required_caps || []).map((c) => String(c).toLowerCase());
+  if (req.length === 0) return false;
+  const caps = modelCaps(modelName);
+  return req.some((c) => !caps.has(c));
+}
+
 function renderBatteryModalGroups() {
   const container = $("battery-modal-groups-list");
   if (!container) return;
@@ -439,16 +451,22 @@ function renderBatteryModalGroups() {
     updateBatteryGroupsCountUI();
     return;
   }
+  const seedModel = batteryModalSeedModel || "";
   container.innerHTML = groups.map((g) => {
     const n = batteryModalRunnableTests([g.id]).length;
-    const isChecked = batterySelectedGroups.has(g.id);
+    const incompatible = batteryModalGroupIncompatible(g, seedModel);
+    if (incompatible) batterySelectedGroups.delete(g.id);
+    const isChecked = !incompatible && batterySelectedGroups.has(g.id);
     const gcaps = new Set((g.required_caps || []).map((c) => String(c).toLowerCase()));
     const capBadges = `${gcaps.has("vision") ? `<span title="${escapeHtml(t("tests.group_required_vision"))}">👁️</span>` : ""}${gcaps.has("audio") ? `<span title="${escapeHtml(t("tests.group_required_audio"))}">🔊</span>` : ""}`;
+    const incompatBadge = incompatible
+      ? `<span class="battery-group-incompat" title="${escapeHtml(t("battery.group_incompatible_hint"))}">${escapeHtml(t("battery.group_incompatible"))}</span>`
+      : "";
     return `
-      <label class="battery-model-item ${isChecked ? "selected" : ""}">
-        <input type="checkbox" value="${escapeHtml(g.id)}" ${isChecked ? "checked" : ""} />
+      <label class="battery-model-item ${isChecked ? "selected" : ""} ${incompatible ? "disabled" : ""}" title="${incompatible ? escapeHtml(t("battery.group_incompatible_hint")) : ""}">
+        <input type="checkbox" value="${escapeHtml(g.id)}" ${isChecked ? "checked" : ""} ${incompatible ? "disabled" : ""} />
         <div class="battery-model-main">
-          <div class="battery-model-name">${escapeHtml(g.name || g.id)}${capBadges ? `<span style="margin-left:6px;">${capBadges}</span>` : ""}</div>
+          <div class="battery-model-name">${escapeHtml(g.name || g.id)}${capBadges ? `<span style="margin-left:6px;">${capBadges}</span>` : ""}${incompatBadge}</div>
         </div>
         <div class="battery-model-right-cols">
           <div class="battery-model-specs mono muted">

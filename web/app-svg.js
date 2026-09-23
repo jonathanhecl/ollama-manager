@@ -3466,7 +3466,6 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
     }
   }
   if (isEditingUser) {
-    const showAddFileBtn = !chatEditingAttachments.length;
     bodyHTML = `<div class="chat-edit-box" data-msg-id="${escapeHtml(m.id)}">
   <textarea class="chat-edit-textarea" data-msg-id="${escapeHtml(m.id)}" placeholder="${escapeHtml(t("chat.input_placeholder") || "Write your message…")}">${escapeHtml(chatEditingDraft)}</textarea>
   <div class="chat-edit-attachments" id="chat-edit-attachments">
@@ -3474,13 +3473,6 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   </div>
   <div class="chat-edit-actions">
     <div class="chat-edit-upload-actions">
-      ${showAddFileBtn ? `<button type="button" class="chat-edit-add-file-btn" title="${escapeHtml(t("chat.add_attachment") || "Add attachment")}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
-        <span>${escapeHtml(t("chat.add_attachment") || "Add file")}</span>
-      </button>` : ""}
       <input type="file" class="chat-edit-add-file-input" hidden accept="${CHAT_ATTACHMENT_ACCEPT}" multiple />
     </div>
     <div class="chat-edit-btn-group">
@@ -3990,9 +3982,8 @@ function findPreviewAttachment(open) {
 }
 
 function renderEditAttachmentsHTML(attachments) {
-  if (!attachments || !attachments.length) return "";
   const removeIconSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-  const items = attachments.map((a) => {
+  const items = (attachments || []).map((a) => {
     let previewHTML = "";
     if (a.kind === "image" && a.data) {
       const src = attachmentImageSrc(a);

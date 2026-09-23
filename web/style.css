@@ -3106,7 +3106,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
 .chat-edit-attachments {
   display: flex;
   flex-wrap: wrap;
-  align-items: stretch;
+  align-items: flex-start;
   gap: 8px;
   margin-top: 4px;
 }
@@ -3217,7 +3217,7 @@ button.chat-edit-attach-thumb-wrap:hover {
   align-items: center;
   justify-content: center;
   width: 120px;
-  min-height: 136px;
+  min-height: 112px;
   box-sizing: border-box;
   background: rgba(255, 255, 255, 0.02);
   border: 1px dashed var(--border-strong);
@@ -3286,35 +3286,6 @@ button.chat-edit-attach-thumb-wrap:hover {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-.chat-edit-upload-actions .chat-edit-add-file-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-dim);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: linear-gradient(165deg, #1c1e28 0%, #12141c 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.chat-edit-upload-actions .chat-edit-add-file-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
-  background: linear-gradient(165deg, #222634 0%, #161824 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 12px rgba(0, 0, 0, 0.25);
-  transform: translateY(-1px);
-}
-.chat-edit-upload-actions .chat-edit-add-file-btn:active {
-  transform: translateY(0);
-}
-.chat-edit-upload-actions .chat-edit-add-file-btn svg {
-  flex-shrink: 0;
 }
 .chat-edit-btn-group {
   display: flex;

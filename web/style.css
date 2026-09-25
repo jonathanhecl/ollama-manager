@@ -12607,6 +12607,41 @@ button.chat-send:disabled:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.hf-cell-quant-file .hf-extra-variants {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.hf-extra-variants summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 10px;
+  color: var(--muted);
+  list-style: none;
+}
+
+.hf-extra-variants summary::-webkit-details-marker {
+  display: none;
+}
+
+.hf-extra-variants summary::before {
+  content: "▸ ";
+}
+
+.hf-extra-variants[open] summary::before {
+  content: "▾ ";
+}
+
+.hf-extra-variant {
+  margin-top: 2px;
+  padding-left: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hf-cell-fit .badge {
   white-space: normal;
   line-height: 1.3;

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +36,16 @@ type HFModelSummary struct {
 	GGUFCount int    `json:"gguf_count"`
 }
 
+// HFQuantVariant is a non-primary file that shares a quantization scheme with
+// an option's representative file (e.g. the "NEO" file when the "NEO-MAX" one is
+// the representative, or vice versa). Hugging Face resolves the bare
+// `:<scheme>` tag to the representative only, so these are surfaced as
+// read-only detail rather than installable options.
+type HFQuantVariant struct {
+	Filename  string `json:"filename"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
 // HFQuantFile represents a single GGUF or mmproj file in a repository.
 type HFQuantFile struct {
 	Filename      string `json:"filename"`
@@ -44,6 +55,9 @@ type HFQuantFile struct {
 	PullName      string `json:"pull_name"`
 	IsInstalled   bool   `json:"is_installed"`
 	IsDownloading bool   `json:"is_downloading"`
+	// ExtraVariants lists the other files that share this option's quantization
+	// scheme but are not the one HF's registry serves for the bare tag.
+	ExtraVariants []HFQuantVariant `json:"extra_variants,omitempty"`
 }
 
 // HFModelDetail contains detailed repository metadata and files.
@@ -143,7 +157,11 @@ func probeHFXet(ctx context.Context, repoID, filePath string) bool {
 }
 
 var (
-	quantRegex   = regexp.MustCompile(`(?i)(?:^|[-._])(q[0-9]+_[a-z0-9_]+|q[0-9]+_[0-9]+|q[0-9]+|iq[0-9]+_[a-z0-9_]+|ud-iq[0-9]+_[a-z0-9_]+|f16|f32|bf16)(?:[-._]|$)`)
+	// K/IQ quants always carry a variant suffix (Q4_K_M, IQ4_XS, Q8_0); floats
+	// have no suffix. A bare "Q<n>" is deliberately NOT matched: base-model
+	// version tokens such as the "Q3.8" in "Qwen3.8" would otherwise be read as
+	// a "Q3" quant and produce an invalid `ollama pull :Q3` reference.
+	quantRegex   = regexp.MustCompile(`(?i)(?:^|[-._])(ud-iq[0-9]+_[a-z0-9_]+|ud-q[0-9]+_[a-z0-9_]+|iq[0-9]+_[a-z0-9_]+|q[0-9]+_[a-z0-9_]+|mxfp4|f16|f32|bf16)(?:[-._]|$)`)
 	mmprojRegex  = regexp.MustCompile(`(?i)mmproj`)
 	imatrixRegex = regexp.MustCompile(`(?i)(?:^|[-._])imatrix(?:[-._]|$)`)
 	// The leading [a-z]* catches vendor-prefixed variants such as "FastMTP" or
@@ -196,7 +214,7 @@ func ExtractQuantization(filename string) string {
 		"q8_0", "q6_k", "q3_k_l", "q3_k_m", "q3_k_s",
 		"q2_k", "iq4_xs", "iq4_nl", "iq3_m", "iq3_s", "iq3_xxs",
 		"iq2_m", "iq2_s", "iq2_xxs", "iq1_s", "iq1_m",
-		"f16", "f32", "bf16",
+		"mxfp4", "f16", "f32", "bf16",
 	} {
 		if strings.Contains(base, q) {
 			return strings.ToUpper(q)
@@ -204,6 +222,44 @@ func ExtractQuantization(filename string) string {
 	}
 
 	return "OTHER"
+}
+
+// hfDedupeQuants collapses GGUF files into one option per quantization scheme,
+// mirroring the "Quick Links" Hugging Face exposes for Ollama. When several
+// files share a scheme — e.g. the "NEO" and "NEO-MAX" variants DavidAU
+// publishes, both labelled "IQ4_XS" — the alphabetically-first file becomes the
+// option because that is the one HF's registry resolves the bare `:scheme` tag
+// to; the other files are attached as read-only ExtraVariants. Files with no
+// scheme in their name keep the "OTHER" label so they can still be offered via
+// the repository's default (`latest`).
+//
+// The returned order is first-seen; PullName is left for the caller to set.
+func hfDedupeQuants(files []HFQuantFile) []HFQuantFile {
+	index := make(map[string]int, len(files))
+	out := make([]HFQuantFile, 0, len(files))
+	for _, f := range files {
+		i, ok := index[f.Quant]
+		if !ok {
+			index[f.Quant] = len(out)
+			out = append(out, f)
+			continue
+		}
+		if strings.ToLower(f.Filename) < strings.ToLower(out[i].Filename) {
+			// New representative; demote the previous one.
+			prev := out[i]
+			f.ExtraVariants = append(f.ExtraVariants, HFQuantVariant{Filename: prev.Filename, SizeBytes: prev.SizeBytes})
+			f.ExtraVariants = append(f.ExtraVariants, prev.ExtraVariants...)
+			out[i] = f
+		} else {
+			out[i].ExtraVariants = append(out[i].ExtraVariants, HFQuantVariant{Filename: f.Filename, SizeBytes: f.SizeBytes})
+		}
+	}
+	for i := range out {
+		sort.Slice(out[i].ExtraVariants, func(a, b int) bool {
+			return out[i].ExtraVariants[a].SizeBytes < out[i].ExtraVariants[b].SizeBytes
+		})
+	}
+	return out
 }
 
 // IsVisionProjector checks if the filename corresponds to a multimodal vision projector.
@@ -358,7 +414,7 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		ggufCount := 0
+		quants := make(map[string]struct{})
 		hasVisionFile := false
 		for _, s := range m.Siblings {
 			baseName := path.Base(s.RFilename)
@@ -370,10 +426,11 @@ func (s *Server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 				if IsVisionProjector(baseName) {
 					hasVisionFile = true
 				} else {
-					ggufCount++
+					quants[ExtractQuantization(baseName)] = struct{}{}
 				}
 			}
 		}
+		ggufCount := len(quants)
 
 		// Filter out any repo that has 0 usable GGUF files so only models with quants appear
 		if ggufCount == 0 {
@@ -571,6 +628,15 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 	visionFiles := make([]HFQuantFile, 0)
 	hasVision := false
 
+	// GGUF candidates are collapsed into one option per quantization scheme
+	// (see hfDedupeQuants) before their pull references are built.
+	type ggufCandidate struct {
+		filePath string
+		baseName string
+		size     int64
+	}
+	candidates := make([]ggufCandidate, 0, len(treeFiles))
+
 	// Check tags for vision
 	for _, t := range rawDetail.Tags {
 		tl := strings.ToLower(t)
@@ -609,19 +675,29 @@ func (s *Server) handleHFModelDetails(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		quant := ExtractQuantization(baseName)
-		pullName := fmt.Sprintf("huggingface.co/%s:%s", rawDetail.ID, quant)
-		if quant == "OTHER" {
-			pullName = fmt.Sprintf("huggingface.co/%s", rawDetail.ID)
-		}
+		candidates = append(candidates, ggufCandidate{filePath: f.Path, baseName: baseName, size: f.Size})
+	}
 
-		ggufFiles = append(ggufFiles, HFQuantFile{
-			Filename:     f.Path,
-			Quant:        quant,
-			SizeBytes:    f.Size,
-			IsVisionProj: false,
-			PullName:     pullName,
+	// Collapse the files into one option per quantization scheme, matching the
+	// "Quick Links" Hugging Face exposes for Ollama, then point each option at
+	// `huggingface.co/<repo>:<scheme>`. Files without a scheme in their name
+	// ("OTHER") fall back to the repository's default (`latest`).
+	options := make([]HFQuantFile, 0, len(candidates))
+	for _, c := range candidates {
+		options = append(options, HFQuantFile{
+			Filename:  c.filePath,
+			Quant:     ExtractQuantization(c.baseName),
+			SizeBytes: c.size,
 		})
+	}
+	for _, opt := range hfDedupeQuants(options) {
+		pullName := fmt.Sprintf("huggingface.co/%s", rawDetail.ID)
+		if opt.Quant != "OTHER" {
+			pullName = fmt.Sprintf("huggingface.co/%s:%s", rawDetail.ID, opt.Quant)
+		}
+		opt.PullName = pullName
+		opt.IsVisionProj = false
+		ggufFiles = append(ggufFiles, opt)
 	}
 
 	author := rawDetail.Author

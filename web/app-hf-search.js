@@ -916,6 +916,17 @@ function renderHFQuantsTable(m) {
     const hasPerf = (Number(usageRecord?.record_tokens_per_sec) > 0) || (typeof usageRecord?.bench_overall === "number" && isFinite(usageRecord?.bench_overall));
     const usageClass = hasPerf ? "hf-cell-usage has-perf" : "hf-cell-usage no-perf";
 
+    // Other files sharing this quantization scheme (e.g. NEO vs NEO-MAX). HF
+    // resolves the bare `:scheme` tag to this row's file only, so the rest are
+    // shown as read-only detail with no install action.
+    const extraVariants = Array.isArray(f.extra_variants) ? f.extra_variants : [];
+    const extraVariantsHtml = extraVariants.length
+      ? `<details class="hf-extra-variants">
+           <summary>${escapeHtml(t("hf.extra_variants", { n: extraVariants.length }))}</summary>
+           ${extraVariants.map((v) => `<div class="hf-extra-variant mono" title="${escapeHtml(v.filename)}">${escapeHtml(v.filename)} · ${escapeHtml(fmtBytes(v.size_bytes))}</div>`).join("")}
+         </details>`
+      : "";
+
     return `
       <tr class="${rowClasses.join(" ")}">
         <td class="hf-cell-quant-file">
@@ -926,6 +937,7 @@ function renderHFQuantsTable(m) {
           <div class="hf-filename-track" title="${escapeHtml(f.filename)}">
             <span class="hf-filename-text mono">${escapeHtml(f.filename)}</span>
           </div>
+          ${extraVariantsHtml}
         </td>
         <td class="hf-cell-size mono">${fmtBytes(f.size_bytes)}</td>
         <td class="hf-cell-fit">

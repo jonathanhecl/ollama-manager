@@ -87,6 +87,7 @@ select { cursor: pointer; }
   align-items: center;
   gap: 16px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 .topbar-row--actions {
   justify-content: flex-end;
@@ -99,13 +100,15 @@ select { cursor: pointer; }
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent);
 }
-.topbar-actions { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.topbar-actions { display: flex; gap: 6px; align-items: center; min-width: 0; flex-wrap: wrap; }
 .metrics-strip {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   margin-left: auto;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 .metric-widget {
   display: inline-flex;
@@ -383,7 +386,19 @@ tr.row.ghost:hover {
   opacity: 1;
   transform: scale(1.15);
 }
-.table-wrap { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+.table-wrap { border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; overflow-y: hidden; background: var(--panel); max-width: 100%; -webkit-overflow-scrolling: touch; }
+#models-table { min-width: 880px; }
+/* Keep the right-most actions column always reachable: sticky on the right
+   so an external left sidebar / narrow window scrolls instead of clipping. */
+#models-table th:last-child, #models-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+}
+#models-table thead th:last-child { background: var(--panel-2); }
+#models-table tbody td:last-child { background: var(--panel); box-shadow: -1px 0 0 var(--border); }
+#models-table tbody tr.row:hover td:last-child { background: #181820; }
+#models-table tbody tr.row.active td:last-child { background: #1c1d28; }
 table { width: 100%; border-collapse: collapse; }
 thead th {
   text-align: left;
@@ -5191,11 +5206,11 @@ button.chat-send:disabled:hover {
   #models-table {
     width: 100%;
     max-width: none;
-    min-width: 0;
+    min-width: 720px;
     table-layout: auto;
   }
-  /* Simplify table on smaller screens so it uses the viewport instead of horizontal scrolling.
-     Keep Record Tok/s visible alongside Size. Bench sits in column 4. */
+  /* Simplify table on smaller screens: hide Params/Context, keep
+     Size / Last Used / Actions reachable via horizontal scroll. */
   #models-table th:nth-child(5), #models-table td:nth-child(5),
   #models-table th:nth-child(6), #models-table td:nth-child(6) { display: none; }
   #models-table th:nth-child(3), #models-table td:nth-child(3) {
@@ -5569,16 +5584,16 @@ button.chat-send:disabled:hover {
 
 /* Tablet (<=900px): the full table squeezes Record/Bench instead of the
    name (long hf.co/... names force the table wider than the viewport).
-   Switch early to a fixed, mobile-like layout: Name + Record + Bench only.
-   Metric columns keep fixed widths; the name column takes the remaining
-   space and long names scroll via the marquee animation. */
+   Keep horizontal scroll so Size / Last Used / Actions stay reachable
+   instead of clipping them on narrow windows or with an external sidebar. */
 @media (max-width: 900px) {
   .table-wrap {
-    overflow-x: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   #models-table {
-    table-layout: fixed;
-    min-width: 0;
+    table-layout: auto;
+    min-width: 720px;
   }
   #models-table th:nth-child(1), #models-table td:nth-child(1) {
     width: 20px;
@@ -5593,10 +5608,7 @@ button.chat-send:disabled:hover {
     text-align: right;
   }
   #models-table th:nth-child(5), #models-table td:nth-child(5),
-  #models-table th:nth-child(6), #models-table td:nth-child(6),
-  #models-table th:nth-child(7), #models-table td:nth-child(7),
-  #models-table th:nth-child(8), #models-table td:nth-child(8),
-  #models-table th:nth-child(9), #models-table td:nth-child(9) {
+  #models-table th:nth-child(6), #models-table td:nth-child(6) {
     display: none;
   }
   #models-table th,
@@ -6003,14 +6015,15 @@ button.chat-send:disabled:hover {
     white-space: nowrap;
   }
   .table-wrap {
-    overflow-x: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   thead th.sortable::after {
     display: none !important;
   }
-  #models-table { min-width: 0; }
   #models-table {
-    table-layout: fixed;
+    table-layout: auto;
+    min-width: 560px;
   }
   #models-table th:nth-child(1), #models-table td:nth-child(1) {
     width: 20px;
@@ -6045,9 +6058,10 @@ button.chat-send:disabled:hover {
     padding: 2px 6px;
     font-size: 12px;
   }
-  #models-table th:nth-child(7), #models-table td:nth-child(7),
-  #models-table th:nth-child(8), #models-table td:nth-child(8),
-  #models-table th:nth-child(9), #models-table td:nth-child(9) {
+  /* Mobile: keep Size / Last Used / Actions reachable via horizontal
+     scroll instead of hiding them. Only Params/Context stay hidden. */
+  #models-table th:nth-child(5), #models-table td:nth-child(5),
+  #models-table th:nth-child(6), #models-table td:nth-child(6) {
     display: none;
   }
   .cell-record-wrap {

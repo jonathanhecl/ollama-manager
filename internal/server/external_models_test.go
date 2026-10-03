@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gense/ollama-manager/internal/ollama"
@@ -311,7 +312,6 @@ func TestExternalPairUpdateSameNormalizedURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	// Trailing slash difference: same normalized endpoint -> same entry updated.
 	r2, err := store.Upsert("", "m", "http://a.example/v1", "k2", nil, false, "")
 	if err != nil {
 		t.Fatalf("upsert same pair: %v", err)
@@ -332,7 +332,6 @@ func TestExternalCredentialIsolation(t *testing.T) {
 	store := newExternalModelsStore("")
 	a, _ := store.Upsert("", "m", "http://a.example/v1", "key-a", nil, false, "")
 	b, _ := store.Upsert("", "m", "http://b.example/v1", "key-b", nil, false, "")
-	// Blank key on B's edit must inherit from B only, never from A.
 	if _, err := store.Upsert(b.ID, "m-renamed", "http://b.example/v1", "", nil, false, ""); err != nil {
 		t.Fatalf("edit B: %v", err)
 	}
@@ -340,11 +339,17 @@ func TestExternalCredentialIsolation(t *testing.T) {
 	if recB.APIKey != "key-b" {
 		t.Fatalf("B key corrupted: %q", recB.APIKey)
 	}
+	if _, err := store.Upsert(b.ID, "m-renamed", "http://c.example/v1", "", nil, false, ""); err != nil {
+		t.Fatalf("endpoint edit B: %v", err)
+	}
+	recB, _ = store.Get(b.ID)
+	if recB.APIKey != "" {
+		t.Fatalf("endpoint change with blank key must clear stored key, got %q", recB.APIKey)
+	}
 	recA, _ := store.Get(a.ID)
 	if recA.APIKey != "key-a" || recA.Name != "m" {
 		t.Fatalf("A must be untouched: %+v", recA)
 	}
-	// Masked placeholder on a brand-new entry is not a real key.
 	c, err := store.Upsert("", "new", "http://c.example/v1", maskedAPIKey, nil, false, "")
 	if err != nil {
 		t.Fatalf("upsert new: %v", err)
@@ -383,7 +388,6 @@ func TestExternalEditPreservesIDAndConflicts(t *testing.T) {
 	b, _ := store.Upsert("", "m", "http://b.example/v1", "kb", nil, false, "")
 	createdA := a.CreatedAt
 
-	// Rename + endpoint change on B keeps its ID.
 	b2, err := store.Upsert(b.ID, "other-name", "http://c.example/v1", "", nil, false, "")
 	if err != nil {
 		t.Fatalf("edit B: %v", err)
@@ -391,11 +395,10 @@ func TestExternalEditPreservesIDAndConflicts(t *testing.T) {
 	if b2.ID != b.ID {
 		t.Fatalf("ID must be preserved, got %q want %q", b2.ID, b.ID)
 	}
-	if b2.APIKey != "kb" {
-		t.Fatalf("key must be inherited from target entry, got %q", b2.APIKey)
+	if b2.APIKey != "" {
+		t.Fatalf("endpoint change with blank key must not carry old key, got %q", b2.APIKey)
 	}
 
-	// Edit B into A's pair -> conflict, no mutation.
 	if _, err := store.Upsert(b.ID, "m", "http://a.example/v1", "", nil, false, ""); !errors.Is(err, errExternalPairConflict) {
 		t.Fatalf("expected pair conflict, got %v", err)
 	}
@@ -502,9 +505,16 @@ func TestDetectExternalProvider(t *testing.T) {
 }
 
 func TestHandleTestExternalModelUsesStoredKey(t *testing.T) {
-	var gotAuth string
+	var mu sync.Mutex
+	var bad []string
+	var calls int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
+		mu.Lock()
+		calls++
+		if got := r.Header.Get("Authorization"); got != "Bearer real-key" {
+			bad = append(bad, got)
+		}
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
 	}))
@@ -520,13 +530,18 @@ func TestHandleTestExternalModelUsesStoredKey(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	if gotAuth != "Bearer real-key" {
-		t.Fatalf("probe must use stored key, got %q", gotAuth)
-	}
 	var resp map[string]any
 	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
 	if resp["ok"] != true {
 		t.Fatalf("probe failed: %v", resp)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls == 0 {
+		t.Fatalf("probe never reached the endpoint")
+	}
+	if len(bad) > 0 {
+		t.Fatalf("requests without stored key: %v", bad)
 	}
 }
 
@@ -558,8 +573,12 @@ func TestExternalHandlersProviderAndKeySafety(t *testing.T) {
 		t.Fatalf("first entry ID should be raw name, got %q", newID)
 	}
 
-	// Second entry with same remote name, different endpoint -> distinct ID.
-	body = `{"name":"m","url":"http://other.invalid/v1","api_key":"k2"}`
+	ext2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer ext2.Close()
+
+	body = fmt.Sprintf(`{"name":"m","url":%q,"api_key":"k2"}`, ext2.URL)
 	req = httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
 	rr = httptest.NewRecorder()
 	srv.handleCreateExternalModel(rr, req)
@@ -575,8 +594,7 @@ func TestExternalHandlersProviderAndKeySafety(t *testing.T) {
 		t.Fatalf("remote name must stay m, got %q", rn)
 	}
 
-	// Unknown edit ID -> 404.
-	body = `{"id":"ghost","name":"m","url":"http://other.invalid/v1"}`
+	body = fmt.Sprintf(`{"id":"ghost","name":"m","url":%q}`, ext2.URL)
 	req = httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
 	rr = httptest.NewRecorder()
 	srv.handleCreateExternalModel(rr, req)
@@ -584,7 +602,6 @@ func TestExternalHandlersProviderAndKeySafety(t *testing.T) {
 		t.Fatalf("expected 404, got %d", rr.Code)
 	}
 
-	// Edit second entry into first entry's pair -> 409, nothing mutated.
 	body = fmt.Sprintf(`{"id":%q,"name":"m","url":%q}`, id2, ext.URL)
 	req = httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
 	rr = httptest.NewRecorder()
@@ -596,7 +613,6 @@ func TestExternalHandlersProviderAndKeySafety(t *testing.T) {
 		t.Fatalf("conflict must not mutate store")
 	}
 
-	// List: provider present, API key masked.
 	req = httptest.NewRequest(http.MethodGet, "/api/external-models", nil)
 	rr = httptest.NewRecorder()
 	srv.handleListExternalModels(rr, req)
@@ -619,24 +635,318 @@ func TestExternalHandlersProviderAndKeySafety(t *testing.T) {
 	if first.Name != "m" || first.ID != newID {
 		t.Fatalf("list must expose id+remote name: %+v", first)
 	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/models/"+newID, nil)
+	req.SetPathValue("name", newID)
+	rr = httptest.NewRecorder()
+	srv.handleShowModel(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("show status %d: %s", rr.Code, rr.Body.String())
+	}
+	var detail modelDetail
+	_ = json.Unmarshal(rr.Body.Bytes(), &detail)
+	if detail.Name != newID || detail.RemoteName != "m" || detail.Provider != "oMLX" || !detail.IsExternal {
+		t.Fatalf("detail must expose ID/remote_name/provider: %+v", detail)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	rr = httptest.NewRecorder()
+	srv.handleListModels(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list models status %d: %s", rr.Code, rr.Body.String())
+	}
+	var merged struct {
+		Models []modelView `json:"models"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &merged)
+	seen := map[string]modelView{}
+	for _, mv := range merged.Models {
+		if mv.IsExternal {
+			seen[mv.Name] = mv
+		}
+	}
+	mv1, ok1 := seen[newID]
+	mv2, ok2 := seen[id2]
+	if !ok1 || !ok2 {
+		t.Fatalf("merged list must include both external IDs: %+v", seen)
+	}
+	if mv1.RemoteName != "m" || mv1.Provider != "oMLX" {
+		t.Fatalf("modelView must expose remote_name/provider: %+v", mv1)
+	}
+	if mv2.RemoteName != "m" {
+		t.Fatalf("modelView remote_name mismatch: %+v", mv2)
+	}
+}
+
+func TestExternalCreateHandlerCredentialSafety(t *testing.T) {
+	ollamaSrv := fakeOllamaChat(t, nil, nil)
+	defer ollamaSrv.Close()
+	srv := newTestServer(t, ollamaSrv.URL)
+
+	var mu sync.Mutex
+	var extAAuths []string
+	var extACalls int
+	extA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		extACalls++
+		extAAuths = append(extAAuths, r.Header.Get("Authorization"))
+		mu.Unlock()
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer extA.Close()
+	extB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer extB.Close()
+
+	body := fmt.Sprintf(`{"name":"m","url":%q,"api_key":"keyA"}`, extA.URL)
+	req := httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	srv.handleCreateExternalModel(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create A: %d %s", rr.Code, rr.Body.String())
+	}
+	a, _ := srv.externalModels.Get("m")
+
+	body = fmt.Sprintf(`{"name":"m","url":%q,"api_key":"keyB"}`, extB.URL)
+	req = httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
+	rr = httptest.NewRecorder()
+	srv.handleCreateExternalModel(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create B: %d %s", rr.Code, rr.Body.String())
+	}
+	var idB string
+	for k := range srv.externalModels.All() {
+		if k != a.ID {
+			idB = k
+		}
+	}
+	if idB == "" {
+		t.Fatalf("second entry missing")
+	}
+
+	mu.Lock()
+	extACalls = 0
+	extAAuths = nil
+	mu.Unlock()
+	body = fmt.Sprintf(`{"id":%q,"name":"m","url":%q}`, idB, extA.URL)
+	req = httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
+	rr = httptest.NewRecorder()
+	srv.handleCreateExternalModel(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+	mu.Lock()
+	if extACalls != 0 {
+		t.Fatalf("conflict must not perform network calls: %d", extACalls)
+	}
+	mu.Unlock()
+
+	mu.Lock()
+	extAAuths = nil
+	mu.Unlock()
+	body = fmt.Sprintf(`{"id":%q,"name":"m2","url":%q,"api_key":""}`, a.ID, extA.URL)
+	req = httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
+	rr = httptest.NewRecorder()
+	srv.handleCreateExternalModel(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("rename: %d %s", rr.Code, rr.Body.String())
+	}
+	mu.Lock()
+	if len(extAAuths) == 0 || extAAuths[0] != "Bearer keyA" {
+		t.Fatalf("same-endpoint rename must reuse stored key: %v", extAAuths)
+	}
+	mu.Unlock()
+	recA, _ := srv.externalModels.Get(a.ID)
+	if recA.APIKey != "keyA" || recA.Name != "m2" {
+		t.Fatalf("rename must keep key: %+v", recA)
+	}
+
+	var extBAuths []string
+	extB2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		extBAuths = append(extBAuths, r.Header.Get("Authorization"))
+		mu.Unlock()
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer extB2.Close()
+
+	body = fmt.Sprintf(`{"id":%q,"name":"m2","url":%q,"api_key":%q}`, a.ID, extB2.URL, maskedAPIKey)
+	req = httptest.NewRequest(http.MethodPost, "/api/external-models", strings.NewReader(body))
+	rr = httptest.NewRecorder()
+	srv.handleCreateExternalModel(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("endpoint move: %d %s", rr.Code, rr.Body.String())
+	}
+	mu.Lock()
+	for _, g := range extBAuths {
+		if g == "Bearer keyA" || g == "Bearer "+maskedAPIKey {
+			t.Fatalf("old/masked key must not leak to new endpoint: %v", extBAuths)
+		}
+	}
+	mu.Unlock()
+	recA, _ = srv.externalModels.Get(a.ID)
+	if recA.APIKey != "" {
+		t.Fatalf("endpoint change must clear stored key, got %q", recA.APIKey)
+	}
+}
+
+func TestExternalRefreshProviders(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	ext := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "m", "owned_by": "omlx"}}})
+	}))
+	defer ext.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "external_models.json")
+	store := newExternalModelsStore(path)
+	rec, err := store.Upsert("", "m", ext.URL, "", nil, false, "")
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	store.RefreshProviders(context.Background())
+	got, _ := store.Get(rec.ID)
+	if got.Provider != "oMLX" {
+		t.Fatalf("refresh must populate provider, got %q", got.Provider)
+	}
+	mu.Lock()
+	if calls != 1 {
+		t.Fatalf("expected 1 detection call, got %d", calls)
+	}
+	mu.Unlock()
+
+	store2 := newExternalModelsStore(path)
+	if err := store2.Load(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got, _ := store2.Get(rec.ID); got.Provider != "oMLX" {
+		t.Fatalf("provider must persist, got %q", got.Provider)
+	}
+
+	var failedCalls int
+	failed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		failedCalls++
+		mu.Unlock()
+		http.Error(w, "gone", http.StatusNotFound)
+	}))
+	defer failed.Close()
+	rec3, err := store.Upsert("", "m3", failed.URL, "", nil, false, "")
+	if err != nil {
+		t.Fatalf("upsert 3: %v", err)
+	}
+	store.RefreshProviders(context.Background())
+	mu.Lock()
+	if failedCalls != 1 {
+		t.Fatalf("unknown provider record must be checked once, got %d calls", failedCalls)
+	}
+	mu.Unlock()
+	if got, _ := store.Get(rec3.ID); got.Provider != "" {
+		t.Fatalf("failed detection must leave provider unknown, got %q", got.Provider)
+	}
+	store.RefreshProviders(context.Background())
+	mu.Lock()
+	if failedCalls != 1 {
+		t.Fatalf("failed check must be throttled 5min, got %d calls", failedCalls)
+	}
+	mu.Unlock()
+}
+
+func TestExternalRefreshProvidersSkipsChangedRecords(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	entered := make(chan struct{}, 1)
+	ext := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "m", "owned_by": "omlx"}}})
+	}))
+	defer ext.Close()
+	defer releaseOnce.Do(func() { close(release) })
+
+	store := newExternalModelsStore("")
+	rec, _ := store.Upsert("", "m", ext.URL, "", nil, false, "")
+
+	done := make(chan struct{})
+	go func() {
+		store.RefreshProviders(context.Background())
+		close(done)
+	}()
+	<-entered
+	if _, err := store.Upsert(rec.ID, "m", "http://moved.example/v1", "", nil, false, ""); err != nil {
+		t.Fatalf("mid-flight upsert: %v", err)
+	}
+	releaseOnce.Do(func() { close(release) })
+	<-done
+
+	got, _ := store.Get(rec.ID)
+	if got.Provider != "" {
+		t.Fatalf("changed record must not absorb stale provider, got %q", got.Provider)
+	}
+
+	release2 := make(chan struct{})
+	var release2Once sync.Once
+	entered2 := make(chan struct{}, 1)
+	ext2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case entered2 <- struct{}{}:
+		default:
+		}
+		<-release2
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "m", "owned_by": "omlx"}}})
+	}))
+	defer ext2.Close()
+	defer release2Once.Do(func() { close(release2) })
+	rec2, _ := store.Upsert("", "m", ext2.URL, "", nil, false, "")
+	done2 := make(chan struct{})
+	go func() {
+		store.RefreshProviders(context.Background())
+		close(done2)
+	}()
+	<-entered2
+	if err := store.Unregister(rec2.ID); err != nil {
+		t.Fatalf("mid-flight unregister: %v", err)
+	}
+	release2Once.Do(func() { close(release2) })
+	<-done2
+	if store.IsExternal(rec2.ID) {
+		t.Fatalf("deleted record must stay deleted")
+	}
 }
 
 func TestChatExternalDuplicateRouting(t *testing.T) {
-	makeExt := func(tag string, gotModel *string) *httptest.Server {
+	makeExt := func(tag string, gotModel chan string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var req openAIChatRequest
 			_ = json.NewDecoder(r.Body).Decode(&req)
-			*gotModel = req.Model
+			select {
+			case gotModel <- req.Model:
+			default:
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":%q}}]}\n\n", tag)
 			fmt.Fprintf(w, "data: [DONE]\n\n")
 		}))
 	}
-	var modelA, modelB string
-	srvA := makeExt("resp-A", &modelA)
+	modelsA := make(chan string, 4)
+	modelsB := make(chan string, 4)
+	srvA := makeExt("resp-A", modelsA)
 	defer srvA.Close()
-	srvB := makeExt("resp-B", &modelB)
+	srvB := makeExt("resp-B", modelsB)
 	defer srvB.Close()
 
 	srv := &Server{externalModels: newExternalModelsStore("")}
@@ -664,6 +974,8 @@ func TestChatExternalDuplicateRouting(t *testing.T) {
 
 	contentA, routeA := chat(a.ID)
 	contentB, routeB := chat(b.ID)
+	modelA := <-modelsA
+	modelB := <-modelsB
 	if modelA != "dup" || modelB != "dup" {
 		t.Fatalf("upstream must receive the remote model name: A=%q B=%q", modelA, modelB)
 	}

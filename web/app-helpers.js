@@ -195,9 +195,6 @@ const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-// externalProviderLabel maps a server-detected provider name to its badge
-// text: empty/"system" (any case) falls back to the generic EXT badge,
-// "omlx" uses the product casing "oMLX", anything else is shown trimmed.
 function externalProviderLabel(value, lang = null) {
   const v = String(value || "").trim();
   if (!v || v.toLowerCase() === "system") {
@@ -211,8 +208,6 @@ function externalProviderLabel(value, lang = null) {
 }
 window.externalProviderLabel = externalProviderLabel;
 
-// externalCleanEndpoint renders an external model endpoint for compact UI
-// labels: strips credentials and trailing API paths.
 function externalCleanEndpoint(raw) {
   let u = String(raw || "").trim();
   if (!u) return "";

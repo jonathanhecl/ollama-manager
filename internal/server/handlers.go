@@ -3927,18 +3927,27 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Resolve the effective credential before provider detection: a blank or
-	// masked key means "keep the stored key" of the entry being edited.
 	apiKey := strings.TrimSpace(body.APIKey)
 	if apiKey == "" || apiKey == maskedAPIKey {
 		apiKey = ""
 		if id != "" {
-			if existing, ok := s.externalModels.Get(id); ok {
+			if existing, ok := s.externalModels.Get(id); ok && normalizeOpenAIEndpoint(existing.URL) == normalizeOpenAIEndpoint(targetURL) {
 				apiKey = existing.APIKey
 			}
 		} else if existing, ok := s.externalModels.findPair(name, targetURL); ok {
 			apiKey = existing.APIKey
 		}
+	}
+	if err := s.externalModels.validateUpsert(id, name, targetURL); err != nil {
+		switch {
+		case errors.Is(err, errExternalNotFound):
+			writeError(w, http.StatusNotFound, err)
+		case errors.Is(err, errExternalPairConflict):
+			writeError(w, http.StatusConflict, err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return
 	}
 	provider := detectExternalProvider(r.Context(), normalizeOpenAIEndpoint(targetURL), apiKey, name)
 
@@ -4008,7 +4017,10 @@ func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	apiKey := strings.TrimSpace(body.APIKey)
-	if (apiKey == "" || apiKey == maskedAPIKey) && s.externalModels != nil {
+	if apiKey == maskedAPIKey {
+		apiKey = ""
+	}
+	if apiKey == "" && s.externalModels != nil {
 		var existing ExternalModelRecord
 		var ok bool
 		if id != "" {
@@ -4016,8 +4028,6 @@ func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request)
 		} else {
 			existing, ok = s.externalModels.findPair(name, targetURL)
 		}
-		// Only reuse the stored key when the probe targets the same endpoint
-		// the key belongs to.
 		if ok && (id == "" || normalizeOpenAIEndpoint(existing.URL) == normalizeOpenAIEndpoint(targetURL)) {
 			apiKey = existing.APIKey
 		}

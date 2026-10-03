@@ -148,17 +148,11 @@ var (
 
 const maskedAPIKey = "••••••••"
 
-// sameExternalPair reports whether two records refer to the same remote
-// model: identical trimmed remote name AND identical normalized chat
-// completions endpoint (trailing slashes tolerated).
 func sameExternalPair(nameA, urlA, nameB, urlB string) bool {
 	return strings.TrimSpace(nameA) == strings.TrimSpace(nameB) &&
 		normalizeOpenAIEndpoint(urlA) == normalizeOpenAIEndpoint(urlB)
 }
 
-// allocateID picks a stable routing ID for a new entry: the raw remote name
-// when free (backwards compatible), else name@ext-<12 hex of endpoint hash>,
-// else a deterministic numeric suffix.
 func (s *externalModelsStore) allocateID(name, targetURL string) string {
 	if _, ok := s.models[name]; !ok {
 		return name
@@ -176,7 +170,6 @@ func (s *externalModelsStore) allocateID(name, targetURL string) string {
 	}
 }
 
-// findPair returns the record owning the (name, endpoint) pair, if any.
 func (s *externalModelsStore) findPair(name, targetURL string) (ExternalModelRecord, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -187,7 +180,40 @@ func (s *externalModelsStore) findPair(name, targetURL string) (ExternalModelRec
 	return s.models[k], true
 }
 
-// findPairLocked returns the map key of the entry owning (name, endpoint).
+func (s *externalModelsStore) validateUpsert(id, name, targetURL string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	key, exists := s.resolveKeyLocked(id)
+	if !exists {
+		return errExternalNotFound
+	}
+	if owner, clash := s.findPairLocked(name, targetURL); clash && owner != key {
+		return errExternalPairConflict
+	}
+	return nil
+}
+
+func (s *externalModelsStore) resolveKeyLocked(id string) (string, bool) {
+	if _, ok := s.models[id]; ok {
+		return id, true
+	}
+	if strings.HasSuffix(id, ":latest") {
+		trimmed := strings.TrimSuffix(id, ":latest")
+		if _, ok := s.models[trimmed]; ok {
+			return trimmed, true
+		}
+		return "", false
+	}
+	if _, ok := s.models[id+":latest"]; ok {
+		return id + ":latest", true
+	}
+	return "", false
+}
+
 func (s *externalModelsStore) findPairLocked(name, targetURL string) (string, bool) {
 	for k, v := range s.models {
 		if sameExternalPair(v.Name, v.URL, name, targetURL) {
@@ -197,18 +223,11 @@ func (s *externalModelsStore) findPairLocked(name, targetURL string) (string, bo
 	return "", false
 }
 
-// Register keeps the historical signature; it upserts by name+endpoint pair.
 func (s *externalModelsStore) Register(name, targetURL, apiKey string, capabilities []string, disabled bool) error {
 	_, err := s.Upsert("", name, targetURL, apiKey, capabilities, disabled, "")
 	return err
 }
 
-// Upsert creates or updates an external model entry.
-//   - id == "": update the entry owning the same (name, endpoint) pair, or
-//     create a new entry with an allocated routing ID.
-//   - id != "": update ONLY that entry, preserving its ID even when the remote
-//     name or endpoint changes; fails with errExternalNotFound when unknown and
-//     errExternalPairConflict when the resulting pair belongs to another entry.
 func (s *externalModelsStore) Upsert(id, name, targetURL, apiKey string, capabilities []string, disabled bool, provider string) (ExternalModelRecord, error) {
 	name = strings.TrimSpace(name)
 	targetURL = strings.TrimSpace(targetURL)
@@ -232,23 +251,12 @@ func (s *externalModelsStore) Upsert(id, name, targetURL, apiKey string, capabil
 	var rec ExternalModelRecord
 	var exists bool
 	if id != "" {
-		key = id
-		rec, exists = s.models[key]
-		if !exists && strings.HasSuffix(key, ":latest") {
-			key = strings.TrimSuffix(key, ":latest")
-			rec, exists = s.models[key]
-		}
-		if !exists && !strings.HasSuffix(key, ":latest") {
-			if rec2, ok2 := s.models[key+":latest"]; ok2 {
-				key = key + ":latest"
-				rec = rec2
-				exists = true
-			}
-		}
+		key, exists = s.resolveKeyLocked(id)
 		if !exists {
 			s.mu.Unlock()
 			return ExternalModelRecord{}, errExternalNotFound
 		}
+		rec = s.models[key]
 		if owner, clash := s.findPairLocked(name, targetURL); clash && owner != key {
 			s.mu.Unlock()
 			return ExternalModelRecord{}, errExternalPairConflict
@@ -264,7 +272,7 @@ func (s *externalModelsStore) Upsert(id, name, targetURL, apiKey string, capabil
 	}
 
 	fieldsChanged := !exists || rec.Name != name || rec.URL != targetURL || (apiKey != "" && rec.APIKey != apiKey)
-	if apiKey == "" && exists {
+	if apiKey == "" && exists && normalizeOpenAIEndpoint(rec.URL) == normalizeOpenAIEndpoint(targetURL) {
 		apiKey = rec.APIKey
 	}
 	rec.ID = key
@@ -754,11 +762,6 @@ func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string
 	}, nil
 }
 
-// ---------- Provider Detection ----------
-
-// canonicalProviderLabel normalizes a server-reported owner string: empty,
-// missing or "system" (any case/space) means "no known provider"; "omlx" is
-// canonicalized to the product casing "oMLX"; anything else is kept trimmed.
 func canonicalProviderLabel(raw string) string {
 	v := strings.TrimSpace(raw)
 	if v == "" || strings.EqualFold(v, "system") {
@@ -770,16 +773,10 @@ func canonicalProviderLabel(raw string) string {
 	return v
 }
 
-// externalModelsEndpoint derives the GET /models URL from a normalized
-// chat completions endpoint.
 func externalModelsEndpoint(normalizedEndpoint string) string {
 	return strings.TrimSuffix(normalizedEndpoint, "/chat/completions") + "/models"
 }
 
-// detectExternalProvider queries the endpoint's model list and returns the
-// owner of the entry whose id EXACTLY matches modelName. Any transport,
-// status, JSON or mismatch problem yields "" — detection is best-effort and
-// never fails registration or capability probing.
 func detectExternalProvider(ctx context.Context, normalizedEndpoint, apiKey, modelName string) string {
 	modelsURL := externalModelsEndpoint(normalizedEndpoint)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -827,11 +824,6 @@ func detectExternalProvider(ctx context.Context, normalizedEndpoint, apiKey, mod
 	return ""
 }
 
-// RefreshProviders best-effort re-detects providers for records whose
-// provider is still unknown. Checks are throttled per ID (5 min, failures
-// included), bounded to a 3s aggregate budget, and run at most 4 in
-// parallel. Persisted only when something actually changed; a record whose
-// name/url/key changed underneath a check is left untouched.
 func (s *externalModelsStore) RefreshProviders(ctx context.Context) {
 	if s == nil {
 		return

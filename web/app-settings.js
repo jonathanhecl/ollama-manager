@@ -1425,6 +1425,22 @@ async function loadExternalModels(lang = null) {
   try {
     const data = await api("/api/external-models");
     const list = data.models || [];
+    let extMetaChanged = false;
+    if (typeof models !== "undefined" && Array.isArray(models)) {
+      for (const rec of list) {
+        const recId = rec.id || rec.name;
+        const entry = models.find((x) => x && x.is_external && x.name === recId);
+        if (entry && (entry.provider !== (rec.provider || "") || entry.remote_name !== rec.name)) {
+          entry.provider = rec.provider || "";
+          entry.remote_name = rec.name;
+          extMetaChanged = true;
+        }
+      }
+    }
+    if (extMetaChanged) {
+      if (typeof renderTable === "function") renderTable();
+      if (typeof syncChatModelOptions === "function") syncChatModelOptions();
+    }
     if (badge) badge.textContent = String(list.length);
     if (navBadge) navBadge.textContent = String(list.length);
     if (!list.length) {

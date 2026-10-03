@@ -100,7 +100,25 @@ function syncChatModelOptions() {
   const sorted = applySort(activeModels);
   const sortedArchived = applySort(archivedModels);
 
-  let html = sorted.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
+  const remoteNameCounts = new Map();
+  for (const m of models) {
+    if (m.is_external) {
+      const rn = m.remote_name || m.name;
+      remoteNameCounts.set(rn, (remoteNameCounts.get(rn) || 0) + 1);
+    }
+  }
+  const optionLabel = (m) => {
+    if (!m.is_external) return m.name;
+    const rn = m.remote_name || m.name;
+    if ((remoteNameCounts.get(rn) || 0) > 1) {
+      const prov = (typeof externalProviderLabel === "function") ? externalProviderLabel(m.provider) : "";
+      const ep = (typeof externalCleanEndpoint === "function") ? externalCleanEndpoint(m.url) : (m.url || "");
+      const suffix = [prov, ep].filter(Boolean).join(" · ");
+      return suffix ? `${rn} · ${suffix}` : rn;
+    }
+    return rn;
+  };
+  let html = sorted.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(optionLabel(m))}</option>`).join("");
   if (sortedArchived.length) {
     const archLabel = t("settings.archived_section") || "Archived Models";
     html += `<optgroup label="${escapeHtml(archLabel)}">` +
@@ -126,7 +144,9 @@ function syncChatModelOptions() {
 function updateChatCapabilityUI() {
   const model = $("chat-model").value;
   if ($("chat-model-name-value")) {
-    $("chat-model-name-value").textContent = model;
+    const selModel = modelByName(model);
+    const visible = (selModel && selModel.is_external && selModel.remote_name) ? selModel.remote_name : model;
+    $("chat-model-name-value").textContent = visible;
     $("chat-model-name-value").title = model;
   }
   updateChatModelDisplay();

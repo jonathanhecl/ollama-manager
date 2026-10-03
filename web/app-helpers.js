@@ -195,6 +195,39 @@ const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
+// externalProviderLabel maps a server-detected provider name to its badge
+// text: empty/"system" (any case) falls back to the generic EXT badge,
+// "omlx" uses the product casing "oMLX", anything else is shown trimmed.
+function externalProviderLabel(value, lang = null) {
+  const v = String(value || "").trim();
+  if (!v || v.toLowerCase() === "system") {
+    const fallback = (window.I18n && typeof window.I18n.t === "function")
+      ? window.I18n.t("models.external_badge", null, lang)
+      : "EXT";
+    return fallback || "EXT";
+  }
+  if (v.toLowerCase() === "omlx") return "oMLX";
+  return v;
+}
+window.externalProviderLabel = externalProviderLabel;
+
+// externalCleanEndpoint renders an external model endpoint for compact UI
+// labels: strips credentials and trailing API paths.
+function externalCleanEndpoint(raw) {
+  let u = String(raw || "").trim();
+  if (!u) return "";
+  try {
+    const parsed = new URL(u);
+    parsed.username = "";
+    parsed.password = "";
+    u = parsed.toString();
+  } catch { }
+  u = u.replace(/\/+$/g, "");
+  u = u.replace(/\/chat\/completions$/i, "").replace(/\/v1$/i, "").replace(/\/+$/g, "");
+  return u;
+}
+window.externalCleanEndpoint = externalCleanEndpoint;
+
 function attachmentImageSrc(a) {
   if (!a || a.kind !== "image" || !a.data) return "";
   const mime = (a.mime && String(a.mime).trim()) || "image/jpeg";

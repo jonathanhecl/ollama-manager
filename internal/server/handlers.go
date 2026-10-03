@@ -643,6 +643,8 @@ type modelView struct {
 	IsExternal           bool       `json:"is_external,omitempty"`
 	Disabled             bool       `json:"disabled,omitempty"`
 	URL                  string     `json:"url,omitempty"`
+	RemoteName           string     `json:"remote_name,omitempty"`
+	Provider             string     `json:"provider,omitempty"`
 	BaseModel            string     `json:"base_model,omitempty"`
 	BenchOverall         *float64   `json:"bench_overall,omitempty"`
 	BenchTested          bool       `json:"bench_tested,omitempty"`
@@ -800,7 +802,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.externalModels != nil {
-		for _, ext := range s.externalModels.All() {
+		for extID, ext := range s.externalModels.All() {
 			if ext.Disabled {
 				continue
 			}
@@ -809,17 +811,19 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				caps = []string{"completion", "tools", "thinking"}
 			}
 			ev := modelView{
-				Name:         ext.Name,
+				Name:         extID,
 				Family:       "external",
 				Format:       "external",
 				Capabilities: caps,
 				IsExternal:   true,
 				Disabled:     ext.Disabled,
 				URL:          cleanURLDisplay(ext.URL),
+				RemoteName:   ext.Name,
+				Provider:     ext.Provider,
 				ModifiedAt:   ext.CreatedAt,
 			}
 			if s.usage != nil {
-				if rec, ok := s.usage.Get(ext.Name); ok {
+				if rec, ok := s.usage.Get(extID); ok {
 					ev.LastUsedAt = rec.LastUsedAt
 					ev.RecordTokensPerSec = rec.RecordTokensPerSec
 					ev.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
@@ -910,7 +914,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.externalModels != nil {
-		for _, ext := range s.externalModels.All() {
+		for extID, ext := range s.externalModels.All() {
 			if ext.Disabled {
 				continue
 			}
@@ -918,7 +922,7 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 			if len(caps) == 0 {
 				caps = []string{"completion", "tools", "thinking"}
 			}
-			capsByModel[ext.Name] = caps
+			capsByModel[extID] = caps
 		}
 	}
 	ghostSet := make(map[string]bool, len(ghostOut))
@@ -1369,6 +1373,8 @@ type modelDetail struct {
 	IsExternal           bool                `json:"is_external,omitempty"`
 	Disabled             bool                `json:"disabled,omitempty"`
 	URL                  string              `json:"url,omitempty"`
+	RemoteName           string              `json:"remote_name,omitempty"`
+	Provider             string              `json:"provider,omitempty"`
 	BaseModel            string              `json:"base_model,omitempty"`
 }
 
@@ -1384,11 +1390,17 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		if len(caps) == 0 {
 			caps = []string{"completion", "tools", "thinking"}
 		}
+		detailID := rec.ID
+		if detailID == "" {
+			detailID = name
+		}
 		detail := modelDetail{
-			Name:         rec.Name,
+			Name:         detailID,
 			IsExternal:   true,
 			Disabled:     rec.Disabled,
 			URL:          cleanURLDisplay(rec.URL),
+			RemoteName:   rec.Name,
+			Provider:     rec.Provider,
 			Capabilities: caps,
 			Details: ollama.ModelDetails{
 				Format: "external",
@@ -3869,12 +3881,13 @@ func (s *Server) handleListExternalModels(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusOK, map[string]any{"models": []any{}})
 		return
 	}
+	s.externalModels.RefreshProviders(r.Context())
 	all := s.externalModels.All()
 	list := make([]ExternalModelRecord, 0, len(all))
 	for _, m := range all {
 		safeM := m
 		if safeM.APIKey != "" {
-			safeM.APIKey = "••••••••"
+			safeM.APIKey = maskedAPIKey
 		}
 		list = append(list, safeM)
 	}
@@ -3883,6 +3896,7 @@ func (s *Server) handleListExternalModels(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
+		ID           string   `json:"id"`
 		Name         string   `json:"name"`
 		OldName      string   `json:"old_name"`
 		URL          string   `json:"url"`
@@ -3895,7 +3909,10 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	name := strings.TrimSpace(body.Name)
-	oldName := strings.TrimSpace(body.OldName)
+	id := strings.TrimSpace(body.ID)
+	if id == "" {
+		id = strings.TrimSpace(body.OldName)
+	}
 	targetURL := strings.TrimSpace(body.URL)
 	if name == "" {
 		writeError(w, http.StatusBadRequest, errors.New("nombre del modelo requerido"))
@@ -3910,24 +3927,34 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if oldName != "" && oldName != name {
-		_ = s.externalModels.Unregister(oldName)
-		_ = s.deleteArtifactsForModel(r.Context(), oldName)
-		if s.usage != nil {
-			_, _ = s.usage.Delete(oldName)
-			if strings.HasSuffix(oldName, ":latest") {
-				_, _ = s.usage.Delete(strings.TrimSuffix(oldName, ":latest"))
-			} else {
-				_, _ = s.usage.Delete(oldName + ":latest")
+	// Resolve the effective credential before provider detection: a blank or
+	// masked key means "keep the stored key" of the entry being edited.
+	apiKey := strings.TrimSpace(body.APIKey)
+	if apiKey == "" || apiKey == maskedAPIKey {
+		apiKey = ""
+		if id != "" {
+			if existing, ok := s.externalModels.Get(id); ok {
+				apiKey = existing.APIKey
 			}
+		} else if existing, ok := s.externalModels.findPair(name, targetURL); ok {
+			apiKey = existing.APIKey
 		}
 	}
+	provider := detectExternalProvider(r.Context(), normalizeOpenAIEndpoint(targetURL), apiKey, name)
 
-	if err := s.externalModels.Register(name, targetURL, body.APIKey, body.Capabilities, body.Disabled); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	rec, err := s.externalModels.Upsert(id, name, targetURL, apiKey, body.Capabilities, body.Disabled, provider)
+	if err != nil {
+		switch {
+		case errors.Is(err, errExternalNotFound):
+			writeError(w, http.StatusNotFound, err)
+		case errors.Is(err, errExternalPairConflict):
+			writeError(w, http.StatusConflict, err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
+		}
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name, "disabled": body.Disabled})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "id": rec.ID, "name": rec.Name, "disabled": rec.Disabled})
 }
 
 func (s *Server) handleToggleExternalModel(w http.ResponseWriter, r *http.Request) {
@@ -3964,6 +3991,7 @@ func (s *Server) handleToggleExternalModel(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
+		ID     string `json:"id"`
 		Name   string `json:"name"`
 		URL    string `json:"url"`
 		APIKey string `json:"api_key"`
@@ -3974,11 +4002,27 @@ func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request)
 	}
 	name := strings.TrimSpace(body.Name)
 	targetURL := strings.TrimSpace(body.URL)
+	id := strings.TrimSpace(body.ID)
 	if name == "" || targetURL == "" {
 		writeError(w, http.StatusBadRequest, errors.New("nombre y URL requeridos para el test"))
 		return
 	}
-	res, err := ProbeExternalModel(r.Context(), targetURL, body.APIKey, name)
+	apiKey := strings.TrimSpace(body.APIKey)
+	if (apiKey == "" || apiKey == maskedAPIKey) && s.externalModels != nil {
+		var existing ExternalModelRecord
+		var ok bool
+		if id != "" {
+			existing, ok = s.externalModels.Get(id)
+		} else {
+			existing, ok = s.externalModels.findPair(name, targetURL)
+		}
+		// Only reuse the stored key when the probe targets the same endpoint
+		// the key belongs to.
+		if ok && (id == "" || normalizeOpenAIEndpoint(existing.URL) == normalizeOpenAIEndpoint(targetURL)) {
+			apiKey = existing.APIKey
+		}
+	}
+	res, err := ProbeExternalModel(r.Context(), targetURL, apiKey, name)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":    false,
@@ -3993,6 +4037,7 @@ func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request)
 		"tools":        res.Tools,
 		"thinking":     res.Thinking,
 		"capabilities": res.Capabilities,
+		"provider":     res.Provider,
 		"latency_ms":   res.LatencyMs,
 	})
 }

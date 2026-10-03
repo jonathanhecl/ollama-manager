@@ -1337,7 +1337,8 @@ async function openSettingsExternalModel(name) {
   try {
     const data = await api("/api/external-models");
     const list = data.models || [];
-    const found = list.find((x) => x.name === name || x.name === name + ":latest" || name.startsWith(x.name));
+    const found = list.find((x) => (x.id || x.name) === name)
+      || list.find((x) => x.name === name || x.name === name + ":latest");
     if (found) {
       editExternalModel(found);
     }
@@ -1406,7 +1407,8 @@ async function openSettingsCloneExternalModel(name) {
   try {
     const data = await api("/api/external-models");
     const list = data.models || [];
-    const found = list.find((x) => x.name === name || x.name === name + ":latest" || name.startsWith(x.name));
+    const found = list.find((x) => (x.id || x.name) === name)
+      || list.find((x) => x.name === name || x.name === name + ":latest");
     if (found) {
       cloneExternalModel(found);
     }
@@ -1438,23 +1440,24 @@ async function loadExternalModels(lang = null) {
         })
         .join("");
       const isPaused = !!m.disabled;
+      const extId = m.id || m.name;
       return `
-        <div class="ext-model-card ${isPaused ? "is-paused" : ""}" data-name="${escapeHtml(m.name)}">
+        <div class="ext-model-card ${isPaused ? "is-paused" : ""}" data-name="${escapeHtml(extId)}">
           <div class="ext-model-card-info">
             <div class="ext-model-card-name">
               ${escapeHtml(m.name)}
-              <span class="model-external-tag">${escapeHtml(t("models.external_badge", null, targetLang))}</span>
+              <span class="model-external-tag">${escapeHtml(externalProviderLabel(m.provider, targetLang))}</span>
               ${isPaused ? `<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;border:1px solid rgba(234,179,8,0.4);font-size:11px;padding:1px 6px;">⏸️ ${escapeHtml(t("settings.ext_model_paused_badge", null, targetLang))}</span>` : ""}
             </div>
             <div class="ext-model-card-url" title="${escapeHtml(m.url)}">${escapeHtml(m.url)}</div>
             <div class="ext-caps-pills" style="margin-top:2px;">${caps}</div>
           </div>
           <div class="ext-model-card-actions">
-            <button type="button" class="btn-icon ext-model-chat-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.chat_title", null, targetLang) || "Chat")}">💬</button>
-            <button type="button" class="btn-icon ext-model-toggle-btn" data-name="${escapeHtml(m.name)}" title="${isPaused ? escapeHtml(t("settings.ext_model_resume", null, targetLang)) : escapeHtml(t("settings.ext_model_pause", null, targetLang))}">${isPaused ? "▶️" : "⏸️"}</button>
-            <button type="button" class="btn-icon ext-model-clone-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("settings.ext_model_clone", null, targetLang))}">📋</button>
-            <button type="button" class="btn-icon ext-model-edit-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("settings.ext_model_edit", null, targetLang))}">✏️</button>
-            <button type="button" class="btn-icon danger-text ext-model-del-btn" data-name="${escapeHtml(m.name)}" title="${escapeHtml(t("detail.delete_external_title", null, targetLang))}">🗑️</button>
+            <button type="button" class="btn-icon ext-model-chat-btn" data-name="${escapeHtml(extId)}" title="${escapeHtml(t("detail.chat_title", null, targetLang) || "Chat")}">💬</button>
+            <button type="button" class="btn-icon ext-model-toggle-btn" data-name="${escapeHtml(extId)}" title="${isPaused ? escapeHtml(t("settings.ext_model_resume", null, targetLang)) : escapeHtml(t("settings.ext_model_pause", null, targetLang))}">${isPaused ? "▶️" : "⏸️"}</button>
+            <button type="button" class="btn-icon ext-model-clone-btn" data-name="${escapeHtml(extId)}" title="${escapeHtml(t("settings.ext_model_clone", null, targetLang))}">📋</button>
+            <button type="button" class="btn-icon ext-model-edit-btn" data-name="${escapeHtml(extId)}" title="${escapeHtml(t("settings.ext_model_edit", null, targetLang))}">✏️</button>
+            <button type="button" class="btn-icon danger-text ext-model-del-btn" data-name="${escapeHtml(extId)}" title="${escapeHtml(t("detail.delete_external_title", null, targetLang))}">🗑️</button>
           </div>
         </div>
       `;
@@ -1495,7 +1498,7 @@ async function loadExternalModels(lang = null) {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const name = btn.dataset.name;
-        const m = list.find((x) => x.name === name);
+        const m = list.find((x) => (x.id || x.name) === name) || list.find((x) => x.name === name);
         if (m) cloneExternalModel(m);
       });
     });
@@ -1504,7 +1507,7 @@ async function loadExternalModels(lang = null) {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const name = btn.dataset.name;
-        const m = list.find((x) => x.name === name);
+        const m = list.find((x) => (x.id || x.name) === name) || list.find((x) => x.name === name);
         if (m) editExternalModel(m);
       });
     });
@@ -1525,7 +1528,7 @@ async function loadExternalModels(lang = null) {
           try {
             await api("/api/external-models/" + encodeURIComponent(name), { method: "DELETE" });
             toast(t("settings.ext_model_removed", { name }, targetLang), "success");
-            if (editingExtModel && editingExtModel.name === name) {
+            if (editingExtModel && (editingExtModel.id || editingExtModel.name) === name) {
               cancelEditExternalModel();
             }
             loadExternalModels(targetLang);
@@ -1568,7 +1571,12 @@ async function testExternalModel() {
     const res = await api("/api/external-models/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, url, api_key: apiKey }),
+      body: JSON.stringify({
+        id: editingExtModel ? (editingExtModel.id || editingExtModel.name) : "",
+        name,
+        url,
+        api_key: apiKey,
+      }),
     });
 
     lastTestedExtModel = name;
@@ -1643,7 +1651,7 @@ async function addExternalModel() {
   caps = sortCapabilityList(caps);
 
   const isEditing = !!editingExtModel;
-  const oldName = editingExtModel ? editingExtModel.name : "";
+  const editId = editingExtModel ? (editingExtModel.id || editingExtModel.name) : "";
   const isExistingDisabled = editingExtModel ? !!editingExtModel.disabled : false;
 
   try {
@@ -1651,8 +1659,8 @@ async function addExternalModel() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        id: isEditing ? editId : "",
         name,
-        old_name: isEditing ? oldName : "",
         url,
         api_key: apiKey,
         capabilities: caps,
@@ -1861,11 +1869,14 @@ async function renderGatewayModels(lang = null, forceRefresh = false) {
   } else {
     listEl.innerHTML = list.map((m) => {
       const checked = gatewaySelectedModels.has(m.name);
-      const extTag = m.is_external ? ` <span class="model-external-tag">${escapeHtml(t("models.external_badge", null, targetLang))}</span>` : "";
+      const extTag = m.is_external ? ` <span class="model-external-tag">${escapeHtml(externalProviderLabel(m.provider, targetLang))}</span>` : "";
+      const label = m.is_external
+        ? `${m.remote_name || m.name} · ${externalCleanEndpoint(m.url)}`
+        : m.name;
       return `
         <label class="gw-model-item${checked ? " selected" : ""}" data-name="${escapeHtml(m.name)}">
           <input type="checkbox" value="${escapeHtml(m.name)}"${checked ? " checked" : ""} />
-          <span class="gw-model-name mono">${escapeHtml(m.name)}${extTag}</span>
+          <span class="gw-model-name mono">${escapeHtml(label)}${extTag}</span>
         </label>
       `;
     }).join("");

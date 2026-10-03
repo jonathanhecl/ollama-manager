@@ -544,7 +544,7 @@ function renderTable() {
   const unarchiveTitle = t("detail.unarchive_title");
   function getRowInnerHtml(m, capsHtml, progressHtml) {
     const ghostTag = m.isGhost ? `<span class="model-ghost-tag">(${escapeHtml(t("models.ghost_badge"))})</span>` : "";
-    const extTag = m.is_external ? `<span class="model-external-tag" title="${escapeHtml(t("models.external_tooltip"))}">${escapeHtml(t("models.external_badge"))}</span>` : "";
+    const extTag = m.is_external ? `<span class="model-external-tag" title="${escapeHtml(t("models.external_tooltip"))}">${escapeHtml(externalProviderLabel(m.provider))}</span>` : "";
     const customTag = (!m.isGhost && !m.is_external && m.is_custom)
       ? `<span class="model-custom-tag" title="${m.base_model ? escapeHtml(t("models.custom_based_on", { base: m.base_model })) : escapeHtml(t("models.custom_tooltip"))}">${escapeHtml(t("models.custom_badge"))}</span>`
       : "";
@@ -587,9 +587,10 @@ function renderTable() {
 
     // Split "namespace/model" so the namespace can be de-emphasized and the
     // model name highlighted (same treatment as the HF list).
-    const nameSlash = m.name.indexOf("/");
-    const nsPart = nameSlash > 0 ? m.name.slice(0, nameSlash) : "";
-    const basePart = nameSlash > 0 ? m.name.slice(nameSlash + 1) : m.name;
+    const displayName = (m.is_external && m.remote_name) ? m.remote_name : m.name;
+    const nameSlash = displayName.indexOf("/");
+    const nsPart = nameSlash > 0 ? displayName.slice(0, nameSlash) : "";
+    const basePart = nameSlash > 0 ? displayName.slice(nameSlash + 1) : displayName;
 
     return `
       <td class="col-state">${stateDotHtml}</td>

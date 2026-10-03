@@ -5,9 +5,9 @@ function openDetail(name) {
   activeName = name;
   const panel = $("detail-panel");
   panel.hidden = false;
-  $("detail-name").textContent = name;
   const m = models.find(x => x.name === name);
   const isExternal = !!(m && m.is_external);
+  $("detail-name").textContent = (isExternal && m.remote_name) ? m.remote_name : name;
 
   if ($("detail-ext-clone")) {
     $("detail-ext-clone").hidden = !isExternal;
@@ -172,7 +172,7 @@ function renderDetail(d) {
   const stateText = isExternal
     ? (d.disabled
       ? `<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;border:1px solid rgba(234,179,8,0.4);">${escapeHtml(t("settings.ext_model_paused_badge"))}</span>`
-      : `<span class="badge" style="background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.4);">${escapeHtml(t("models.external_badge"))}</span>`)
+      : `<span class="badge" style="background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.4);">${escapeHtml(externalProviderLabel(d.provider || m.provider))}</span>`)
     : (m.loaded ? t("detail.loaded_vram", { size: fmtBytes(m.size_vram) }) : t("detail.not_loaded"));
   const lastUsedVal = (d.last_used_at || m.last_used_at)
     ? fmtDateTimeFull(d.last_used_at || m.last_used_at)
@@ -192,7 +192,7 @@ function renderDetail(d) {
   }
   const rows = [];
   if (isExternal) {
-    rows.push([t("detail.external_model"), `<span class="model-external-tag">${escapeHtml(t("models.external_badge"))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(t("detail.external_desc"))}</span>`, false]);
+    rows.push([t("detail.external_model"), `<span class="model-external-tag">${escapeHtml(externalProviderLabel(d.provider || m.provider))}</span> <span class="muted" style="margin-left: 6px;">${escapeHtml(t("detail.external_desc"))}</span>`, false]);
     rows.push([t("detail.endpoint_url"), `<span class="mono">${escapeHtml(d.url || m.url || "—")}</span>`, false]);
     rows.push([t("detail.state"), stateText, false]);
     rows.push([t("detail.record_tokens"), recordToksVal, false]);

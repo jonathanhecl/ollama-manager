@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,10 +23,12 @@ import (
 // ExternalModelRecord stores metadata and configuration for a remote/external
 // model served via an OpenAI-compatible API (e.g., oMLX, vLLM, LM Studio).
 type ExternalModelRecord struct {
+	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	URL          string    `json:"url"`
 	APIKey       string    `json:"api_key,omitempty"`
 	Capabilities []string  `json:"capabilities,omitempty"`
+	Provider     string    `json:"provider,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	Disabled     bool      `json:"disabled,omitempty"`
 }
@@ -34,15 +38,17 @@ type externalModelsFile struct {
 }
 
 type externalModelsStore struct {
-	path   string
-	mu     sync.RWMutex
-	models map[string]ExternalModelRecord
+	path            string
+	mu              sync.RWMutex
+	models          map[string]ExternalModelRecord
+	providerChecked map[string]time.Time
 }
 
 func newExternalModelsStore(path string) *externalModelsStore {
 	return &externalModelsStore{
-		path:   path,
-		models: make(map[string]ExternalModelRecord),
+		path:            path,
+		models:          make(map[string]ExternalModelRecord),
+		providerChecked: make(map[string]time.Time),
 	}
 }
 
@@ -70,6 +76,12 @@ func (s *externalModelsStore) Load() error {
 		s.models = file.Models
 	} else {
 		s.models = make(map[string]ExternalModelRecord)
+	}
+	for k, v := range s.models {
+		if v.ID == "" {
+			v.ID = k
+			s.models[k] = v
+		}
 	}
 	return nil
 }
@@ -104,55 +116,179 @@ func (s *externalModelsStore) Get(name string) (ExternalModelRecord, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if rec, ok := s.models[name]; ok {
+		if rec.ID == "" {
+			rec.ID = name
+		}
 		return rec, true
 	}
 	if strings.HasSuffix(name, ":latest") {
-		if rec, ok := s.models[strings.TrimSuffix(name, ":latest")]; ok {
+		trimmed := strings.TrimSuffix(name, ":latest")
+		if rec, ok := s.models[trimmed]; ok {
+			if rec.ID == "" {
+				rec.ID = trimmed
+			}
 			return rec, true
 		}
 	} else {
-		if rec, ok := s.models[name+":latest"]; ok {
+		withLatest := name + ":latest"
+		if rec, ok := s.models[withLatest]; ok {
+			if rec.ID == "" {
+				rec.ID = withLatest
+			}
 			return rec, true
 		}
 	}
 	return ExternalModelRecord{}, false
 }
 
+var (
+	errExternalNotFound     = errors.New("external model not found")
+	errExternalPairConflict = errors.New("another external model already uses this name and endpoint")
+)
+
+const maskedAPIKey = "••••••••"
+
+// sameExternalPair reports whether two records refer to the same remote
+// model: identical trimmed remote name AND identical normalized chat
+// completions endpoint (trailing slashes tolerated).
+func sameExternalPair(nameA, urlA, nameB, urlB string) bool {
+	return strings.TrimSpace(nameA) == strings.TrimSpace(nameB) &&
+		normalizeOpenAIEndpoint(urlA) == normalizeOpenAIEndpoint(urlB)
+}
+
+// allocateID picks a stable routing ID for a new entry: the raw remote name
+// when free (backwards compatible), else name@ext-<12 hex of endpoint hash>,
+// else a deterministic numeric suffix.
+func (s *externalModelsStore) allocateID(name, targetURL string) string {
+	if _, ok := s.models[name]; !ok {
+		return name
+	}
+	sum := sha256.Sum256([]byte(normalizeOpenAIEndpoint(targetURL)))
+	base := name + "@ext-" + hex.EncodeToString(sum[:])[:12]
+	if _, ok := s.models[base]; !ok {
+		return base
+	}
+	for i := 1; ; i++ {
+		cand := fmt.Sprintf("%s-%d", base, i)
+		if _, ok := s.models[cand]; !ok {
+			return cand
+		}
+	}
+}
+
+// findPair returns the record owning the (name, endpoint) pair, if any.
+func (s *externalModelsStore) findPair(name, targetURL string) (ExternalModelRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	k, ok := s.findPairLocked(name, targetURL)
+	if !ok {
+		return ExternalModelRecord{}, false
+	}
+	return s.models[k], true
+}
+
+// findPairLocked returns the map key of the entry owning (name, endpoint).
+func (s *externalModelsStore) findPairLocked(name, targetURL string) (string, bool) {
+	for k, v := range s.models {
+		if sameExternalPair(v.Name, v.URL, name, targetURL) {
+			return k, true
+		}
+	}
+	return "", false
+}
+
+// Register keeps the historical signature; it upserts by name+endpoint pair.
 func (s *externalModelsStore) Register(name, targetURL, apiKey string, capabilities []string, disabled bool) error {
+	_, err := s.Upsert("", name, targetURL, apiKey, capabilities, disabled, "")
+	return err
+}
+
+// Upsert creates or updates an external model entry.
+//   - id == "": update the entry owning the same (name, endpoint) pair, or
+//     create a new entry with an allocated routing ID.
+//   - id != "": update ONLY that entry, preserving its ID even when the remote
+//     name or endpoint changes; fails with errExternalNotFound when unknown and
+//     errExternalPairConflict when the resulting pair belongs to another entry.
+func (s *externalModelsStore) Upsert(id, name, targetURL, apiKey string, capabilities []string, disabled bool, provider string) (ExternalModelRecord, error) {
 	name = strings.TrimSpace(name)
 	targetURL = strings.TrimSpace(targetURL)
 	apiKey = strings.TrimSpace(apiKey)
+	id = strings.TrimSpace(id)
 	if name == "" {
-		return errors.New("missing model name")
+		return ExternalModelRecord{}, errors.New("missing model name")
 	}
 	if targetURL == "" {
-		return errors.New("missing model endpoint URL")
+		return ExternalModelRecord{}, errors.New("missing model endpoint URL")
 	}
-
 	if len(capabilities) == 0 {
 		capabilities = []string{"completion", "tools", "thinking"}
 	}
+	if apiKey == maskedAPIKey {
+		apiKey = ""
+	}
 
 	s.mu.Lock()
-	rec, exists := s.models[name]
-	if !exists && strings.HasSuffix(name, ":latest") {
-		rec, exists = s.models[strings.TrimSuffix(name, ":latest")]
+	var key string
+	var rec ExternalModelRecord
+	var exists bool
+	if id != "" {
+		key = id
+		rec, exists = s.models[key]
+		if !exists && strings.HasSuffix(key, ":latest") {
+			key = strings.TrimSuffix(key, ":latest")
+			rec, exists = s.models[key]
+		}
+		if !exists && !strings.HasSuffix(key, ":latest") {
+			if rec2, ok2 := s.models[key+":latest"]; ok2 {
+				key = key + ":latest"
+				rec = rec2
+				exists = true
+			}
+		}
+		if !exists {
+			s.mu.Unlock()
+			return ExternalModelRecord{}, errExternalNotFound
+		}
+		if owner, clash := s.findPairLocked(name, targetURL); clash && owner != key {
+			s.mu.Unlock()
+			return ExternalModelRecord{}, errExternalPairConflict
+		}
+	} else {
+		if owner, ok := s.findPairLocked(name, targetURL); ok {
+			key = owner
+			rec = s.models[key]
+			exists = true
+		} else {
+			key = s.allocateID(name, targetURL)
+		}
 	}
-	if (apiKey == "" || apiKey == "••••••••") && exists && rec.APIKey != "" {
+
+	fieldsChanged := !exists || rec.Name != name || rec.URL != targetURL || (apiKey != "" && rec.APIKey != apiKey)
+	if apiKey == "" && exists {
 		apiKey = rec.APIKey
 	}
+	rec.ID = key
 	rec.Name = name
 	rec.URL = targetURL
 	rec.APIKey = apiKey
 	rec.Capabilities = capabilities
 	rec.Disabled = disabled
+	if fieldsChanged {
+		rec.Provider = provider
+		delete(s.providerChecked, key)
+	} else if provider != "" {
+		rec.Provider = provider
+	}
 	if rec.CreatedAt.IsZero() {
 		rec.CreatedAt = time.Now().UTC()
 	}
-	s.models[name] = rec
+	s.models[key] = rec
 	s.mu.Unlock()
 
-	return s.save()
+	if err := s.save(); err != nil {
+		return ExternalModelRecord{}, err
+	}
+	return rec, nil
 }
 
 func (s *externalModelsStore) ToggleDisabled(name string) (bool, error) {
@@ -191,18 +327,20 @@ func (s *externalModelsStore) Unregister(name string) error {
 	existed := false
 	if _, ok := s.models[name]; ok {
 		delete(s.models, name)
+		delete(s.providerChecked, name)
 		existed = true
-	}
-	if strings.HasSuffix(name, ":latest") {
+	} else if strings.HasSuffix(name, ":latest") {
 		trimmed := strings.TrimSuffix(name, ":latest")
 		if _, ok := s.models[trimmed]; ok {
 			delete(s.models, trimmed)
+			delete(s.providerChecked, trimmed)
 			existed = true
 		}
 	} else {
 		withLatest := name + ":latest"
 		if _, ok := s.models[withLatest]; ok {
 			delete(s.models, withLatest)
+			delete(s.providerChecked, withLatest)
 			existed = true
 		}
 	}
@@ -246,14 +384,14 @@ func (s *externalModelsStore) save() error {
 // ---------- OpenAI API Protocol Types ----------
 
 type openAIChatRequest struct {
-	Model            string          `json:"model"`
-	Messages         []openAIMessage `json:"messages"`
-	Stream           bool            `json:"stream"`
-	Temperature      *float64        `json:"temperature,omitempty"`
-	TopP             *float64        `json:"top_p,omitempty"`
-	TopK             *int            `json:"top_k,omitempty"`
-	MaxTokens        *int            `json:"max_tokens,omitempty"`
-	Stop             any             `json:"stop,omitempty"`
+	Model              string          `json:"model"`
+	Messages           []openAIMessage `json:"messages"`
+	Stream             bool            `json:"stream"`
+	Temperature        *float64        `json:"temperature,omitempty"`
+	TopP               *float64        `json:"top_p,omitempty"`
+	TopK               *int            `json:"top_k,omitempty"`
+	MaxTokens          *int            `json:"max_tokens,omitempty"`
+	Stop               any             `json:"stop,omitempty"`
 	FrequencyPenalty   *float64        `json:"frequency_penalty,omitempty"`
 	PresencePenalty    *float64        `json:"presence_penalty,omitempty"`
 	ReasoningEffort    string          `json:"reasoning_effort,omitempty"`
@@ -367,6 +505,7 @@ type ExternalModelProbeResult struct {
 	Thinking     bool     `json:"thinking"`
 	Capabilities []string `json:"capabilities"`
 	Model        string   `json:"model"`
+	Provider     string   `json:"provider,omitempty"`
 	LatencyMs    int64    `json:"latency_ms"`
 	Message      string   `json:"message,omitempty"`
 }
@@ -610,8 +749,151 @@ func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string
 		Thinking:     thinking,
 		Capabilities: caps,
 		Model:        modelName,
+		Provider:     detectExternalProvider(ctx, endpoint, apiKey, modelName),
 		LatencyMs:    latency,
 	}, nil
+}
+
+// ---------- Provider Detection ----------
+
+// canonicalProviderLabel normalizes a server-reported owner string: empty,
+// missing or "system" (any case/space) means "no known provider"; "omlx" is
+// canonicalized to the product casing "oMLX"; anything else is kept trimmed.
+func canonicalProviderLabel(raw string) string {
+	v := strings.TrimSpace(raw)
+	if v == "" || strings.EqualFold(v, "system") {
+		return ""
+	}
+	if strings.EqualFold(v, "omlx") {
+		return "oMLX"
+	}
+	return v
+}
+
+// externalModelsEndpoint derives the GET /models URL from a normalized
+// chat completions endpoint.
+func externalModelsEndpoint(normalizedEndpoint string) string {
+	return strings.TrimSuffix(normalizedEndpoint, "/chat/completions") + "/models"
+}
+
+// detectExternalProvider queries the endpoint's model list and returns the
+// owner of the entry whose id EXACTLY matches modelName. Any transport,
+// status, JSON or mismatch problem yields "" — detection is best-effort and
+// never fails registration or capability probing.
+func detectExternalProvider(ctx context.Context, normalizedEndpoint, apiKey, modelName string) string {
+	modelsURL := externalModelsEndpoint(normalizedEndpoint)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return ""
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return ""
+	}
+	var listing struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &listing); err != nil {
+		return ""
+	}
+	for _, m := range listing.Data {
+		if m.ID == modelName {
+			return canonicalProviderLabel(m.OwnedBy)
+		}
+	}
+	return ""
+}
+
+// RefreshProviders best-effort re-detects providers for records whose
+// provider is still unknown. Checks are throttled per ID (5 min, failures
+// included), bounded to a 3s aggregate budget, and run at most 4 in
+// parallel. Persisted only when something actually changed; a record whose
+// name/url/key changed underneath a check is left untouched.
+func (s *externalModelsStore) RefreshProviders(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	type target struct {
+		key string
+		rec ExternalModelRecord
+	}
+	var targets []target
+	now := time.Now()
+	s.mu.Lock()
+	for k, v := range s.models {
+		if v.Provider != "" {
+			continue
+		}
+		if last, ok := s.providerChecked[k]; ok && now.Sub(last) < 5*time.Minute {
+			continue
+		}
+		s.providerChecked[k] = now
+		targets = append(targets, target{key: k, rec: v})
+	}
+	s.mu.Unlock()
+	if len(targets) == 0 {
+		return
+	}
+
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	changed := false
+	for _, tgt := range targets {
+		tgt := tgt
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			p := detectExternalProvider(ctx, normalizeOpenAIEndpoint(tgt.rec.URL), tgt.rec.APIKey, tgt.rec.Name)
+			if p == "" {
+				return
+			}
+			s.mu.Lock()
+			if cur, ok := s.models[tgt.key]; ok &&
+				cur.Name == tgt.rec.Name && cur.URL == tgt.rec.URL && cur.APIKey == tgt.rec.APIKey &&
+				cur.Provider == "" {
+				cur.Provider = p
+				s.models[tgt.key] = cur
+				changed = true
+			}
+			s.mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	if changed {
+		_ = s.save()
+	}
 }
 
 // ---------- Streaming Chat Client ----------
@@ -927,7 +1209,7 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 		}
 
 		outChunk := ollama.ChatChunk{
-			Model:     ext.Name,
+			Model:     req.Model,
 			CreatedAt: time.Now().UTC(),
 			Done:      false,
 			Message: ollama.ChatMessage{
@@ -972,7 +1254,7 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 						emitted = append(emitted, tc2)
 					}
 					_ = onChunk(ollama.ChatChunk{
-						Model:     ext.Name,
+						Model:     req.Model,
 						CreatedAt: time.Now().UTC(),
 						Done:      false,
 						Message: ollama.ChatMessage{
@@ -990,7 +1272,7 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 
 	// Emit final done chunk
 	finalChunk := ollama.ChatChunk{
-		Model:           ext.Name,
+		Model:           req.Model,
 		CreatedAt:       time.Now().UTC(),
 		Done:            true,
 		PromptEvalCount: lastUsagePromptTokens,

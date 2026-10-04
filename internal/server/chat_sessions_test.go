@@ -305,7 +305,7 @@ func TestBuildSessionMessages(t *testing.T) {
 		{Kind: "image", Data: "data:image/png;base64,AAA"},
 	})
 
-	msgs := st.buildSessionMessages(st.Get(sess.ID), false)
+	msgs := st.buildSessionMessages(st.Get(sess.ID), sessionModelInfo{})
 	if len(msgs) != 2 {
 		t.Fatalf("messages len = %d, want 2 (pending turn must be skipped)", len(msgs))
 	}
@@ -331,7 +331,7 @@ func TestBuildSessionMessagesPlaceholderForEmptyArtifactAnswer(t *testing.T) {
 	st.Get(sess.ID).Messages[0].ArtifactNm = "todo-app"
 	st.Get(sess.ID).Messages[0].ArtifactURL = "/api/artifacts/x/index.html"
 
-	msgs := st.buildSessionMessages(st.Get(sess.ID), false)
+	msgs := st.buildSessionMessages(st.Get(sess.ID), sessionModelInfo{})
 	if len(msgs) != 1 {
 		t.Fatalf("messages len = %d, want 1", len(msgs))
 	}
@@ -857,7 +857,7 @@ func TestBuildSessionMessagesRehydratesImages(t *testing.T) {
 	payload := attachmentBase64(512)
 	st.AppendUser(sess.ID, "what is this", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: payload}})
 
-	msgs := st.buildSessionMessages(st.Get(sess.ID), false)
+	msgs := st.buildSessionMessages(st.Get(sess.ID), sessionModelInfo{})
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
@@ -990,7 +990,7 @@ func TestSessionHydrateReturnsBareBase64(t *testing.T) {
 	payload := attachmentBase64(2048)
 	st.AppendUser(sess.ID, "look", []ChatAttach{{Kind: "image", Name: "a.png", MimeType: "image/png", Data: payload}})
 
-	got := st.buildSessionMessages(st.Get(sess.ID), false)
+	got := st.buildSessionMessages(st.Get(sess.ID), sessionModelInfo{})
 	var images []string
 	for _, m := range got {
 		images = append(images, m.Images...)

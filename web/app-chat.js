@@ -162,6 +162,12 @@ function updateChatCapabilityUI() {
   $("chat-think-wrap").hidden = !canThink;
   $("chat-web-tools-wrap").hidden = !canTools;
   $("chat-artifacts-wrap").hidden = !canTools;
+  // The workflow list is fetched once and cached; this only re-applies the gate
+  // and the selector contents against it.
+  if (typeof updateComfyChatUI === "function") {
+    updateComfyChatUI();
+    void refreshComfyChatUI(false);
+  }
 
   const artBtn = $("chat-model-artifacts-btn");
   if (artBtn) artBtn.hidden = true;

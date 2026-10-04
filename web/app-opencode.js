@@ -478,6 +478,7 @@ $("settings-save").addEventListener("click", async () => {
       models: typeof getGatewayModelsSelection === "function" ? getGatewayModelsSelection() : [],
       require_auth: $("gw-require-auth")?.checked ?? false,
     },
+    comfyui: typeof comfySettingsPayload === "function" ? comfySettingsPayload() : undefined,
   };
   // Only send the token when the user typed a new one; leaving the field
   // empty must not wipe an already-saved token (use "Remove" for that).
@@ -539,6 +540,12 @@ $("settings-save").addEventListener("click", async () => {
     if (typeof refreshGatewayStatusFromServer === "function") {
       setTimeout(() => { refreshGatewayStatusFromServer().catch(() => {}); }, 800);
       setTimeout(() => { refreshGatewayStatusFromServer().catch(() => {}); }, 2500);
+    }
+    // A new ComfyUI URL can make the chat toggle usable for the first time, so
+    // the workflow list is refetched instead of left behind a stale "none".
+    if (typeof invalidateComfyCaches === "function") {
+      invalidateComfyCaches();
+      if (typeof refreshComfyChatUI === "function") refreshComfyChatUI(true);
     }
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");

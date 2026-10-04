@@ -362,6 +362,24 @@
             <span class="switch-slider"></span>
           </label>
         </div>
+        <div id="chat-comfy-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.comfy_hint" title="The server can send jobs to your ComfyUI instance and show the results here. The model sees the images and can iterate on them.">
+          <div class="switch-label">
+            <div class="switch-title-row">
+              <span data-i18n="chat.comfy">ComfyUI</span>
+              <button id="chat-model-comfy-btn" type="button" class="chat-artifacts-inline-link" hidden></button>
+            </div>
+          </div>
+          <label class="switch">
+            <input id="chat-comfy" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.comfy_hint" title="The server can send jobs to your ComfyUI instance and show the results here. The model sees the images and can iterate on them.">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div id="chat-comfy-workflow-wrap" class="field chat-comfy-workflow-wrap" hidden>
+          <label class="field-label" for="chat-comfy-workflow" data-i18n="chat.comfy_workflow">Workflow</label>
+          <select id="chat-comfy-workflow" autocomplete="off">
+            <option value="" data-i18n="chat.comfy_workflow_auto">Let the model choose</option>
+          </select>
+        </div>
         <div id="chat-image-options-wrap" class="chat-image-options-wrap" hidden>
           <h4 data-i18n="chat.image_generation_options">Image Generation Options</h4>
           <div class="field">
@@ -1402,6 +1420,61 @@
     </div>
   </div>
 
+  <div id="comfy-workflow-modal" class="modal" hidden>
+    <div class="modal-card comfy-workflow-modal-card">
+      <header class="repair-modal-head">
+        <h2 id="comfy-wf-modal-title" data-i18n="settings.comfyui_modal_new">Register workflow</h2>
+        <button id="comfy-wf-modal-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
+      </header>
+      <div class="repair-modal-body comfy-workflow-modal-body">
+        <div class="comfy-grid-2">
+          <div class="field">
+            <label for="comfy-wf-name" data-i18n="settings.comfyui_wf_name">Name</label>
+            <input id="comfy-wf-name" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="comfy-wf-output-kind" data-i18n="settings.comfyui_wf_output_kind">Produces</label>
+            <select id="comfy-wf-output-kind">
+              <option value="" data-i18n="settings.comfyui_wf_output_auto">Detect automatically</option>
+              <option value="image" data-i18n="settings.comfyui_wf_output_image">Image</option>
+              <option value="video" data-i18n="settings.comfyui_wf_output_video">Video</option>
+              <option value="audio" data-i18n="settings.comfyui_wf_output_audio">Audio</option>
+              <option value="any" data-i18n="settings.comfyui_wf_output_any">Anything</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="comfy-wf-desc" data-i18n="settings.comfyui_wf_description">Description</label>
+          <input id="comfy-wf-desc" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.comfyui_wf_description_ph" placeholder="When should the model reach for this workflow?">
+          <p class="form-hint" data-i18n="settings.comfyui_wf_description_hint">The model reads this to decide when the workflow is the right tool, so be specific about the look it produces.</p>
+        </div>
+        <div class="field">
+          <label for="comfy-wf-json" data-i18n="settings.comfyui_wf_json">Workflow JSON</label>
+          <textarea id="comfy-wf-json" rows="10" spellcheck="false" placeholder='{"3": {"class_type": "KSampler", "inputs": {...}}}'></textarea>
+          <p class="form-hint" data-i18n="settings.comfyui_wf_json_hint">In ComfyUI use Workflow &rarr; Export (API Format). The visual editor export is rejected.</p>
+        </div>
+        <div id="comfy-wf-error" class="comfy-warning" hidden></div>
+        <div class="field">
+          <div class="settings-section-title-wrap">
+            <label for="comfy-wf-bindings" data-i18n="settings.comfyui_wf_bindings">Editable parameters</label>
+            <button type="button" id="comfy-wf-redetect-btn" class="ghost small" data-i18n="settings.comfyui_wf_redetect">Detect again</button>
+          </div>
+          <p class="form-hint" data-i18n="settings.comfyui_wf_bindings_hint">These are the only inputs the model may change. Remove anything you want fixed.</p>
+          <div id="comfy-wf-bindings-list" class="comfy-bindings-list"></div>
+          <details class="comfy-raw-bindings">
+            <summary data-i18n="settings.comfyui_wf_bindings_edit">Edit as JSON</summary>
+            <textarea id="comfy-wf-bindings-raw" rows="8" spellcheck="false"></textarea>
+          </details>
+        </div>
+        <div id="comfy-wf-nodes" class="comfy-nodes muted small"></div>
+      </div>
+      <footer class="repair-modal-foot">
+        <button id="comfy-wf-save-btn" class="primary" data-i18n="settings.comfyui_wf_save">Register</button>
+        <button id="comfy-wf-cancel-btn" class="ghost" data-i18n="action.cancel">Cancel</button>
+      </footer>
+    </div>
+  </div>
+
   <div id="repair-modal" class="modal" hidden>
     <div class="modal-card repair-modal-card">
       <header class="repair-modal-head">
@@ -1466,6 +1539,11 @@
             <span class="settings-nav-icon">📡</span>
             <span class="settings-nav-label" data-i18n="settings.nav_gateway">Tunneling Models</span>
             <span class="badge" id="gateway-nav-badge">0</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-section="sec-comfyui">
+            <span class="settings-nav-icon">🎨</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_comfyui">ComfyUI</span>
+            <span class="badge" id="comfy-nav-badge">0</span>
           </button>
           <button type="button" class="settings-nav-item" data-section="sec-ext-models">
             <span class="settings-nav-icon">🧩</span>
@@ -1935,6 +2013,56 @@
               <p class="form-hint" data-i18n="settings.gateway_key_once">The secret is shown only once. Save it now.</p>
               <div id="gw-keys-list" class="ext-models-list">
                 <div class="muted small" data-i18n="settings.gateway_keys_none">No API keys yet.</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ComfyUI -->
+          <section class="settings-section-card" id="sec-comfyui" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.comfyui_section">ComfyUI</h3>
+                <span class="badge" id="comfy-nav-badge-2">0</span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.comfyui_hint">Let the chat send jobs to your own ComfyUI server. The model sees the images it renders and can iterate on them.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="field">
+                <label for="comfy-url" data-i18n="settings.comfyui_url">Server URL</label>
+                <input id="comfy-url" type="url" placeholder="http://127.0.0.1:8188" autocomplete="off" spellcheck="false">
+                <p class="form-hint" data-i18n="settings.comfyui_url_hint">The base address of your ComfyUI instance. Leave empty to turn the integration off.</p>
+              </div>
+              <div class="comfy-grid-2">
+                <div class="field">
+                  <label for="comfy-client-id" data-i18n="settings.comfyui_client_id">Client ID</label>
+                  <input id="comfy-client-id" type="text" placeholder="ollama-manager" autocomplete="off" spellcheck="false">
+                  <p class="form-hint" data-i18n="settings.comfyui_client_id_hint">Identifies this client in the ComfyUI queue.</p>
+                </div>
+                <div class="field">
+                  <label for="comfy-timeout" data-i18n="settings.comfyui_timeout">Render timeout (seconds)</label>
+                  <input id="comfy-timeout" type="number" min="10" max="3600" step="10" placeholder="600" autocomplete="off">
+                  <p class="form-hint" data-i18n="settings.comfyui_timeout_hint">How long one render may take before it is abandoned.</p>
+                </div>
+              </div>
+              <div class="comfy-status-row">
+                <button type="button" id="comfy-test-btn" class="ghost" data-i18n="settings.comfyui_test">Test connection</button>
+                <div id="comfy-status" class="comfy-status muted small"></div>
+              </div>
+              <div id="comfy-storage-warning" class="comfy-warning" hidden></div>
+
+              <hr class="settings-hr">
+
+              <div class="settings-section-title-wrap">
+                <h4 class="settings-subtitle" data-i18n="settings.comfyui_workflows">Workflows</h4>
+                <span class="badge" id="comfy-workflows-count">0</span>
+              </div>
+              <p class="form-hint" data-i18n="settings.comfyui_workflows_hint">Each workflow becomes one tool the model can call. Only the parameters listed in it can be changed from the chat.</p>
+              <div class="comfy-actions-row">
+                <button type="button" id="comfy-new-btn" class="primary" data-i18n="settings.comfyui_new_workflow">Register workflow</button>
+                <button type="button" id="comfy-refresh-btn" class="ghost" data-i18n="settings.comfyui_refresh">Refresh</button>
+              </div>
+              <div id="comfy-workflows-list" class="comfy-workflows-list">
+                <div class="muted small" data-i18n="settings.comfyui_workflows_none">No workflows registered yet.</div>
               </div>
             </div>
           </section>
@@ -2837,6 +2965,7 @@
   <script src="/static/app-analytics.js?v=20260820"></script>
   <script src="/static/app-svg.js?v=20260910_12"></script>
   <script src="/static/app-artifacts.js?v=20260820"></script>
+  <script src="/static/app-comfy.js?v=20261004_01"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
   <script src="/static/app-downloads.js?v=20260911_06"></script>
   <script src="/static/app-hf-search.js?v=20260911_05"></script>

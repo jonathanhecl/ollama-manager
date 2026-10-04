@@ -3731,6 +3731,63 @@ button.chat-edit-attach-thumb-wrap:hover {
   max-height: 150px;
   object-fit: contain;
 }
+
+/* ComfyUI results. A run can emit a batch of frames plus a video and an audio
+   track, so the grid wraps and each cell sizes itself to the message width. */
+.chat-media-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.chat-media {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+}
+.chat-media figcaption {
+  font-size: 11px;
+  color: var(--muted, #8b93a7);
+  word-break: break-all;
+}
+.chat-media-thumb {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #000;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.chat-media-thumb:hover {
+  transform: scale(1.02);
+  border-color: var(--accent, #7aa2ff);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.chat-media-thumb img {
+  display: block;
+  width: 168px;
+  max-width: 100%;
+  height: 168px;
+  object-fit: cover;
+}
+.chat-media--video video {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #000;
+}
+.chat-media--audio audio {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+}
 .chat-tool-err {
   margin-top: 6px;
   font-size: 11px;
@@ -11372,6 +11429,181 @@ button.chat-send:disabled:hover {
   flex-direction: column;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* ---------- ComfyUI ---------- */
+
+.comfy-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.comfy-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.comfy-status {
+  flex: 1 1 220px;
+  min-width: 0;
+  word-break: break-word;
+}
+.comfy-warning {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn, #e6a23c) 40%, var(--border));
+  background: color-mix(in srgb, var(--warn, #e6a23c) 10%, transparent);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--warn, #e6a23c);
+}
+.comfy-actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.comfy-workflows-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.comfy-wf-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-subtle, #141419);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* A disabled workflow stays readable but recedes: it is still a saved workflow,
+   just not one the chat may reach. */
+.comfy-wf-row--off {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.comfy-wf-switch {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.comfy-wf-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.comfy-wf-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.comfy-wf-name {
+  font-weight: 600;
+}
+.comfy-wf-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted, #8b93a7);
+}
+.comfy-wf-desc {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted, #8b93a7);
+}
+.comfy-wf-params {
+  margin-top: 4px;
+  font-size: 11px;
+  word-break: break-word;
+}
+.comfy-wf-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.comfy-workflow-modal-card {
+  max-width: 860px;
+  width: 92vw;
+}
+.comfy-workflow-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.comfy-workflow-modal-body textarea {
+  width: 100%;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.comfy-bindings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.comfy-binding-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle, #141419);
+}
+.comfy-binding-row--off {
+  opacity: 0.5;
+}
+.comfy-binding-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.comfy-binding-param {
+  width: 100%;
+  max-width: 240px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg, #0f0f13);
+  color: inherit;
+}
+.comfy-binding-target {
+  margin-top: 3px;
+  font-size: 11px;
+  word-break: break-all;
+}
+.comfy-binding-enum {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  word-break: break-all;
+}
+.comfy-binding-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.comfy-raw-bindings {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.comfy-raw-bindings textarea {
+  margin-top: 6px;
+}
+.comfy-nodes {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  word-break: break-all;
+}
+.chat-comfy-workflow-wrap {
+  margin-top: -4px;
 }
 .ext-model-card {
   display: flex;

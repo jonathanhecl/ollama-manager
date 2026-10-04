@@ -69,3 +69,15 @@ Image models bypass the timeline and render directly: think block + content.
 ## Stale Generating Entries
 
 If the response ends with only `generating` entries (no real tool execution completed), they are cleaned up and removed from the timeline.
+
+## Tool States Are Not Progress Reports
+
+`status` drives the two-state machine above (`generating` / `running` / `ok` / `error`). A tool that needs to report progress while it runs must not reuse it: an entry flipped to `ok` mid-run is never revisited, and a progress payload sent as `phase: "running"` with a `status` key is ignored by `applyToolLocked`. ComfyUI is the worked example of the correct shape — see [comfyui-guide.md](comfyui-guide.md).
+
+## Server-Produced Media
+
+`take_artifact_screenshot` is the only tool whose image the browser has to fetch and post back, which is why it needs a request/response rendezvous over SSE. A tool whose output the **server** produces (ComfyUI renders) skips all of that: the bytes are stored on disk, the model gets them base64-encoded on `toolMsg.Images`, and the chat gets a URL in `done.media`. No WebSocket, no browser round trip.
+
+## Other Guides
+
+- [comfyui-guide.md](comfyui-guide.md) — ComfyUI as a tool: bindings, polling, media storage, cross-turn image replay.

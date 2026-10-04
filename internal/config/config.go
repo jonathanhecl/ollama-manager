@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ChatDefaults defines global fallback parameters for chat sessions.
@@ -176,6 +177,47 @@ func (g GatewayConfig) GatewayBindAddress() string {
 	return fmt.Sprintf("%s:%d", host, port)
 }
 
+// ComfyUIConfig points the manager at a ComfyUI instance. Nothing here is
+// required: the chat integration stays invisible until a URL is set and at least
+// one workflow is registered, so an existing install is unaffected.
+type ComfyUIConfig struct {
+	// URL is the ComfyUI HTTP endpoint, e.g. "http://127.0.0.1:8188".
+	URL string `json:"url"`
+	// ClientID identifies the manager in ComfyUI's queue and websocket. Empty
+	// generates one per process, which is fine for a single-user desktop setup.
+	ClientID string `json:"client_id,omitempty"`
+	// TimeoutSeconds caps a single workflow run before the manager gives up on
+	// it. Diffusion on a slow machine can legitimately take minutes.
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+	// Workflow is the workflow id pre-selected in the chat panel. Empty means
+	// "let the model choose", which it does whenever exactly one workflow is
+	// enabled.
+	Workflow string `json:"workflow,omitempty"`
+}
+
+// DefaultComfyUIURL is ComfyUI's default listen address.
+const DefaultComfyUIURL = "http://127.0.0.1:8188"
+
+// DefaultComfyUITimeoutSeconds is generous enough for SDXL and video workflows
+// on consumer GPUs without letting a stuck run hold a chat turn open forever.
+const DefaultComfyUITimeoutSeconds = 600
+
+// Normalize fills in defaults and clamps out-of-range values so a bad config
+// file degrades into something usable instead of failing every run.
+func (c ComfyUIConfig) Normalize() ComfyUIConfig {
+	c.URL = strings.TrimSpace(strings.TrimRight(c.URL, "/"))
+	if c.URL == "" {
+		c.URL = DefaultComfyUIURL
+	}
+	if !strings.HasPrefix(c.URL, "http://") && !strings.HasPrefix(c.URL, "https://") {
+		c.URL = "http://" + c.URL
+	}
+	if c.TimeoutSeconds <= 0 {
+		c.TimeoutSeconds = DefaultComfyUITimeoutSeconds
+	}
+	return c
+}
+
 // Config holds the runtime configuration for ollama-manager.
 type Config struct {
 	Port          int    `json:"port"`
@@ -194,6 +236,7 @@ type Config struct {
 	LeaderboardGroupOrder []string           `json:"leaderboard_group_order,omitempty"`
 	Testing               TestingLimits      `json:"testing"`
 	Gateway               GatewayConfig      `json:"gateway"`
+	ComfyUI               ComfyUIConfig      `json:"comfyui"`
 
 	path string `json:"-"`
 }
@@ -226,6 +269,10 @@ func Defaults() *Config {
 		ChatSessions: ChatSessionsConfig{
 			Enabled:       &defaultSessions,
 			OnModelDelete: "delete",
+		},
+		ComfyUI: ComfyUIConfig{
+			URL:            DefaultComfyUIURL,
+			TimeoutSeconds: DefaultComfyUITimeoutSeconds,
 		},
 	}
 }
@@ -327,6 +374,10 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.ChatDefaults.Artifacts == nil {
 		cfg.ChatDefaults.Artifacts = def.Artifacts
+	}
+	cfg.ComfyUI = cfg.ComfyUI.Normalize()
+	if cfg.ComfyUI.TimeoutSeconds > 3600 {
+		cfg.ComfyUI.TimeoutSeconds = 3600
 	}
 
 	dirty := false

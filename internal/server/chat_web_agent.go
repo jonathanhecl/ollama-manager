@@ -152,9 +152,29 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 
 	startedAt := time.Now()
 	tools := webToolDefinitions()
+	comfyOn := s.comfyToolEnabled(body)
+	if comfyOn {
+		tools = append(tools, s.comfyToolDefinitions(body.ComfyWorkflow)...)
+	}
 
 	msgs := make([]ollama.ChatMessage, len(body.Messages))
 	copy(msgs, body.Messages)
+
+	// A vision model is what makes image iteration work: without it the run
+	// produces a picture the model cannot see, so it has to be told so up front.
+	if comfyOn {
+		if hasVisionModel(ctx, s, body.Model) {
+			msgs = append([]ollama.ChatMessage{{
+				Role:    "system",
+				Content: comfySystemPromptSection(s.comfyWorkflows.ListEnabled(), true, body.ComfyWorkflow),
+			}}, msgs...)
+		} else {
+			msgs = append([]ollama.ChatMessage{{
+				Role:    "system",
+				Content: comfySystemPromptSection(s.comfyWorkflows.ListEnabled(), false, body.ComfyWorkflow),
+			}}, msgs...)
+		}
+	}
 
 	accComp := 0
 	var accEvalNS int64
@@ -229,8 +249,27 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 			if n == "" {
 				continue
 			}
-			send("tool", toolStartPayload(n, tc.Function.Arguments))
-			out, err := s.runWebTool(ctx, n, tc.Function.Arguments)
+			startPayload := toolStartPayload(n, tc.Function.Arguments)
+			if n == comfyToolName {
+				startPayload = comfyToolStartPayload(startPayload, tc.Function.Arguments,
+					s.comfyWorkflowLabelFor(s.comfyConfiguredWorkflowID(body.ComfyWorkflow), tc.Function.Arguments))
+			}
+			send("tool", startPayload)
+
+			var out string
+			var err error
+			var toolImages []string
+			var toolMedia []ChatMedia
+			toolWorkflow := ""
+			if n == comfyToolName {
+				res, runErr := s.executeComfyTool(ctx, body, tc.Function.Arguments, func(status string) {
+					send("tool", map[string]any{"phase": "running", "name": n, "run_status": status})
+				})
+				out, err, toolImages, toolMedia = res.Text, runErr, res.Images, res.Media
+				toolWorkflow = res.WorkflowName
+			} else {
+				out, err = s.runWebTool(ctx, n, tc.Function.Arguments)
+			}
 			if err != nil {
 				out = "Error: " + err.Error()
 			}
@@ -240,11 +279,15 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 				}
 			}
 			out = truncateRunes(out, maxToolResultRunes)
-			msgs = append(msgs, ollama.ChatMessage{
+			toolMsg := ollama.ChatMessage{
 				Role:     "tool",
 				ToolName: n,
 				Content:  out,
-			})
+			}
+			if len(toolImages) > 0 {
+				toolMsg.Images = toolImages
+			}
+			msgs = append(msgs, toolMsg)
 			done := map[string]any{"phase": "done", "name": n, "ok": err == nil}
 			if err != nil {
 				done["error"] = err.Error()
@@ -252,6 +295,10 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 				done["result_preview"] = truncateRunes(out, 320)
 				done["result_runes"] = utf8.RuneCountInString(out)
 			}
+			if toolWorkflow != "" {
+				done["workflow"] = toolWorkflow
+			}
+			applyComfyMediaToToolEvent(done, toolImages, toolMedia)
 			send("tool", done)
 		}
 	}

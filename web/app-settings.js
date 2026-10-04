@@ -62,9 +62,11 @@ async function showSettingsView() {
     buildEl.textContent = currentConfig.version ? `v${currentConfig.version}` : "";
     buildEl.title = currentConfig.version || "";
   }
+  loadComfySettings(currentConfig);
   bindExternalModelsEvents();
   bindSystemPromptsEvents();
   bindGatewayEvents();
+  bindComfySettingsEvents();
   bindSettingsNavEvents();
   bindDefaultSystemPromptFileEvents();
   bindSystemPromptsModalEvents();
@@ -92,6 +94,7 @@ async function showSettingsView() {
   else if (path === "/settings/external") targetSecId = "sec-ext-models";
   else if (path === "/settings/archived" || path === "/archived") targetSecId = "sec-archived";
   else if (path === "/settings/gateway") targetSecId = "sec-gateway";
+  else if (path === "/settings/comfyui") targetSecId = "sec-comfyui";
   else if (path === "/settings/opencode" || path === "/opencode") targetSecId = "sec-opencode";
   else if (path === "/settings/general") targetSecId = "sec-general";
   else if (path === "/settings" || path === "/settings/") {

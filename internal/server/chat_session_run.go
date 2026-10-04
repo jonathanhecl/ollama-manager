@@ -16,6 +16,14 @@ import (
 // documents before re-sending them to the model.
 const sessionAttachedTextHeader = "Attached text files"
 
+// These bound how much of a restored conversation is re-sent as images. Replaying
+// every generated image is what makes "make it bluer" mean anything, but a long
+// iteration session would otherwise push dozens of pictures into the context and
+// blow both the window and the latency. The most recent runs are the ones the
+// user is actually talking about.
+const sessionComfyReplayRuns = 3
+const sessionComfyReplayImages = 4
+
 // chatSessionEventStream marks a broadcast that carries a live stream event
 // rather than a session state change.
 const chatSessionEventStream = "stream"
@@ -28,14 +36,21 @@ const chatSessionEventStream = "stream"
 // Attachment bytes are not kept on the stored messages, so the store hydrates
 // them in first. It has to happen once per turn rather than per token: the model
 // only ever sees the transcript at the moment the request is built.
-func (st *chatSessionStore) buildSessionMessages(sess *ChatSession, isImageModel bool) []ollama.ChatMessage {
+func (st *chatSessionStore) buildSessionMessages(sess *ChatSession, caps sessionModelInfo) []ollama.ChatMessage {
 	msgs := st.hydrateMessages(sess.Messages)
 	out := make([]ollama.ChatMessage, 0, len(msgs)+1)
-	if !isImageModel {
+	if !caps.IsImage {
 		if sys := strings.TrimSpace(sess.Settings.System); sys != "" {
 			out = append(out, ollama.ChatMessage{Role: "system", Content: sys})
 		}
 	}
+	// Generated images ride along with the assistant turn that announced them,
+	// which is the only way a restored session keeps the ability to react to
+	// them. Without this the model reads "here is a cat, make it blue" and has no
+	// idea what the cat looked like.
+	pendingComfy := sessionReplayComfyImages(msgs, caps.HasVision)
+	comfyCursor := 0
+
 	for _, m := range msgs {
 		switch m.Role {
 		case "assistant":
@@ -56,7 +71,12 @@ func (st *chatSessionStore) buildSessionMessages(sess *ChatSession, isImageModel
 				}
 				continue
 			}
-			out = append(out, ollama.ChatMessage{Role: "assistant", Content: text})
+			msg := ollama.ChatMessage{Role: "assistant", Content: text}
+			if comfyCursor < len(pendingComfy) {
+				msg.Images = pendingComfy[comfyCursor]
+				comfyCursor++
+			}
+			out = append(out, msg)
 		case "user":
 			msg := ollama.ChatMessage{Role: "user", Content: m.Content}
 			if extra := sessionTextBlocks(m.Attach); extra != "" {
@@ -71,10 +91,63 @@ func (st *chatSessionStore) buildSessionMessages(sess *ChatSession, isImageModel
 					msg.Images = append(msg.Images, a.Data)
 				}
 			}
+			// A new user turn resets the visual context: what the model is being
+			// asked to correct is the thing just described, not the oldest one.
+			if len(msg.Images) > 0 {
+				comfyCursor = len(pendingComfy)
+			}
 			out = append(out, msg)
 		}
 	}
 	return out
+}
+
+// comfyImageBatch is the set of images one ComfyUI run produced, ready to be
+// re-encoded from disk when the transcript is replayed.
+type comfyImageBatch []string
+
+// sessionReplayComfyImages loads the base64 for the most recent ComfyUI runs in
+// the transcript. Only still images qualify: video and audio were never shown to
+// the model in the first place, so re-attaching them would be a lie.
+func sessionReplayComfyImages(msgs []SessionMessage, hasVision bool) []comfyImageBatch {
+	if !hasVision {
+		return nil
+	}
+	var batches []comfyImageBatch
+	// Walk backwards and stop as soon as the budget is spent, so an old session
+	// does not read every file on disk.
+	for i := len(msgs) - 1; i >= 0 && len(batches) < sessionComfyReplayRuns; i-- {
+		for _, e := range msgs[i].ToolLog {
+			if e.Name != comfyToolName {
+				continue
+			}
+			var batch comfyImageBatch
+			for _, md := range e.Media {
+				if md.Kind != comfyMediaImage {
+					continue
+				}
+				b64, _, _, ok := comfyModelImageFromMedia(md, comfyModelImageMaxDim)
+				if !ok {
+					continue
+				}
+				batch = append(batch, b64)
+				if len(batch) >= sessionComfyReplayImages {
+					break
+				}
+			}
+			if len(batch) > 0 {
+				batches = append(batches, batch)
+				if len(batches) >= sessionComfyReplayRuns {
+					break
+				}
+			}
+		}
+	}
+	// Collected newest-first; the forward walk needs oldest-first.
+	for i, j := 0, len(batches)-1; i < j; i, j = i+1, j-1 {
+		batches[i], batches[j] = batches[j], batches[i]
+	}
+	return batches
 }
 
 func sessionTextBlocks(attach []ChatAttach) string {
@@ -128,12 +201,15 @@ func normalizeSessionNumCtxPct(p int) int {
 func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps sessionModelInfo, browserTools func() bool) chatRequestBody {
 	body := chatRequestBody{
 		Model:    sess.Model,
-		Messages: s.chatSessions.buildSessionMessages(sess, caps.IsImage),
+		Messages: s.chatSessions.buildSessionMessages(sess, caps),
 		// The two browser-only tools rendezvous with the artifact preview panel, so
 		// they are worth exposing only while a tab is actually watching. The loop
 		// re-evaluates this on every round, which lets a session that was started
 		// unattended pick them up as soon as the user opens it.
 		BrowserToolsAvailable: browserTools,
+		// Media produced during this turn is filed under the session, so deleting
+		// the session takes its generated images with it.
+		SessionID: sess.ID,
 	}
 	st := sess.Settings
 	if caps.IsImage {
@@ -175,6 +251,15 @@ func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps s
 		body.Artifacts = &yes
 		body.ArtifactDir = latestSessionArtifactDir(sess)
 	}
+	// ComfyUI is independent of the other two: a plain vision chat with no
+	// artifact workspace and no web search still generates images. It does need a
+	// tool-capable model, and it is pointless on an image model, which takes
+	// neither tools nor a conversation.
+	if st.Comfy && caps.CanTools && !caps.IsImage {
+		yes := true
+		body.Comfy = &yes
+		body.ComfyWorkflow = st.ComfyWorkflow
+	}
 	return body
 }
 
@@ -201,6 +286,9 @@ type sessionModelInfo struct {
 	// does not is a hard 400 from Ollama rather than a silent no-op, so it has to
 	// be left out entirely.
 	CanThink bool
+	// HasVision means generated images can be replayed into the transcript, which
+	// is what lets a restored session iterate on a picture it can actually see.
+	HasVision bool
 }
 
 // sessionModelCaps reads the capabilities a session turn has to respect. A
@@ -229,9 +317,10 @@ func (s *Server) sessionModelCaps(ctx context.Context, model string) sessionMode
 		}
 	}
 	return sessionModelInfo{
-		IsImage:  hasImage && !hasVision && !hasCompletion,
-		CanTools: hasCompletion,
-		CanThink: hasThinking,
+		IsImage:   hasImage && !hasVision && !hasCompletion,
+		CanTools:  hasCompletion,
+		CanThink:  hasThinking,
+		HasVision: hasVision,
 	}
 }
 
@@ -279,7 +368,9 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 	switch {
 	case body.Artifacts != nil && *body.Artifacts:
 		s.runArtifactAgentLoop(ctx, sink, body)
-	case body.WebTools != nil && *body.WebTools:
+	case (body.WebTools != nil && *body.WebTools) || (body.Comfy != nil && *body.Comfy):
+		// ComfyUI alone still needs the tool-call loop, and the web loop is the
+		// one without the artifact filesystem surface.
 		s.runWebToolAgentLoop(ctx, sink, body)
 	default:
 		s.runPlainChatLoop(ctx, sink, body)
@@ -606,6 +697,28 @@ type toolEvent struct {
 	ResultPreview string `json:"result_preview,omitempty"`
 	ResultRunes   int    `json:"result_runes,omitempty"`
 	Image         string `json:"image,omitempty"`
+	// Media carries the stored ComfyUI outputs. Unlike Image it is paths, not
+	// bytes, so it is safe to persist in a file rewritten on every token.
+	Media []ChatMedia `json:"media,omitempty"`
+	// RunStatus is the human progress label ("queued as #3") reported while a
+	// long render is in flight. It is separate from Status, which drives the
+	// generating/running/ok/error state machine.
+	RunStatus string `json:"run_status,omitempty"`
+	Workflow  string `json:"workflow,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
+	Seed      int64  `json:"seed,omitempty"`
+	PromptID  string `json:"prompt_id,omitempty"`
+}
+
+// firstComfyPromptID returns the ComfyUI prompt id behind a run's outputs, so the
+// session file can tie a stored image back to the job that made it.
+func firstComfyPromptID(media []ChatMedia) string {
+	for _, m := range media {
+		if m.PromptID != "" {
+			return m.PromptID
+		}
+	}
+	return ""
 }
 
 // sessionSink turns the chat stream events of a detached run into session state:
@@ -823,6 +936,12 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 		ResultPreview: ev.ResultPreview,
 		ResultRunes:   ev.ResultRunes,
 		Image:         ev.Image,
+		Media:         ev.Media,
+		Workflow:      ev.Workflow,
+		Prompt:        ev.Prompt,
+		Seed:          ev.Seed,
+		RunStatus:     ev.RunStatus,
+		PromptID:      ev.PromptID,
 	}
 	tools := msg.ToolLog
 	switch ev.Phase {
@@ -831,6 +950,30 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 			if tools[i].Name == ev.Name && tools[i].Status == "generating" {
 				return
 			}
+		}
+		tools = append(tools, entry)
+	case "running":
+		// Progress lines only update the label. Falling through to the default
+		// branch would mark the tool finished before it has produced anything,
+		// and the real "done" event would then be ignored.
+		for i := len(tools) - 1; i >= 0; i-- {
+			if tools[i].Name != ev.Name {
+				continue
+			}
+			if ev.RunStatus != "" {
+				tools[i].RunStatus = ev.RunStatus
+			}
+			if ev.Workflow != "" {
+				tools[i].Workflow = ev.Workflow
+			}
+			if ev.Prompt != "" {
+				tools[i].Prompt = ev.Prompt
+			}
+			if ev.Seed != 0 {
+				tools[i].Seed = ev.Seed
+			}
+			msg.ToolLog = tools
+			return
 		}
 		tools = append(tools, entry)
 	case "start":
@@ -845,6 +988,9 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 				tools[i].Code = ev.Code
 				tools[i].ArtifactName = ev.ArtifactName
 				tools[i].Description = ev.Description
+				tools[i].Workflow = ev.Workflow
+				tools[i].Prompt = ev.Prompt
+				tools[i].Seed = ev.Seed
 				msg.ToolLog = tools
 				return
 			}
@@ -867,6 +1013,11 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 			tools[i].ResultPreview = ev.ResultPreview
 			tools[i].ResultRunes = ev.ResultRunes
 			tools[i].Image = ev.Image
+			tools[i].RunStatus = ""
+			if len(ev.Media) > 0 {
+				tools[i].Media = ev.Media
+				tools[i].PromptID = firstComfyPromptID(ev.Media)
+			}
 			if ev.ArtifactName != "" {
 				tools[i].ArtifactName = ev.ArtifactName
 			}

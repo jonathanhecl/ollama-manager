@@ -25,6 +25,10 @@ type sessionSettingsInput struct {
 	ImageHeight any `json:"image_height"`
 	ImageSteps  any `json:"image_steps"`
 	ImageSeed   any `json:"image_seed"`
+	Comfy       any `json:"comfy"`
+	// ComfyWorkflow is the id (or empty for "let the model choose") of the workflow
+	// this session should use by default.
+	ComfyWorkflow any `json:"comfy_workflow"`
 }
 
 // defaultSessionSettings mirrors the values the options panel starts with, so a
@@ -86,6 +90,12 @@ func (in sessionSettingsInput) mergeInto(dst SessionSettings) SessionSettings {
 	}
 	if in.ImageSeed != nil {
 		dst.ImageSeed = sessionOptInt(in.ImageSeed, dst.ImageSeed)
+	}
+	if in.Comfy != nil {
+		dst.Comfy = sessionOptBool(in.Comfy)
+	}
+	if in.ComfyWorkflow != nil {
+		dst.ComfyWorkflow = sessionOptString(in.ComfyWorkflow)
 	}
 	return dst
 }

@@ -65,6 +65,20 @@ type SessionToolEntry struct {
 	ResultPreview string `json:"result_preview,omitempty"`
 	ResultRunes   int    `json:"result_runes,omitempty"`
 	Image         string `json:"image,omitempty"`
+	// Workflow, Prompt and Seed label a ComfyUI run so a restored session reads
+	// like the live one, and Media holds the stored files. Only Image is kept in
+	//lined: the media list stores paths, which is what makes the transcript small
+	// enough to rewrite on every token.
+	Workflow string `json:"workflow,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
+	Seed     int64  `json:"seed,omitempty"`
+	// RunStatus is the live progress line ComfyUI reports while a render runs,
+	// e.g. "queued as #3". Empty once the run finishes.
+	RunStatus string      `json:"run_status,omitempty"`
+	Media     []ChatMedia `json:"media,omitempty"`
+	// PromptID is the ComfyUI run id, which is what the UI needs to point the
+	// user at the job in ComfyUI's own history.
+	PromptID string `json:"prompt_id,omitempty"`
 }
 
 // ChatAttach is a file pasted into a chat message. Data holds a data URL for
@@ -135,10 +149,15 @@ type SessionSettings struct {
 	ThinkLevel  string  `json:"think_level,omitempty"`
 	WebTools    bool    `json:"web_tools"`
 	Artifacts   bool    `json:"artifacts"`
-	ImageWidth  int     `json:"image_width,omitempty"`
-	ImageHeight int     `json:"image_height,omitempty"`
-	ImageSteps  int     `json:"image_steps,omitempty"`
-	ImageSeed   int     `json:"image_seed,omitempty"`
+	// Comfy turns on the ComfyUI tool for this session and ComfyWorkflow names
+	// the workflow a bare call uses. Stored with the rest of the snapshot so a
+	// restored session regenerates images with the same settings.
+	Comfy         bool   `json:"comfy"`
+	ComfyWorkflow string `json:"comfy_workflow,omitempty"`
+	ImageWidth    int    `json:"image_width,omitempty"`
+	ImageHeight   int    `json:"image_height,omitempty"`
+	ImageSteps    int    `json:"image_steps,omitempty"`
+	ImageSeed     int    `json:"image_seed,omitempty"`
 }
 
 // SessionEvent is one entry of the per-session replay log. Seq is monotonic per
@@ -383,6 +402,20 @@ func (st *chatSessionStore) Summary(id string) *SessionSummary {
 	return &sum
 }
 
+// LiveIDs returns the sanitized ids of every session still on disk. It exists
+// for the startup sweep that drops generated media whose transcript is gone.
+func (st *chatSessionStore) LiveIDs() map[string]bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	out := make(map[string]bool, len(st.sessions))
+	for id := range st.sessions {
+		out[sanitizeMediaSegment(id)] = true
+	}
+	// Quick-chat media has no session of its own and must survive the sweep.
+	out[comfyQuickMediaDir] = true
+	return out
+}
+
 // Delete cancels any in-flight run, forgets the session and removes its file.
 func (st *chatSessionStore) Delete(id string) bool {
 	st.mu.Lock()
@@ -409,6 +442,8 @@ func (st *chatSessionStore) Delete(id string) bool {
 	// The attachment bytes live outside the session file, so they have to go with
 	// it. Otherwise deleting a chat would leave its images on disk forever.
 	st.dropSessionBlobs(id)
+	// Same for anything ComfyUI generated for this session.
+	removeComfyMediaForSession(id)
 	if sess != nil {
 		st.broadcast(ChatSessionEvent{Kind: chatSessionRemove, ID: id})
 	}

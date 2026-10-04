@@ -3179,6 +3179,72 @@ function renderToolErrorBlock(err, toolIdx, msgId, open) {
 </details>`;
 }
 
+// comfyMediaURL builds the manager route that serves a stored file. The server
+// writes the path with forward slashes already, but normalizing keeps the URL
+// correct for sessions saved on another platform.
+function comfyMediaURL(file) {
+  if (!file) return "";
+  return "/api/comfyui/media/" + String(file).replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+// comfyMediaLabel is the caption under a file. Video duration and audio length
+// would need container parsing, which the server cannot do with the standard
+// library, so the size is what the user gets instead.
+function comfyMediaLabel(m) {
+  const bits = [];
+  if (m.width && m.height) bits.push(`${m.width}×${m.height}`);
+  if (m.bytes) bits.push(formatComfyBytes(m.bytes));
+  return bits.join(" · ");
+}
+
+function formatComfyBytes(n) {
+  const num = Number(n) || 0;
+  if (num < 1024) return `${num} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = num / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+// renderComfyMediaGrid lays out everything one run produced. Images open in the
+// shared lightbox; video and audio get native controls so the user can play and
+// seek them inline, which is why the media route supports Range requests.
+function renderComfyMediaGrid(media) {
+  const items = (media || []).filter((m) => m && m.file);
+  if (!items.length) return "";
+  const cells = items.map((m) => {
+    const url = escapeHtml(comfyMediaURL(m.file));
+    const label = comfyMediaLabel(m);
+    const name = escapeHtml(m.name || url);
+    const cap = label
+      ? `<span class="chat-media-cap mono">${escapeHtml(label)}</span>`
+      : "";
+    if (m.kind === "video") {
+      return `<figure class="chat-media chat-media--video">
+        <video src="${url}" controls preload="metadata" playsinline></video>
+        <figcaption>${cap}</figcaption>
+      </figure>`;
+    }
+    if (m.kind === "audio") {
+      return `<figure class="chat-media chat-media--audio">
+        <audio src="${url}" controls preload="metadata"></audio>
+        <figcaption>${cap}</figcaption>
+      </figure>`;
+    }
+    return `<figure class="chat-media chat-media--image">
+      <button type="button" class="image-preview-open chat-media-thumb" data-name="${name}" title="${name}">
+        <img src="${url}" alt="${name}" loading="lazy" onload="if (typeof scrollChatToBottom === 'function') scrollChatToBottom();" />
+      </button>
+      <figcaption>${cap}</figcaption>
+    </figure>`;
+  });
+  return `<div class="chat-media-grid">${cells.join("")}</div>`;
+}
+
 function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isSearch = e.name === "web_search";
   const isFetch = e.name === "web_fetch";
@@ -3189,6 +3255,7 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isCreateArt = e.name === "create_artifact";
   const isScreenshot = e.name === "take_artifact_screenshot";
   const isEval = e.name === "eval_artifact_js";
+  const isComfy = e.name === "run_comfy_workflow";
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
@@ -3198,7 +3265,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
               : isCreateArt ? t("chat.tool.create_artifact")
                 : isScreenshot ? t("chat.tool.take_artifact_screenshot")
                   : isEval ? t("chat.tool.eval_artifact_js")
-                    : escapeHtml(e.name);
+                    : isComfy ? t("chat.tool.run_comfy_workflow")
+                      : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -3222,8 +3290,22 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
       d += ` <span class="chat-tool-runes mono" style="margin-left: 8px;">[folder: ${timestamp}]</span>`;
     }
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
+  } else if (isComfy && (e.workflow || e.prompt)) {
+    // The workflow name leads because that is what tells the user which of their
+    // registered workflows ran; the prompt is quoted so they can see the wording
+    // that produced the result.
+    let d = "";
+    if (e.workflow) d += `<strong>${escapeHtml(e.workflow)}</strong>`;
+    if (e.prompt) d += `${d ? " · " : ""}<span class="muted">${escapeHtml(e.prompt)}</span>`;
+    if (e.seed) d += ` <span class="chat-tool-runes mono">[${escapeHtml(t("chat.tool.seed", { n: e.seed }))}]</span>`;
+    detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   }
-  if (e.image) {
+  // ComfyUI can return several files from one run, and the video and audio ones
+  // are shown but never sent to the model, so the full list is rendered rather
+  // than only the thumbnail the model saw.
+  if (isComfy && Array.isArray(e.media) && e.media.length) {
+    detailHtml += renderComfyMediaGrid(e.media);
+  } else if (e.image) {
     const imgName = t("chat.tool.take_artifact_screenshot") || "Screenshot";
     detailHtml += `<div class="chat-tool-img-wrap">
       <button type="button" class="image-preview-open chat-tool-img-thumb" data-name="${escapeHtml(imgName)}" title="${escapeHtml(imgName)}">
@@ -3235,6 +3317,11 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const icon = st === "generating" ? "✎" : st === "running" ? "◌" : st === "ok" ? "✓" : st === "error" ? "✗" : "·";
   const titleText = title;
   const labelSuffix = st === "generating" ? "…" : "";
+  // A ComfyUI render reports its progress server-side while the turn is blocked,
+  // so "rendering step 3/12" is more useful than a bare spinner.
+  if (st === "running" && e.run_status) {
+    detailHtml += `<div class="chat-tool-detail muted">${escapeHtml(e.run_status)}</div>`;
+  }
   let tail = "";
   if (st === "error" && e.error) {
     tail += renderToolErrorBlock(e.error, toolIdx, msgId, !!e.open);
@@ -4387,6 +4474,8 @@ function getCurrentChatOptions() {
     image_height: $("chat-image-height")?.value ?? "512",
     image_steps: $("chat-image-steps")?.value ?? "4",
     image_seed: $("chat-image-seed")?.value ?? "0",
+    comfy: $("chat-comfy")?.checked ?? false,
+    comfy_workflow: typeof comfyChatWorkflowValue === "function" ? comfyChatWorkflowValue() : ($("chat-comfy-workflow")?.value ?? ""),
   };
 }
 
@@ -4591,6 +4680,19 @@ function setChatOptionsValues(opts) {
   }
   if (opts.image_seed !== undefined && $("chat-image-seed")) {
     $("chat-image-seed").value = opts.image_seed;
+  }
+  // ComfyUI is a per-session choice that lives in the session settings, so
+  // reopening a session must bring the toggle back with it. Global chat
+  // defaults carry no "comfy" key, so applyChatDefaultsForModel leaves the
+  // checkbox alone instead of silently switching it off.
+  if (opts.comfy !== undefined && $("chat-comfy")) {
+    $("chat-comfy").checked = !!opts.comfy;
+  }
+  if (typeof setComfyChatWorkflowValue === "function") {
+    setComfyChatWorkflowValue(opts.comfy_workflow || "");
+  }
+  if (typeof updateComfyChatUI === "function") {
+    updateComfyChatUI();
   }
   if (typeof adjustChatSystemPromptHeight === "function") {
     adjustChatSystemPromptHeight();
@@ -5300,6 +5402,14 @@ async function runChatRequest(assistantMsg) {
     ...imageParams,
   };
   if (webToolsOn) payload.web_tools = true;
+  // ComfyUI runs on the tool loop too, so it rides along with web tools even
+  // when internet is off: offering it without the loop would never execute.
+  const comfyOn = !isImageModel && canTools && $("chat-comfy")?.checked;
+  if (comfyOn) {
+    payload.comfy = true;
+    const wf = typeof comfyChatWorkflowValue === "function" ? comfyChatWorkflowValue() : ($("chat-comfy-workflow")?.value || "");
+    if (wf) payload.comfy_workflow = wf;
+  }
   if (artifactsOn) {
     payload.artifacts = true;
     if (activeArtifactTimestamp) {

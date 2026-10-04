@@ -357,6 +357,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
 		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
+		"comfyui":                 s.cfg.ComfyUI,
 		"version":                 s.versionInfo,
 	})
 }
@@ -384,6 +385,7 @@ type patchConfigBody struct {
 	LeaderboardGroupOrder *[]string              `json:"leaderboard_group_order"`
 	Testing               *config.TestingLimits  `json:"testing"`
 	Gateway               *patchGatewayBody      `json:"gateway"`
+	ComfyUI               *config.ComfyUIConfig  `json:"comfyui"`
 }
 
 // patchChatSessionsBody is the PATCH /api/config payload for the persistent
@@ -581,6 +583,12 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 			go func() { _ = s.SyncGateway() }()
 		}
 	}
+	// ComfyUI is read live on every tool call, so a new URL takes effect on the
+	// next message without a restart. Normalize rather than reject: an empty URL
+	// is how the user turns the integration off.
+	if body.ComfyUI != nil {
+		s.cfg.ComfyUI = body.ComfyUI.Normalize()
+	}
 
 	if err := s.cfg.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -602,6 +610,7 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
 		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
+		"comfyui":                 s.cfg.ComfyUI,
 	})
 }
 
@@ -2337,6 +2346,14 @@ type chatRequestBody struct {
 	Width       int                  `json:"width,omitempty"`
 	Height      int                  `json:"height,omitempty"`
 	Steps       int                  `json:"steps,omitempty"`
+	// Comfy turns on the ComfyUI tool, and ComfyWorkflow names the workflow a
+	// bare call should use. Both are independent of Artifacts and WebTools: a
+	// plain vision chat can generate images without an artifact workspace.
+	Comfy         *bool  `json:"comfy,omitempty"`
+	ComfyWorkflow string `json:"comfy_workflow,omitempty"`
+	// SessionID is the persistent chat session this run belongs to, if any. It
+	// decides which folder the generated media lands in.
+	SessionID string `json:"session_id,omitempty"`
 	// BrowserToolsAvailable reports whether a browser can answer the two
 	// browser-only artifact tools. A detached session run passes a live check
 	// rather than a constant, so a session started unattended gains them as soon
@@ -2645,7 +2662,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if body.Think != nil {
 		thinkVal = string(*body.Think)
 	}
-	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v think=%s", body.Model, len(body.Messages), imageCount, body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, thinkVal)
+	comfyOn := body.Comfy != nil && *body.Comfy
+	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v comfy=%v think=%s",
+		body.Model, len(body.Messages), imageCount,
+		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, comfyOn, thinkVal)
 
 	if body.Artifacts != nil && *body.Artifacts {
 		writeSSEHeaders(w)
@@ -2653,7 +2673,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.WebTools != nil && *body.WebTools {
+	// The web loop is the lightweight tool runner: it has the tool-call loop but
+	// none of the artifact filesystem surface, which is exactly what ComfyUI-only
+	// chats want. Exposing ComfyUI without a tool loop would silently never run.
+	if (body.WebTools != nil && *body.WebTools) || comfyOn {
 		writeSSEHeaders(w)
 		s.runWebToolAgentLoop(r.Context(), newSSESink(w, flusher), body)
 		return

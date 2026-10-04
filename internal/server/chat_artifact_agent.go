@@ -654,6 +654,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 	}
 
 	sysPrompt := buildArtifactSystemPrompt(artifactDir, hasVision)
+	comfyOn := s.comfyToolEnabled(body)
+	if comfyOn {
+		sysPrompt += "\n\n" + comfySystemPromptSection(s.comfyWorkflows.ListEnabled(), hasVision, body.ComfyWorkflow)
+	}
 	if customSystem != "" {
 		sysPrompt += "\n\nAdditional User System Instructions:\n" + customSystem
 	}
@@ -724,6 +728,11 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 		}
 		if body.WebTools != nil && *body.WebTools {
 			tools = append(tools, webToolDefinitions()...)
+		}
+		if comfyOn {
+			// Re-read every round: the user can register or disable a workflow
+			// from Settings while a turn is running.
+			tools = append(tools, s.comfyToolDefinitions(body.ComfyWorkflow)...)
 		}
 
 		req := ollama.ChatRequest{
@@ -853,12 +862,25 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 			if isWebTool(n) {
 				startPayload = toolStartPayload(n, tc.Function.Arguments)
 			}
+			if n == comfyToolName {
+				startPayload = comfyToolStartPayload(startPayload, tc.Function.Arguments,
+					s.comfyWorkflowLabelFor(s.comfyConfiguredWorkflowID(body.ComfyWorkflow), tc.Function.Arguments))
+			}
 			send("tool", startPayload)
 
 			var out string
 			var toolErr error
 			var toolImageBase64 string
-			if n == "take_artifact_screenshot" {
+			var toolImages []string
+			var toolMedia []ChatMedia
+			toolWorkflow := ""
+			if n == comfyToolName {
+				res, runErr := s.executeComfyTool(ctx, body, tc.Function.Arguments, func(status string) {
+					send("tool", map[string]any{"phase": "running", "name": n, "run_status": status})
+				})
+				out, toolErr, toolImages, toolMedia = res.Text, runErr, res.Images, res.Media
+				toolWorkflow = res.WorkflowName
+			} else if n == "take_artifact_screenshot" {
 				reqID := fmt.Sprintf("ss-%d-%d", time.Now().UnixNano(), round)
 				ch := make(chan artifactScreenshotResponse, 1)
 				s.artifactScreenshotMu.Lock()
@@ -1032,12 +1054,19 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 			if toolImageBase64 != "" {
 				toolMsg.Images = []string{toolImageBase64}
 			}
+			if len(toolImages) > 0 {
+				toolMsg.Images = toolImages
+			}
 			msgs = append(msgs, toolMsg)
 
 			done := map[string]any{"phase": "done", "name": n, "ok": toolErr == nil}
 			if toolImageBase64 != "" {
 				done["image"] = "data:image/jpeg;base64," + toolImageBase64
 			}
+			if toolWorkflow != "" {
+				done["workflow"] = toolWorkflow
+			}
+			applyComfyMediaToToolEvent(done, toolImages, toolMedia)
 			if toolErr != nil {
 				done["error"] = toolErr.Error()
 			} else if out != "" {
@@ -1110,6 +1139,15 @@ func toolUsageGuide(name string) string {
 			"- Description: Fetch main text content of a URL.\n" +
 			"- Required Arguments:\n" +
 			"  * 'url': string (http/https URL)"
+	case comfyToolName:
+		return "\n\nCorrect usage of '" + comfyToolName + "':\n" +
+			"- Description: run a registered ComfyUI workflow and show the result in the chat.\n" +
+			"- Required Arguments:\n" +
+			"  * 'prompt': string, describing the image in plain language, including subject, style and lighting\n" +
+			"- Optional Arguments: only the parameters the workflow exposes, for example " +
+			"'negative_prompt', 'seed', 'steps', 'cfg', 'width', 'height', and 'workflow' to pick a different one.\n" +
+			"Pass only what you want to change; anything you leave out keeps the workflow's current value.\n" +
+			"If the tool reports an unknown parameter, call it again with only the parameters listed in its schema."
 	default:
 		return ""
 	}

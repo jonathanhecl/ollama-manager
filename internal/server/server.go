@@ -97,6 +97,10 @@ type Server struct {
 	projectorCacheMu sync.RWMutex
 	projectorCache   map[string]string // url -> hexSum
 
+	// comfyWorkflows is the registry of API-format workflows the chat agent can
+	// run. It lives next to config.json so a config directory stays portable.
+	comfyWorkflows *comfyWorkflowStore
+
 	versionInfo string
 }
 
@@ -191,6 +195,15 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 	chatSessions := newChatSessionStore(chatSessionDir)
 	chatSessions.Load()
 
+	// ComfyUI workflows and the media they produce go next to config.json too:
+	// the generated images are referenced by the chat transcripts, so they must
+	// move with them.
+	comfyRoot := filepath.Join(filepath.Dir(cfg.Path()), "comfyui")
+	comfyMediaBase = filepath.Join(comfyRoot, "media")
+	comfyWorkflows := newComfyWorkflowStore(filepath.Join(comfyRoot, "workflows"))
+	comfyWorkflows.Load()
+	sweepOrphanComfyMedia(chatSessions.LiveIDs())
+
 	srv := &Server{
 		cfg:                  cfg,
 		ollama:               ollamaClient,
@@ -209,6 +222,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		gatewayKeys:          gwKeysStore,
 		systemPrompts:        promptsStore,
 		chatSessions:         chatSessions,
+		comfyWorkflows:       comfyWorkflows,
 		ctxCache:             make(map[string]int64),
 		capsCache:            make(map[string][]string),
 		metaCache:            make(map[string]modelMetaCache),
@@ -375,6 +389,26 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/artifacts/console", s.requireAuth(s.handleArtifactConsoleLogs))
 	mux.Handle("POST /api/artifacts/screenshot", s.requireAuth(s.handleArtifactScreenshot))
 	mux.Handle("POST /api/artifacts/eval", s.requireAuth(s.handleArtifactEval))
+
+	// ComfyUI. The summary route is registered before the {id} wildcard because
+	// Go's ServeMux prefers the more specific pattern, so ordering does not matter
+	// here, but the literal paths stay grouped for readability.
+	mux.Handle("GET /api/comfyui/status", s.requireAuth(s.handleComfyStatus))
+	mux.Handle("POST /api/comfyui/interrupt", s.requireAuth(s.handleComfyInterrupt))
+	mux.Handle("POST /api/comfyui/run", s.requireAuth(s.handleComfyRun))
+	mux.Handle("GET /api/comfyui/object-info", s.requireAuth(s.handleComfyObjectInfo))
+	mux.Handle("GET /api/comfyui/workflows", s.requireAuth(s.handleComfyWorkflows))
+	mux.Handle("POST /api/comfyui/workflows", s.requireAuth(s.handleComfyWorkflowCreate))
+	mux.Handle("GET /api/comfyui/workflows/summary", s.requireAuth(s.handleComfyWorkflowsSummary))
+	mux.Handle("POST /api/comfyui/workflows/detect", s.requireAuth(s.handleComfyDetect))
+	mux.Handle("GET /api/comfyui/workflows/{id}", s.requireAuth(s.handleComfyWorkflowGet))
+	mux.Handle("PATCH /api/comfyui/workflows/{id}", s.requireAuth(s.handleComfyWorkflowUpdate))
+	mux.Handle("DELETE /api/comfyui/workflows/{id}", s.requireAuth(s.handleComfyWorkflowDelete))
+
+	// Generated media needs the same auth as the rest of the API, but it must
+	// answer Range requests so <video> can seek.
+	mux.Handle("GET /api/comfyui/media/{file...}", s.requireAuth(s.handleComfyMedia))
+	mux.Handle("DELETE /api/comfyui/media/{file...}", s.requireAuth(s.handleComfyDeleteMedia))
 
 	// Artifact files — same auth as the rest of the API. The preview iframe
 	// sends the session cookie (allow-same-origin), so it keeps working

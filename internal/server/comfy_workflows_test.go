@@ -170,3 +170,37 @@ func TestPatchComfyWorkflowRejectsUnknownParam(t *testing.T) {
 		t.Fatal("expected an unknown param to be rejected")
 	}
 }
+
+// The saver nodes are named after the container they write (SaveWEBM, SaveMP4),
+// so detection has to read the extension, not just words like "Video".
+func TestGuessOutputKindReadsContainerSavers(t *testing.T) {
+	cases := map[string]string{
+		"SaveWEBM":         comfyMediaVideo,
+		"SaveMP4":          comfyMediaVideo,
+		"VHS_VideoSave":    comfyMediaVideo,
+		"SaveAudio":        comfyMediaAudio,
+		"SaveImage":        comfyMediaImage,
+		"SaveAnimatedPNG":  comfyMediaVideo,
+		"SaveAnimatedWEBP": comfyMediaVideo,
+	}
+	for classType, want := range cases {
+		got := guessOutputKind(comfyui.Workflow{
+			"9": {ClassType: classType, Inputs: map[string]any{}},
+		})
+		if got != want {
+			t.Errorf("guessOutputKind(%s) = %s, want %s", classType, got, want)
+		}
+	}
+}
+
+// A graph that keeps a frame saver alongside the clip saver is a video pipeline;
+// the chat must be told video so it does not promise a still image.
+func TestGuessOutputKindPrefersVideoOverImage(t *testing.T) {
+	got := guessOutputKind(comfyui.Workflow{
+		"1": {ClassType: "SaveImage", Inputs: map[string]any{}},
+		"2": {ClassType: "SaveWEBM", Inputs: map[string]any{}},
+	})
+	if got != comfyMediaVideo {
+		t.Fatalf("got %s, want %s", got, comfyMediaVideo)
+	}
+}

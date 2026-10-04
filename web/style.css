@@ -3749,8 +3749,12 @@ button.chat-edit-attach-thumb-wrap:hover {
 }
 .chat-media figcaption {
   font-size: 11px;
-  color: var(--muted, #8b93a7);
+  color: var(--muted);
   word-break: break-all;
+}
+.chat-media-cap {
+  font-size: 10.5px;
+  color: var(--muted);
 }
 .chat-media-thumb {
   display: block;
@@ -3764,7 +3768,7 @@ button.chat-edit-attach-thumb-wrap:hover {
 }
 .chat-media-thumb:hover {
   transform: scale(1.02);
-  border-color: var(--accent, #7aa2ff);
+  border-color: var(--accent);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 .chat-media-thumb img {
@@ -11433,101 +11437,16 @@ button.chat-send:disabled:hover {
 
 /* ---------- ComfyUI ---------- */
 
+/* ComfyUI (settings). Only the pieces the site had no component for live here;
+   the connection form reuses .field/.form-hint, the workflow list reuses
+   .ext-model-card, and warnings reuse .callout. */
 .comfy-grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
-.comfy-status-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-.comfy-status {
-  flex: 1 1 220px;
-  min-width: 0;
-  word-break: break-word;
-}
-.comfy-warning {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--warn, #e6a23c) 40%, var(--border));
-  background: color-mix(in srgb, var(--warn, #e6a23c) 10%, transparent);
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--warn, #e6a23c);
-}
-.comfy-actions-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-.comfy-workflows-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-.comfy-wf-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--bg-subtle, #141419);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-/* A disabled workflow stays readable but recedes: it is still a saved workflow,
-   just not one the chat may reach. */
-.comfy-wf-row--off {
-  opacity: 0.6;
-  border-style: dashed;
-}
-.comfy-wf-switch {
-  flex: 0 0 auto;
-  margin-top: 2px;
-}
-.comfy-wf-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.comfy-wf-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.comfy-wf-name {
-  font-weight: 600;
-}
-.comfy-wf-kind {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted, #8b93a7);
-}
-.comfy-wf-desc {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--muted, #8b93a7);
-}
-.comfy-wf-params {
-  margin-top: 4px;
-  font-size: 11px;
-  word-break: break-word;
-}
-.comfy-wf-actions {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
+
+/* Workflow editor modal */
 .comfy-workflow-modal-card {
   max-width: 860px;
   width: 92vw;
@@ -11535,30 +11454,53 @@ button.chat-send:disabled:hover {
 .comfy-workflow-modal-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 .comfy-workflow-modal-body textarea {
   width: 100%;
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
+  line-height: 1.5;
 }
+.comfy-workflow-modal-body .callout {
+  margin: 0;
+}
+
+/* Same drop highlight the prompt editor uses when a file is dragged over it. */
+#comfy-wf-json-dropzone.drag-over #comfy-wf-json {
+  border-color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 12%, #0e0e12) !important;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* The workflow name sits alone inside .ext-model-card-name so the confirm
+   dialogs can read it without the output-kind badge glued to it. */
+.comfy-wf-title {
+  word-break: break-word;
+}
+
+/* Editable parameter rows */
 .comfy-bindings-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 .comfy-binding-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-subtle, #141419);
+  transition: all 0.15s ease;
 }
+/* An excluded parameter is still shown, so it is easy to bring back, but it
+   recedes: the model may not change it while it is off the list. */
 .comfy-binding-row--off {
   opacity: 0.5;
+  border-style: dashed;
 }
 .comfy-binding-main {
   flex: 1 1 auto;
@@ -11572,16 +11514,20 @@ button.chat-send:disabled:hover {
   border: 1px solid var(--border);
   background: var(--bg, #0f0f13);
   color: inherit;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
 }
 .comfy-binding-target {
   margin-top: 3px;
   font-size: 11px;
+  color: var(--muted);
   word-break: break-all;
 }
 .comfy-binding-enum {
   display: block;
   margin-top: 2px;
   font-size: 11px;
+  color: var(--text-dim);
   word-break: break-all;
 }
 .comfy-binding-actions {
@@ -11591,8 +11537,9 @@ button.chat-send:disabled:hover {
   gap: 6px;
 }
 .comfy-raw-bindings {
-  margin-top: 8px;
+  margin-top: 10px;
   font-size: 12px;
+  color: var(--muted);
 }
 .comfy-raw-bindings textarea {
   margin-top: 6px;
@@ -11600,6 +11547,7 @@ button.chat-send:disabled:hover {
 .comfy-nodes {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 11px;
+  color: var(--muted);
   word-break: break-all;
 }
 .chat-comfy-workflow-wrap {

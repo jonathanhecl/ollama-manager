@@ -1448,14 +1448,38 @@
           <input id="comfy-wf-desc" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.comfyui_wf_description_ph" placeholder="When should the model reach for this workflow?">
           <p class="form-hint" data-i18n="settings.comfyui_wf_description_hint">The model reads this to decide when the workflow is the right tool, so be specific about the look it produces.</p>
         </div>
-        <div class="field">
-          <label for="comfy-wf-json" data-i18n="settings.comfyui_wf_json">Workflow JSON</label>
-          <textarea id="comfy-wf-json" rows="10" spellcheck="false" placeholder='{"3": {"class_type": "KSampler", "inputs": {...}}}'></textarea>
-          <p class="form-hint" data-i18n="settings.comfyui_wf_json_hint">In ComfyUI use Workflow &rarr; Export (API Format). The visual editor export is rejected.</p>
+        <div class="field field-vertical" id="comfy-wf-json-dropzone">
+          <div class="chat-system-head">
+            <div class="chat-system-label-wrap">
+              <label for="comfy-wf-json" data-i18n="settings.comfyui_wf_json">Workflow JSON</label>
+            </div>
+            <div class="chat-system-actions">
+              <button id="comfy-wf-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="settings.comfyui_wf_import_file" title="Load a workflow file" aria-label="Load a workflow file">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <path d="M14 2v6h6"/>
+                  <path d="M12 18v-6"/>
+                  <path d="M9 15l3-3 3 3"/>
+                </svg>
+              </button>
+              <button id="comfy-wf-json-clear-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="settings.comfyui_wf_clear_json" title="Clear" aria-label="Clear">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 6h18"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
+              <input type="file" id="comfy-wf-file-input" accept=".json,application/json" hidden autocomplete="off">
+            </div>
+          </div>
+          <textarea id="comfy-wf-json" class="mono" rows="10" spellcheck="false" placeholder='{"3": {"class_type": "KSampler", "inputs": {...}}}'></textarea>
+          <p class="form-hint" data-i18n="settings.comfyui_wf_json_hint">Drop a file here, pick one with the folder icon, or paste it. In ComfyUI use Workflow &rarr; Export (API Format); the visual editor export is rejected.</p>
         </div>
-        <div id="comfy-wf-error" class="comfy-warning" hidden></div>
+        <div id="comfy-wf-error" class="callout callout-warn" hidden>
+          <span class="callout-icon">!</span>
+          <span id="comfy-wf-error-text"></span>
+        </div>
         <div class="field">
-          <div class="settings-section-title-wrap">
+          <div class="section-head">
             <label for="comfy-wf-bindings" data-i18n="settings.comfyui_wf_bindings">Editable parameters</label>
             <button type="button" id="comfy-wf-redetect-btn" class="ghost small" data-i18n="settings.comfyui_wf_redetect">Detect again</button>
           </div>
@@ -2027,41 +2051,44 @@
               <p class="settings-section-desc" data-i18n="settings.comfyui_hint">Let the chat send jobs to your own ComfyUI server. The model sees the images it renders and can iterate on them.</p>
             </div>
             <div class="settings-section-body">
-              <div class="field">
+              <div class="field field-vertical">
                 <label for="comfy-url" data-i18n="settings.comfyui_url">Server URL</label>
-                <input id="comfy-url" type="url" placeholder="http://127.0.0.1:8188" autocomplete="off" spellcheck="false">
+                <input id="comfy-url" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.comfyui_url_placeholder" placeholder="http://127.0.0.1:8188">
                 <p class="form-hint" data-i18n="settings.comfyui_url_hint">The base address of your ComfyUI instance. Leave empty to turn the integration off.</p>
               </div>
               <div class="comfy-grid-2">
-                <div class="field">
+                <div class="field field-vertical">
                   <label for="comfy-client-id" data-i18n="settings.comfyui_client_id">Client ID</label>
                   <input id="comfy-client-id" type="text" placeholder="ollama-manager" autocomplete="off" spellcheck="false">
                   <p class="form-hint" data-i18n="settings.comfyui_client_id_hint">Identifies this client in the ComfyUI queue.</p>
                 </div>
-                <div class="field">
+                <div class="field field-vertical">
                   <label for="comfy-timeout" data-i18n="settings.comfyui_timeout">Render timeout (seconds)</label>
                   <input id="comfy-timeout" type="number" min="10" max="3600" step="10" placeholder="600" autocomplete="off">
                   <p class="form-hint" data-i18n="settings.comfyui_timeout_hint">How long one render may take before it is abandoned.</p>
                 </div>
               </div>
-              <div class="comfy-status-row">
+              <div class="ext-model-actions">
                 <button type="button" id="comfy-test-btn" class="ghost" data-i18n="settings.comfyui_test">Test connection</button>
-                <div id="comfy-status" class="comfy-status muted small"></div>
               </div>
-              <div id="comfy-storage-warning" class="comfy-warning" hidden></div>
+              <div id="comfy-status" class="ext-test-result" hidden></div>
+              <div id="comfy-storage-warning" class="callout callout-warn" hidden>
+                <span class="callout-icon">!</span>
+                <span id="comfy-storage-warning-text"></span>
+              </div>
 
-              <hr class="settings-hr">
+              <hr class="settings-sep">
 
-              <div class="settings-section-title-wrap">
-                <h4 class="settings-subtitle" data-i18n="settings.comfyui_workflows">Workflows</h4>
+              <div class="section-head">
+                <h4 data-i18n="settings.comfyui_workflows">Workflows</h4>
                 <span class="badge" id="comfy-workflows-count">0</span>
               </div>
               <p class="form-hint" data-i18n="settings.comfyui_workflows_hint">Each workflow becomes one tool the model can call. Only the parameters listed in it can be changed from the chat.</p>
-              <div class="comfy-actions-row">
-                <button type="button" id="comfy-new-btn" class="primary" data-i18n="settings.comfyui_new_workflow">Register workflow</button>
+              <div class="ext-model-actions">
                 <button type="button" id="comfy-refresh-btn" class="ghost" data-i18n="settings.comfyui_refresh">Refresh</button>
+                <button type="button" id="comfy-new-btn" class="primary" data-i18n="settings.comfyui_new_workflow">Register workflow</button>
               </div>
-              <div id="comfy-workflows-list" class="comfy-workflows-list">
+              <div id="comfy-workflows-list" class="ext-models-list">
                 <div class="muted small" data-i18n="settings.comfyui_workflows_none">No workflows registered yet.</div>
               </div>
             </div>

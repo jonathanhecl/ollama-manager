@@ -208,18 +208,34 @@ async function testComfyConnection() {
   return data;
 }
 
-function renderComfyStatus(data) {
+// setComfyStatus writes the connection line into the shared test-result box and
+// colours it the way the external model test does.
+function setComfyStatus(text, ok) {
   const out = $("comfy-status");
-  const warn = $("comfy-storage-warning");
   if (!out) return;
+  out.textContent = text;
+  out.className = ok === false ? "ext-test-result error" : "ext-test-result success";
+  out.hidden = !text;
+}
+
+function setComfyStorageWarning(text) {
+  const warn = $("comfy-storage-warning");
+  if (!warn) return;
+  const slot = $("comfy-storage-warning-text");
+  if (slot) slot.textContent = text || "";
+  else warn.textContent = text || "";
+  warn.hidden = !text;
+}
+
+function renderComfyStatus(data) {
   if (!data) {
-    out.textContent = t("settings.comfyui_unreachable") || "Could not reach ComfyUI.";
-    if (warn) warn.hidden = true;
+    setComfyStatus(t("settings.comfyui_unreachable") || "Could not reach ComfyUI.", false);
+    setComfyStorageWarning("");
     return;
   }
   if (!data.reachable) {
-    out.textContent = `${data.error || "unreachable"} · ${data.url || ""}`;
-    if (warn) warn.hidden = true;
+    setComfyStatus(`${data.error || "unreachable"} · ${data.url || ""}`, false);
+    setComfyStorageWarning("");
     return;
   }
   const bits = [];
@@ -230,17 +246,14 @@ function renderComfyStatus(data) {
   if (Array.isArray(data.devices) && data.devices.length) {
     bits.push(data.devices.join(", "));
   }
-  out.textContent = bits.join(" · ");
+  setComfyStatus(bits.join(" · "), true);
   // Storing results is the part that silently fails when the data directory is
   // read-only, and the failure only surfaces later as a missing image.
-  if (warn) {
-    if (data.media_writable === false) {
-      warn.textContent = t("settings.comfyui_storage_warning") || "The manager cannot write to its media folder, so generated files will not be kept.";
-      warn.hidden = false;
-    } else {
-      warn.hidden = true;
-    }
-  }
+  setComfyStorageWarning(
+    data.media_writable === false
+      ? t("settings.comfyui_storage_warning") || "The manager cannot write to its media folder, so generated files will not be kept."
+      : ""
+  );
 }
 
 // ---------- settings: workflow list ----------
@@ -281,34 +294,41 @@ function renderComfyWorkflowList(workflows) {
   list.innerHTML = workflows.map((wf) => comfyWorkflowRowHtml(wf)).join("");
 }
 
+// comfyOutputKindLabel reuses the option labels from the editor so a workflow
+// row and its modal never name the same output kind differently.
+function comfyOutputKindLabel(kind) {
+  const key = { image: "image", video: "video", audio: "audio", any: "any" }[kind];
+  return key ? t(`settings.comfyui_wf_output_${key}`) || kind : kind;
+}
+
+// The card layout mirrors the external models list: a switch on the left, the
+// name and the editable parameters in the middle, icon actions on the right.
 function comfyWorkflowRowHtml(wf) {
   const id = escapeHtml(wf.id);
-  const name = escapeHtml(wf.name);
-  const kind = wf.output_kind && wf.output_kind !== "any" ? escapeHtml(wf.output_kind) : "";
-  const desc = wf.description
-    ? `<div class="comfy-wf-desc">${escapeHtml(wf.description)}</div>`
+  const on = !!wf.enabled;
+  const kind = wf.output_kind && wf.output_kind !== "any" ? wf.output_kind : "";
+  const kindPill = kind
+    ? `<span class="badge ${kind === "video" ? "badge-warn" : "badge-muted"}">${escapeHtml(comfyOutputKindLabel(kind))}</span>`
     : "";
   const params = Array.isArray(wf.bindings) && wf.bindings.length
     ? wf.bindings.map((b) => escapeHtml(b.param)).join(", ")
     : (t("settings.comfyui_wf_no_params") || "no editable parameters");
-  return `<div class="comfy-wf-row${wf.enabled ? "" : " comfy-wf-row--off"}" data-comfy-id="${id}">
-    <label class="switch comfy-wf-switch">
-      <input type="checkbox" class="comfy-wf-enabled" ${wf.enabled ? "checked" : ""} autocomplete="off">
+  const nodeCount = escapeHtml(String(wf.node_count ?? (wf.nodes || []).length));
+  return `<div class="ext-model-card${on ? "" : " is-paused"}" data-comfy-id="${id}">
+    <label class="switch">
+      <input type="checkbox" class="comfy-wf-enabled" ${on ? "checked" : ""} autocomplete="off">
       <span class="switch-slider"></span>
     </label>
-    <div class="comfy-wf-main">
-      <div class="comfy-wf-head">
-        <span class="comfy-wf-name">${name}</span>
-        ${kind ? `<span class="comfy-wf-kind">${kind}</span>` : ""}
-        <span class="muted small">${escapeHtml(String(wf.node_count ?? (wf.nodes || []).length))} nodes</span>
-      </div>
-      ${desc}
-      <div class="comfy-wf-params mono muted small">${params}</div>
+    <div class="ext-model-card-info">
+      <div class="ext-model-card-name"><span class="comfy-wf-title">${escapeHtml(wf.name)}</span>${kindPill}</div>
+      <div class="ext-model-card-url" title="${params}">${params}</div>
+      ${wf.description ? `<div class="form-hint" style="margin:0;">${escapeHtml(wf.description)}</div>` : ""}
     </div>
-    <div class="comfy-wf-actions">
-      <button type="button" class="ghost small comfy-wf-edit">${escapeHtml(t("settings.comfyui_wf_edit") || "Edit")}</button>
-      <button type="button" class="ghost small comfy-wf-test">${escapeHtml(t("settings.comfyui_wf_test") || "Test")}</button>
-      <button type="button" class="danger small comfy-wf-delete">${escapeHtml(t("action.delete") || "Delete")}</button>
+    <div class="ext-model-card-actions">
+      <button type="button" class="btn-icon info-btn comfy-wf-test" title="${escapeHtml(t("settings.comfyui_wf_test") || "Test")}">▶</button>
+      <button type="button" class="btn-icon comfy-wf-edit" title="${escapeHtml(t("settings.comfyui_wf_edit") || "Edit")}">✏️</button>
+      <button type="button" class="btn-icon danger-text comfy-wf-delete" title="${escapeHtml(t("action.delete") || "Delete")}">🗑️</button>
+      <span class="badge badge-muted" title="nodes">${nodeCount}</span>
     </div>
   </div>`;
 }
@@ -370,6 +390,7 @@ function openComfyWorkflowModal(workflow) {
   }
 
   renderComfyBindingsEditor(state.bindings);
+  bindComfyWorkflowFileDrop();
   $("comfy-workflow-modal").hidden = false;
   const nameEl = $("comfy-wf-name");
   if (nameEl) nameEl.focus();
@@ -383,13 +404,12 @@ function closeComfyWorkflowModal() {
 function setComfyModalError(msg) {
   const box = $("comfy-wf-error");
   if (!box) return;
-  if (!msg) {
-    box.hidden = true;
-    box.textContent = "";
-    return;
-  }
-  box.textContent = msg;
-  box.hidden = false;
+  // The box is a callout with an icon and a text slot, so the message goes in the
+  // slot: writing to the box itself would drop the icon.
+  const slot = $("comfy-wf-error-text");
+  if (slot) slot.textContent = msg || "";
+  else box.textContent = msg || "";
+  box.hidden = !msg;
 }
 
 function renderComfyNodes(nodes) {
@@ -407,6 +427,113 @@ function renderComfyNodes(nodes) {
   });
   const extra = nodes.length > parts.length ? ` … +${nodes.length - parts.length}` : "";
   box.textContent = `${t("settings.comfyui_wf_nodes") || "Nodes"}: ${parts.join(" · ")}${extra}`;
+}
+
+// loadComfyWorkflowFile fills the textarea from a file the user picked or
+// dropped. The name comes from the file when the user has not typed one, so the
+// common case is: drop the export, press Register.
+function loadComfyWorkflowFile(file) {
+  if (!file) return;
+  // Some exporters write big graphs; the textarea is a convenience, not the
+  // system of record, so read it as text and let the validation speak.
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target?.result;
+    if (typeof text !== "string") return;
+    const jsonEl = $("comfy-wf-json");
+    if (!jsonEl) return;
+    jsonEl.value = text;
+    jsonEl.dataset.mode = "new";
+    const nameEl = $("comfy-wf-name");
+    if (nameEl && !nameEl.value.trim()) {
+      nameEl.value = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]+/g, " ").trim();
+    }
+    // Re-runs detection, which is what actually validates the drop.
+    jsonEl.dispatchEvent(new Event("input", { bubbles: true }));
+    const parsed = parseComfyPastedGraph(text);
+    setComfyModalError(parsed.ok ? "" : parsed.error);
+    toast(
+      parsed.ok
+        ? (t("settings.comfyui_wf_file_loaded") || "Workflow loaded")
+        : (t("settings.comfyui_wf_file_invalid") || "That file is not a workflow in API format"),
+      parsed.ok ? "success" : "error",
+    );
+  };
+  reader.onerror = () => {
+    setComfyModalError(t("settings.comfyui_wf_file_read_error") || "Could not read that file.");
+  };
+  reader.readAsText(file);
+}
+
+// bindComfyWorkflowFileDrop wires the folder icon, the file input and drag and
+// drop. It reuses the prompt editor's dropzone behaviour so a dropped file
+// behaves the same everywhere in Settings.
+function bindComfyWorkflowFileDrop() {
+  const zone = $("comfy-wf-json-dropzone");
+  const input = $("comfy-wf-file-input");
+  const btn = $("comfy-wf-file-btn");
+  const clearBtn = $("comfy-wf-json-clear-btn");
+  if (!zone || zone._boundDnd) return;
+  zone._boundDnd = true;
+
+  if (btn && input) {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      input.click();
+    });
+  }
+  if (input) {
+    input.addEventListener("change", () => {
+      const f = input.files && input.files[0];
+      if (f) loadComfyWorkflowFile(f);
+      input.value = "";
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const jsonEl = $("comfy-wf-json");
+      if (!jsonEl) return;
+      jsonEl.value = "";
+      jsonEl.dataset.mode = "new";
+      jsonEl.dispatchEvent(new Event("input", { bubbles: true }));
+      setComfyModalError("");
+      jsonEl.focus();
+    });
+  }
+
+  // dragenter/dragleave fire per child element, so the depth counter keeps the
+  // highlight from flickering as the pointer crosses child nodes.
+  let dndDepth = 0;
+  zone.addEventListener("dragenter", (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.stopPropagation();
+      dndDepth += 1;
+      zone.classList.add("drag-over");
+    }
+  });
+  zone.addEventListener("dragover", (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  });
+  zone.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dndDepth = Math.max(0, dndDepth - 1);
+    if (dndDepth === 0) zone.classList.remove("drag-over");
+  });
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dndDepth = 0;
+    zone.classList.remove("drag-over");
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) loadComfyWorkflowFile(files[0]);
+  });
 }
 
 // parseComfyPastedGraph validates a paste locally so the user gets the format
@@ -682,7 +809,7 @@ async function redetectComfyBindings() {
 }
 
 async function toggleComfyWorkflow(checkbox) {
-  const row = checkbox.closest(".comfy-wf-row");
+  const row = checkbox.closest("[data-comfy-id]");
   const id = row && row.dataset.comfyId;
   if (!id) return;
   const want = checkbox.checked;
@@ -729,8 +856,8 @@ async function deleteComfyWorkflow(id, name) {
 // testComfyWorkflow runs a workflow once with its stored defaults, which is the
 // fastest way to find out that the graph needs a model the server does not have.
 async function testComfyWorkflow(id, button) {
-  const row = button && button.closest(".comfy-wf-row");
-  const label = row ? (row.querySelector(".comfy-wf-name") || {}).textContent : id;
+  const row = button && button.closest("[data-comfy-id]");
+  const label = row ? (row.querySelector(".comfy-wf-title") || {}).textContent : id;
   if (button) button.disabled = true;
   const prev = button ? button.textContent : "";
   if (button) button.textContent = t("settings.comfyui_wf_running") || "Running…";
@@ -798,10 +925,10 @@ function bindComfySettingsEvents() {
   if (list) {
     list.addEventListener("click", (ev) => {
       const target = ev.target;
-      const row = target.closest(".comfy-wf-row");
+      const row = target.closest("[data-comfy-id]");
       if (!row) return;
       const id = row.dataset.comfyId;
-      const name = (row.querySelector(".comfy-wf-name") || {}).textContent || id;
+      const name = (row.querySelector(".comfy-wf-title") || {}).textContent || id;
       if (target.closest(".comfy-wf-enabled")) return;
       if (target.closest(".comfy-wf-edit")) void editComfyWorkflow(id);
       else if (target.closest(".comfy-wf-test")) void testComfyWorkflow(id, target.closest(".comfy-wf-test"));

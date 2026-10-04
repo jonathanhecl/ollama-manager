@@ -298,6 +298,11 @@ func guessOutputKind(wf comfyui.Workflow) string {
 			kinds[comfyMediaAudio] = true
 		case strings.Contains(node.ClassType, "Gif"), strings.Contains(node.ClassType, "WebP"), strings.Contains(node.ClassType, "Animated"):
 			kinds[comfyMediaVideo] = true
+		// The video saver nodes are named after the container they write, so
+		// SaveWEBM and SaveMP4 say nothing about being videos in their own name.
+		case strings.Contains(node.ClassType, "WEBM"), strings.Contains(node.ClassType, "MP4"),
+			strings.Contains(node.ClassType, "AVI"), strings.Contains(node.ClassType, "MKV"):
+			kinds[comfyMediaVideo] = true
 		case node.ClassType == "SaveImage", node.ClassType == "PreviewImage",
 			strings.Contains(node.ClassType, "SaveImage"), strings.Contains(node.ClassType, "ImageSave"):
 			kinds[comfyMediaImage] = true

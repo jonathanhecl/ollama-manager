@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -87,8 +88,13 @@ func TestChatSessionStorePersistsAcrossReload(t *testing.T) {
 	if asst.ElapsedMs != 1234 || asst.DoneReason != "stop" {
 		t.Errorf("done stats not stored: elapsed=%d reason=%q", asst.ElapsedMs, asst.DoneReason)
 	}
-	if got.Seq == 0 || len(got.Events) == 0 {
-		t.Errorf("replay log not filled: seq=%d events=%d", got.Seq, len(got.Events))
+	// finishSession drops the replay log on purpose: Messages is the transcript
+	// once a turn settles, so only Seq has to survive the reload.
+	if got.Seq == 0 {
+		t.Error("Seq = 0, want the event counter to keep counting")
+	}
+	if len(got.Events) != 0 {
+		t.Errorf("Events = %d, want the replay log dropped once the turn settled", len(got.Events))
 	}
 
 	st.flush(sess.ID)
@@ -299,7 +305,7 @@ func TestBuildSessionMessages(t *testing.T) {
 		{Kind: "image", Data: "data:image/png;base64,AAA"},
 	})
 
-	msgs := buildSessionMessages(st.Get(sess.ID), false)
+	msgs := st.buildSessionMessages(st.Get(sess.ID), false)
 	if len(msgs) != 2 {
 		t.Fatalf("messages len = %d, want 2 (pending turn must be skipped)", len(msgs))
 	}
@@ -325,7 +331,7 @@ func TestBuildSessionMessagesPlaceholderForEmptyArtifactAnswer(t *testing.T) {
 	st.Get(sess.ID).Messages[0].ArtifactNm = "todo-app"
 	st.Get(sess.ID).Messages[0].ArtifactURL = "/api/artifacts/x/index.html"
 
-	msgs := buildSessionMessages(st.Get(sess.ID), false)
+	msgs := st.buildSessionMessages(st.Get(sess.ID), false)
 	if len(msgs) != 1 {
 		t.Fatalf("messages len = %d, want 1", len(msgs))
 	}
@@ -404,7 +410,7 @@ func TestBuildSessionBodyDropsToolsWhenModelHasNone(t *testing.T) {
 
 	// A session keeps the options it was created with, so a model that cannot
 	// call tools has to drop them rather than fail every round.
-	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{})
+	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{}, nil)
 	if body.WebTools != nil || body.Artifacts != nil {
 		t.Errorf("tools should be dropped: web=%v artifacts=%v", body.WebTools, body.Artifacts)
 	}
@@ -424,13 +430,13 @@ func TestBuildSessionBodyDropsThinkWhenModelCannotThink(t *testing.T) {
 	sess := st.Create("no-thinker", SessionSettings{ThinkLevel: "auto"})
 	st.AppendUser(sess.ID, "hi", nil)
 
-	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true})
+	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true}, nil)
 	if body.Think != nil {
 		t.Errorf("think should be omitted for a model that cannot think, got %q", *body.Think)
 	}
 
 	// The same settings on a model that does think must keep the level.
-	body = srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true, CanThink: true})
+	body = srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true, CanThink: true}, nil)
 	if body.Think == nil {
 		t.Fatal("think should be sent when the model supports it")
 	}
@@ -552,13 +558,14 @@ func TestBuildSessionBodyUsesSavedSettings(t *testing.T) {
 	})
 	st.AppendUser(sess.ID, "hi", nil)
 
-	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true, CanThink: true})
+	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID),
+		sessionModelInfo{CanTools: true, CanThink: true}, st.sessionWatcherCheck(sess.ID))
 
 	if body.Model != "some-model" {
 		t.Errorf("model = %q", body.Model)
 	}
-	if !body.NoBrowserTools {
-		t.Error("detached runs must set NoBrowserTools")
+	if body.browserToolsAllowed() {
+		t.Error("an unwatched session must not offer the browser-only artifact tools")
 	}
 	if body.WebTools == nil || !*body.WebTools {
 		t.Error("web tools should be enabled from the saved settings")
@@ -767,5 +774,556 @@ func TestTrimMessagesTruncatesRunawayMessage(t *testing.T) {
 	}
 	if last.Raw != "" {
 		t.Error("the raw stream should be dropped, it is what makes these files huge")
+	}
+}
+
+// attachmentBase64 builds a bare base64 payload of the given size, which is what
+// the browser actually puts in ChatAttach.Data: it strips the data URL prefix
+// when it reads a file (web/app-svg.js splits on ",").
+func attachmentBase64(size int) string {
+	raw := make([]byte, size)
+	for i := range raw {
+		raw[i] = byte(i % 251)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// attachmentDataURL is the same payload wrapped in a data URL, for the clients
+// that send one.
+func attachmentDataURL(mime string, size int) string {
+	return "data:" + mime + ";base64," + attachmentBase64(size)
+}
+
+func TestSessionAttachmentsLiveOnDiskNotInTheJSON(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("m", defaultSessionSettings())
+
+	payload := attachmentBase64(4096)
+	if !st.AppendUser(sess.ID, "look", []ChatAttach{{Kind: "image", Name: "a.png", MimeType: "image/png", Data: payload}}) {
+		t.Fatal("AppendUser should have accepted the message")
+	}
+	st.flush(sess.ID)
+
+	// The stored transcript must not carry the base64 payload any more.
+	stored := st.Get(sess.ID)
+	if len(stored.Messages) != 1 || len(stored.Messages[0].Attach) != 1 {
+		t.Fatalf("expected one message with one attachment, got %#v", stored.Messages)
+	}
+	got := stored.Messages[0].Attach[0]
+	if got.Data != "" {
+		t.Error("the attachment bytes should have been moved out of the stored message")
+	}
+	if got.Blob == "" {
+		t.Fatal("the attachment should reference a stored blob")
+	}
+	if got.Size != 4096 {
+		t.Errorf("size = %d, want 4096", got.Size)
+	}
+	if _, err := os.Stat(filepath.Join(st.chatSessionBlobDir(), got.Blob)); err != nil {
+		t.Errorf("blob file missing: %v", err)
+	}
+
+	// The file on disk must be small: that was the whole point.
+	info, err := os.Stat(st.pathFor(sess.ID))
+	if err != nil {
+		t.Fatalf("stat session file: %v", err)
+	}
+	if info.Size() > 4096 {
+		t.Errorf("session file is %d bytes; the attachment should not be inline any more", info.Size())
+	}
+
+	// And the bytes have to come back byte for byte.
+	reloaded := newChatSessionStore(st.dir)
+	reloaded.Load()
+	back := reloaded.Get(sess.ID)
+	if back == nil {
+		t.Fatal("the session should survive a reload")
+	}
+	// A reloaded store holds the reference only, so it is hydration that has to
+	// bring the bytes back, byte for byte.
+	hydrated := reloaded.hydrateAttach(back.Messages[0].Attach)[0]
+	if hydrated.Data != payload {
+		t.Error("hydrating the attachment did not restore the original base64 payload")
+	}
+	// Hydration must not write the payload back into the stored message.
+	if reloaded.Get(sess.ID).Messages[0].Attach[0].Data != "" {
+		t.Error("hydration leaked the bytes back into the stored transcript")
+	}
+}
+
+func TestBuildSessionMessagesRehydratesImages(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("m", defaultSessionSettings())
+	payload := attachmentBase64(512)
+	st.AppendUser(sess.ID, "what is this", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: payload}})
+
+	msgs := st.buildSessionMessages(st.Get(sess.ID), false)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if len(msgs[0].Images) != 1 || msgs[0].Images[0] != payload {
+		t.Errorf("the image never made it into the prompt: %#v", msgs[0].Images)
+	}
+}
+
+func TestDeletingASessionRemovesItsBlobs(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("m", defaultSessionSettings())
+	st.AppendUser(sess.ID, "keep", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: attachmentBase64(256)}})
+	other := st.Create("m", defaultSessionSettings())
+	st.AppendUser(other.ID, "stays", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: attachmentBase64(256)}})
+
+	blobDir := st.chatSessionBlobDir()
+	before, _ := os.ReadDir(blobDir)
+	if len(before) != 2 {
+		t.Fatalf("expected 2 blob files, got %d", len(before))
+	}
+
+	st.Delete(sess.ID)
+
+	after, _ := os.ReadDir(blobDir)
+	if len(after) != 1 {
+		t.Fatalf("expected 1 blob file left for the surviving session, got %d", len(after))
+	}
+	if !strings.HasPrefix(after[0].Name(), other.ID+"-") {
+		t.Errorf("the wrong file survived: %q", after[0].Name())
+	}
+}
+
+func TestDeleteAllRemovesEveryBlob(t *testing.T) {
+	st := newTestSessionStore(t)
+	for i := 0; i < 3; i++ {
+		s := st.Create("m", defaultSessionSettings())
+		st.AppendUser(s.ID, "x", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: attachmentBase64(128)}})
+	}
+	blobDir := st.chatSessionBlobDir()
+	if before, _ := os.ReadDir(blobDir); len(before) != 3 {
+		t.Fatalf("expected 3 blob files, got %d", len(before))
+	}
+
+	if n := st.DeleteAll(); n != 3 {
+		t.Errorf("DeleteAll reported %d sessions, want 3", n)
+	}
+	if after, _ := os.ReadDir(blobDir); len(after) != 0 {
+		t.Errorf("clear all left %d attachment file(s) behind", len(after))
+	}
+}
+
+func TestTrimReclaimsBlobsOfDroppedMessages(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("m", defaultSessionSettings())
+	// One turn past the cap so the oldest gets dropped.
+	for i := 0; i < maxSessionMessages+2; i++ {
+		if !st.AppendUser(sess.ID, "turn", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: attachmentBase64(64)}}) {
+			t.Fatalf("AppendUser failed at %d", i)
+		}
+	}
+	if got := st.Get(sess.ID).DroppedMessages; got == 0 {
+		t.Fatal("expected messages to have been trimmed")
+	}
+
+	// Every surviving turn still has its image, and no unreferenced file is left.
+	msgs := st.Get(sess.ID).Messages
+	live := map[string]bool{}
+	for i := range msgs {
+		if len(msgs[i].Attach) != 1 {
+			t.Fatalf("message %d lost its attachment reference", i)
+		}
+		live[msgs[i].Attach[0].Blob] = true
+	}
+	entries, _ := os.ReadDir(st.chatSessionBlobDir())
+	if len(entries) != len(live) {
+		t.Errorf("%d blob file(s) on disk but %d live reference(s)", len(entries), len(live))
+	}
+	for _, e := range entries {
+		if !live[e.Name()] {
+			t.Errorf("orphaned attachment file %q was not reclaimed", e.Name())
+		}
+	}
+}
+
+func TestDecodeAttachData(t *testing.T) {
+	// Bare base64 is the normal case and carries no mime of its own.
+	mime, body, ok := decodeAttachData(attachmentBase64(32))
+	if !ok {
+		t.Fatal("bare base64 should decode")
+	}
+	if mime != "" {
+		t.Errorf("mime = %q, want empty: bare base64 has no media type", mime)
+	}
+	if len(body) != 32 {
+		t.Errorf("decoded %d bytes, want 32", len(body))
+	}
+
+	// A data URL also decodes, and does hand back its media type.
+	mime, body, ok = decodeAttachData(attachmentDataURL("image/png", 32))
+	if !ok {
+		t.Fatal("a base64 data URL should decode")
+	}
+	if mime != "image/png" {
+		t.Errorf("mime = %q, want image/png", mime)
+	}
+	if len(body) != 32 {
+		t.Errorf("decoded %d bytes, want 32", len(body))
+	}
+
+	// Percent-encoded payloads are legal data URLs too.
+	if _, body, ok := decodeAttachData("data:text/plain,a%20b"); !ok || string(body) != "a b" {
+		t.Errorf("percent-encoded payload: ok=%v body=%q", ok, body)
+	}
+
+	// Undecodable input must be reported as such rather than stored as garbage.
+	if _, _, ok := decodeAttachData("/not/base64/at/all!"); ok {
+		t.Error("a plain path should not decode")
+	}
+	if _, _, ok := decodeAttachData(""); ok {
+		t.Error("an empty attachment should not decode")
+	}
+}
+
+// TestSessionHydrateReturnsBareBase64 pins the format the browser gets back. It
+// rebuilds the data URL itself from the mime type, so a rehydrated attachment
+// that carries its own "data:" prefix would render as a double prefix.
+func TestSessionHydrateReturnsBareBase64(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("m", defaultSessionSettings())
+	payload := attachmentBase64(2048)
+	st.AppendUser(sess.ID, "look", []ChatAttach{{Kind: "image", Name: "a.png", MimeType: "image/png", Data: payload}})
+
+	got := st.buildSessionMessages(st.Get(sess.ID), false)
+	var images []string
+	for _, m := range got {
+		images = append(images, m.Images...)
+	}
+	if len(images) != 1 {
+		t.Fatalf("built %d images, want 1", len(images))
+	}
+	if images[0] != payload {
+		t.Errorf("image payload came back as %.40q..., want the bare base64 the browser sent", images[0])
+	}
+	if strings.Contains(images[0], "data:") {
+		t.Error("rehydrated image must be bare base64, not a data URL")
+	}
+}
+
+func TestBrowserToolsFollowTheWatcherLive(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("m", defaultSessionSettings())
+	check := st.sessionWatcherCheck(sess.ID)
+
+	if check() {
+		t.Fatal("a session nobody opened must not report a watcher")
+	}
+	st.AddWatcher(sess.ID)
+	if !check() {
+		t.Error("opening the session should make the browser-only tools available")
+	}
+	// The check is a function on purpose: a turn started unattended has to pick
+	// the tools up as soon as a tab appears, without rebuilding the body.
+	st.RemoveWatcher(sess.ID)
+	if check() {
+		t.Error("closing the session should take the browser-only tools away again")
+	}
+
+	// A session that no longer exists must not report a watcher either, or a
+	// deleted session that gets its id reused could claim a stale panel.
+	st.Delete(sess.ID)
+	if check() {
+		t.Error("a deleted session must not report a watcher")
+	}
+}
+
+func TestBuildSessionBodyOffersBrowserToolsWhenWatched(t *testing.T) {
+	st := newTestSessionStore(t)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"model not found"}`, http.StatusNotFound)
+	}))
+	defer ts.Close()
+	srv := &Server{chatSessions: st, ollama: ollama.New(ts.URL)}
+
+	sess := st.Create("m", SessionSettings{Artifacts: true})
+	st.AddWatcher(sess.ID)
+	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID),
+		sessionModelInfo{CanTools: true}, st.sessionWatcherCheck(sess.ID))
+	if !body.browserToolsAllowed() {
+		t.Error("a watched session should offer the browser-only artifact tools")
+	}
+}
+
+// TestSessionSinkRecordsThinkDuration pins the thinking time so a restored
+// transcript shows the same "thinking 2.1s" the live turn showed, instead of an
+// empty "(0ms)" next to a full block of reasoning.
+func TestSessionSinkRecordsThinkDuration(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+	srv.beginTurn(sess.ID, time.Now())
+	sink := &sessionSink{srv: srv, id: sess.ID, started: time.Now()}
+
+	chunk := func(think, content string) ollama.ChatChunk {
+		return ollama.ChatChunk{Message: ollama.ChatMessage{Role: "assistant", Thinking: think, Content: content}}
+	}
+	sink.Send("chunk", chunk("let me think", ""))
+	// A real turn spends measurable time here; the test only needs a clock that
+	// is not zero, so the wait is short but not instantaneous.
+	time.Sleep(12 * time.Millisecond)
+	sink.Send("chunk", chunk(" harder", ""))
+	sink.Send("chunk", chunk("", "the answer"))
+	sink.Send("done", map[string]any{"elapsed_ms": 40})
+
+	got := st.Get(sess.ID).Messages
+	last := got[len(got)-1]
+	if last.ThinkMs < 10 {
+		t.Errorf("ThinkMs = %d, want at least the ~12ms spent inside the think block", last.ThinkMs)
+	}
+	if last.Content != "the answer" {
+		t.Errorf("Content = %q, want %q", last.Content, "the answer")
+	}
+	if !strings.Contains(last.Raw, "<think>") || !strings.Contains(last.Raw, "</think>") {
+		t.Errorf("Raw = %q, want the think block still fenced for the client splitter", last.Raw)
+	}
+}
+
+// TestSessionSinkRecordsThinkDurationAfterError makes sure an interrupted or
+// failed turn still keeps the thinking time it already spent.
+func TestSessionSinkRecordsThinkDurationAfterError(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+	srv.beginTurn(sess.ID, time.Now())
+	sink := &sessionSink{srv: srv, id: sess.ID, started: time.Now()}
+
+	sink.Send("chunk", ollama.ChatChunk{Message: ollama.ChatMessage{
+		Role: "assistant", Thinking: "half a thought", Content: "",
+	}})
+	time.Sleep(12 * time.Millisecond)
+	sink.Send("error", map[string]any{"error": "ollama exploded"})
+
+	got := st.Get(sess.ID).Messages
+	last := got[len(got)-1]
+	if last.ThinkMs < 10 {
+		t.Errorf("ThinkMs = %d after an error, want the time already spent thinking", last.ThinkMs)
+	}
+	if last.Error != "ollama exploded" {
+		t.Errorf("Error = %q, want the model failure to be kept", last.Error)
+	}
+}
+
+// TestSessionSinkSumsInterleavedThinkBlocks covers a model that thinks, answers a
+// few words, then thinks again. Each closed block has to add up instead of only
+// the first one counting.
+func TestSessionSinkSumsInterleavedThinkBlocks(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+	srv.beginTurn(sess.ID, time.Now())
+	sink := &sessionSink{srv: srv, id: sess.ID, started: time.Now()}
+
+	send := func(think, content string) {
+		sink.Send("chunk", ollama.ChatChunk{Message: ollama.ChatMessage{
+			Role: "assistant", Thinking: think, Content: content,
+		}})
+	}
+	send("first", "")
+	time.Sleep(10 * time.Millisecond)
+	send("", "answer ")
+	send("second", "")
+	time.Sleep(10 * time.Millisecond)
+	sink.Send("done", map[string]any{})
+
+	got := st.Get(sess.ID).Messages
+	last := got[len(got)-1]
+	// Two separate 10ms blocks, so the total must clear 20ms. Without summing,
+	// only the first block would be counted and this would land under 20.
+	if last.ThinkMs < 20 {
+		t.Errorf("ThinkMs = %d, want at least 20ms from two separate think blocks", last.ThinkMs)
+	}
+	if last.Content != "answer " {
+		t.Errorf("Content = %q, want the prose between the think blocks", last.Content)
+	}
+}
+
+// TestSessionSinkRefencesInterleavedThinkBlocks guards the raw text the client
+// replays through splitThink. A model that answers and then keeps thinking has to
+// get a fresh <think> fence, or the second block is read back as part of the
+// answer. This mirrors what the browser does live with its thinkBlockClosed flag,
+// and it is why the server-side raw has to stay byte-identical to the browser's.
+func TestSessionSinkRefencesInterleavedThinkBlocks(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+	srv.beginTurn(sess.ID, time.Now())
+	sink := &sessionSink{srv: srv, id: sess.ID, started: time.Now()}
+
+	send := func(think, content string) {
+		sink.Send("chunk", ollama.ChatChunk{Message: ollama.ChatMessage{
+			Role: "assistant", Thinking: think, Content: content,
+		}})
+	}
+	send("first thoughts", "")
+	send("", "partial answer")
+	send("second thoughts", "")
+	send("", " final")
+	sink.Send("done", map[string]any{})
+
+	last := st.Get(sess.ID).Messages[len(st.Get(sess.ID).Messages)-1]
+	if got := strings.Count(last.Raw, "<think>"); got != 2 {
+		t.Errorf("Raw has %d <think> fences, want 2 so the replayed splitter sees two blocks:\n%q", got, last.Raw)
+	}
+	if got := strings.Count(last.Raw, "</think>"); got != 2 {
+		t.Errorf("Raw has %d </think> fences, want 2:\n%q", got, last.Raw)
+	}
+	// The reconstructed answer must only hold prose, never the thinking text.
+	if strings.Contains(last.Content, "thoughts") {
+		t.Errorf("Content = %q, want the thinking kept out of the answer", last.Content)
+	}
+	if last.Content != "partial answer final" {
+		t.Errorf("Content = %q, want the prose from both stretches", last.Content)
+	}
+	if last.Think != "first thoughtssecond thoughts" {
+		t.Errorf("Think = %q, want both blocks concatenated", last.Think)
+	}
+}
+
+// TestSessionSinkTrimsReplayChunkPayload keeps the persisted replay log small.
+// A raw chunk repeats the model name and a timestamp per token, and nothing in a
+// replay reads them.
+func TestSessionSinkTrimsReplayChunkPayload(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("a-very-long-model-name:tag", defaultSessionSettings())
+	srv.beginTurn(sess.ID, time.Now())
+	sink := &sessionSink{srv: srv, id: sess.ID, started: time.Now()}
+
+	sink.Send("chunk", ollama.ChatChunk{
+		Model:     "a-very-long-model-name:tag",
+		CreatedAt: time.Now(),
+		Message:   ollama.ChatMessage{Role: "assistant", Content: "hi"},
+		Done:      false,
+	})
+
+	ev := st.Get(sess.ID).Events
+	if len(ev) != 1 {
+		t.Fatalf("got %d events, want 1", len(ev))
+	}
+	raw, err := json.Marshal(ev[0].Data)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "a-very-long-model-name") {
+		t.Errorf("replayed chunk still carries the model name: %s", raw)
+	}
+	if strings.Contains(string(raw), "created_at") {
+		t.Errorf("replayed chunk still carries the timestamp: %s", raw)
+	}
+	// What the replay actually needs has to survive.
+	if !strings.Contains(string(raw), "hi") {
+		t.Errorf("replayed chunk lost its content: %s", raw)
+	}
+}
+
+// TestSessionSinkTrimsThinkingInReplayChunk keeps the reasoning text a reconnect
+// needs while still dropping the noise.
+func TestSessionSinkTrimsThinkingInReplayChunk(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("m", defaultSessionSettings())
+	srv.beginTurn(sess.ID, time.Now())
+	sink := &sessionSink{srv: srv, id: sess.ID, started: time.Now()}
+
+	sink.Send("chunk", ollama.ChatChunk{
+		Model:   "m",
+		Message: ollama.ChatMessage{Role: "assistant", Thinking: "pondering"},
+	})
+	raw, _ := json.Marshal(st.Get(sess.ID).Events[0].Data)
+	if !strings.Contains(string(raw), "pondering") {
+		t.Errorf("replayed chunk lost its thinking: %s", raw)
+	}
+}
+
+// TestFinishSessionDropsTheReplayLog is the size fix that matters: a finished
+// turn's chunks are dead weight, because Messages already holds the whole
+// result and a client that reconnects reads the session endpoint instead.
+func TestFinishSessionDropsTheReplayLog(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("m", defaultSessionSettings())
+	started := time.Now()
+	srv.beginTurn(sess.ID, started)
+	sink := &sessionSink{srv: srv, id: sess.ID, started: started}
+
+	for i := 0; i < 50; i++ {
+		sink.Send("chunk", ollama.ChatChunk{
+			Model:   "m",
+			Message: ollama.ChatMessage{Role: "assistant", Content: "token "},
+		})
+	}
+	if got := len(st.Get(sess.ID).Events); got != 50 {
+		t.Fatalf("mid-turn the log should hold the 50 chunks, got %d", got)
+	}
+	if st.Get(sess.ID).Status != chatSessionRunning {
+		t.Fatalf("status = %q, want running mid-turn", st.Get(sess.ID).Status)
+	}
+
+	srv.finishSession(sess.ID, started)
+
+	got := st.Get(sess.ID)
+	if len(got.Events) != 0 {
+		t.Errorf("settled session kept %d replay events, want 0", len(got.Events))
+	}
+	// The transcript has to be intact: that is what the dropped events replaced.
+	last := got.Messages[len(got.Messages)-1]
+	if !strings.Contains(last.Content, "token") {
+		t.Errorf("dropping the log also lost the text: %q", last.Content)
+	}
+	if last.Pending {
+		t.Error("the pending flag should be cleared when the turn settles")
+	}
+	// Seq keeps climbing so a client that reconnects with from=N is not confused
+	// by events that no longer exist.
+	if got.Seq != 50 {
+		t.Errorf("Seq = %d, want it to keep counting past the dropped events", got.Seq)
+	}
+	st.flush(sess.ID)
+	reloaded := newChatSessionStore(st.dir)
+	reloaded.Load()
+	if len(reloaded.Get(sess.ID).Events) != 0 {
+		t.Error("the replay log came back from disk, so the file is still fat")
+	}
+}
+
+// TestFinishSessionKeepsTheReplayLogOfAFailedTurn guards the error path: a turn
+// that blows up mid-stream is the one case where the chunk history is the only
+// record of what the model managed to say, so the message text must survive.
+func TestFinishSessionKeepsTheTranscriptOfAFailedTurn(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("m", defaultSessionSettings())
+	started := time.Now()
+	srv.beginTurn(sess.ID, started)
+	sink := &sessionSink{srv: srv, id: sess.ID, started: started}
+
+	sink.Send("chunk", ollama.ChatChunk{
+		Message: ollama.ChatMessage{Role: "assistant", Content: "partial answer"},
+	})
+	sink.Send("error", map[string]any{"error": "connection reset"})
+	srv.finishSession(sess.ID, started)
+
+	// A turn that failed mid-stream does not make the session unusable, so it
+	// settles as idle with the error on the message. Only failSession, which
+	// handles setup problems like a missing model, marks the session error.
+	got := st.Get(sess.ID)
+	if got.Status != chatSessionIdle {
+		t.Errorf("status = %q, want idle after a failed turn", got.Status)
+	}
+	if got.Error != "" {
+		t.Errorf("session error = %q, want it on the message instead", got.Error)
+	}
+	last := got.Messages[len(got.Messages)-1]
+	if last.Content != "partial answer" {
+		t.Errorf("Content = %q, want the partial answer kept", last.Content)
+	}
+	if last.Error == "" {
+		t.Error("the error should be recorded on the message")
 	}
 }

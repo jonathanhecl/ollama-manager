@@ -69,12 +69,20 @@ type SessionToolEntry struct {
 
 // ChatAttach is a file pasted into a chat message. Data holds a data URL for
 // images and audio, Text the extracted body for documents.
+//
+// Data is deliberately kept out of the persisted form. It only holds bytes while
+// the attachment is in flight or being served to a browser; a session stores the
+// Blob reference instead and chat_session_blobs.go keeps the bytes in their own
+// file, so pasting a photo does not bloat a file that is rewritten on every
+// token. Size is the original byte count, kept for the UI.
 type ChatAttach struct {
 	Kind     string `json:"kind"`
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
 	Text     string `json:"text,omitempty"`
 	Data     string `json:"data,omitempty"`
+	Blob     string `json:"blob,omitempty"`
+	Size     int    `json:"size,omitempty"`
 }
 
 // SessionMessage is one persisted chat turn. The assistant turn that is still
@@ -96,13 +104,17 @@ type SessionMessage struct {
 	ArtifactDesc       string             `json:"artifact_desc,omitempty"`
 	ArtifactGenerating bool               `json:"artifact_generating,omitempty"`
 	ElapsedMs          int64              `json:"elapsed_ms,omitempty"`
-	PromptTokens       int                `json:"prompt_tokens,omitempty"`
-	CompletionTokens   int                `json:"completion_tokens,omitempty"`
-	EvalNs             int64              `json:"eval_duration_ns,omitempty"`
-	DoneReason         string             `json:"done_reason,omitempty"`
-	CreatedAt          time.Time          `json:"created_at"`
-	Pending            bool               `json:"pending,omitempty"`
-	Error              string             `json:"error,omitempty"`
+	// ThinkMs is how long the model spent thinking. It is kept so a restored
+	// transcript can show the same "thinking 1.2s" the live turn did, instead
+	// of an empty "(0ms)" next to a full block of reasoning.
+	ThinkMs          int64     `json:"think_ms,omitempty"`
+	PromptTokens     int       `json:"prompt_tokens,omitempty"`
+	CompletionTokens int       `json:"completion_tokens,omitempty"`
+	EvalNs           int64     `json:"eval_duration_ns,omitempty"`
+	DoneReason       string    `json:"done_reason,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	Pending          bool      `json:"pending,omitempty"`
+	Error            string    `json:"error,omitempty"`
 	// StreamStartedAt is the client clock the browser uses to draw the elapsed
 	// timer; it is only a hint and the server recomputes on restore.
 	StreamStartedAt int64 `json:"stream_started_at,omitempty"`
@@ -394,6 +406,9 @@ func (st *chatSessionStore) Delete(id string) bool {
 	} else if !os.IsNotExist(err) {
 		log.Printf("[chat-sessions] remove %s: %v", id, err)
 	}
+	// The attachment bytes live outside the session file, so they have to go with
+	// it. Otherwise deleting a chat would leave its images on disk forever.
+	st.dropSessionBlobs(id)
 	if sess != nil {
 		st.broadcast(ChatSessionEvent{Kind: chatSessionRemove, ID: id})
 	}
@@ -456,6 +471,8 @@ func (st *chatSessionStore) DeleteAll() int {
 	if n > 0 || strays > 0 {
 		log.Printf("[chat-sessions] cleared %d session(s) and %d stray file(s)", n, strays)
 	}
+	// Whatever Delete could not attribute to a session id still has to go.
+	st.clearAllAttachBlobs()
 	return n
 }
 
@@ -791,4 +808,23 @@ func (st *chatSessionStore) flush(id string) {
 	}
 	st.flushLocked(sess)
 	st.mu.Unlock()
+}
+
+// sessionWatcherCheck returns a function the artifact loop can call on each round
+// to find out whether a browser is watching this session right now.
+//
+// The two browser-only tools block on an answer from the artifact preview panel,
+// so offering them with nobody listening just burns their 8-10s timeout. A
+// detached run therefore hides them at first and picks them up the moment the
+// user opens the session, which is why this is a live check and not a flag read
+// once when the body was built.
+func (st *chatSessionStore) sessionWatcherCheck(id string) func() bool {
+	return func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		if st.sessions[id] == nil {
+			return false
+		}
+		return st.watchers[id] > 0
+	}
 }

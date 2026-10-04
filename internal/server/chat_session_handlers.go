@@ -284,14 +284,16 @@ func (s *Server) sessionDetail(sess *ChatSession) map[string]any {
 	s.chatSessions.mu.Lock()
 	defer s.chatSessions.mu.Unlock()
 	detail := map[string]any{
-		"id":             sess.ID,
-		"title":          sess.Title,
-		"model":          sess.Model,
-		"status":         sess.Status,
-		"unseen":         sess.Unseen,
-		"error":          sess.Error,
-		"settings":       sess.Settings,
-		"messages":       sess.Messages,
+		"id":       sess.ID,
+		"title":    sess.Title,
+		"model":    sess.Model,
+		"status":   sess.Status,
+		"unseen":   sess.Unseen,
+		"error":    sess.Error,
+		"settings": sess.Settings,
+		// Hydrated on the way out: the stored transcript keeps attachment bytes on
+		// disk, but the browser has to be able to render them again.
+		"messages":       s.chatSessions.hydrateMessages(sess.Messages),
 		"seq":            sess.Seq,
 		"created_at":     sess.CreatedAt,
 		"updated_at":     sess.UpdatedAt,

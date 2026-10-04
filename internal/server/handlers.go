@@ -2337,9 +2337,20 @@ type chatRequestBody struct {
 	Width       int                  `json:"width,omitempty"`
 	Height      int                  `json:"height,omitempty"`
 	Steps       int                  `json:"steps,omitempty"`
-	// NoBrowserTools is set by detached session runs: it tells the artifact
-	// loop to leave the browser-dependent tools out of the tool list.
-	NoBrowserTools bool `json:"no_browser_tools,omitempty"`
+	// BrowserToolsAvailable reports whether a browser can answer the two
+	// browser-only artifact tools. A detached session run passes a live check
+	// rather than a constant, so a session started unattended gains them as soon
+	// as a tab opens it. Nil means "always available", which is the case for the
+	// quick chat: it is streaming into a browser by definition.
+	BrowserToolsAvailable func() bool `json:"-"`
+}
+
+// browserToolsAllowed resolves BrowserToolsAvailable for the artifact loop.
+func (b chatRequestBody) browserToolsAllowed() bool {
+	if b.BrowserToolsAvailable == nil {
+		return true
+	}
+	return b.BrowserToolsAvailable()
 }
 
 // estimateTextTokens is a rough fallback (~4 chars per token) used when Ollama

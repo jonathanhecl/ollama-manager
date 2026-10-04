@@ -122,7 +122,7 @@ function renderSessionList() {
     html += `<div class="chat-session-row${active ? " active" : ""}" data-session-id="${escapeHtml(s.id)}" title="${escapeHtml(title)}">
       <span class="chat-session-row-badges">${sessionBadgeHtml(s.model)}</span>
       <span class="chat-session-row-main" data-session-open="${escapeHtml(s.id)}">
-        <span class="chat-session-row-title">${escapeHtml(title)}</span>
+        <span class="chat-session-row-title" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_rename_hint"))}">${escapeHtml(title)}</span>
         <span class="chat-session-row-meta">${escapeHtml(sessionRowStatusText(s))}${s.error ? ` · ${escapeHtml(s.error)}` : ""}${s.dropped_messages ? ` · ${escapeHtml(t("chat.session_trimmed", { n: s.dropped_messages }))}` : ""}${modelMissing ? ` · ${escapeHtml(t("chat.session_model_missing"))}` : ""}</span>
       </span>
       <span class="chat-session-row-actions">
@@ -267,6 +267,9 @@ function sessionMessageToChatMessage(m) {
   if (m.artifact_desc) out.artifactDescription = m.artifact_desc;
   if (m.artifact_generating) out.artifactGenerating = true;
   if (m.elapsed_ms) out.elapsedMs = m.elapsed_ms;
+  // The server measured the thinking time, so a restored transcript shows the
+  // same duration the live turn did instead of an empty "thinking (0ms)".
+  if (m.think_ms) out.thinkMs = m.think_ms;
   if (m.prompt_tokens) out.promptTokens = m.prompt_tokens;
   if (m.completion_tokens) out.completionTokens = m.completion_tokens;
   if (m.eval_duration_ns) out.evalDurationNs = m.eval_duration_ns;
@@ -617,6 +620,33 @@ async function newChatSession() {
   await openChatSession(detail.id);
 }
 
+// renameChatSession replaces the derived title, which otherwise comes from the
+// first user message and cannot be changed after the fact. Double-clicking the
+// title in the row is the only entry point: renaming is rare enough that it
+// should not cost a permanent button.
+async function renameChatSession(id) {
+  if (!id || !chatSessions.has(id)) return;
+  const current = chatSessions.get(id);
+  // window.prompt matches how the rest of the app asks for a single free-text
+  // value, and an empty answer is its own cancel.
+  const next = (window.prompt(t("chat.session_rename_title"), current.title || "") || "").trim();
+  // Confirming without changing anything would burn a pointless request.
+  if (!next || next === (current.title || "")) return;
+  try {
+    await api(`/api/chat/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: next }),
+    });
+    const sum = { ...current, title: next };
+    chatSessions.set(id, sum);
+    renderSessionList();
+    toast(t("chat.session_renamed"), "success");
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
 async function deleteChatSession(id) {
   try {
     await api(`/api/chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -802,6 +832,12 @@ $("chat-session-new-btn")?.addEventListener("click", () => {
 
 $("chat-sessions-clear-all")?.addEventListener("click", () => {
   void clearAllChatSessions();
+});
+
+$("chat-sessions-list")?.addEventListener("dblclick", (ev) => {
+  const title = ev.target.closest("[data-session-title]");
+  if (!title) return;
+  void renameChatSession(title.getAttribute("data-session-title"));
 });
 
 $("chat-sessions-list")?.addEventListener("click", (ev) => {

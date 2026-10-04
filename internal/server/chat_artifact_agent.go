@@ -686,11 +686,12 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 		var tools []any
 		if createArtifactCalled {
 			tools = artifactOperationalToolDefinitions(hasVision)
-			if body.NoBrowserTools {
+			if !body.browserToolsAllowed() {
 				// Nobody is watching this run in a browser, so the two tools
 				// that rendezvous with the artifact preview panel would only burn
 				// their 8-10s timeout before erroring out. Keep them out of the
-				// tool list until a tab subscribes again.
+				// tool list until a tab subscribes again, which is why the
+				// condition is re-checked on every round rather than once.
 				tools = filterArtifactToolDefinitions(tools, false)
 			}
 		} else {

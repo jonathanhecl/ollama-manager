@@ -24,14 +24,19 @@ const chatSessionEventStream = "stream"
 // model expects. It mirrors the browser's buildOutboundMessages(): the in-flight
 // assistant turn is skipped, and an assistant turn that only produced tools or
 // an artifact becomes the same short placeholder the live chat uses.
-func buildSessionMessages(sess *ChatSession, isImageModel bool) []ollama.ChatMessage {
-	out := make([]ollama.ChatMessage, 0, len(sess.Messages)+1)
+//
+// Attachment bytes are not kept on the stored messages, so the store hydrates
+// them in first. It has to happen once per turn rather than per token: the model
+// only ever sees the transcript at the moment the request is built.
+func (st *chatSessionStore) buildSessionMessages(sess *ChatSession, isImageModel bool) []ollama.ChatMessage {
+	msgs := st.hydrateMessages(sess.Messages)
+	out := make([]ollama.ChatMessage, 0, len(msgs)+1)
 	if !isImageModel {
 		if sys := strings.TrimSpace(sess.Settings.System); sys != "" {
 			out = append(out, ollama.ChatMessage{Role: "system", Content: sys})
 		}
 	}
-	for _, m := range sess.Messages {
+	for _, m := range msgs {
 		switch m.Role {
 		case "assistant":
 			if m.Pending {
@@ -120,14 +125,15 @@ func normalizeSessionNumCtxPct(p int) int {
 // buildSessionBody assembles the chatRequestBody for a detached turn out of the
 // session's stored options, so a session behaves exactly like the chat that
 // created it.
-func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps sessionModelInfo) chatRequestBody {
+func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps sessionModelInfo, browserTools func() bool) chatRequestBody {
 	body := chatRequestBody{
 		Model:    sess.Model,
-		Messages: buildSessionMessages(sess, caps.IsImage),
-		// A detached run has no artifact preview panel waiting to answer the two
-		// browser-only tools, so they stay out of the tool list instead of
-		// burning their timeout on every round.
-		NoBrowserTools: true,
+		Messages: s.chatSessions.buildSessionMessages(sess, caps.IsImage),
+		// The two browser-only tools rendezvous with the artifact preview panel, so
+		// they are worth exposing only while a tab is actually watching. The loop
+		// re-evaluates this on every round, which lets a session that was started
+		// unattended pick them up as soon as the user opens it.
+		BrowserToolsAvailable: browserTools,
 	}
 	st := sess.Settings
 	if caps.IsImage {
@@ -256,7 +262,7 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 		s.failSession(id, "session has no model")
 		return
 	}
-	body := s.buildSessionBody(ctx, sess, s.sessionModelCaps(ctx, model))
+	body := s.buildSessionBody(ctx, sess, s.sessionModelCaps(ctx, model), s.chatSessions.sessionWatcherCheck(sess.ID))
 	startedAt := time.Now()
 	sink := &sessionSink{srv: s, id: id, started: startedAt}
 
@@ -336,6 +342,13 @@ func (s *Server) finishSession(id string, startedAt time.Time) {
 	if !watched && sess.Status != chatSessionRunning {
 		sess.Unseen = true
 	}
+	// The replay log only exists to catch a browser up on a turn that is still
+	// running. Once the turn settles, Messages holds the whole result: the text,
+	// the tool log, the artifact fields and the counters. Keeping every chunk of
+	// a finished turn would triple the size of the session file for nothing, and
+	// a client that reconnects after this gets the transcript from the session
+	// endpoint instead.
+	sess.Events = nil
 	st.touchLocked(sess)
 	st.flushLocked(sess)
 	sum := summaryOf(sess)
@@ -392,12 +405,18 @@ func (st *chatSessionStore) AppendUser(id string, content string, attach []ChatA
 		return false
 	}
 	sess.Messages = append(sess.Messages, SessionMessage{
-		Role:      "user",
-		Content:   content,
-		Attach:    attach,
+		Role:    "user",
+		Content: content,
+		// Park the bytes on disk before the message becomes part of the
+		// transcript: from here on nothing may persist the base64 payload.
+		Attach:    st.storeAttachBlobs(sess.ID, attach),
 		CreatedAt: time.Now(),
 	})
-	st.trimMessagesLocked(sess)
+	trimmed := st.trimMessagesLocked(sess)
+	if trimmed {
+		// Trimming drops whole turns, so their attachments are now unreferenced.
+		st.dropOrphanBlobs(sess.ID, sess.Messages)
+	}
 	st.touchLocked(sess)
 	st.flushLocked(sess)
 	// Deliberately no broadcast: the caller starts the turn right after, and
@@ -413,7 +432,10 @@ func (st *chatSessionStore) AppendUser(id string, content string, attach []ChatA
 // token, so an unattended session that chats for hours would otherwise produce a
 // file nothing can open. The first user message is kept as the conversation
 // anchor, and the message being written right now is never dropped.
-func (st *chatSessionStore) trimMessagesLocked(sess *ChatSession) {
+//
+// It reports whether whole messages were dropped, which is the caller's cue to
+// clean up the attachments that just became unreferenced.
+func (st *chatSessionStore) trimMessagesLocked(sess *ChatSession) bool {
 	if len(sess.Messages) <= maxSessionMessages {
 		// A single runaway reply can still dominate the file on its own.
 		for i := range sess.Messages {
@@ -426,7 +448,7 @@ func (st *chatSessionStore) trimMessagesLocked(sess *ChatSession) {
 			m.ToolLog = nil
 			m.Truncated = true
 		}
-		return
+		return false
 	}
 	// Drop from the front, but never the first user message: it is what the
 	// title came from and the anchor for the rest of the transcript.
@@ -439,10 +461,11 @@ func (st *chatSessionStore) trimMessagesLocked(sess *ChatSession) {
 		}
 	}
 	if keepFrom == 0 {
-		return
+		return false
 	}
 	sess.Messages = append([]SessionMessage(nil), sess.Messages[keepFrom:]...)
 	sess.DroppedMessages += keepFrom
+	return true
 }
 
 // MergeSettings folds the current options panel into the session. It is called
@@ -531,7 +554,10 @@ func (st *chatSessionStore) ReplaceLastUser(id, content string, attach []ChatAtt
 			continue
 		}
 		sess.Messages[i].Content = content
-		sess.Messages[i].Attach = attach
+		// Park the new bytes first, then drop the old ones: the reverse order
+		// would risk deleting a file the new attachment just claimed.
+		st.dropAttachBlobs(sess.Messages[i].Attach)
+		sess.Messages[i].Attach = st.storeAttachBlobs(sess.ID, attach)
 		st.touchLocked(sess)
 		st.flushLocked(sess)
 		sum := summaryOf(sess)
@@ -597,6 +623,15 @@ type sessionSink struct {
 	tools     []SessionToolEntry
 	thinkOpen bool
 	thinkShut bool
+
+	// thinkSpent accumulates the wall time spent inside think blocks. A model
+	// can interleave thinking and prose, so each closed block adds up instead of
+	// only the first one counting.
+	thinkSpent time.Duration
+	// thinkSince is when the currently open block started, if any. It is the
+	// zero value while no block is open, which is also what makes a second
+	// block start its own clock.
+	thinkSince time.Time
 }
 
 func (k *sessionSink) Send(event string, payload any) {
@@ -630,10 +665,42 @@ func (k *sessionSink) Send(event string, payload any) {
 	})
 }
 
+// appendEventLocked records an event in the replay log a reconnecting browser
+// tails. Chunk payloads are trimmed first: a raw chunk repeats the model name and
+// a timestamp that nothing in the replay needs, and a few hundred of them would
+// otherwise dominate the session file.
 func (k *sessionSink) appendEventLocked(sess *ChatSession, seq int, event string, payload any) {
-	sess.Events = append(sess.Events, SessionEvent{Seq: seq, Event: event, Data: payload})
+	sess.Events = append(sess.Events, SessionEvent{Seq: seq, Event: event, Data: trimReplayPayload(event, payload)})
 	if over := len(sess.Events) - maxSessionEvents; over > 0 {
 		sess.Events = append([]SessionEvent(nil), sess.Events[over:]...)
+	}
+}
+
+// trimReplayPayload drops the parts of a chunk event a reconnecting client never
+// reads. applyChatStreamEvent only looks at message.content and message.thinking
+// for a chunk, and the other events are small already, so they pass through
+// untouched. The live broadcast still carries the full payload.
+func trimReplayPayload(event string, payload any) any {
+	if event != "chunk" {
+		return payload
+	}
+	chunk, ok := payload.(ollama.ChatChunk)
+	if !ok {
+		raw, rok := payload.(json.RawMessage)
+		if !rok {
+			return payload
+		}
+		if err := json.Unmarshal(raw, &chunk); err != nil {
+			return payload
+		}
+	}
+	return map[string]any{
+		"message": map[string]any{
+			"role":     chunk.Message.Role,
+			"content":  chunk.Message.Content,
+			"thinking": chunk.Message.Thinking,
+		},
+		"done": chunk.Done,
 	}
 }
 
@@ -652,6 +719,7 @@ func (k *sessionSink) applyLocked(event string, payload any, msg *SessionMessage
 	case "error":
 		k.closeThinkLocked()
 		msg.Pending = false
+		msg.ThinkMs = k.thinkMillisLocked()
 		msg.Error = sessionEventError(payload)
 	}
 }
@@ -675,10 +743,23 @@ func (k *sessionSink) applyChunkLocked(payload any, msg *SessionMessage) {
 		return
 	}
 	if think != "" {
+		// A model can answer a few words and then start thinking again. Every
+		// block needs its own fence, otherwise the client splitter reads the
+		// second one as part of the answer. The browser does this with its
+		// thinkBlockClosed flag; the raw text has to match it byte for byte
+		// because this is what gets persisted and replayed.
+		started := false
 		if !k.thinkOpen {
 			k.raw += "<think>\n"
 			k.thinkOpen = true
-			k.thinkShut = false
+			started = true
+		} else if k.thinkShut {
+			k.raw += "\n<think>\n"
+			started = true
+		}
+		k.thinkShut = false
+		if started {
+			k.thinkSince = time.Now()
 		}
 		k.raw += think
 		k.think += think
@@ -691,13 +772,34 @@ func (k *sessionSink) applyChunkLocked(payload any, msg *SessionMessage) {
 	msg.Raw = k.raw
 	msg.Think = k.think
 	msg.Content = k.answer
+	msg.ThinkMs = k.thinkMillisLocked()
 }
 
+// closeThinkLocked closes the open think block, if any, and banks the time spent
+// in it. It is called on every content chunk and on done/error, so the guard
+// keeps it from firing twice for the same block. thinkOpen stays set: it means
+// "this turn has emitted at least one block", and applyChunkLocked relies on it
+// to decide whether a later think delta opens the first or a subsequent block.
 func (k *sessionSink) closeThinkLocked() {
-	if k.thinkOpen && !k.thinkShut {
-		k.raw += "\n</think>\n"
-		k.thinkShut = true
+	if !k.thinkOpen || k.thinkShut {
+		return
 	}
+	k.raw += "\n</think>\n"
+	k.thinkShut = true
+	if !k.thinkSince.IsZero() {
+		k.thinkSpent += time.Since(k.thinkSince)
+		k.thinkSince = time.Time{}
+	}
+}
+
+// thinkMillisLocked reports the thinking time so far, including the block that
+// is still open. The caller must hold the store lock.
+func (k *sessionSink) thinkMillisLocked() int64 {
+	total := k.thinkSpent
+	if !k.thinkSince.IsZero() {
+		total += time.Since(k.thinkSince)
+	}
+	return total.Milliseconds()
 }
 
 func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
@@ -852,6 +954,7 @@ func (k *sessionSink) applyDoneLocked(payload any, msg *SessionMessage) {
 	msg.Think = k.think
 	msg.Content = k.answer
 	msg.ElapsedMs = sessionEventInt(m["elapsed_ms"])
+	msg.ThinkMs = k.thinkMillisLocked()
 	msg.PromptTokens = int(sessionEventInt(m["prompt_tokens"]))
 	msg.CompletionTokens = int(sessionEventInt(m["completion_tokens"]))
 	msg.EvalNs = sessionEventInt(m["eval_duration_ns"])

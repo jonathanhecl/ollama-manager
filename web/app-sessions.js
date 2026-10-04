@@ -458,16 +458,12 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
   const id = chatSessionId;
   if (!id) return;
   const sum = chatSessions.get(id);
-  const modelName = sum?.model || $("chat-model")?.value || "";
-  // The session owns its model: the turn is dispatched server-side against
-  // whatever the session was created with, so the panel has to say the same
-  // thing rather than show whichever model happens to be selected.
+  // The panel is the source of truth for the config of this message, model
+  // included: a session stores the configuration of its last input, so picking a
+  // different model here carries over to the session and the next detached turn
+  // runs on it.
   const sel = $("chat-model");
-  if (sel && modelName && sel.value !== modelName) {
-    sel.value = modelName;
-    if (typeof syncChatModelOptions === "function") syncChatModelOptions();
-    if (typeof updateChatCapabilityUI === "function") updateChatCapabilityUI();
-  }
+  const modelName = sel?.value || sum?.model || activeName || "";
 
   chatEditingMessageId = "";
   chatEditingDraft = "";
@@ -512,6 +508,10 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
     content: text,
     attachments: (attachments || []).map(chatAttachForWire),
     settings: typeof getCurrentChatOptions === "function" ? getCurrentChatOptions() : undefined,
+    // The model is part of the config of this message, so the session adopts it
+    // too. That keeps a long run pinned to the model it was started with, and
+    // still lets you switch models mid-session.
+    model: modelName || "",
   };
   if (opts.replaceLast) body.replace_last = true;
   if (opts.editLast) body.edit_last = true;

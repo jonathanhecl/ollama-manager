@@ -400,6 +400,31 @@ func (st *chatSessionStore) MergeSettings(id string, in sessionSettingsInput) {
 	st.mu.Unlock()
 }
 
+// SetModel moves a session to a different model. The model is part of the
+// configuration a message is sent with, so switching it inside an open session
+// has to stick: the next turn runs on the new model and the model-list badge
+// follows the model that is actually doing the work. It broadcasts so browsers
+// see the move before the turn starts.
+func (st *chatSessionStore) SetModel(id, model string) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	if sess.Model == model {
+		st.mu.Unlock()
+		return true
+	}
+	sess.Model = model
+	st.touchLocked(sess)
+	st.saveLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	return true
+}
+
 // TrimAfterLastUser drops every message that follows the last user turn, which
 // is the assistant reply and anything after it. A session's transcript belongs
 // to the server, so "regenerate" has to trim it here rather than in the browser.

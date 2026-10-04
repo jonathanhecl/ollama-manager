@@ -452,6 +452,58 @@ func TestSessionSettingsMergeKeepsUnsentOptions(t *testing.T) {
 	}
 }
 
+// A session carries the configuration of its last input, so a message sent
+// after the user edits the system prompt or moves a slider must overwrite what
+// came before, and both must survive a reload from disk.
+func TestSessionAdoptsLastInputConfig(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", SessionSettings{Temperature: 0.7, TopK: 40, NumCtxPct: 100})
+
+	st.MergeSettings(sess.ID, sessionSettingsInput{
+		System:      "be terse",
+		Temperature: 0.2,
+		TopK:        10,
+		TopP:        0.5,
+		NumCtxPct:   25,
+		ThinkLevel:  "low",
+		Artifacts:   true,
+	})
+	if !st.SetModel(sess.ID, "model-b") {
+		t.Fatal("SetModel on an existing session should succeed")
+	}
+	st.flush(sess.ID)
+
+	reloaded := newChatSessionStore(st.dir)
+	reloaded.Load()
+	got := reloaded.Get(sess.ID)
+	if got == nil {
+		t.Fatal("session did not survive a reload")
+	}
+	if got.Model != "model-b" {
+		t.Errorf("model = %q, want model-b", got.Model)
+	}
+	want := SessionSettings{
+		System:      "be terse",
+		Temperature: 0.2,
+		TopK:        10,
+		TopP:        0.5,
+		NumCtxPct:   25,
+		ThinkLevel:  "low",
+		Artifacts:   true,
+	}
+	if got.Settings != want {
+		t.Errorf("settings = %+v, want %+v", got.Settings, want)
+	}
+
+	// Setting the same model again is a no-op rather than a broadcast storm.
+	if !st.SetModel(sess.ID, "model-b") {
+		t.Error("SetModel with an unchanged model should still report success")
+	}
+	if st.SetModel("missing", "model-c") {
+		t.Error("SetModel on an unknown session should fail")
+	}
+}
+
 func TestBuildSessionBodyUsesSavedSettings(t *testing.T) {
 	st := newTestSessionStore(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

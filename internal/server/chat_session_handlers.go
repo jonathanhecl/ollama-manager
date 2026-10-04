@@ -115,6 +115,12 @@ func sessionOptFloat(v any, def float64) float64 {
 	switch t := v.(type) {
 	case float64:
 		return t
+	case float32:
+		return float64(t)
+	case int:
+		return float64(t)
+	case int64:
+		return float64(t)
 	case string:
 		if f, err := strconv.ParseFloat(strings.TrimSpace(t), 64); err == nil {
 			return f
@@ -130,6 +136,12 @@ func sessionOptFloat(v any, def float64) float64 {
 func sessionOptInt(v any, def int) int {
 	switch t := v.(type) {
 	case float64:
+		return int(t)
+	case float32:
+		return int(t)
+	case int:
+		return t
+	case int64:
 		return int(t)
 	case string:
 		if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
@@ -157,6 +169,12 @@ func sessionOptBool(v any) bool {
 		return err == nil && b
 	case float64:
 		return t != 0
+	case float32:
+		return t != 0
+	case int:
+		return t != 0
+	case int64:
+		return t != 0
 	}
 	return false
 }
@@ -170,6 +188,10 @@ type sessionMessageRequest struct {
 	Content     string                `json:"content"`
 	Attachments []ChatAttach          `json:"attachments"`
 	Settings    *sessionSettingsInput `json:"settings"`
+	// Model is the model the browser currently has selected. The session adopts
+	// it, the same way it adopts the options panel, so a session always keeps
+	// generating with the configuration of its last input.
+	Model string `json:"model,omitempty"`
 	// ReplaceLast drops the assistant reply that follows the last user turn
 	// before the new turn is appended. The browser used to do this locally;
 	// on a session the server owns the transcript, so it has to.
@@ -284,6 +306,9 @@ func (s *Server) handleChatSessionSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Settings != nil {
 		s.chatSessions.MergeSettings(id, *req.Settings)
+	}
+	if model := strings.TrimSpace(req.Model); model != "" {
+		s.chatSessions.SetModel(id, model)
 	}
 	if req.ReplaceLast {
 		s.chatSessions.TrimAfterLastUser(id)

@@ -45,6 +45,9 @@ type Server struct {
 	externalModels *externalModelsStore
 	gatewayKeys    *gatewayKeysStore
 	systemPrompts  *systemPromptsStore
+	// chatSessions owns the persistent, detached chat sessions that keep
+	// working after the browser that started them is closed.
+	chatSessions *chatSessionStore
 
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
@@ -182,6 +185,12 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		log.Printf("system-prompts: could not initialize %s: %v", promptsDir, err)
 	}
 
+	// Chat sessions live in their own directory so one corrupt transcript can
+	// never take the rest of them down with it.
+	chatSessionDir := filepath.Join(filepath.Dir(cfg.Path()), "chat_sessions")
+	chatSessions := newChatSessionStore(chatSessionDir)
+	chatSessions.Load()
+
 	srv := &Server{
 		cfg:                  cfg,
 		ollama:               ollamaClient,
@@ -199,6 +208,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		externalModels:       extStore,
 		gatewayKeys:          gwKeysStore,
 		systemPrompts:        promptsStore,
+		chatSessions:         chatSessions,
 		ctxCache:             make(map[string]int64),
 		capsCache:            make(map[string][]string),
 		metaCache:            make(map[string]modelMetaCache),
@@ -268,6 +278,18 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/models/create", s.requireAuth(s.handleCreateModel))
 	mux.Handle("DELETE /api/models/{name...}", s.requireAuth(s.handleDeleteModel))
 	mux.Handle("POST /api/chat", s.requireAuth(s.handleChat))
+	mux.Handle("GET /api/chat/sessions", s.requireAuth(s.handleChatSessionsList))
+	mux.Handle("POST /api/chat/sessions", s.requireAuth(s.handleChatSessionCreate))
+	// One global feed keeps the session list and the model badges in sync even
+	// when the browser never opened the session that produced the event.
+	mux.Handle("GET /api/chat/events", s.requireAuth(s.handleChatEvents))
+	mux.Handle("GET /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionGet))
+	mux.Handle("PATCH /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionPatch))
+	mux.Handle("DELETE /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionDelete))
+	mux.Handle("GET /api/chat/sessions/{id}/events", s.requireAuth(s.handleChatSessionEvents))
+	mux.Handle("POST /api/chat/sessions/{id}/messages", s.requireAuth(s.handleChatSessionSend))
+	mux.Handle("POST /api/chat/sessions/{id}/cancel", s.requireAuth(s.handleChatSessionCancel))
+	mux.Handle("POST /api/chat/sessions/{id}/seen", s.requireAuth(s.handleChatSessionSeen))
 	mux.Handle("POST /api/embed", s.requireAuth(s.handleEmbed))
 	mux.Handle("POST /api/pull", s.requireAuth(s.handlePull))
 	mux.Handle("GET /api/status", s.requireAuth(s.handleStatus))
@@ -375,6 +397,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		log.Println("shutting down…")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		// Chat sessions own their own background runs, so they must be told to
+		// stop and to flush every transcript before the HTTP server goes away.
+		s.chatSessions.Shutdown()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 

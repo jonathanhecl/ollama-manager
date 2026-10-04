@@ -331,6 +331,10 @@ function resetChatState() {
 
 const CHAT_SESSION_STORAGE_KEY = "ollama_manager_active_chat_session";
 
+// pendingChatSessionOpenId is set when a reload happened while a persistent
+// session was open. app-sessions.js picks it up and reloads from the server.
+let pendingChatSessionOpenId = null;
+
 function saveActiveChatSession() {
   try {
     if (typeof chatMessages === "undefined") return;
@@ -350,6 +354,7 @@ function saveActiveChatSession() {
       activeArtifactName,
       activeArtifactUrl,
       chatLastUsedTokens,
+      sessionId: typeof chatSessionId === "undefined" ? null : chatSessionId,
       savedAt: Date.now(),
     };
     sessionStorage.setItem(CHAT_SESSION_STORAGE_KEY, JSON.stringify(sessionData));
@@ -364,6 +369,13 @@ function restoreActiveChatSession() {
     if (!data || ((!data.messages || !data.messages.length) && !data.input && (!data.attachments || !data.attachments.length))) {
       sessionStorage.removeItem(CHAT_SESSION_STORAGE_KEY);
       return false;
+    }
+    // A persistent session lives on the server, so there is nothing to replay
+    // from sessionStorage: just remember which one was open and let
+    // app-sessions.js fetch the real transcript once the DOM is ready.
+    if (data.sessionId) {
+      pendingChatSessionOpenId = data.sessionId;
+      return true;
     }
     if (data.model && $("chat-model")) {
       $("chat-model").value = data.model;

@@ -4898,6 +4898,340 @@ function scrollActiveBlocks() {
   });
 }
 
+// applyChatStreamEvent folds one server-sent chat event into the assistant
+// message it belongs to. It is shared by the live quick chat and by the
+// detached chat sessions, so replaying a session transcript produces exactly
+// the same state as having watched the turn live.
+//
+// ctx carries the run state that has to survive between events:
+//   ctx.raw           accumulated stream text, <think> fences included
+//   ctx.turnStartedAt when the turn began, used for elapsed-time fallbacks
+//   ctx.modelName     the model the turn was started with
+// It throws on an "error" event, exactly like the inline handler always did.
+function applyChatStreamEvent(assistantMsg, event, data, ctx) {
+  // Debug: log every SSE event with full data
+  if (event === "chunk") {
+    const thinkDelta = data?.message?.thinking || "";
+    const contentDelta = data?.message?.content || "";
+    const toolCalls = data?.message?.tool_calls;
+    if (thinkDelta || contentDelta || toolCalls) {
+      // console.log("[chat] chunk", {
+      //   thinking: thinkDelta ? thinkDelta.slice(0, 200) : "",
+      //   content: contentDelta ? contentDelta.slice(0, 200) : "",
+      //   tool_calls: toolCalls,
+      //   done: data?.done,
+      //   eval_count: data?.eval_count,
+      // });
+    }
+  } else {
+    console.log(`[chat] event:${event}`, data);
+  }
+  if (event === "artifact") {
+    if (data?.timestamp) {
+      assistantMsg.artifactTimestamp = data.timestamp;
+      activeArtifactTimestamp = data.timestamp;
+    }
+    if (data?.name) {
+      assistantMsg.artifactName = data.name;
+      activeArtifactName = data.name;
+    }
+    if (data?.url) {
+      assistantMsg.artifactUrl = data.url;
+      activeArtifactUrl = data.url;
+    }
+    if (data?.generating) {
+      // create_artifact was called — show loading screen, don't load URL yet.
+      assistantMsg.artifactUrl = data?.url || "";
+      assistantMsg.artifactName = data?.name || "Artifact";
+      assistantMsg.artifactDescription = data?.description || "";
+      assistantMsg.artifactGenerating = true;
+      activeArtifactName = assistantMsg.artifactName;
+      activeArtifactUrl = assistantMsg.artifactUrl;
+      showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName, true);
+      updateArtifactResourceBtn();
+      scheduleRenderChatMessages();
+    } else if (data?.loaded) {
+      // index.html was written — transition from loading screen to live preview.
+      assistantMsg.artifactGenerating = false;
+      const url = data?.url || assistantMsg.artifactUrl || "";
+      activeArtifactUrl = url;
+      const panel = $("chat-artifact-panel");
+      const frame = $("chat-artifact-frame");
+      if (panel) panel.hidden = false;
+      if (frame && url) {
+        frame.removeAttribute("srcdoc");
+        frame.src = url;
+        const match = String(url).match(/\/api\/artifacts\/(.+)\//);
+        if (match) {
+          activeArtifactTimestamp = match[1];
+        }
+      }
+      updateArtifactResourceBtn();
+      // Close options panel so artifact is visible on mobile
+      $("chat-view")?.classList.remove("chat-options-open");
+      syncChatPanels($("chat-view"));
+      scheduleRenderChatMessages();
+    } else if (data?.reload) {
+      // Reload the iframe if the artifact panel is already visible.
+      const panel = $("chat-artifact-panel");
+      const frame = $("chat-artifact-frame");
+      if (panel && !panel.hidden && frame && frame.src) {
+        frame.removeAttribute("srcdoc");
+        // Bypass browser cache and trigger immediate reload
+        const u = new URL(frame.src, window.location.href);
+        u.searchParams.set("_t", Date.now());
+        frame.src = u.toString();
+      }
+    } else {
+      assistantMsg.artifactUrl = data?.url || "";
+      assistantMsg.artifactName = data?.name || "Artifact";
+      assistantMsg.artifactDescription = data?.description || "";
+      activeArtifactName = assistantMsg.artifactName;
+      activeArtifactUrl = assistantMsg.artifactUrl;
+      showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName);
+      updateArtifactResourceBtn();
+      scheduleRenderChatMessages();
+    }
+  } else if (event === "artifact_screenshot_request") {
+    void handleArtifactScreenshotRequest(data);
+  } else if (event === "artifact_eval_request") {
+    void handleArtifactEvalRequest(data);
+  } else if (event === "tool") {
+    if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
+    if (data?.phase === "generating") {
+      // Model is generating tool call arguments — show early feedback.
+      let existing = assistantMsg.toolLog.find(
+        (e) => e.name === data.name && e.status === "generating"
+      );
+      if (!existing) {
+        flushSegmentToTimeline(assistantMsg, ctx.raw, false);
+        existing = {
+          name: data.name,
+          path: data.path,
+          command: data.command,
+          code: data.code,
+          artifact_name: data.artifact_name,
+          status: "generating",
+        };
+        assistantMsg.toolLog.push(existing);
+        if (!assistantMsg.timeline) assistantMsg.timeline = [];
+        assistantMsg.timeline.push({ type: "tool", entry: existing });
+      } else {
+        // Update existing entry with any newly received fields.
+        if (data.path) existing.path = data.path;
+        if (data.command) existing.command = data.command;
+        if (data.code) existing.code = data.code;
+        if (data.artifact_name) existing.artifact_name = data.artifact_name;
+      }
+
+      if (data.name === "create_artifact") {
+        assistantMsg.artifactGenerating = true;
+        if (data.artifact_name) {
+          assistantMsg.artifactName = data.artifact_name;
+        }
+        showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
+      }
+    } else if (data?.phase === "start") {
+      if (!assistantMsg._toolActiveStart) {
+        assistantMsg._toolActiveStart = Date.now();
+      }
+      // Upgrade 'generating' entries to 'running', or add new if none.
+      let upgraded = false;
+      for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
+        const e = assistantMsg.toolLog[i];
+        if (e.name === data.name && e.status === "generating") {
+          e.status = "running";
+          e.query = data.query;
+          e.url = data.url;
+          e.max_results = data.max_results;
+          e.description = data.description;
+          if (data.path) e.path = data.path;
+          if (data.command) e.command = data.command;
+          if (data.code) e.code = data.code;
+          if (data.artifact_name) e.artifact_name = data.artifact_name;
+          upgraded = true;
+          break;
+        }
+      }
+      if (!upgraded) {
+        flushSegmentToTimeline(assistantMsg, ctx.raw, false);
+        const entry = {
+          name: data.name,
+          query: data.query,
+          url: data.url,
+          max_results: data.max_results,
+          path: data.path,
+          command: data.command,
+          code: data.code,
+          artifact_name: data.artifact_name,
+          description: data.description,
+          status: "running",
+        };
+        assistantMsg.toolLog.push(entry);
+        if (!assistantMsg.timeline) assistantMsg.timeline = [];
+        assistantMsg.timeline.push({ type: "tool", entry });
+      }
+
+      if (data.name === "create_artifact") {
+        assistantMsg.artifactGenerating = true;
+        if (data.artifact_name) {
+          assistantMsg.artifactName = data.artifact_name;
+        }
+        showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
+      }
+    } else if (data?.phase === "done") {
+      if (assistantMsg._toolActiveStart) {
+        const duration = Date.now() - assistantMsg._toolActiveStart;
+        assistantMsg._toolTotalTimeMs = (assistantMsg._toolTotalTimeMs || 0) + duration;
+        assistantMsg._toolActiveStart = null;
+      }
+      for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
+        const e = assistantMsg.toolLog[i];
+        if (e.name === data.name && (e.status === "running" || e.status === "generating")) {
+          e.status = data.ok ? "ok" : "error";
+          e.error = data.error || "";
+          e.result_preview = data.result_preview || "";
+          e.result_runes = data.result_runes;
+          if (data.image) e.image = data.image;
+          break;
+        }
+      }
+    }
+    assistantMsg._accRaw = ctx.raw;
+    scheduleRenderChatMessages();
+  } else if (event === "chunk") {
+    const thinkDelta = data?.message?.thinking || "";
+    const contentDelta = data?.message?.content || "";
+    if (thinkDelta || contentDelta) {
+      assistantMsg._lastChunkAt = Date.now();
+      if (!assistantMsg._firstTokenAt) {
+        assistantMsg._firstTokenAt = Date.now();
+      }
+      const chunkChars = (thinkDelta ? thinkDelta.length : 0) + (contentDelta ? contentDelta.length : 0);
+      assistantMsg._charCount = (assistantMsg._charCount || 0) + chunkChars;
+      assistantMsg._chunkCount = (assistantMsg._chunkCount || 0) + 1;
+
+      const tokenEst = Math.max(assistantMsg._chunkCount, Math.round(assistantMsg._charCount / 3.8));
+      assistantMsg.completionTokens = tokenEst;
+      assistantMsg.tokens = tokenEst;
+    }
+    if (data?.completed != null) {
+      assistantMsg.completedSteps = data.completed;
+    }
+    if (data?.total != null) {
+      assistantMsg.totalSteps = data.total;
+    }
+    if (thinkDelta) {
+      if (!assistantMsg.thinkBlockStarted) {
+        ctx.raw += "<think>\n";
+        assistantMsg.thinkBlockStarted = true;
+      } else if (assistantMsg.thinkBlockClosed) {
+        ctx.raw += "\n<think>\n";
+        assistantMsg.thinkBlockClosed = false;
+      }
+      ctx.raw += thinkDelta;
+    }
+    if (contentDelta) {
+      if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
+        ctx.raw += "\n</think>\n";
+        assistantMsg.thinkBlockClosed = true;
+      }
+      ctx.raw += contentDelta;
+    }
+    const parts = splitThink(ctx.raw);
+    assistantMsg.thinkContent = parts.think;
+    assistantMsg.content = parts.answer;
+    assistantMsg.inThink = parts.inThink;
+    assistantMsg.elapsedMs = Date.now() - ctx.turnStartedAt;
+    const chunkEval = Number(data?.eval_count);
+    if (Number.isFinite(chunkEval) && chunkEval > (assistantMsg.completionTokens || 0)) {
+      assistantMsg.completionTokens = chunkEval;
+      assistantMsg.tokens = chunkEval;
+    }
+    updateLiveAssistantTPS(assistantMsg);
+    if (parts.inThink && !assistantMsg.thinkStartedAt) {
+      assistantMsg.thinkStartedAt = Date.now();
+      startThinkTicker(assistantMsg);
+    }
+    if (!parts.inThink && assistantMsg.thinkStartedAt) {
+      assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
+      stopThinkTicker();
+    }
+    assistantMsg._accRaw = ctx.raw;
+    updateStreamBar();
+    scheduleRenderChatMessages();
+  } else if (event === "error") {
+    throw new Error(data?.error || "stream error");
+  } else if (event === "done") {
+    stopStreamTicker();
+    console.log("[chat] done event", {
+      toolLog: assistantMsg.toolLog || [],
+      artifactUrl: assistantMsg.artifactUrl || null,
+      artifactGenerating: assistantMsg.artifactGenerating || false,
+      contentPreview: (assistantMsg.content || "").slice(0, 300),
+      thinkPreview: (assistantMsg.thinkContent || "").slice(0, 300),
+      tokens: data?.total_tokens,
+      elapsed_ms: data?.elapsed_ms,
+    });
+    if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
+      ctx.raw += "\n</think>\n";
+      assistantMsg.thinkBlockClosed = true;
+    }
+    const p2 = splitThink(ctx.raw);
+    assistantMsg.thinkContent = p2.think;
+    assistantMsg.content = p2.answer;
+    assistantMsg.inThink = p2.inThink;
+    // Always flush remaining content to timeline for faithful chronological order.
+    // Skip image models — their content is base64 image data, not text.
+    const isImgModel = assistantMsg.model && modelCaps(assistantMsg.model).has("image");
+    if (!isImgModel) {
+      flushSegmentToTimeline(assistantMsg, ctx.raw, true);
+    }
+    if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {
+      // If the response ended without any real tool execution (only
+      // generating placeholders), remove the stale entries.
+      const hasRealTool = assistantMsg.toolLog.some(
+        (e) => e.status !== "generating"
+      );
+      if (!hasRealTool) {
+        assistantMsg.toolLog = [];
+      }
+      if (assistantMsg.timeline) {
+        assistantMsg.timeline = assistantMsg.timeline.filter(
+          (it) => it.type !== "tool" || (it.entry && it.entry.status !== "generating")
+        );
+      }
+    }
+    assistantMsg._accRaw = "";
+    assistantMsg.streaming = false;
+    assistantMsg.inThink = false;
+    assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - ctx.turnStartedAt);
+    assistantMsg.promptTokens = Number(data.prompt_tokens) || 0;
+    assistantMsg.completionTokens = Number(data.completion_tokens) || (assistantMsg.completionTokens || 0);
+    assistantMsg.tokens = Number(data.total_tokens) || (assistantMsg.promptTokens + assistantMsg.completionTokens);
+    assistantMsg.evalDurationNs = Number(data.eval_duration_ns) || 0;
+    assistantMsg.doneReason = data?.done_reason || assistantMsg.doneReason || "stop";
+    const mdl = modelByName(assistantMsg.model || ctx.modelName);
+    assistantMsg.contextMax = Number(mdl?.context_length) || 0;
+    const evNs = assistantMsg.evalDurationNs;
+    const comp = assistantMsg.completionTokens;
+    if (evNs > 0 && comp > 0) {
+      assistantMsg.tps = comp / (evNs / 1e9);
+    } else if (assistantMsg._firstTokenAt && comp > 0) {
+      const genSec = (Date.now() - assistantMsg._firstTokenAt) / 1000;
+      assistantMsg.tps = genSec > 0.1 ? (comp / genSec) : (comp / Math.max(0.001, assistantMsg.elapsedMs / 1000));
+    } else if (comp > 0 && assistantMsg.elapsedMs > 0) {
+      assistantMsg.tps = comp / (assistantMsg.elapsedMs / 1000);
+    } else {
+      assistantMsg.tps = null;
+    }
+    assistantMsg.hasDebug = true;
+    chatLastUsedTokens = assistantMsg.tokens || (assistantMsg.promptTokens + assistantMsg.completionTokens);
+    updateChatContextMeter();
+    flushChatRender();
+    refreshModels().catch(() => {});
+  }
+}
 async function runChatRequest(assistantMsg) {
   const modelName = $("chat-model").value;
   assistantMsg.model = modelName;
@@ -4986,10 +5320,9 @@ async function runChatRequest(assistantMsg) {
   chatStreamLock = true;
   activeStreamMessage = assistantMsg;
   updateStreamBar();
-  const turnStartedAt = Date.now();
-  assistantMsg.streamStartedAt = turnStartedAt;
-  startStreamTicker(assistantMsg, turnStartedAt);
-  let assistantRaw = "";
+  const streamCtx = { raw: "", turnStartedAt: Date.now(), modelName };
+  assistantMsg.streamStartedAt = streamCtx.turnStartedAt;
+  startStreamTicker(assistantMsg, streamCtx.turnStartedAt);
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -5007,334 +5340,13 @@ async function runChatRequest(assistantMsg) {
       throw new Error(msg || "chat failed");
     }
     await readSSEStream(res, async (event, data) => {
-      // Debug: log every SSE event with full data
-      if (event === "chunk") {
-        const thinkDelta = data?.message?.thinking || "";
-        const contentDelta = data?.message?.content || "";
-        const toolCalls = data?.message?.tool_calls;
-        if (thinkDelta || contentDelta || toolCalls) {
-          // console.log("[chat] chunk", {
-          //   thinking: thinkDelta ? thinkDelta.slice(0, 200) : "",
-          //   content: contentDelta ? contentDelta.slice(0, 200) : "",
-          //   tool_calls: toolCalls,
-          //   done: data?.done,
-          //   eval_count: data?.eval_count,
-          // });
-        }
-      } else {
-        console.log(`[chat] event:${event}`, data);
-      }
-      if (event === "artifact") {
-        if (data?.timestamp) {
-          assistantMsg.artifactTimestamp = data.timestamp;
-          activeArtifactTimestamp = data.timestamp;
-        }
-        if (data?.name) {
-          assistantMsg.artifactName = data.name;
-          activeArtifactName = data.name;
-        }
-        if (data?.url) {
-          assistantMsg.artifactUrl = data.url;
-          activeArtifactUrl = data.url;
-        }
-        if (data?.generating) {
-          // create_artifact was called — show loading screen, don't load URL yet.
-          assistantMsg.artifactUrl = data?.url || "";
-          assistantMsg.artifactName = data?.name || "Artifact";
-          assistantMsg.artifactDescription = data?.description || "";
-          assistantMsg.artifactGenerating = true;
-          activeArtifactName = assistantMsg.artifactName;
-          activeArtifactUrl = assistantMsg.artifactUrl;
-          showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName, true);
-          updateArtifactResourceBtn();
-          scheduleRenderChatMessages();
-        } else if (data?.loaded) {
-          // index.html was written — transition from loading screen to live preview.
-          assistantMsg.artifactGenerating = false;
-          const url = data?.url || assistantMsg.artifactUrl || "";
-          activeArtifactUrl = url;
-          const panel = $("chat-artifact-panel");
-          const frame = $("chat-artifact-frame");
-          if (panel) panel.hidden = false;
-          if (frame && url) {
-            frame.removeAttribute("srcdoc");
-            frame.src = url;
-            const match = String(url).match(/\/api\/artifacts\/(.+)\//);
-            if (match) {
-              activeArtifactTimestamp = match[1];
-            }
-          }
-          updateArtifactResourceBtn();
-          // Close options panel so artifact is visible on mobile
-          $("chat-view")?.classList.remove("chat-options-open");
-          syncChatPanels($("chat-view"));
-          scheduleRenderChatMessages();
-        } else if (data?.reload) {
-          // Reload the iframe if the artifact panel is already visible.
-          const panel = $("chat-artifact-panel");
-          const frame = $("chat-artifact-frame");
-          if (panel && !panel.hidden && frame && frame.src) {
-            frame.removeAttribute("srcdoc");
-            // Bypass browser cache and trigger immediate reload
-            const u = new URL(frame.src, window.location.href);
-            u.searchParams.set("_t", Date.now());
-            frame.src = u.toString();
-          }
-        } else {
-          assistantMsg.artifactUrl = data?.url || "";
-          assistantMsg.artifactName = data?.name || "Artifact";
-          assistantMsg.artifactDescription = data?.description || "";
-          activeArtifactName = assistantMsg.artifactName;
-          activeArtifactUrl = assistantMsg.artifactUrl;
-          showArtifactPanel(assistantMsg.artifactUrl, assistantMsg.artifactName);
-          updateArtifactResourceBtn();
-          scheduleRenderChatMessages();
-        }
-      } else if (event === "artifact_screenshot_request") {
-        void handleArtifactScreenshotRequest(data);
-      } else if (event === "artifact_eval_request") {
-        void handleArtifactEvalRequest(data);
-      } else if (event === "tool") {
-        if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
-        if (data?.phase === "generating") {
-          // Model is generating tool call arguments — show early feedback.
-          let existing = assistantMsg.toolLog.find(
-            (e) => e.name === data.name && e.status === "generating"
-          );
-          if (!existing) {
-            flushSegmentToTimeline(assistantMsg, assistantRaw, false);
-            existing = {
-              name: data.name,
-              path: data.path,
-              command: data.command,
-              code: data.code,
-              artifact_name: data.artifact_name,
-              status: "generating",
-            };
-            assistantMsg.toolLog.push(existing);
-            if (!assistantMsg.timeline) assistantMsg.timeline = [];
-            assistantMsg.timeline.push({ type: "tool", entry: existing });
-          } else {
-            // Update existing entry with any newly received fields.
-            if (data.path) existing.path = data.path;
-            if (data.command) existing.command = data.command;
-            if (data.code) existing.code = data.code;
-            if (data.artifact_name) existing.artifact_name = data.artifact_name;
-          }
-
-          if (data.name === "create_artifact") {
-            assistantMsg.artifactGenerating = true;
-            if (data.artifact_name) {
-              assistantMsg.artifactName = data.artifact_name;
-            }
-            showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
-          }
-        } else if (data?.phase === "start") {
-          if (!assistantMsg._toolActiveStart) {
-            assistantMsg._toolActiveStart = Date.now();
-          }
-          // Upgrade 'generating' entries to 'running', or add new if none.
-          let upgraded = false;
-          for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
-            const e = assistantMsg.toolLog[i];
-            if (e.name === data.name && e.status === "generating") {
-              e.status = "running";
-              e.query = data.query;
-              e.url = data.url;
-              e.max_results = data.max_results;
-              e.description = data.description;
-              if (data.path) e.path = data.path;
-              if (data.command) e.command = data.command;
-              if (data.code) e.code = data.code;
-              if (data.artifact_name) e.artifact_name = data.artifact_name;
-              upgraded = true;
-              break;
-            }
-          }
-          if (!upgraded) {
-            flushSegmentToTimeline(assistantMsg, assistantRaw, false);
-            const entry = {
-              name: data.name,
-              query: data.query,
-              url: data.url,
-              max_results: data.max_results,
-              path: data.path,
-              command: data.command,
-              code: data.code,
-              artifact_name: data.artifact_name,
-              description: data.description,
-              status: "running",
-            };
-            assistantMsg.toolLog.push(entry);
-            if (!assistantMsg.timeline) assistantMsg.timeline = [];
-            assistantMsg.timeline.push({ type: "tool", entry });
-          }
-
-          if (data.name === "create_artifact") {
-            assistantMsg.artifactGenerating = true;
-            if (data.artifact_name) {
-              assistantMsg.artifactName = data.artifact_name;
-            }
-            showArtifactPanel(null, assistantMsg.artifactName || "Artifact", true);
-          }
-        } else if (data?.phase === "done") {
-          if (assistantMsg._toolActiveStart) {
-            const duration = Date.now() - assistantMsg._toolActiveStart;
-            assistantMsg._toolTotalTimeMs = (assistantMsg._toolTotalTimeMs || 0) + duration;
-            assistantMsg._toolActiveStart = null;
-          }
-          for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
-            const e = assistantMsg.toolLog[i];
-            if (e.name === data.name && (e.status === "running" || e.status === "generating")) {
-              e.status = data.ok ? "ok" : "error";
-              e.error = data.error || "";
-              e.result_preview = data.result_preview || "";
-              e.result_runes = data.result_runes;
-              if (data.image) e.image = data.image;
-              break;
-            }
-          }
-        }
-        assistantMsg._accRaw = assistantRaw;
-        scheduleRenderChatMessages();
-      } else if (event === "chunk") {
-        const thinkDelta = data?.message?.thinking || "";
-        const contentDelta = data?.message?.content || "";
-        if (thinkDelta || contentDelta) {
-          assistantMsg._lastChunkAt = Date.now();
-          if (!assistantMsg._firstTokenAt) {
-            assistantMsg._firstTokenAt = Date.now();
-          }
-          const chunkChars = (thinkDelta ? thinkDelta.length : 0) + (contentDelta ? contentDelta.length : 0);
-          assistantMsg._charCount = (assistantMsg._charCount || 0) + chunkChars;
-          assistantMsg._chunkCount = (assistantMsg._chunkCount || 0) + 1;
-
-          const tokenEst = Math.max(assistantMsg._chunkCount, Math.round(assistantMsg._charCount / 3.8));
-          assistantMsg.completionTokens = tokenEst;
-          assistantMsg.tokens = tokenEst;
-        }
-        if (data?.completed != null) {
-          assistantMsg.completedSteps = data.completed;
-        }
-        if (data?.total != null) {
-          assistantMsg.totalSteps = data.total;
-        }
-        if (thinkDelta) {
-          if (!assistantMsg.thinkBlockStarted) {
-            assistantRaw += "<think>\n";
-            assistantMsg.thinkBlockStarted = true;
-          } else if (assistantMsg.thinkBlockClosed) {
-            assistantRaw += "\n<think>\n";
-            assistantMsg.thinkBlockClosed = false;
-          }
-          assistantRaw += thinkDelta;
-        }
-        if (contentDelta) {
-          if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
-            assistantRaw += "\n</think>\n";
-            assistantMsg.thinkBlockClosed = true;
-          }
-          assistantRaw += contentDelta;
-        }
-        const parts = splitThink(assistantRaw);
-        assistantMsg.thinkContent = parts.think;
-        assistantMsg.content = parts.answer;
-        assistantMsg.inThink = parts.inThink;
-        assistantMsg.elapsedMs = Date.now() - turnStartedAt;
-        const chunkEval = Number(data?.eval_count);
-        if (Number.isFinite(chunkEval) && chunkEval > (assistantMsg.completionTokens || 0)) {
-          assistantMsg.completionTokens = chunkEval;
-          assistantMsg.tokens = chunkEval;
-        }
-        updateLiveAssistantTPS(assistantMsg);
-        if (parts.inThink && !assistantMsg.thinkStartedAt) {
-          assistantMsg.thinkStartedAt = Date.now();
-          startThinkTicker(assistantMsg);
-        }
-        if (!parts.inThink && assistantMsg.thinkStartedAt) {
-          assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
-          stopThinkTicker();
-        }
-        assistantMsg._accRaw = assistantRaw;
-        updateStreamBar();
-        scheduleRenderChatMessages();
-      } else if (event === "error") {
-        throw new Error(data?.error || "stream error");
-      } else if (event === "done") {
-        stopStreamTicker();
-        console.log("[chat] done event", {
-          toolLog: assistantMsg.toolLog || [],
-          artifactUrl: assistantMsg.artifactUrl || null,
-          artifactGenerating: assistantMsg.artifactGenerating || false,
-          contentPreview: (assistantMsg.content || "").slice(0, 300),
-          thinkPreview: (assistantMsg.thinkContent || "").slice(0, 300),
-          tokens: data?.total_tokens,
-          elapsed_ms: data?.elapsed_ms,
-        });
-        if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
-          assistantRaw += "\n</think>\n";
-          assistantMsg.thinkBlockClosed = true;
-        }
-        const p2 = splitThink(assistantRaw);
-        assistantMsg.thinkContent = p2.think;
-        assistantMsg.content = p2.answer;
-        assistantMsg.inThink = p2.inThink;
-        // Always flush remaining content to timeline for faithful chronological order.
-        // Skip image models — their content is base64 image data, not text.
-        const isImgModel = assistantMsg.model && modelCaps(assistantMsg.model).has("image");
-        if (!isImgModel) {
-          flushSegmentToTimeline(assistantMsg, assistantRaw, true);
-        }
-        if (assistantMsg.toolLog && assistantMsg.toolLog.length > 0) {
-          // If the response ended without any real tool execution (only
-          // generating placeholders), remove the stale entries.
-          const hasRealTool = assistantMsg.toolLog.some(
-            (e) => e.status !== "generating"
-          );
-          if (!hasRealTool) {
-            assistantMsg.toolLog = [];
-          }
-          if (assistantMsg.timeline) {
-            assistantMsg.timeline = assistantMsg.timeline.filter(
-              (it) => it.type !== "tool" || (it.entry && it.entry.status !== "generating")
-            );
-          }
-        }
-        assistantMsg._accRaw = "";
-        assistantMsg.streaming = false;
-        assistantMsg.inThink = false;
-        assistantMsg.elapsedMs = Number(data.elapsed_ms) || (Date.now() - turnStartedAt);
-        assistantMsg.promptTokens = Number(data.prompt_tokens) || 0;
-        assistantMsg.completionTokens = Number(data.completion_tokens) || (assistantMsg.completionTokens || 0);
-        assistantMsg.tokens = Number(data.total_tokens) || (assistantMsg.promptTokens + assistantMsg.completionTokens);
-        assistantMsg.evalDurationNs = Number(data.eval_duration_ns) || 0;
-        assistantMsg.doneReason = data?.done_reason || assistantMsg.doneReason || "stop";
-        const mdl = modelByName(assistantMsg.model || modelName);
-        assistantMsg.contextMax = Number(mdl?.context_length) || 0;
-        const evNs = assistantMsg.evalDurationNs;
-        const comp = assistantMsg.completionTokens;
-        if (evNs > 0 && comp > 0) {
-          assistantMsg.tps = comp / (evNs / 1e9);
-        } else if (assistantMsg._firstTokenAt && comp > 0) {
-          const genSec = (Date.now() - assistantMsg._firstTokenAt) / 1000;
-          assistantMsg.tps = genSec > 0.1 ? (comp / genSec) : (comp / Math.max(0.001, assistantMsg.elapsedMs / 1000));
-        } else if (comp > 0 && assistantMsg.elapsedMs > 0) {
-          assistantMsg.tps = comp / (assistantMsg.elapsedMs / 1000);
-        } else {
-          assistantMsg.tps = null;
-        }
-        assistantMsg.hasDebug = true;
-        chatLastUsedTokens = assistantMsg.tokens || (assistantMsg.promptTokens + assistantMsg.completionTokens);
-        updateChatContextMeter();
-        flushChatRender();
-        refreshModels().catch(() => {});
-      }
+      await applyChatStreamEvent(assistantMsg, event, data, streamCtx);
     });
     assistantMsg.streaming = false;
     if (assistantMsg.thinkStartedAt && assistantMsg.thinkMs === 0) {
       assistantMsg.thinkMs = Date.now() - assistantMsg.thinkStartedAt;
     }
-    assistantMsg.elapsedMs = assistantMsg.elapsedMs || (Date.now() - turnStartedAt);
+    assistantMsg.elapsedMs = assistantMsg.elapsedMs || (Date.now() - streamCtx.turnStartedAt);
   } catch (e) {
     assistantMsg.streaming = false;
     assistantMsg.inThink = false;
@@ -5399,6 +5411,13 @@ async function runChatRequest(assistantMsg) {
 }
 
 async function runOneChatTurn(text, attachments) {
+  // Inside a persistent session the turn belongs to the server, so the browser
+  // only posts the message and follows the event feed. Closing the tab then no
+  // longer stops the model.
+  if (chatSessionId) {
+    await sendChatSessionMessage(text, attachments);
+    return;
+  }
   chatStreamLock = true;
   chatEditingMessageId = "";
   chatEditingDraft = "";
@@ -5435,6 +5454,11 @@ async function regenerateLastAssistantMessage(clickedId) {
   }
   if (!models.length) {
     toast(t("chat.no_models"), "error");
+    return;
+  }
+  if (chatSessionId) {
+    // The session transcript lives on the server, so let it do the trimming.
+    await regenerateChatSessionReply(prev);
     return;
   }
   chatStreamLock = true;
@@ -5492,6 +5516,11 @@ async function editAndResendUserMessage(userId, newText) {
   const trimmed = newText.trim();
   const atts = (chatEditingAttachments || []).slice();
   if (!trimmed && !atts.length) return;
+  if (chatSessionId) {
+    // The session transcript lives on the server, so let it do the trimming.
+    await editChatSessionUserMessage(chatMessages[idx], trimmed, atts);
+    return;
+  }
   chatStreamLock = true;
   chatMessages[idx].content = trimmed;
   chatMessages[idx].attachments = atts;

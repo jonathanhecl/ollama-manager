@@ -1,0 +1,807 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"math"
+	"strings"
+	"time"
+
+	"github.com/gense/ollama-manager/internal/ollama"
+)
+
+// sessionAttachedTextHeader is the header the browser puts above pasted
+// documents before re-sending them to the model.
+const sessionAttachedTextHeader = "Attached text files"
+
+// chatSessionEventStream marks a broadcast that carries a live stream event
+// rather than a session state change.
+const chatSessionEventStream = "stream"
+
+// buildSessionMessages turns a stored transcript back into the message list the
+// model expects. It mirrors the browser's buildOutboundMessages(): the in-flight
+// assistant turn is skipped, and an assistant turn that only produced tools or
+// an artifact becomes the same short placeholder the live chat uses.
+func buildSessionMessages(sess *ChatSession, isImageModel bool) []ollama.ChatMessage {
+	out := make([]ollama.ChatMessage, 0, len(sess.Messages)+1)
+	if !isImageModel {
+		if sys := strings.TrimSpace(sess.Settings.System); sys != "" {
+			out = append(out, ollama.ChatMessage{Role: "system", Content: sys})
+		}
+	}
+	for _, m := range sess.Messages {
+		switch m.Role {
+		case "assistant":
+			if m.Pending {
+				continue
+			}
+			text := strings.TrimSpace(m.Content)
+			if text == "" {
+				if m.ArtifactURL != "" || m.ArtifactNm != "" || len(m.ToolLog) > 0 {
+					name := m.ArtifactNm
+					if name == "" {
+						name = "project"
+					}
+					out = append(out, ollama.ChatMessage{
+						Role:    "assistant",
+						Content: fmt.Sprintf("I have updated the artifact %s.", name),
+					})
+				}
+				continue
+			}
+			out = append(out, ollama.ChatMessage{Role: "assistant", Content: text})
+		case "user":
+			msg := ollama.ChatMessage{Role: "user", Content: m.Content}
+			if extra := sessionTextBlocks(m.Attach); extra != "" {
+				if msg.Content != "" {
+					msg.Content += "\n\n" + extra
+				} else {
+					msg.Content = extra
+				}
+			}
+			for _, a := range m.Attach {
+				if (a.Kind == "image" || a.Kind == "audio") && a.Data != "" {
+					msg.Images = append(msg.Images, a.Data)
+				}
+			}
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+func sessionTextBlocks(attach []ChatAttach) string {
+	var blocks []string
+	for _, a := range attach {
+		if a.Kind != "text" || strings.TrimSpace(a.Text) == "" {
+			continue
+		}
+		name := a.Name
+		if name == "" {
+			name = "text"
+		}
+		blocks = append(blocks, fmt.Sprintf("--- %s ---\n%s", name, strings.TrimSpace(a.Text)))
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return sessionAttachedTextHeader + "\n\n" + strings.Join(blocks, "\n\n")
+}
+
+// sessionNumCtxTokens mirrors the browser's numCtxTokensForPct: 100% (or an
+// unknown model) means "use the model default" and returns 0.
+func sessionNumCtxTokens(pct int, modelMax int64) int {
+	p := normalizeSessionNumCtxPct(pct)
+	if p >= 100 {
+		return 0
+	}
+	base := int64(32768)
+	if modelMax > 0 {
+		base = modelMax
+	}
+	n := int(math.Round(float64(base) * float64(p) / 100))
+	if n < 256 {
+		return 256
+	}
+	return n
+}
+
+func normalizeSessionNumCtxPct(p int) int {
+	switch p {
+	case 10, 25, 50, 75, 100:
+		return p
+	default:
+		return 100
+	}
+}
+
+// buildSessionBody assembles the chatRequestBody for a detached turn out of the
+// session's stored options, so a session behaves exactly like the chat that
+// created it.
+func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, isImageModel, canTools bool) chatRequestBody {
+	body := chatRequestBody{
+		Model:    sess.Model,
+		Messages: buildSessionMessages(sess, isImageModel),
+		// A detached run has no artifact preview panel waiting to answer the two
+		// browser-only tools, so they stay out of the tool list instead of
+		// burning their timeout on every round.
+		NoBrowserTools: true,
+	}
+	st := sess.Settings
+	if isImageModel {
+		body.Width = st.ImageWidth
+		body.Height = st.ImageHeight
+		body.Steps = st.ImageSteps
+		body.Options = map[string]any{"seed": st.ImageSeed}
+	} else {
+		body.Options = map[string]any{
+			"temperature": st.Temperature,
+			"top_k":       st.TopK,
+			"top_p":       st.TopP,
+		}
+		if show, err := s.ollama.Show(ctx, sess.Model); err == nil && show != nil {
+			if toks := sessionNumCtxTokens(st.NumCtxPct, extractContextLength(show)); toks > 0 {
+				body.Options["num_ctx"] = toks
+			}
+		}
+		level := ollama.ThinkLevel(st.ThinkLevel)
+		if level == "" {
+			level = "auto"
+		}
+		body.Think = &level
+	}
+	// Image generation models answer from the last prompt, not from a
+	// conversation, and they never take tools.
+	if st.WebTools && canTools && !isImageModel {
+		yes := true
+		body.WebTools = &yes
+	}
+	if st.Artifacts && canTools && !isImageModel {
+		yes := true
+		body.Artifacts = &yes
+		body.ArtifactDir = latestSessionArtifactDir(sess)
+	}
+	return body
+}
+
+// latestSessionArtifactDir is the artifact directory a continued turn should
+// keep editing: the newest one referenced by the transcript.
+func latestSessionArtifactDir(sess *ChatSession) string {
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		if ts := sess.Messages[i].ArtifactTS; ts != "" {
+			return ts
+		}
+	}
+	return ""
+}
+
+// sessionModelCaps reports whether a model generates images outright and whether
+// it can call tools at all. Tool-backed options (web search, artifacts) are only
+// honoured when the model really supports them, because a session keeps the
+// settings it was created with even if the panel later hides those toggles.
+func (s *Server) sessionModelCaps(ctx context.Context, model string) (isImageModel, canTools bool) {
+	if model == "" {
+		return false, false
+	}
+	show, err := s.ollama.Show(ctx, model)
+	if err != nil || show == nil {
+		return false, false
+	}
+	hasImage, hasVision, hasCompletion := false, false, false
+	for _, c := range show.Capabilities {
+		switch c {
+		case "image":
+			hasImage = true
+		case "vision":
+			hasVision = true
+		case "completion":
+			hasCompletion = true
+		}
+	}
+	isImageModel = hasImage && !hasVision && !hasCompletion
+	return isImageModel, hasCompletion
+}
+
+// dispatchSessionTurn starts a detached turn for a session, queueing it when
+// every concurrency slot is taken. The turn owns its own context so nothing
+// stops when the browser that asked for it goes away.
+func (s *Server) dispatchSessionTurn(id string) {
+	st := s.chatSessions
+	st.Start(id, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		st.bindRunning(id, cancel)
+		defer cancel()
+		s.runSessionTurn(ctx, id)
+	})
+}
+
+// runSessionTurn executes one detached turn: it appends the pending assistant
+// message, runs the appropriate loop against a sessionSink, and settles the
+// session status. It never touches an http.ResponseWriter.
+func (s *Server) runSessionTurn(ctx context.Context, id string) {
+	st := s.chatSessions
+	sess := st.Get(id)
+	if sess == nil {
+		return
+	}
+	model := sess.Model
+	if model == "" {
+		s.failSession(id, "session has no model")
+		return
+	}
+	isImageModel, canTools := s.sessionModelCaps(ctx, model)
+	body := s.buildSessionBody(ctx, sess, isImageModel, canTools)
+	startedAt := time.Now()
+	sink := &sessionSink{srv: s, id: id, started: startedAt}
+
+	if !s.beginTurn(id, startedAt) {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[chat-sessions] panic in session %s: %v", id, r)
+			sink.Send("error", map[string]any{"error": fmt.Sprintf("internal error: %v", r)})
+		}
+	}()
+
+	switch {
+	case body.Artifacts != nil && *body.Artifacts:
+		s.runArtifactAgentLoop(ctx, sink, body)
+	case body.WebTools != nil && *body.WebTools:
+		s.runWebToolAgentLoop(ctx, sink, body)
+	default:
+		s.runPlainChatLoop(ctx, sink, body)
+	}
+	s.finishSession(id, startedAt)
+}
+
+// beginTurn marks the session running and appends its pending assistant message.
+func (s *Server) beginTurn(id string, startedAt time.Time) bool {
+	st := s.chatSessions
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	sess.Status = chatSessionRunning
+	sess.Error = ""
+	sess.Cancelled = false
+	sess.LastActive = startedAt
+	sess.Messages = append(sess.Messages, SessionMessage{
+		Role:            "assistant",
+		Model:           sess.Model,
+		Pending:         true,
+		CreatedAt:       startedAt,
+		StreamStartedAt: startedAt.UnixMilli(),
+		ToolLog:         []SessionToolEntry{},
+	})
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	return true
+}
+
+// finishSession settles a session after its turn ends: the pending message is
+// closed, the status becomes idle/error/cancelled, and a run nobody was watching
+// is flagged unseen so its badge turns white.
+func (s *Server) finishSession(id string, startedAt time.Time) {
+	st := s.chatSessions
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return
+	}
+	if msg := pendingMessageLocked(sess); msg != nil {
+		msg.Pending = false
+	}
+	switch {
+	case sess.Cancelled:
+		sess.Status = chatSessionCancelled
+	case sess.Error != "":
+		sess.Status = chatSessionError
+	default:
+		sess.Status = chatSessionIdle
+	}
+	watched := st.watchers[id] > 0
+	if !watched && sess.Status != chatSessionRunning {
+		sess.Unseen = true
+	}
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	log.Printf("[chat-sessions] %s finished after %s (status=%s, unseen=%v)", id,
+		time.Since(startedAt).Round(time.Millisecond), sum.Status, sum.Unseen)
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	st.releaseRunning(id)
+}
+
+func (s *Server) failSession(id, reason string) {
+	st := s.chatSessions
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return
+	}
+	if msg := pendingMessageLocked(sess); msg != nil {
+		msg.Pending = false
+		msg.Error = reason
+	}
+	sess.Error = reason
+	sess.Status = chatSessionError
+	if st.watchers[id] == 0 {
+		sess.Unseen = true
+	}
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	st.releaseRunning(id)
+}
+
+// --- store mutations used by the turn runner ------------------------------
+
+// pendingMessageLocked returns the assistant message currently streaming.
+func pendingMessageLocked(sess *ChatSession) *SessionMessage {
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		if sess.Messages[i].Pending {
+			return &sess.Messages[i]
+		}
+	}
+	return nil
+}
+
+// AppendUser adds a user turn and refreshes the derived title.
+func (st *chatSessionStore) AppendUser(id string, content string, attach []ChatAttach) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	sess.Messages = append(sess.Messages, SessionMessage{
+		Role:      "user",
+		Content:   content,
+		Attach:    attach,
+		CreatedAt: time.Now(),
+	})
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	// Deliberately no broadcast: the caller starts the turn right after, and
+	// beginTurn's update already carries the new title and message count.
+	// Emitting an idle update in between would briefly tell browsers that a turn
+	// had finished when none had started yet.
+	st.mu.Unlock()
+	return true
+}
+
+// MergeSettings folds the current options panel into the session. It is called
+// on every message, so a session always carries the settings that were in
+// effect when its last message was sent. Only the fields the browser actually
+// sent are touched, so a partial payload cannot wipe the rest.
+func (st *chatSessionStore) MergeSettings(id string, in sessionSettingsInput) {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return
+	}
+	sess.Settings = in.mergeInto(sess.Settings)
+	st.touchLocked(sess)
+	st.saveLocked(sess)
+	st.mu.Unlock()
+}
+
+// TrimAfterLastUser drops every message that follows the last user turn, which
+// is the assistant reply and anything after it. A session's transcript belongs
+// to the server, so "regenerate" has to trim it here rather than in the browser.
+func (st *chatSessionStore) TrimAfterLastUser(id string) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	last := -1
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		if sess.Messages[i].Role == "user" {
+			last = i
+			break
+		}
+	}
+	if last < 0 || len(sess.Messages) == last+1 {
+		st.mu.Unlock()
+		return false
+	}
+	sess.Messages = append([]SessionMessage(nil), sess.Messages[:last+1]...)
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	return true
+}
+
+// ReplaceLastUser rewrites the text and attachments of the last user turn in
+// place. It backs "edit and resend" for sessions.
+func (st *chatSessionStore) ReplaceLastUser(id, content string, attach []ChatAttach) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		if sess.Messages[i].Role != "user" {
+			continue
+		}
+		sess.Messages[i].Content = content
+		sess.Messages[i].Attach = attach
+		st.touchLocked(sess)
+		st.flushLocked(sess)
+		sum := summaryOf(sess)
+		st.mu.Unlock()
+		st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+		return true
+	}
+	st.mu.Unlock()
+	return false
+}
+
+// Rename overrides the derived title.
+func (st *chatSessionStore) Rename(id, title string) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	sess.Title = chatSessionTitle(strings.TrimSpace(title))
+	st.touchLocked(sess)
+	st.saveLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	return true
+}
+
+// --- sessionSink ----------------------------------------------------------
+
+// toolEvent is the JSON shape the agent loops emit for the "tool" event.
+type toolEvent struct {
+	Phase         string `json:"phase"`
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	Query         string `json:"query,omitempty"`
+	URL           string `json:"url,omitempty"`
+	MaxResults    int    `json:"max_results,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Command       string `json:"command,omitempty"`
+	Code          string `json:"code,omitempty"`
+	ArtifactName  string `json:"artifact_name,omitempty"`
+	Description   string `json:"description,omitempty"`
+	OK            *bool  `json:"ok,omitempty"`
+	Error         string `json:"error,omitempty"`
+	ResultPreview string `json:"result_preview,omitempty"`
+	ResultRunes   int    `json:"result_runes,omitempty"`
+	Image         string `json:"image,omitempty"`
+}
+
+// sessionSink turns the chat stream events of a detached run into session state:
+// it keeps the transcript current, appends to the replay log, and fans every
+// event out to whatever browser is tailing this session. It is only ever called
+// from the single goroutine running the turn.
+type sessionSink struct {
+	srv     *Server
+	id      string
+	started time.Time
+
+	raw       string
+	think     string
+	answer    string
+	tools     []SessionToolEntry
+	thinkOpen bool
+	thinkShut bool
+}
+
+func (k *sessionSink) Send(event string, payload any) {
+	if event == "" {
+		return
+	}
+	st := k.srv.chatSessions
+	st.mu.Lock()
+	sess := st.sessions[k.id]
+	if sess == nil {
+		st.mu.Unlock()
+		return
+	}
+	msg := pendingMessageLocked(sess)
+	if msg != nil {
+		k.applyLocked(event, payload, msg)
+	}
+	sess.Seq++
+	seq := sess.Seq
+	k.appendEventLocked(sess, seq, event, payload)
+	sess.LastActive = time.Now()
+	st.saveLocked(sess)
+	st.mu.Unlock()
+
+	st.broadcast(ChatSessionEvent{
+		Kind:  chatSessionEventStream,
+		ID:    k.id,
+		Seq:   seq,
+		Event: event,
+		Data:  payload,
+	})
+}
+
+func (k *sessionSink) appendEventLocked(sess *ChatSession, seq int, event string, payload any) {
+	sess.Events = append(sess.Events, SessionEvent{Seq: seq, Event: event, Data: payload})
+	if over := len(sess.Events) - maxSessionEvents; over > 0 {
+		sess.Events = append([]SessionEvent(nil), sess.Events[over:]...)
+	}
+}
+
+func (k *sessionSink) applyLocked(event string, payload any, msg *SessionMessage) {
+	switch event {
+	case "chunk":
+		k.applyChunkLocked(payload, msg)
+	case "tool":
+		k.applyToolLocked(payload, msg)
+	case "artifact":
+		k.applyArtifactLocked(payload, msg)
+	case "done":
+		k.closeThinkLocked()
+		k.applyDoneLocked(payload, msg)
+		msg.Pending = false
+	case "error":
+		k.closeThinkLocked()
+		msg.Pending = false
+		msg.Error = sessionEventError(payload)
+	}
+}
+
+// applyChunkLocked accumulates the raw stream text. Storing the raw text (with
+// its think tags) rather than the parsed pieces means the browser can replay it
+// through its own splitter and get byte-identical rendering.
+func (k *sessionSink) applyChunkLocked(payload any, msg *SessionMessage) {
+	chunk, ok := payload.(ollama.ChatChunk)
+	if !ok {
+		raw, rok := payload.(json.RawMessage)
+		if !rok {
+			return
+		}
+		if err := json.Unmarshal(raw, &chunk); err != nil {
+			return
+		}
+	}
+	think, content := chunk.Message.Thinking, chunk.Message.Content
+	if think == "" && content == "" {
+		return
+	}
+	if think != "" {
+		if !k.thinkOpen {
+			k.raw += "<think>\n"
+			k.thinkOpen = true
+			k.thinkShut = false
+		}
+		k.raw += think
+		k.think += think
+	}
+	if content != "" {
+		k.closeThinkLocked()
+		k.raw += content
+		k.answer += content
+	}
+	msg.Raw = k.raw
+	msg.Think = k.think
+	msg.Content = k.answer
+}
+
+func (k *sessionSink) closeThinkLocked() {
+	if k.thinkOpen && !k.thinkShut {
+		k.raw += "\n</think>\n"
+		k.thinkShut = true
+	}
+}
+
+func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
+	ev := decodeToolEvent(payload)
+	if ev.Name == "" {
+		return
+	}
+	entry := SessionToolEntry{
+		Name:          ev.Name,
+		Status:        ev.Status,
+		Phase:         ev.Phase,
+		Query:         ev.Query,
+		URL:           ev.URL,
+		MaxResults:    ev.MaxResults,
+		Path:          ev.Path,
+		Command:       ev.Command,
+		Code:          ev.Code,
+		ArtifactName:  ev.ArtifactName,
+		Description:   ev.Description,
+		Error:         ev.Error,
+		ResultPreview: ev.ResultPreview,
+		ResultRunes:   ev.ResultRunes,
+		Image:         ev.Image,
+	}
+	tools := msg.ToolLog
+	switch ev.Phase {
+	case "generating":
+		for i := range tools {
+			if tools[i].Name == ev.Name && tools[i].Status == "generating" {
+				return
+			}
+		}
+		tools = append(tools, entry)
+	case "start":
+		for i := len(tools) - 1; i >= 0; i-- {
+			if tools[i].Name == ev.Name && tools[i].Status == "generating" {
+				tools[i].Status = "running"
+				tools[i].Query = ev.Query
+				tools[i].URL = ev.URL
+				tools[i].MaxResults = ev.MaxResults
+				tools[i].Path = ev.Path
+				tools[i].Command = ev.Command
+				tools[i].Code = ev.Code
+				tools[i].ArtifactName = ev.ArtifactName
+				tools[i].Description = ev.Description
+				msg.ToolLog = tools
+				return
+			}
+		}
+		tools = append(tools, entry)
+	default:
+		status := "ok"
+		if ev.OK != nil && !*ev.OK {
+			status = "error"
+		}
+		for i := len(tools) - 1; i >= 0; i-- {
+			if tools[i].Name != ev.Name {
+				continue
+			}
+			if tools[i].Status == "ok" || tools[i].Status == "error" {
+				continue
+			}
+			tools[i].Status = status
+			tools[i].Error = ev.Error
+			tools[i].ResultPreview = ev.ResultPreview
+			tools[i].ResultRunes = ev.ResultRunes
+			tools[i].Image = ev.Image
+			if ev.ArtifactName != "" {
+				tools[i].ArtifactName = ev.ArtifactName
+			}
+			msg.ToolLog = tools
+			return
+		}
+		entry.Status = status
+		tools = append(tools, entry)
+	}
+	msg.ToolLog = tools
+	k.tools = tools
+}
+
+func decodeToolEvent(payload any) toolEvent {
+	var ev toolEvent
+	switch v := payload.(type) {
+	case toolEvent:
+		return v
+	case json.RawMessage:
+		_ = json.Unmarshal(v, &ev)
+	case map[string]any:
+		buf, err := json.Marshal(v)
+		if err == nil {
+			_ = json.Unmarshal(buf, &ev)
+		}
+	}
+	return ev
+}
+
+func (k *sessionSink) applyArtifactLocked(payload any, msg *SessionMessage) {
+	m, ok := payload.(map[string]any)
+	if !ok {
+		if raw, rok := payload.(json.RawMessage); rok {
+			var decoded map[string]any
+			if json.Unmarshal(raw, &decoded) == nil {
+				m = decoded
+				ok = true
+			}
+		}
+		if !ok {
+			return
+		}
+	}
+	if v, _ := m["timestamp"].(string); v != "" {
+		msg.ArtifactTS = v
+	}
+	if v, _ := m["name"].(string); v != "" {
+		msg.ArtifactNm = v
+	}
+	if v, _ := m["url"].(string); v != "" {
+		msg.ArtifactURL = v
+	}
+	if v, _ := m["description"].(string); v != "" {
+		msg.ArtifactDesc = v
+	}
+	if v, _ := m["generating"].(bool); v {
+		msg.ArtifactGenerating = true
+	}
+	if v, ok := m["generating"].(bool); !ok || !v {
+		msg.ArtifactGenerating = false
+	}
+	if v, _ := m["loaded"].(bool); v {
+		msg.ArtifactGenerating = false
+	}
+	if v, _ := m["reload"].(bool); v {
+		msg.ArtifactGenerating = false
+	}
+}
+
+func (k *sessionSink) applyDoneLocked(payload any, msg *SessionMessage) {
+	m, ok := payload.(map[string]any)
+	if !ok {
+		if raw, rok := payload.(json.RawMessage); rok {
+			var decoded map[string]any
+			if json.Unmarshal(raw, &decoded) == nil {
+				m = decoded
+				ok = true
+			}
+		}
+		if !ok {
+			return
+		}
+	}
+	msg.Raw = k.raw
+	msg.Think = k.think
+	msg.Content = k.answer
+	msg.ElapsedMs = sessionEventInt(m["elapsed_ms"])
+	msg.PromptTokens = int(sessionEventInt(m["prompt_tokens"]))
+	msg.CompletionTokens = int(sessionEventInt(m["completion_tokens"]))
+	msg.EvalNs = sessionEventInt(m["eval_duration_ns"])
+	if v, _ := m["done_reason"].(string); v != "" {
+		msg.DoneReason = v
+	}
+}
+
+func sessionEventInt(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	default:
+		return 0
+	}
+}
+
+func sessionEventError(payload any) string {
+	switch v := payload.(type) {
+	case string:
+		return v
+	case map[string]any:
+		s, _ := v["error"].(string)
+		return s
+	case json.RawMessage:
+		var decoded map[string]any
+		if json.Unmarshal(v, &decoded) == nil {
+			s, _ := decoded["error"].(string)
+			return s
+		}
+	}
+	return ""
+}

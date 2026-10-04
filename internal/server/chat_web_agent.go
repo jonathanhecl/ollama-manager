@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -148,15 +147,8 @@ func (s *Server) runWebTool(ctx context.Context, name string, args json.RawMessa
 // agent step so the browser gets real token/chunk streaming. When the model
 // returns tool calls, the stream has finished; we execute tools and go to the
 // next round. Final answer streams live; we do not buffer the full reply to fake deltas.
-func (s *Server) runWebToolAgentLoop(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, body chatRequestBody) {
-	send := func(event string, payload any) {
-		buf, _ := json.Marshal(payload)
-		if event != "" {
-			fmt.Fprintf(w, "event: %s\n", event)
-		}
-		fmt.Fprintf(w, "data: %s\n\n", buf)
-		flusher.Flush()
-	}
+func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body chatRequestBody) {
+	send := sink.Send
 
 	startedAt := time.Now()
 	tools := webToolDefinitions()

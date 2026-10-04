@@ -262,7 +262,17 @@
         </div>
         <div class="chat-options-title-row">
           <h3 data-i18n="chat.options">Options</h3>
-          <button id="chat-options-reset-btn" type="button" class="chat-options-reset-link" data-i18n="chat.reset_to_defaults" hidden>Reset to defaults</button>
+          <div class="chat-options-title-actions">
+            <button id="chat-session-new-btn" type="button" class="chat-session-new-link" data-i18n="chat.session_new" data-i18n-attr="title" title="New session">+ Session</button>
+            <button id="chat-options-reset-btn" type="button" class="chat-options-reset-link" data-i18n="chat.reset_to_defaults" hidden>Reset to defaults</button>
+          </div>
+        </div>
+        <div id="chat-sessions-block" class="chat-sessions-block">
+          <div class="chat-sessions-head">
+            <span class="chat-sessions-title" data-i18n="chat.sessions_title">Sessions</span>
+            <span id="chat-sessions-count" class="chat-sessions-count mono"></span>
+          </div>
+          <div id="chat-sessions-list" class="chat-sessions-list"></div>
         </div>
         <div class="field" id="chat-system-field">
           <div class="chat-system-head">
@@ -2796,6 +2806,7 @@
   <script src="/static/app-opencode.js?v=20260909_03"></script>
   <script src="/static/app-opencode-actions.js?v=20260821"></script>
   <script src="/static/app-agent-session.js?v=20260820"></script>
+  <script src="/static/app-sessions.js?v=20261004_01"></script>
   <script src="/static/app-battery.js?v=20260910_13"></script>
   <script src="/static/app-test-history.js?v=20260828_01"></script>
   <script src="/static/app-group-history.js?v=20260910_06"></script>

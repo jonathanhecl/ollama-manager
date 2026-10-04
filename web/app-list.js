@@ -597,7 +597,7 @@ function renderTable() {
       <td class="cell-name">
         <div class="model-name-wrap">
           <div class="model-name-block">
-            <div class="model-name model-name-track"><span class="model-name-text">${nsPart ? `<span class="model-name-author">${escapeHtml(nsPart)}/</span>` : ""}<span class="model-name-base">${escapeHtml(basePart)}</span></span>${extTag}${customTag}${ghostTag}</div>
+            <div class="model-name model-name-track"><span class="model-name-text">${nsPart ? `<span class="model-name-author">${escapeHtml(nsPart)}/</span>` : ""}<span class="model-name-base">${escapeHtml(basePart)}</span></span>${extTag}${customTag}${ghostTag}<span class="session-badges">${typeof sessionBadgeHtml === "function" ? sessionBadgeHtml(m.name) : ""}</span></div>
             ${parentHtml}
             ${progressHtml}
             ${capsHtml ? `<div class="cap-list model-cap-list">${capsHtml}</div>` : ""}

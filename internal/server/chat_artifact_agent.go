@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +20,28 @@ import (
 )
 
 const maxArtifactRounds = 30
+
+// artifactBrowserToolNames are the tools that cannot do any work on the server:
+// they register a request channel and wait for the artifact preview panel in a
+// browser to answer.
+var artifactBrowserToolNames = map[string]bool{
+	"take_artifact_screenshot": true,
+	"eval_artifact_js":         true,
+}
+
+// filterArtifactToolDefinitions drops the browser-dependent tools (or keeps
+// only them, when keep is true). It leaves every other schema untouched.
+func filterArtifactToolDefinitions(tools []any, keep bool) []any {
+	out := make([]any, 0, len(tools))
+	for _, tool := range tools {
+		fn, _ := tool.(map[string]any)["function"].(map[string]any)
+		name, _ := fn["name"].(string)
+		if artifactBrowserToolNames[name] == keep {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
 
 // artifactOperationalToolDefinitions returns filesystem, execution, and vision tool schemas.
 // These are available once an artifact has been initialized.
@@ -543,17 +564,11 @@ func killProcessTree(cmd *exec.Cmd) {
 }
 
 // runArtifactAgentLoop is the main agent loop for artifact creation.
-// It streams chunks to the browser via SSE, executes tools, and sends
-// an "artifact" event when the model calls create_artifact.
-func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, body chatRequestBody) {
-	send := func(event string, payload any) {
-		buf, _ := json.Marshal(payload)
-		if event != "" {
-			fmt.Fprintf(w, "event: %s\n", event)
-		}
-		fmt.Fprintf(w, "data: %s\n\n", buf)
-		flusher.Flush()
-	}
+// It streams chunks to the sink (either the live SSE response or a detached
+// chat session), executes tools, and sends an "artifact" event when the model
+// calls create_artifact.
+func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body chatRequestBody) {
+	send := sink.Send
 
 	startedAt := time.Now()
 
@@ -671,6 +686,13 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, w http.ResponseWriter
 		var tools []any
 		if createArtifactCalled {
 			tools = artifactOperationalToolDefinitions(hasVision)
+			if body.NoBrowserTools {
+				// Nobody is watching this run in a browser, so the two tools
+				// that rendezvous with the artifact preview panel would only burn
+				// their 8-10s timeout before erroring out. Keep them out of the
+				// tool list until a tab subscribes again.
+				tools = filterArtifactToolDefinitions(tools, false)
+			}
 		} else {
 			// Initially only expose create_artifact. The model decides whether
 			// the request actually needs an artifact; once it calls the tool,

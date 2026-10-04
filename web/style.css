@@ -5149,7 +5149,7 @@ button.chat-send:disabled:hover {
     display: none;
   }
   .metric-widget-track {
-    display: block;
+    display: flex;
     width: 60px;
   }
   .metric-widget-label {
@@ -6002,7 +6002,7 @@ button.chat-send:disabled:hover {
     display: none;
   }
   .metric-widget-track {
-    display: block;
+    display: flex;
     width: 26px;
     min-width: 0;
   }

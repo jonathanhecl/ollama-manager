@@ -281,8 +281,13 @@ func TestRecordCancelUsage(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected a record after cancelled medium response")
 		}
-		if math.Abs(rec.RecordTokensPerSec-0.4) > 1e-6 {
-			t.Errorf("expected RecordTokensPerSec 0.4, got %f", rec.RecordTokensPerSec)
+		// Relative tolerance: the expected value is derived from wall-clock
+		// elapsed time, so a loaded machine (or -race, which slows everything
+		// down) easily drifts a few ms and moves the quotient by more than an
+		// absolute epsilon. 0.5% is far below anything a logic change could
+		// produce while absorbing that drift.
+		if math.Abs(rec.RecordTokensPerSec-0.4)/0.4 > 0.005 {
+			t.Errorf("expected RecordTokensPerSec ~0.4, got %f", rec.RecordTokensPerSec)
 		}
 	})
 

@@ -342,14 +342,18 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"port":                    s.cfg.Port,
-		"expose_network":          s.cfg.ExposeNetwork,
-		"language":                s.cfg.Language,
-		"ollama_url":              s.cfg.OllamaURL,
-		"has_password":            s.cfg.HasPassword(),
-		"has_hf_token":            strings.TrimSpace(s.cfg.HFToken) != "",
-		"bind_address":            s.cfg.BindAddress(),
-		"chat_defaults":           s.cfg.ChatDefaults,
+		"port":           s.cfg.Port,
+		"expose_network": s.cfg.ExposeNetwork,
+		"language":       s.cfg.Language,
+		"ollama_url":     s.cfg.OllamaURL,
+		"has_password":   s.cfg.HasPassword(),
+		"has_hf_token":   strings.TrimSpace(s.cfg.HFToken) != "",
+		"bind_address":   s.cfg.BindAddress(),
+		"chat_defaults":  s.cfg.ChatDefaults,
+		"chat_sessions": map[string]any{
+			"enabled":         s.cfg.ChatSessions.IsEnabled(),
+			"on_model_delete": s.cfg.ChatSessions.OnModelDelete,
+		},
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
 		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
@@ -370,15 +374,24 @@ type patchGatewayBody struct {
 // patchConfigBody uses pointers so callers can update only the fields they
 // care about (PATCH semantics).
 type patchConfigBody struct {
-	Port                  *int                  `json:"port"`
-	ExposeNetwork         *bool                 `json:"expose_network"`
-	Language              *string               `json:"language"`
-	OllamaURL             *string               `json:"ollama_url"`
-	HFToken               *string               `json:"hf_token"`
-	ChatDefaults          *config.ChatDefaults  `json:"chat_defaults"`
-	LeaderboardGroupOrder *[]string             `json:"leaderboard_group_order"`
-	Testing               *config.TestingLimits `json:"testing"`
-	Gateway               *patchGatewayBody     `json:"gateway"`
+	Port                  *int                   `json:"port"`
+	ExposeNetwork         *bool                  `json:"expose_network"`
+	Language              *string                `json:"language"`
+	OllamaURL             *string                `json:"ollama_url"`
+	HFToken               *string                `json:"hf_token"`
+	ChatDefaults          *config.ChatDefaults   `json:"chat_defaults"`
+	ChatSessions          *patchChatSessionsBody `json:"chat_sessions"`
+	LeaderboardGroupOrder *[]string              `json:"leaderboard_group_order"`
+	Testing               *config.TestingLimits  `json:"testing"`
+	Gateway               *patchGatewayBody      `json:"gateway"`
+}
+
+// patchChatSessionsBody is the PATCH /api/config payload for the persistent
+// chat sessions feature. Every field is optional; a nil field keeps the current
+// value.
+type patchChatSessionsBody struct {
+	Enabled       *bool   `json:"enabled"`
+	OnModelDelete *string `json:"on_model_delete"`
 }
 
 func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
@@ -444,6 +457,27 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.cfg.ChatDefaults = *body.ChatDefaults
+	}
+	if body.ChatSessions != nil {
+		if body.ChatSessions.OnModelDelete != nil {
+			v := strings.TrimSpace(*body.ChatSessions.OnModelDelete)
+			if v != "delete" && v != "keep" {
+				writeError(w, http.StatusBadRequest, errors.New("chat_sessions.on_model_delete must be delete or keep"))
+				return
+			}
+			s.cfg.ChatSessions.OnModelDelete = v
+		}
+		if body.ChatSessions.Enabled != nil {
+			enabled := *body.ChatSessions.Enabled
+			if !enabled && s.chatSessions.HasBusy() {
+				// Turning the feature off while turns are in flight would strand
+				// them: the pages feeding them lose their event stream and the
+				// runs would finish with nowhere to report. Stop them first so
+				// every one settles into a visible "stopped" state.
+				s.chatSessions.CancelAll()
+			}
+			s.cfg.ChatSessions.Enabled = &enabled
+		}
 	}
 	if body.LeaderboardGroupOrder != nil {
 		s.cfg.LeaderboardGroupOrder = *body.LeaderboardGroupOrder
@@ -553,14 +587,18 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                      true,
-		"needs_restart":           needsRestart,
-		"port":                    s.cfg.Port,
-		"expose_network":          s.cfg.ExposeNetwork,
-		"language":                s.cfg.Language,
-		"ollama_url":              s.cfg.OllamaURL,
-		"has_hf_token":            strings.TrimSpace(s.cfg.HFToken) != "",
-		"chat_defaults":           s.cfg.ChatDefaults,
+		"ok":             true,
+		"needs_restart":  needsRestart,
+		"port":           s.cfg.Port,
+		"expose_network": s.cfg.ExposeNetwork,
+		"language":       s.cfg.Language,
+		"ollama_url":     s.cfg.OllamaURL,
+		"has_hf_token":   strings.TrimSpace(s.cfg.HFToken) != "",
+		"chat_defaults":  s.cfg.ChatDefaults,
+		"chat_sessions": map[string]any{
+			"enabled":         s.cfg.ChatSessions.IsEnabled(),
+			"on_model_delete": s.cfg.ChatSessions.OnModelDelete,
+		},
 		"leaderboard_group_order": s.cfg.LeaderboardGroupOrder,
 		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
@@ -1507,6 +1545,23 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
+// dropSessionsForModel removes the chat sessions bound to a model that is going
+// away, but only when settings ask for it. With "keep" the transcripts stay
+// readable in case the same model is pulled back, and the UI flags them as
+// missing their model instead.
+func (s *Server) dropSessionsForModel(name string) int {
+	if s.chatSessions == nil || name == "" {
+		return 0
+	}
+	s.cfgMu.RLock()
+	drop := s.cfg.ChatSessions.DeleteSessionsOnModelUninstall()
+	s.cfgMu.RUnlock()
+	if !drop {
+		return 0
+	}
+	return s.chatSessions.DeleteByModel(name)
+}
+
 func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
@@ -1515,7 +1570,11 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.externalModels != nil && s.externalModels.IsExternal(name) {
 		_ = s.externalModels.Unregister(name)
-		writeJSON(w, http.StatusOK, map[string]any{"status": "deleted", "external": true})
+		resp := map[string]any{"status": "deleted", "external": true}
+		if n := s.dropSessionsForModel(name); n > 0 {
+			resp["deleted_sessions"] = n
+		}
+		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 	var body struct {
@@ -1568,6 +1627,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		_ = s.customModels.Unregister(name)
 	}
 	resp := map[string]any{"deleted": name}
+	deletedSessions := s.dropSessionsForModel(name)
 	deletedArtifacts := s.deleteArtifactsForModel(r.Context(), name)
 	if !isFixedModelName(name) {
 		fixed := fixedModelName(name)
@@ -1590,10 +1650,14 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		}
 		if isLinkedFixed {
 			deletedArtifacts += s.deleteArtifactsForModel(r.Context(), fixed)
+			deletedSessions += s.dropSessionsForModel(fixed)
 		}
 	}
 	if deletedArtifacts > 0 {
 		resp["deleted_artifacts"] = deletedArtifacts
+	}
+	if deletedSessions > 0 {
+		resp["deleted_sessions"] = deletedSessions
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

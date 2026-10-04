@@ -208,14 +208,53 @@ type renameSessionRequest struct {
 // handleChatSessionsList serves the session rows used by the side panel and by
 // the badges next to each model.
 func (s *Server) handleChatSessionsList(w http.ResponseWriter, r *http.Request) {
+	if !s.chatSessionsEnabled() {
+		// Feature switched off in settings. Report it instead of an empty list so
+		// the UI can hide the panel rather than look like a bug.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"sessions":     []SessionSummary{},
+			"max_parallel": maxConcurrentChatSessions,
+			"enabled":      false,
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"sessions":     s.chatSessions.List(),
 		"max_parallel": maxConcurrentChatSessions,
+		"enabled":      true,
 	})
+}
+
+// handleChatSessionsDeleteAll wipes every session of every model ("clear all").
+// It never 404s: clearing an already empty list is a no-op the UI can treat as
+// success.
+func (s *Server) handleChatSessionsDeleteAll(w http.ResponseWriter, r *http.Request) {
+	n := s.chatSessions.DeleteAll()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": n})
+}
+
+// chatSessionsEnabled reports the settings switch. Reading it takes the config
+// lock, so callers must not already hold it.
+func (s *Server) chatSessionsEnabled() bool {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.ChatSessions.IsEnabled()
+}
+
+// requireChatSessions writes a 403 and reports false when the feature is off.
+func (s *Server) requireChatSessions(w http.ResponseWriter) bool {
+	if s.chatSessionsEnabled() {
+		return true
+	}
+	writeError(w, http.StatusForbidden, errors.New("persistent chat sessions are disabled in settings"))
+	return false
 }
 
 // handleChatSessionCreate registers a new persistent session.
 func (s *Server) handleChatSessionCreate(w http.ResponseWriter, r *http.Request) {
+	if !s.requireChatSessions(w) {
+		return
+	}
 	var req createSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
@@ -279,6 +318,9 @@ func (s *Server) handleChatSessionPatch(w http.ResponseWriter, r *http.Request) 
 
 // handleChatSessionDelete cancels any run and removes the session for good.
 func (s *Server) handleChatSessionDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.requireChatSessions(w) {
+		return
+	}
 	id := r.PathValue("id")
 	if !s.chatSessions.Delete(id) {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
@@ -290,6 +332,9 @@ func (s *Server) handleChatSessionDelete(w http.ResponseWriter, r *http.Request)
 // handleChatSessionSend appends a user turn and starts a detached run. It
 // answers 202 right away: the browser never waits for the model.
 func (s *Server) handleChatSessionSend(w http.ResponseWriter, r *http.Request) {
+	if !s.requireChatSessions(w) {
+		return
+	}
 	id := r.PathValue("id")
 	if s.chatSessions.Get(id) == nil {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))

@@ -46,6 +46,10 @@ async function showSettingsView() {
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
 
+  const chatSessionsCfg = currentConfig.chat_sessions || {};
+  if ($("set-chat-sessions-enabled")) $("set-chat-sessions-enabled").checked = chatSessionsCfg.enabled !== false;
+  if ($("set-chat-sessions-on-model-delete")) $("set-chat-sessions-on-model-delete").value = chatSessionsCfg.on_model_delete === "keep" ? "keep" : "delete";
+
   const testingLimits = currentConfig.testing || {};
   if ($("set-testing-max-stage-tokens")) $("set-testing-max-stage-tokens").value = String(Math.max(0, testingLimits.max_stage_tokens || 0));
   if ($("set-testing-max-stage-seconds")) $("set-testing-max-stage-seconds").value = String(Math.max(0, testingLimits.max_stage_seconds || 0));
@@ -65,6 +69,7 @@ async function showSettingsView() {
   bindDefaultSystemPromptFileEvents();
   bindSystemPromptsModalEvents();
   bindChatDefaultsEvents();
+  bindChatSessionsSettingsEvents();
   bindHuggingFaceEvents();
   updateHFTokenBadge();
   syncHFTokenInput();
@@ -79,6 +84,7 @@ async function showSettingsView() {
   const path = window.location.pathname;
   let targetSecId = "sec-general";
   if (path === "/settings/chat-defaults") targetSecId = "sec-chat-defaults";
+  else if (path === "/settings/chat-sessions") targetSecId = "sec-chat-sessions";
   else if (path === "/settings/testing") targetSecId = "sec-testing";
   else if (path === "/settings/prompts") targetSecId = "sec-prompts";
   else if (path === "/settings/network") targetSecId = "sec-network";
@@ -280,6 +286,94 @@ function bindChatDefaultsEvents() {
   }
 }
 
+// ---------- persistent chat sessions ----------
+
+// patchChatSessionsConfig sends only the field that changed. The server keeps
+// every field the patch leaves out, so a partial body is safe.
+async function patchChatSessionsConfig(patch) {
+  const res = await api("/api/config", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_sessions: patch }),
+  });
+  if (currentConfig) currentConfig.chat_sessions = res?.chat_sessions || currentConfig.chat_sessions;
+  return res;
+}
+
+function bindChatSessionsSettingsEvents() {
+  const enabled = $("set-chat-sessions-enabled");
+  if (enabled && !enabled._bound) {
+    enabled._bound = true;
+    enabled.addEventListener("change", async () => {
+      const on = enabled.checked;
+      if (!on) {
+        // Turning the feature off cancels whatever is in flight, so say so
+        // before doing it rather than surprising the user with a stopped run.
+        const conf = await askConfirm({
+          title: t("settings.chat_sessions_disable_title"),
+          text: t("settings.chat_sessions_disable_desc"),
+          okText: t("settings.chat_sessions_disable_ok"),
+          okClass: "danger",
+        });
+        if (!conf?.ok) {
+          enabled.checked = true;
+          return;
+        }
+      }
+      try {
+        await patchChatSessionsConfig({ enabled: on });
+        toast(t(on ? "settings.chat_sessions_enabled_done" : "settings.chat_sessions_disabled_done"), "success");
+        // Any other open tab keeps its own copy of the flag, so nudge it to
+        // re-read instead of leaving a "+ Session" button that answers 403.
+        broadcastChatSessionsSetting(on);
+      } catch (e) {
+        enabled.checked = !on;
+        toast(t("toast.error", { msg: e.message }), "error");
+      }
+    });
+  }
+
+  const onModelDelete = $("set-chat-sessions-on-model-delete");
+  if (onModelDelete && !onModelDelete._bound) {
+    onModelDelete._bound = true;
+    onModelDelete.addEventListener("change", async () => {
+      const value = onModelDelete.value === "keep" ? "keep" : "delete";
+      try {
+        await patchChatSessionsConfig({ on_model_delete: value });
+        toast(t("settings.chat_sessions_on_model_delete_done", { mode: t(value === "keep" ? "settings.chat_sessions_keep_sessions" : "settings.chat_sessions_delete_its_sessions") }), "success");
+      } catch (e) {
+        toast(t("toast.error", { msg: e.message }), "error");
+      }
+    });
+  }
+
+  const clearAll = $("set-chat-sessions-clear-all");
+  if (clearAll && !clearAll._bound) {
+    clearAll._bound = true;
+    clearAll.addEventListener("click", async () => {
+      let count = 0;
+      try {
+        count = (await api("/api/chat/sessions"))?.sessions?.length || 0;
+      } catch (_) { /* the confirm below still explains what is at stake */ }
+      const conf = await askConfirm({
+        title: t("settings.chat_sessions_clear_all_title"),
+        text: t("settings.chat_sessions_clear_all_desc_count", { count }),
+        okText: t("settings.chat_sessions_clear_all_btn"),
+        okClass: "danger",
+      });
+      if (!conf?.ok) return;
+      try {
+        const res = await api("/api/chat/sessions", { method: "DELETE" });
+        toast(t("settings.chat_sessions_clear_all_done", { count: res?.deleted ?? count }), "success");
+        // Any other open tab must forget the sessions it still lists.
+        broadcastChatSessionsSetting(true);
+      } catch (e) {
+        toast(t("toast.error", { msg: e.message }), "error");
+      }
+    });
+  }
+}
+
 function bindSettingsNavEvents() {
   const navItems = document.querySelectorAll(".settings-nav-item");
   navItems.forEach((btn) => {
@@ -320,6 +414,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
     let subRoute = "/settings";
     if (sectionId === "sec-general") subRoute = "/settings/general";
     else if (sectionId === "sec-chat-defaults") subRoute = "/settings/chat-defaults";
+    else if (sectionId === "sec-chat-sessions") subRoute = "/settings/chat-sessions";
     else if (sectionId === "sec-testing") subRoute = "/settings/testing";
     else if (sectionId === "sec-prompts") subRoute = "/settings/prompts";
     else if (sectionId === "sec-network") subRoute = "/settings/network";

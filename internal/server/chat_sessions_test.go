@@ -404,9 +404,38 @@ func TestBuildSessionBodyDropsToolsWhenModelHasNone(t *testing.T) {
 
 	// A session keeps the options it was created with, so a model that cannot
 	// call tools has to drop them rather than fail every round.
-	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), false, false)
+	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{})
 	if body.WebTools != nil || body.Artifacts != nil {
 		t.Errorf("tools should be dropped: web=%v artifacts=%v", body.WebTools, body.Artifacts)
+	}
+}
+
+func TestBuildSessionBodyDropsThinkWhenModelCannotThink(t *testing.T) {
+	st := newTestSessionStore(t)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"model not found"}`, http.StatusNotFound)
+	}))
+	defer ts.Close()
+	srv := &Server{chatSessions: st, ollama: ollama.New(ts.URL)}
+
+	// think_level defaults to "auto", which travels as a hard think:true and
+	// makes Ollama answer 400 for a model without the capability. A detached turn
+	// has no browser around to have hidden the control, so the guard lives here.
+	sess := st.Create("no-thinker", SessionSettings{ThinkLevel: "auto"})
+	st.AppendUser(sess.ID, "hi", nil)
+
+	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true})
+	if body.Think != nil {
+		t.Errorf("think should be omitted for a model that cannot think, got %q", *body.Think)
+	}
+
+	// The same settings on a model that does think must keep the level.
+	body = srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true, CanThink: true})
+	if body.Think == nil {
+		t.Fatal("think should be sent when the model supports it")
+	}
+	if got := string(*body.Think); got != "auto" {
+		t.Errorf("think level = %q, want %q", got, "auto")
 	}
 }
 
@@ -523,7 +552,7 @@ func TestBuildSessionBodyUsesSavedSettings(t *testing.T) {
 	})
 	st.AppendUser(sess.ID, "hi", nil)
 
-	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), false, true)
+	body := srv.buildSessionBody(context.Background(), st.Get(sess.ID), sessionModelInfo{CanTools: true, CanThink: true})
 
 	if body.Model != "some-model" {
 		t.Errorf("model = %q", body.Model)
@@ -568,5 +597,175 @@ func TestNormalizeSessionNumCtxPct(t *testing.T) {
 	}
 	if got := sessionNumCtxTokens(50, 0); got != 16384 {
 		t.Errorf("50%% of the 32768 fallback = %d, want 16384", got)
+	}
+}
+
+func TestDeleteByModelOnlyRemovesThatModelsSessions(t *testing.T) {
+	st := newTestSessionStore(t)
+	a := st.Create("model-a", defaultSessionSettings())
+	b := st.Create("model-b", defaultSessionSettings())
+	c := st.Create("model-a", defaultSessionSettings())
+	st.flush(a.ID)
+	st.flush(b.ID)
+	st.flush(c.ID)
+
+	if n := st.DeleteByModel("model-a"); n != 2 {
+		t.Fatalf("DeleteByModel(model-a) = %d, want 2", n)
+	}
+	if st.Get(a.ID) != nil || st.Get(c.ID) != nil {
+		t.Error("the model-a sessions should be gone")
+	}
+	if st.Get(b.ID) == nil {
+		t.Error("the model-b session should have been left alone")
+	}
+	if n := st.DeleteByModel("nobody"); n != 0 {
+		t.Errorf("DeleteByModel(nobody) = %d, want 0", n)
+	}
+
+	// The files have to go too, otherwise a restart would resurrect them.
+	st2 := newChatSessionStore(st.dir)
+	st2.Load()
+	if got := len(st2.List()); got != 1 {
+		t.Errorf("after reload there are %d sessions, want 1", got)
+	}
+}
+
+func TestDeleteAllClearsEverySessionAndItsFiles(t *testing.T) {
+	st := newTestSessionStore(t)
+	for i := 0; i < 3; i++ {
+		sess := st.Create("model-a", defaultSessionSettings())
+		st.flush(sess.ID)
+	}
+	// A stray file that no longer has a session: DeleteAll sweeps those too,
+	// otherwise it would come back on the next restart.
+	stray := filepath.Join(st.dir, "cs-9999999999999-9.json")
+	if err := os.WriteFile(stray, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write stray file: %v", err)
+	}
+
+	if n := st.DeleteAll(); n != 3 {
+		t.Fatalf("DeleteAll = %d, want 3", n)
+	}
+	if len(st.List()) != 0 {
+		t.Error("no session should be left in memory")
+	}
+	if _, err := os.Stat(stray); !os.IsNotExist(err) {
+		t.Error("the stray session file should have been swept")
+	}
+
+	st2 := newChatSessionStore(st.dir)
+	st2.Load()
+	if got := len(st2.List()); got != 0 {
+		t.Errorf("after reload there are %d sessions, want 0", got)
+	}
+}
+
+func TestCancelAllStopsRunningAndQueuedTurns(t *testing.T) {
+	st := newTestSessionStore(t)
+	started := make(chan string, 3)
+	stop := make(chan struct{})
+	sess := st.Create("model-a", defaultSessionSettings())
+
+	// run stands in for dispatchSessionTurn: it binds a cancel func so Cancel has
+	// something to call, and releases the slot on the way out the way
+	// runSessionTurn does through finishSession.
+	run := func(id string) func() {
+		return func() {
+			_, release := context.WithCancel(context.Background())
+			st.bindRunning(id, release)
+			started <- id
+			<-stop
+			st.releaseRunning(id)
+		}
+	}
+	// Three separate sessions: the first two fill the concurrency slots and the
+	// third has to wait in the queue. Reusing one id would just be rejected by
+	// the one-turn-per-session guard.
+	ids := []string{sess.ID}
+	for i := 0; i < 2; i++ {
+		ids = append(ids, st.Create("model-a", defaultSessionSettings()).ID)
+	}
+	for _, id := range ids {
+		st.Start(id, run(id))
+	}
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the first turn never started")
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the second turn never started")
+	}
+	if !st.HasBusy() {
+		t.Fatal("two turns plus one queued means the store is busy")
+	}
+
+	if n := st.CancelAll(); n != 3 {
+		t.Fatalf("CancelAll = %d, want 3", n)
+	}
+	close(stop)
+	time.Sleep(200 * time.Millisecond)
+
+	if st.HasBusy() {
+		t.Error("nothing should be busy after CancelAll")
+	}
+	if got := st.Summary(sess.ID); got == nil || got.Status == chatSessionRunning {
+		t.Errorf("the first session should have settled, got %+v", got)
+	}
+}
+
+func TestTrimMessagesKeepsAnchorAndCountsDropped(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+	for i := 0; i < maxSessionMessages+10; i++ {
+		if !st.AppendUser(sess.ID, "turn", nil) {
+			t.Fatalf("AppendUser failed on turn %d", i)
+		}
+	}
+
+	got := st.Get(sess.ID)
+	if len(got.Messages) > maxSessionMessages {
+		t.Fatalf("transcript kept %d messages, want at most %d", len(got.Messages), maxSessionMessages)
+	}
+	if len(got.Messages) == 0 {
+		t.Fatal("trimming everything away would leave an unusable session")
+	}
+	if got.Messages[0].Content != "turn" {
+		t.Errorf("the first message is %q, want the anchor to survive", got.Messages[0].Content)
+	}
+	if got.DroppedMessages == 0 {
+		t.Error("dropped messages should be reported so the UI can say so")
+	}
+	if sum := st.Summary(sess.ID); sum == nil || sum.DroppedMessages != got.DroppedMessages {
+		t.Errorf("summary.DroppedMessages = %+v, want %d", sum, got.DroppedMessages)
+	}
+}
+
+func TestTrimMessagesTruncatesRunawayMessage(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+	st.AppendUser(sess.ID, "go", nil)
+
+	huge := strings.Repeat("x", maxSessionMessageRunes+5000)
+	st.Get(sess.ID).Messages = append(st.Get(sess.ID).Messages, SessionMessage{
+		Role:    "assistant",
+		Content: huge,
+		Raw:     huge,
+	})
+	st.trimMessagesLocked(st.Get(sess.ID))
+
+	got := st.Get(sess.ID)
+	last := got.Messages[len(got.Messages)-1]
+	if !last.Truncated {
+		t.Error("an oversized message should be flagged as truncated")
+	}
+	if len(last.Content) >= len(huge) {
+		t.Errorf("content is still %d runes, want it cut", len(last.Content))
+	}
+	if last.Raw != "" {
+		t.Error("the raw stream should be dropped, it is what makes these files huge")
 	}
 }

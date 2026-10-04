@@ -120,17 +120,17 @@ func normalizeSessionNumCtxPct(p int) int {
 // buildSessionBody assembles the chatRequestBody for a detached turn out of the
 // session's stored options, so a session behaves exactly like the chat that
 // created it.
-func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, isImageModel, canTools bool) chatRequestBody {
+func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps sessionModelInfo) chatRequestBody {
 	body := chatRequestBody{
 		Model:    sess.Model,
-		Messages: buildSessionMessages(sess, isImageModel),
+		Messages: buildSessionMessages(sess, caps.IsImage),
 		// A detached run has no artifact preview panel waiting to answer the two
 		// browser-only tools, so they stay out of the tool list instead of
 		// burning their timeout on every round.
 		NoBrowserTools: true,
 	}
 	st := sess.Settings
-	if isImageModel {
+	if caps.IsImage {
 		body.Width = st.ImageWidth
 		body.Height = st.ImageHeight
 		body.Steps = st.ImageSteps
@@ -146,19 +146,25 @@ func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, isImag
 				body.Options["num_ctx"] = toks
 			}
 		}
-		level := ollama.ThinkLevel(st.ThinkLevel)
-		if level == "" {
-			level = "auto"
+		// "auto" means "let the model decide", but on the wire it is a hard
+		// think:true, and Ollama rejects that outright for a model without the
+		// capability. A quick chat never hits this because the browser hides the
+		// thinking control for such a model; a detached turn has to do it here.
+		if caps.CanThink {
+			level := ollama.ThinkLevel(st.ThinkLevel)
+			if level == "" {
+				level = "auto"
+			}
+			body.Think = &level
 		}
-		body.Think = &level
 	}
 	// Image generation models answer from the last prompt, not from a
 	// conversation, and they never take tools.
-	if st.WebTools && canTools && !isImageModel {
+	if st.WebTools && caps.CanTools && !caps.IsImage {
 		yes := true
 		body.WebTools = &yes
 	}
-	if st.Artifacts && canTools && !isImageModel {
+	if st.Artifacts && caps.CanTools && !caps.IsImage {
 		yes := true
 		body.Artifacts = &yes
 		body.ArtifactDir = latestSessionArtifactDir(sess)
@@ -177,19 +183,33 @@ func latestSessionArtifactDir(sess *ChatSession) string {
 	return ""
 }
 
-// sessionModelCaps reports whether a model generates images outright and whether
-// it can call tools at all. Tool-backed options (web search, artifacts) are only
-// honoured when the model really supports them, because a session keeps the
-// settings it was created with even if the panel later hides those toggles.
-func (s *Server) sessionModelCaps(ctx context.Context, model string) (isImageModel, canTools bool) {
+// sessionModelInfo is what a detached turn needs to know about the model it is
+// about to run on.
+type sessionModelInfo struct {
+	// IsImage means the model generates images outright: it answers from the last
+	// prompt and takes neither a conversation nor tools.
+	IsImage bool
+	// CanTools means the model supports tool calling, for web search and artifacts.
+	CanTools bool
+	// CanThink means the model supports thinking. Sending think to a model that
+	// does not is a hard 400 from Ollama rather than a silent no-op, so it has to
+	// be left out entirely.
+	CanThink bool
+}
+
+// sessionModelCaps reads the capabilities a session turn has to respect. A
+// session keeps the settings it was created with even after the panel hides the
+// controls the current model cannot honour, so these are re-checked on every
+// turn instead of trusting the stored options.
+func (s *Server) sessionModelCaps(ctx context.Context, model string) sessionModelInfo {
 	if model == "" {
-		return false, false
+		return sessionModelInfo{}
 	}
 	show, err := s.ollama.Show(ctx, model)
 	if err != nil || show == nil {
-		return false, false
+		return sessionModelInfo{}
 	}
-	hasImage, hasVision, hasCompletion := false, false, false
+	var hasImage, hasVision, hasCompletion, hasThinking bool
 	for _, c := range show.Capabilities {
 		switch c {
 		case "image":
@@ -198,10 +218,15 @@ func (s *Server) sessionModelCaps(ctx context.Context, model string) (isImageMod
 			hasVision = true
 		case "completion":
 			hasCompletion = true
+		case "thinking":
+			hasThinking = true
 		}
 	}
-	isImageModel = hasImage && !hasVision && !hasCompletion
-	return isImageModel, hasCompletion
+	return sessionModelInfo{
+		IsImage:  hasImage && !hasVision && !hasCompletion,
+		CanTools: hasCompletion,
+		CanThink: hasThinking,
+	}
 }
 
 // dispatchSessionTurn starts a detached turn for a session, queueing it when
@@ -231,8 +256,7 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 		s.failSession(id, "session has no model")
 		return
 	}
-	isImageModel, canTools := s.sessionModelCaps(ctx, model)
-	body := s.buildSessionBody(ctx, sess, isImageModel, canTools)
+	body := s.buildSessionBody(ctx, sess, s.sessionModelCaps(ctx, model))
 	startedAt := time.Now()
 	sink := &sessionSink{srv: s, id: id, started: startedAt}
 
@@ -373,6 +397,7 @@ func (st *chatSessionStore) AppendUser(id string, content string, attach []ChatA
 		Attach:    attach,
 		CreatedAt: time.Now(),
 	})
+	st.trimMessagesLocked(sess)
 	st.touchLocked(sess)
 	st.flushLocked(sess)
 	// Deliberately no broadcast: the caller starts the turn right after, and
@@ -381,6 +406,43 @@ func (st *chatSessionStore) AppendUser(id string, content string, attach []ChatA
 	// had finished when none had started yet.
 	st.mu.Unlock()
 	return true
+}
+
+// trimMessagesLocked keeps a long-running session from growing without bound.
+// The transcript is the render source of truth and it is rewritten on every
+// token, so an unattended session that chats for hours would otherwise produce a
+// file nothing can open. The first user message is kept as the conversation
+// anchor, and the message being written right now is never dropped.
+func (st *chatSessionStore) trimMessagesLocked(sess *ChatSession) {
+	if len(sess.Messages) <= maxSessionMessages {
+		// A single runaway reply can still dominate the file on its own.
+		for i := range sess.Messages {
+			m := &sess.Messages[i]
+			if m.Pending || len(m.Content)+len(m.Raw) <= maxSessionMessageRunes {
+				continue
+			}
+			m.Content = truncateRunes(m.Content, maxSessionMessageRunes/2)
+			m.Raw = ""
+			m.ToolLog = nil
+			m.Truncated = true
+		}
+		return
+	}
+	// Drop from the front, but never the first user message: it is what the
+	// title came from and the anchor for the rest of the transcript.
+	drop := len(sess.Messages) - maxSessionMessages
+	keepFrom := 0
+	for i := 1; i < len(sess.Messages) && drop > 0; i++ {
+		if sess.Messages[i].Role == "user" {
+			drop--
+			keepFrom = i + 1
+		}
+	}
+	if keepFrom == 0 {
+		return
+	}
+	sess.Messages = append([]SessionMessage(nil), sess.Messages[keepFrom:]...)
+	sess.DroppedMessages += keepFrom
 }
 
 // MergeSettings folds the current options panel into the session. It is called

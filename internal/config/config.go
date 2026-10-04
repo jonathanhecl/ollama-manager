@@ -28,6 +28,32 @@ type ChatDefaults struct {
 	Artifacts *bool `json:"artifacts,omitempty"`
 }
 
+// ChatSessionsConfig controls the persistent, detached chat sessions: the
+// "+ Session" button in the chat options panel, which runs a turn on the server
+// and keeps going after the page is closed.
+type ChatSessionsConfig struct {
+	// Enabled turns the whole feature off. When false the API refuses to create
+	// or list sessions, so a browser that still has the old page open degrades to
+	// the plain, request-bound quick chat instead of failing mid-run.
+	Enabled *bool `json:"enabled,omitempty"`
+	// OnModelDelete decides what happens to a session whose model gets
+	// uninstalled: "delete" removes those sessions, "keep" leaves them and the
+	// UI flags them as missing their model. Defaults to "delete".
+	OnModelDelete string `json:"on_model_delete,omitempty"`
+}
+
+// IsEnabled reports whether persistent chat sessions are available. The feature
+// is on unless it was explicitly turned off.
+func (c ChatSessionsConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+// DeleteSessionsOnModelUninstall reports whether uninstalling a model should
+// also drop the sessions that ran on it.
+func (c ChatSessionsConfig) DeleteSessionsOnModelUninstall() bool {
+	return c.OnModelDelete != "keep"
+}
+
 // GatewayConfig controls the optional OpenAI/Ollama-compatible gateway
 // that re-exposes selected models to third-party clients on its own port.
 type GatewayConfig struct {
@@ -162,11 +188,12 @@ type Config struct {
 	// search/details) so gated/private repos are visible and rate limits are
 	// higher. It is NOT used by Ollama pulls: Ollama authenticates to hf.co
 	// with its own ed25519 key (see /api/ollama/key).
-	HFToken               string        `json:"hf_token,omitempty"`
-	ChatDefaults          ChatDefaults  `json:"chat_defaults"`
-	LeaderboardGroupOrder []string      `json:"leaderboard_group_order,omitempty"`
-	Testing               TestingLimits `json:"testing"`
-	Gateway               GatewayConfig `json:"gateway"`
+	HFToken               string             `json:"hf_token,omitempty"`
+	ChatDefaults          ChatDefaults       `json:"chat_defaults"`
+	ChatSessions          ChatSessionsConfig `json:"chat_sessions"`
+	LeaderboardGroupOrder []string           `json:"leaderboard_group_order,omitempty"`
+	Testing               TestingLimits      `json:"testing"`
+	Gateway               GatewayConfig      `json:"gateway"`
 
 	path string `json:"-"`
 }
@@ -178,6 +205,7 @@ func Defaults() *Config {
 	defaultTopP := 0.9
 	defaultWebTools := false
 	defaultArtifacts := false
+	defaultSessions := true
 
 	return &Config{
 		Port:          7860,
@@ -194,6 +222,10 @@ func Defaults() *Config {
 			ThinkLevel:   "auto",
 			WebTools:     &defaultWebTools,
 			Artifacts:    &defaultArtifacts,
+		},
+		ChatSessions: ChatSessionsConfig{
+			Enabled:       &defaultSessions,
+			OnModelDelete: "delete",
 		},
 	}
 }

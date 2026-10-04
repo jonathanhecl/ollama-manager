@@ -30,6 +30,9 @@ let chatSessionRun = null;
 let chatSessionRunPending = false;
 // chatSessionFeedRetry guards the EventSource against a tight reconnect loop.
 let chatSessionFeedRetry = 0;
+// chatSessionsEnabled mirrors the server setting. It starts true so the panel is
+// usable before the first /api/chat/sessions round trip answers.
+let chatSessionsEnabled = true;
 
 // ---------- badges ----------
 
@@ -112,11 +115,15 @@ function renderSessionList() {
     const active = s.id === chatSessionId;
     const title = s.title || t("chat.session_untitled");
     const canStop = s.status === "running" || s.status === "queued";
+    // A session whose model is gone can never run again. The summary has no way
+    // to know that, so the row checks the live model list and says so instead of
+    // silently failing on the next message.
+    const modelMissing = !!s.model && !modelByName(s.model);
     html += `<div class="chat-session-row${active ? " active" : ""}" data-session-id="${escapeHtml(s.id)}" title="${escapeHtml(title)}">
       <span class="chat-session-row-badges">${sessionBadgeHtml(s.model)}</span>
       <span class="chat-session-row-main" data-session-open="${escapeHtml(s.id)}">
         <span class="chat-session-row-title">${escapeHtml(title)}</span>
-        <span class="chat-session-row-meta">${escapeHtml(sessionRowStatusText(s))}${s.error ? ` · ${escapeHtml(s.error)}` : ""}</span>
+        <span class="chat-session-row-meta">${escapeHtml(sessionRowStatusText(s))}${s.error ? ` · ${escapeHtml(s.error)}` : ""}${s.dropped_messages ? ` · ${escapeHtml(t("chat.session_trimmed", { n: s.dropped_messages }))}` : ""}${modelMissing ? ` · ${escapeHtml(t("chat.session_model_missing"))}` : ""}</span>
       </span>
       <span class="chat-session-row-actions">
         ${canStop ? `<button type="button" class="chat-session-row-btn" data-session-stop="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_stop"))}" aria-label="${escapeHtml(t("chat.session_stop"))}">■</button>` : ""}
@@ -130,6 +137,14 @@ function renderSessionList() {
   const count = $("chat-sessions-count");
   if (count) {
     count.textContent = sessions.length ? String(sessions.length) : "";
+  }
+  // The header button and the in-list one are the same action; showing both
+  // would just be two ways to delete everything on the same screen.
+  const clearBtn = $("chat-sessions-clear-all");
+  if (clearBtn) {
+    // One session is removed with its own ×, so the nuke button only shows up
+    // once there is more than one thing to lose.
+    clearBtn.hidden = !chatSessionsEnabled || sessions.length < 2;
   }
 }
 
@@ -194,13 +209,39 @@ function settleSessionRun() {
 // ---------- loading ----------
 
 async function loadChatSessions() {
+  // null means "we could not ask", which must not be confused with "off": a
+  // network blip should not hide the whole feature.
+  let enabled = null;
   try {
     const data = await api("/api/chat/sessions");
+    // The server is the authority on whether the feature is on: settings can
+    // turn it off at any moment, and a page left open has to notice. When it is
+    // off the whole block is hidden and the chat stays the plain, request-bound
+    // quick chat.
+    enabled = data?.enabled !== false;
     chatSessions = new Map((data?.sessions || []).map((s) => [s.id, s]));
   } catch {
     chatSessions = new Map();
   }
+  if (enabled !== null) chatSessionsEnabled = enabled;
   renderSessionList();
+  renderSessionBadges();
+  applyChatSessionsAvailability();
+}
+
+// applyChatSessionsAvailability hides the "+ Session" button and the session
+// list when the feature is disabled in settings. A session that is already open
+// is left alone: turning the switch off cancels the running turn server-side, so
+// the page still needs to follow it to the end and let the user read the result.
+function applyChatSessionsAvailability() {
+  const block = $("chat-sessions-block");
+  if (block) block.hidden = !chatSessionsEnabled;
+  const btn = $("chat-session-new-btn");
+  if (btn) btn.hidden = !chatSessionsEnabled;
+  if (chatSessionsEnabled || chatSessionId) return;
+  // Nothing to show while the feature is off: drop the badges too, otherwise the
+  // model list keeps hinting at sessions the user can no longer open.
+  chatSessions = new Map();
   renderSessionBadges();
 }
 
@@ -548,6 +589,12 @@ async function editChatSessionUserMessage(userMsg, text, attachments) {
 // ---------- session actions ----------
 
 async function newChatSession() {
+  if (!chatSessionsEnabled) {
+    // The server refuses with 403 anyway, but the button should never be
+    // clickable in the first place.
+    toast(t("chat.sessions_disabled"), "error");
+    return;
+  }
   const modelName = $("chat-model")?.value || activeName || "";
   if (!modelName) {
     toast(t("chat.no_models"), "error");
@@ -587,6 +634,39 @@ async function deleteChatSession(id) {
   }
   renderSessionList();
   renderSessionBadges();
+}
+
+// clearAllChatSessions wipes every session of every model. It asks first,
+// because there is no undo and no per-session backup.
+async function clearAllChatSessions() {
+  const n = chatSessions.size;
+  if (!n) return;
+  const { ok } = await askConfirm({
+    title: t("chat.session_clear_all_title"),
+    text: t("chat.session_clear_all_text", { n }),
+    okText: t("chat.session_clear_all_ok"),
+    okClass: "danger",
+  });
+  if (!ok) return;
+  try {
+    await api("/api/chat/sessions", { method: "DELETE" });
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+    return;
+  }
+  chatSessions.clear();
+  if (chatSessionId) {
+    chatSessionId = null;
+    chatSessionRun = null;
+    chatSessionRunPending = false;
+    settleSessionRun();
+    closeChatSessionStream();
+    resetChatState();
+    saveActiveChatSession();
+  }
+  renderSessionList();
+  renderSessionBadges();
+  toast(t("chat.session_clear_all_done", { n }), "success");
 }
 
 async function cancelChatSession(id) {
@@ -664,10 +744,64 @@ function ensureChatSessionFeed() {
   };
 }
 
+// ---------- cross-tab sync ----------
+
+// The settings page can turn the feature off or wipe every session while this
+// page is open. There is no server event for either, so the two sides talk over
+// a BroadcastChannel, with a localStorage ping as the fallback for browsers
+// without one. Either way the reaction is the same: re-read from the server.
+const CHAT_SESSIONS_SYNC_KEY = "ollama_manager_chat_sessions_sync";
+
+// broadcastChatSessionsSetting tells the other tabs that the settings or the
+// stored sessions changed. It is a hint, never the source of truth: every tab
+// re-fetches /api/chat/sessions when it hears it.
+function broadcastChatSessionsSetting(enabled) {
+  const payload = { at: Date.now(), enabled: !!enabled };
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const ch = new BroadcastChannel(CHAT_SESSIONS_SYNC_KEY);
+      ch.postMessage(payload);
+      // The channel is only needed for this one message; closing it right away
+      // keeps it from pinning a channel open for the life of the page.
+      setTimeout(() => { try { ch.close(); } catch (_) { /* already closed */ } }, 0);
+      return;
+    }
+  } catch (_) { /* fall through to localStorage */ }
+  try { localStorage.setItem(CHAT_SESSIONS_SYNC_KEY, JSON.stringify(payload)); } catch (_) { /* private mode */ }
+}
+
+function onChatSessionsSyncMessage() {
+  // Debounced: the settings page fires once per change, but a "clear all" plus
+  // a toggle could land back to back.
+  clearTimeout(onChatSessionsSyncMessage._timer);
+  onChatSessionsSyncMessage._timer = setTimeout(() => {
+    void loadChatSessions();
+  }, 150);
+}
+
+if (typeof BroadcastChannel !== "undefined") {
+  try {
+    const ch = new BroadcastChannel(CHAT_SESSIONS_SYNC_KEY);
+    ch.addEventListener("message", onChatSessionsSyncMessage);
+  } catch (_) { /* localStorage below still covers it */ }
+}
+
+// The storage event only fires in *other* tabs, which is exactly what is wanted:
+// the tab that made the change already updated itself.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (ev) => {
+    if (ev.key === CHAT_SESSIONS_SYNC_KEY) onChatSessionsSyncMessage();
+  });
+}
+
 // ---------- wiring ----------
 
 $("chat-session-new-btn")?.addEventListener("click", () => {
   void newChatSession();
+});
+
+$("chat-sessions-clear-all")?.addEventListener("click", () => {
+  void clearAllChatSessions();
 });
 
 $("chat-sessions-list")?.addEventListener("click", (ev) => {

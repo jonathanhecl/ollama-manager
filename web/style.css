@@ -4701,6 +4701,26 @@ button.chat-send:disabled:hover {
   font-size: 0.68rem;
   color: var(--text-dim);
 }
+/* Pushes the clear-all button next to the count so the title stays left and
+   the two controls line up on the right. */
+.chat-sessions-head-spacer {
+  flex: 1;
+}
+.chat-sessions-clear-all {
+  border: 1px solid transparent;
+  background: none;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.chat-sessions-clear-all:hover {
+  color: #ff6b6b;
+  border-color: color-mix(in srgb, #ff6b6b 45%, transparent);
+  background: color-mix(in srgb, #ff6b6b 12%, transparent);
+}
 .chat-sessions-list {
   display: flex;
   flex-direction: column;

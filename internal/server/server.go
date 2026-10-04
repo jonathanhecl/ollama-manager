@@ -285,6 +285,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/chat/events", s.requireAuth(s.handleChatEvents))
 	mux.Handle("GET /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionGet))
 	mux.Handle("PATCH /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionPatch))
+	mux.Handle("DELETE /api/chat/sessions", s.requireAuth(s.handleChatSessionsDeleteAll))
 	mux.Handle("DELETE /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionDelete))
 	mux.Handle("GET /api/chat/sessions/{id}/events", s.requireAuth(s.handleChatSessionEvents))
 	mux.Handle("POST /api/chat/sessions/{id}/messages", s.requireAuth(s.handleChatSessionSend))

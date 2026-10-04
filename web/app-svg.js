@@ -4830,6 +4830,13 @@ function updateStreamBar() {
 }
 
 function stopChatGeneration() {
+  // In a persistent session the turn lives on the server and never had a fetch
+  // to abort: /messages already answered 202 and the reply arrives over the event
+  // feed. Stopping means telling the server to drop the turn.
+  if (typeof chatSessionId !== "undefined" && chatSessionId && typeof cancelChatSession === "function") {
+    void cancelChatSession(chatSessionId);
+    return;
+  }
   if (!chatStreamLock || !chatAbortController) return;
   try { chatAbortController.abort(); } catch (_) { }
 }

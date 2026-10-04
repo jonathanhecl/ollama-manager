@@ -33,6 +33,16 @@ const maxConcurrentChatSessions = 2
 // browser can tail a live run; older entries are dropped as new ones arrive.
 const maxSessionEvents = 4000
 
+// maxSessionMessages bounds the persisted transcript. A session left working
+// unattended for hours can accumulate a lot of turns, and every token rewrites
+// the file, so the oldest messages are dropped past this point. The first user
+// message is always kept as the anchor of the conversation.
+const maxSessionMessages = 400
+
+// maxSessionMessageRunes drops a single message that grew past this size, which
+// in practice means a runaway reply that would otherwise dominate the file.
+const maxSessionMessageRunes = 200000
+
 // chatSessionSaveDebounce is how long a burst of stream events may rewrite a
 // session file before we actually hit the disk.
 const chatSessionSaveDebounce = 1500 * time.Millisecond
@@ -96,6 +106,9 @@ type SessionMessage struct {
 	// StreamStartedAt is the client clock the browser uses to draw the elapsed
 	// timer; it is only a hint and the server recomputes on restore.
 	StreamStartedAt int64 `json:"stream_started_at,omitempty"`
+	// Truncated marks a message whose body was cut for size, so the UI says the
+	// reply was trimmed instead of silently showing one that ends mid-sentence.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // SessionSettings is the snapshot of the chat options panel taken at the moment
@@ -141,6 +154,9 @@ type ChatSession struct {
 	CreatedAt  time.Time        `json:"created_at"`
 	UpdatedAt  time.Time        `json:"updated_at"`
 	LastActive time.Time        `json:"last_active_at"`
+	// DroppedMessages counts transcript entries removed by the size cap, so the
+	// UI can be honest about a session that no longer shows its whole history.
+	DroppedMessages int `json:"dropped_messages,omitempty"`
 }
 
 // SessionSummary is the lightweight row used by the session list and by the
@@ -156,6 +172,13 @@ type SessionSummary struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	LastActive time.Time `json:"last_active_at"`
+	// DroppedMessages is the number of trimmed transcript entries, so a row can
+	// say "older messages were trimmed".
+	DroppedMessages int `json:"dropped_messages,omitempty"`
+	// ModelMissing is set by the UI, not the server: a summary cannot know which
+	// models are still installed. The row uses it to flag a session that can no
+	// longer run.
+	ModelMissing bool `json:"model_missing,omitempty"`
 }
 
 const (
@@ -326,6 +349,8 @@ func summaryOf(sess *ChatSession) SessionSummary {
 		CreatedAt:  sess.CreatedAt,
 		UpdatedAt:  sess.UpdatedAt,
 		LastActive: sess.LastActive,
+
+		DroppedMessages: sess.DroppedMessages,
 	}
 }
 
@@ -373,6 +398,94 @@ func (st *chatSessionStore) Delete(id string) bool {
 		st.broadcast(ChatSessionEvent{Kind: chatSessionRemove, ID: id})
 	}
 	return sess != nil || removed
+}
+
+// DeleteByModel removes every session that runs on the given model and returns
+// how many went away. It backs the "uninstall a model" cleanup, which is the
+// point where keeping transcripts around is most confusing: they can never run
+// again until the exact same model is pulled back.
+func (st *chatSessionStore) DeleteByModel(model string) int {
+	st.mu.Lock()
+	var ids []string
+	for _, sess := range st.sessions {
+		if sess.Model == model {
+			ids = append(ids, sess.ID)
+		}
+	}
+	st.mu.Unlock()
+	for _, id := range ids {
+		st.Delete(id)
+	}
+	if len(ids) > 0 {
+		log.Printf("[chat-sessions] removed %d session(s) for uninstalled model %q", len(ids), model)
+	}
+	return len(ids)
+}
+
+// DeleteAll wipes every session and returns how many were removed. "Clear all"
+// in the UI goes through here.
+func (st *chatSessionStore) DeleteAll() int {
+	st.mu.Lock()
+	ids := make([]string, 0, len(st.sessions))
+	for id := range st.sessions {
+		ids = append(ids, id)
+	}
+	st.mu.Unlock()
+	n := 0
+	for _, id := range ids {
+		if st.Delete(id) {
+			n++
+		}
+	}
+	// Stray files from an interrupted delete, or from a hand-edited data dir.
+	// They are counted apart: a stray is not a session, and the caller reports
+	// this number to the user as "N sessions deleted".
+	strays := 0
+	if entries, err := os.ReadDir(st.dir); err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".json") || !strings.HasPrefix(name, "cs-") {
+				continue
+			}
+			path := filepath.Join(st.dir, name)
+			if err := os.Remove(path); err == nil {
+				strays++
+			}
+		}
+	}
+	if n > 0 || strays > 0 {
+		log.Printf("[chat-sessions] cleared %d session(s) and %d stray file(s)", n, strays)
+	}
+	return n
+}
+
+// HasBusy reports whether any session is running or waiting for a slot.
+func (st *chatSessionStore) HasBusy() bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return len(st.running) > 0 || len(st.queue) > 0
+}
+
+// CancelAll stops every in-flight turn and settles the sessions as cancelled.
+// It runs before the feature is switched off, so nothing is left running
+// without a page listening to it.
+func (st *chatSessionStore) CancelAll() int {
+	st.mu.Lock()
+	ids := make([]string, 0, len(st.running)+len(st.queue))
+	for id := range st.running {
+		ids = append(ids, id)
+	}
+	for _, q := range st.queue {
+		ids = append(ids, q.id)
+	}
+	st.mu.Unlock()
+	n := 0
+	for _, id := range ids {
+		if st.Cancel(id) {
+			n++
+		}
+	}
+	return n
 }
 
 func (st *chatSessionStore) dropFromQueueLocked(id string) {

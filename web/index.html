@@ -270,6 +270,8 @@
         <div id="chat-sessions-block" class="chat-sessions-block">
           <div class="chat-sessions-head">
             <span class="chat-sessions-title" data-i18n="chat.sessions_title">Sessions</span>
+            <span class="chat-sessions-head-spacer"></span>
+            <button id="chat-sessions-clear-all" type="button" class="chat-sessions-clear-all" data-i18n="chat.session_clear_all" title="Delete every session" hidden>Clear all</button>
             <span id="chat-sessions-count" class="chat-sessions-count mono"></span>
           </div>
           <div id="chat-sessions-list" class="chat-sessions-list"></div>
@@ -1439,6 +1441,10 @@
             <span class="settings-nav-icon">💬</span>
             <span class="settings-nav-label" data-i18n="settings.nav_chat_defaults">Chat Defaults</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-chat-sessions">
+            <span class="settings-nav-icon">🗂️</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_chat_sessions">Chat Sessions</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-testing">
             <span class="settings-nav-icon">⚡</span>
             <span class="settings-nav-label" data-i18n="settings.nav_testing">Testing</span>
@@ -1602,6 +1608,40 @@
                   <small class="muted settings-reset-overrides-desc" data-i18n="settings.reset_all_models_desc">Clear all browser-saved custom parameters and prompts for individual models so they all use these defaults.</small>
                 </div>
                 <button type="button" id="set-reset-all-models-btn" class="danger" data-i18n="settings.reset_all_models_btn">Reset defaults for all models</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Persistent chat sessions -->
+          <section class="settings-section-card" id="sec-chat-sessions" hidden>
+            <div class="settings-section-header">
+              <h3 class="settings-section-title" data-i18n="settings.chat_sessions_section">Persistent Chat Sessions</h3>
+              <p class="settings-section-desc" data-i18n="settings.chat_sessions_hint">Sessions created from the "+ Session" button in the chat options panel keep generating on the server after you close the page, and can be reopened, continued or deleted later.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="settings.chat_sessions_enabled">Enable chat sessions</span>
+                </div>
+                <label class="switch">
+                  <input id="set-chat-sessions-enabled" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div class="field-compact">
+                <label for="set-chat-sessions-on-model-delete" data-i18n="settings.chat_sessions_on_model_delete">When a model is uninstalled</label>
+                <select id="set-chat-sessions-on-model-delete" autocomplete="off">
+                  <option value="delete" data-i18n="settings.chat_sessions_delete_its_sessions">Delete its sessions</option>
+                  <option value="keep" data-i18n="settings.chat_sessions_keep_sessions">Keep its sessions</option>
+                </select>
+                <small class="muted" data-i18n="settings.chat_sessions_on_model_delete_hint">Keeping them leaves the transcripts readable in case the model is pulled back; they are flagged as missing their model.</small>
+              </div>
+              <div class="settings-reset-overrides-card">
+                <div class="settings-reset-overrides-info">
+                  <span class="settings-reset-overrides-title" data-i18n="settings.chat_sessions_clear_all_title">Delete every session</span>
+                  <small class="muted settings-reset-overrides-desc" data-i18n="settings.chat_sessions_clear_all_desc">Removes all stored session transcripts for every model. This cannot be undone.</small>
+                </div>
+                <button type="button" id="set-chat-sessions-clear-all" class="danger" data-i18n="settings.chat_sessions_clear_all_btn">Delete all sessions</button>
               </div>
             </div>
           </section>

@@ -363,12 +363,24 @@ async function openChatSession(id) {
   closeChatSessionStream();
   chatSessionId = id;
   chatSessionRunPending = false;
+  // Detach whatever the previous session was streaming before the transcript is
+  // replaced. chatStreamLock and activeStreamMessage are chat-wide globals: a run
+  // that is still "in flight" here would keep the send button stuck on Queue and
+  // keep appending to a transcript that is no longer on screen. The turn itself
+  // is not cancelled - it keeps running on the server, which is the whole point
+  // of a session, and its badge keeps showing that it is working.
+  if (chatSessionRun) settleSessionRun();
+  else {
+    chatStreamLock = false;
+    activeStreamMessage = null;
+    updateStreamBar();
+    updateChatSendEnabled();
+  }
   mergeSessionSummary(detail);
   applySessionTranscript(detail);
 
   if (currentView !== "chat") showChatView();
 
-  chatSessionRun = null;
   if (detail.status === "running" || detail.status === "queued") {
     syncSessionRunWithStatus({ status: detail.status, model: detail.model });
   }

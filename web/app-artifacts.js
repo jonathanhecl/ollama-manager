@@ -864,8 +864,14 @@ function bindChatEvents() {
     swapToArtifact($("chat-view"));
   });
   $("chat-reset-btn")?.addEventListener("click", async () => {
+    // Reset means "start over", so an open persistent session has to end with
+    // it. Clearing the transcript alone would leave the session streaming, and
+    // the next chunk would render an assistant reply with nothing above it.
+    const endsSession = typeof chatSessionId !== "undefined" && !!chatSessionId
+      && typeof closeChatSession === "function";
     if (chatMessages.length === 0 && !activeArtifactTimestamp && chatAttachments.length === 0 && !$("chat-input")?.value.trim()) {
-      resetChatState();
+      if (endsSession) void closeChatSession();
+      else resetChatState();
       return;
     }
     const res = await askConfirm({
@@ -875,7 +881,8 @@ function bindChatEvents() {
       okClass: "primary",
     });
     if (res && res.ok) {
-      resetChatState();
+      if (endsSession) void closeChatSession();
+      else resetChatState();
       toast(t("chat.reset_success"), "success");
     }
   });

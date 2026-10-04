@@ -425,7 +425,15 @@ function findModelByUrlKey(key) {
 
 function hideAllMainViews() {
   if (typeof stopBatteryPolling === "function") stopBatteryPolling();
-  if (typeof currentView !== "undefined" && currentView === "chat") {
+  // Leaving the chat throws a quick chat away on purpose, but a persistent
+  // session outlives the view: it is still open on the server and still
+  // streaming. Wiping it here would drop the transcript the user came back to
+  // read, and any chunk that arrives after the switch would repopulate the chat
+  // with an assistant reply that has no user turn above it. Switching the model
+  // dropdown, clicking Reset or picking "Quick chat" are the deliberate ways to
+  // end a session, not navigating away from it.
+  const sessionOpen = typeof chatSessionId !== "undefined" && !!chatSessionId;
+  if (!sessionOpen && typeof currentView !== "undefined" && currentView === "chat") {
     if (typeof resetChatState === "function") {
       resetChatState();
     }

@@ -127,6 +127,9 @@ function renderSessionList() {
 
   for (const s of sessions) {
     const active = s.id === chatSessionId;
+    // A working session is exporting a moving target, so its export button is
+    // hidden; the idle row offers it left of the delete button.
+    const working = s.status === "running" || s.status === "queued";
     // The row shows either the name the user gave it, or just when it was last
     // used. The prompt that started the session is never echoed back here, and
     // neither are notes about the model: a session whose model is gone just
@@ -145,6 +148,7 @@ function renderSessionList() {
         ${body}
       </span>
       <span class="chat-session-row-actions">
+        ${working ? "" : `<button type="button" class="chat-session-row-btn chat-session-row-export" data-session-export="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_export"))}" aria-label="${escapeHtml(t("chat.session_export"))}">⇩</button>`}
         <button type="button" class="chat-session-row-btn chat-session-row-del" data-session-del="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_delete"))}" aria-label="${escapeHtml(t("chat.session_delete"))}">×</button>
       </span>
     </div>`;
@@ -540,15 +544,24 @@ function handleChatSessionStreamEvent(name, ev) {
   }
   // A queued turn just started: the server moved it from the queue to the
   // transcript. Move it here too, then open the assistant bubble the stream is
-  // about to fill. A reconnecting tab skips this and gets the message from the
-  // transcript instead, so it is guarded on the queue still holding it.
+  // about to fill. Two cases:
+  //   - a watcher that had the queued row: drop it and append the turn;
+  //   - the sender, which already drew the turn optimistically: only clear the
+  //     marker, so the reply does not double the user message.
   if (name === "queued_user") {
     const m = parsed.data || {};
     const qid = m.queue_id || "";
-    const idx = chatPendingQueue.findIndex((q) => q.id === qid);
+    const idx = qid ? chatPendingQueue.findIndex((q) => q.id === qid) : -1;
     if (idx >= 0) {
       chatPendingQueue.splice(idx, 1);
       renderChatQueue();
+    }
+    const pendingUser = chatMessages.some((x) => x.role === "user" && x._optimistic);
+    if (pendingUser) {
+      for (const x of chatMessages) {
+        if (x.role === "user" && x._optimistic) x._optimistic = false;
+      }
+    } else {
       chatMessages.push(sessionMessageToChatMessage(m));
       renderChatMessages();
       scrollChatToBottom(true);
@@ -621,15 +634,22 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
   // runs on it.
   const sel = $("chat-model");
   const modelName = sel?.value || sum?.model || activeName || "";
-  const busy = (sum && (sum.status === "running" || sum.status === "queued")) || chatStreamLock;
+  // busy is decided only from the session state, not chatStreamLock: that flag
+  // also covers a quick chat and the brief Q&A round trip of a different run.
+  const busy = !!(sum && (sum.status === "running" || sum.status === "queued"));
 
   chatEditingMessageId = "";
   chatEditingDraft = "";
 
   // A turn that will queue has no assistant bubble yet: the server starts it
-  // later and the stream opens that bubble then.
+  // later and the stream opens that bubble then. Regenerate and edit-and-resend
+  // always run now: they rewrite the turn already in the transcript.
   const startsNow = !busy || opts.replaceLast || opts.editLast;
 
+  // The optimistic local entry gets a temp id and the message text. When the
+  // server answers it echoes the authoritative queue with the real ids, so the
+  // temp entry is replaced without ever clashing on identity.
+  let optimisticQueueId = "";
   if (opts.editLast) {
     // The caller already rewrote the user turn in place.
   } else if (!busy) {
@@ -648,12 +668,14 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
       role: "user",
       content: text,
       attachments: (attachments || []).map((a) => ({ ...a })),
+      _optimistic: true,
     });
   } else {
-    // Draw it in the queue panel right away; the server echoes the authoritative
-    // queue back when the POST answers.
+    // Draw it in the queue panel. The temp entry carries the text so it can be
+    // reconciled with the server's real queue id when the POST answers.
+    optimisticQueueId = nanoid();
     chatPendingQueue.push({
-      id: nanoid(),
+      id: optimisticQueueId,
       text,
       attachments: (attachments || []).map((a) => ({ ...a })),
     });
@@ -692,30 +714,35 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
 
   try {
     const res = await api(`/api/chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
-    if (startsNow) {
-      saveActiveChatSession();
-    } else {
-      // No turn started (it queued), so hand the composer back to the user.
-      updateChatSendEnabled();
-    }
-    // The server is the source of truth for the queue: replace the optimistic
-    // local copy with the exact order it now holds, with real queue ids.
     if (res && Array.isArray(res.queue)) setSessionQueueFromDetail(res.queue);
+    // If the server no longer holds our optimistic entry (its turn started, or
+    // the echo came without it), drop the local copy. A `queued_user` event, if
+    // one raced the response, already put the real turn in the transcript.
+    if (optimisticQueueId && !chatSessionQueueHas(optimisticQueueId)) {
+      chatPendingQueue = chatPendingQueue.filter((q) => q.id !== optimisticQueueId);
+      renderChatQueue();
+    }
+    if (startsNow) saveActiveChatSession();
+    else updateChatSendEnabled();
   } catch (e) {
     if (assistantMsg) {
       assistantMsg.streaming = false;
       chatSessionRun = null;
       settleSessionRun();
     }
-    // The old 409 path: a server that still refuses a busy message gets the text
-    // back in the composer instead of losing it.
+    // Nothing was stored, so remove the optimistic row/bubble we drew. The old
+    // 409 path also puts the text back in the composer rather than losing it.
+    if (optimisticQueueId) {
+      chatPendingQueue = chatPendingQueue.filter((q) => q.id !== optimisticQueueId);
+      renderChatQueue();
+    }
     if (e && (e.status === 409 || e.statusCode === 409)) {
       const input = $("chat-input");
       if (input) {
         input.value = text;
         input.focus();
       }
-      if (assistantMsg) chatMessages.pop();
+      chatMessages = chatMessages.filter((m) => !m._optimistic);
       renderChatMessages();
       void toast(t("chat.session_busy"), "error");
       return;
@@ -726,6 +753,11 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
     }
     void toast(t("toast.error", { msg: e.message }), "error");
   }
+}
+
+// chatSessionQueueHas reports whether the local queue still holds an entry.
+function chatSessionQueueHas(queueID) {
+  return chatPendingQueue.some((q) => q.id === queueID);
 }
 
 // regenerateChatSessionReply asks the server to drop the current reply to
@@ -797,6 +829,67 @@ async function renameChatSession(id) {
     chatSessions.set(id, sum);
     renderSessionList();
     toast(t("chat.session_renamed"), "success");
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+  }
+}
+
+// exportChatSession downloads the transcript as a Markdown file: only the user
+// turns and the assistant answers, in order, each with its date. Thinking, tool
+// logs, settings, model and durations are deliberately left out.
+async function exportChatSession(id) {
+  let detail;
+  try {
+    detail = await api(`/api/chat/sessions/${encodeURIComponent(id)}`);
+  } catch (e) {
+    toast(t("toast.error", { msg: e.message }), "error");
+    return;
+  }
+  if (!detail) return;
+  const md = sessionDetailToMarkdown(detail);
+  const title = (detail.custom_title && detail.title) ? detail.title : "chat";
+  downloadTextFile(`${safeFileStem(title)}.md`, md);
+  toast(t("chat.session_exported"), "success");
+}
+
+// sessionDetailToMarkdown builds the export body. It keeps only role, content
+// and the date, and skips the in-flight assistant turn so a partial reply is not
+// frozen into the file.
+function sessionDetailToMarkdown(detail) {
+  const lines = [];
+  if (detail.custom_title && detail.title) {
+    lines.push(`# ${detail.title}`, "");
+  }
+  for (const m of (detail.messages || [])) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    if (m.role === "assistant" && m.pending) continue;
+    const label = m.role === "user" ? t("chat.role_user") : t("chat.role_assistant");
+    const when = m.created_at ? fmtDateTimeFull(m.created_at) : "";
+    lines.push(`## ${label}${when ? ` — ${when}` : ""}`, "");
+    const body = m.role === "assistant" ? splitThink(m.raw || "").answer : (m.content || "");
+    lines.push((body || "").trim(), "");
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+// safeFileStem turns a session name into something safe for a file name.
+function safeFileStem(name) {
+  const stem = String(name || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 60).trim();
+  return stem || "chat";
+}
+
+// downloadTextFile triggers a browser download without touching the server.
+function downloadTextFile(filename, text) {
+  try {
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
   }
@@ -1013,6 +1106,12 @@ $("chat-sessions-list")?.addEventListener("click", (ev) => {
   if (del) {
     ev.stopPropagation();
     void deleteChatSession(del.getAttribute("data-session-del"));
+    return;
+  }
+  const exp = ev.target.closest("[data-session-export]");
+  if (exp) {
+    ev.stopPropagation();
+    void exportChatSession(exp.getAttribute("data-session-export"));
     return;
   }
   if (ev.target.closest("[data-session-quick]")) {

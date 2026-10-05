@@ -1517,8 +1517,36 @@ func TestHandleChatSessionSendQueuesWhileBusy(t *testing.T) {
 	if got := st.Get(sess.ID); len(got.Queue) != 1 || got.Queue[0].Content != "second message" {
 		t.Fatalf("stored queue = %+v, want the second message", got.Queue)
 	}
+	// The echoed entry has to carry the real queue id, which is what the browser
+	// uses to cancel or promote exactly that message.
+	var echoed struct {
+		QueueID string `json:"queue_id"`
+	}
+	if err := json.Unmarshal(resp.Queue[0], &echoed); err != nil {
+		t.Fatalf("decode echoed queue entry: %v", err)
+	}
+	if echoed.QueueID == "" || echoed.QueueID != st.Get(sess.ID).Queue[0].QueueID {
+		t.Fatalf("echoed queue_id = %q, want the stored %q", echoed.QueueID, st.Get(sess.ID).Queue[0].QueueID)
+	}
+
+	// That id must be enough to take the message back out, which is the exact
+	// call the × button makes. The old bug drew the row with a local id, so the
+	// server could not find it ("queued message not found").
+	removeReq := httptest.NewRequest(http.MethodPost, "/api/chat/sessions/"+sess.ID+"/queue/remove", strings.NewReader(`{"queue_id":"`+echoed.QueueID+`"}`))
+	removeReq.SetPathValue("id", sess.ID)
+	removeRec := httptest.NewRecorder()
+	srv.handleChatSessionQueueRemove(removeRec, removeReq)
+	if removeRec.Code != http.StatusOK {
+		t.Fatalf("remove status = %d, want 200; body=%s", removeRec.Code, removeRec.Body.String())
+	}
+	if len(st.Get(sess.ID).Queue) != 0 {
+		t.Error("the echoed queue id did not remove the queued message")
+	}
 
 	// The queue survives a reload: it is part of the session file.
+	if _, ok := st.enqueueUser(sess.ID, "again", nil, true); !ok {
+		t.Fatal("enqueueUser failed")
+	}
 	st.flush(sess.ID)
 	reloaded := newChatSessionStore(dir)
 	reloaded.Load()

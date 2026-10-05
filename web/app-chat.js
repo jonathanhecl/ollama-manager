@@ -439,6 +439,14 @@ function showChatView() {
   updateChatContextMeter();
   updateChatSendEnabled();
   void applyChatDefaultsForModel($("chat-model").value);
+  // Coming back to the chat is the same as reading the last message of an open
+  // session, so its unread badge has to go. It cannot wait for openChatSession:
+  // a session that was already open is never re-opened on the way back, only
+  // re-displayed. The guard keeps the quick chat, which has no sessions, working
+  // exactly as before.
+  if (typeof chatSessionId !== "undefined" && chatSessionId && typeof markChatSessionSeen === "function") {
+    markChatSessionSeen(chatSessionId);
+  }
   setTimeout(() => $("chat-input")?.focus(), 20);
 }
 

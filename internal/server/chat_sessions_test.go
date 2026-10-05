@@ -278,7 +278,9 @@ func TestSessionSinkBumpsUnseenWhenNotWatched(t *testing.T) {
 		t.Error("expected Unseen = true when nobody was watching")
 	}
 
-	// With a watcher attached the same run must stay seen.
+	// An attached watcher is NOT the same as a reply being read. Leaving the chat
+	// for the models list keeps the session's event source open, so gating on
+	// watchers left the reply looking read and the white badge never showed up.
 	sess2 := st.Create("m", SessionSettings{})
 	st.AppendUser(sess2.ID, "hi", nil)
 	st.AddWatcher(sess2.ID)
@@ -288,8 +290,66 @@ func TestSessionSinkBumpsUnseenWhenNotWatched(t *testing.T) {
 	sink2.Send("done", map[string]any{"elapsed_ms": 5})
 	srv.finishSession(sess2.ID, started2)
 	st.RemoveWatcher(sess2.ID)
+	if !st.Get(sess2.ID).Unseen {
+		t.Error("a finished reply is unread even with a watcher attached")
+	}
+
+	// Reading it is what clears the badge, and only then.
+	if !st.MarkSeen(sess2.ID) {
+		t.Error("MarkSeen = false, want true on an unread session")
+	}
 	if st.Get(sess2.ID).Unseen {
-		t.Error("expected Unseen = false while a watcher was attached")
+		t.Error("expected Unseen = false after the reader acknowledged it")
+	}
+}
+
+// TestCancelledTurnIsNotFlaggedUnread keeps the one exemption: the user pressed
+// stop, so they saw exactly what came of it.
+func TestCancelledTurnIsNotFlaggedUnread(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("m", SessionSettings{})
+	st.AppendUser(sess.ID, "start something long", nil)
+	started := time.Now()
+	srv.beginTurn(sess.ID, started)
+	sink := &sessionSink{srv: srv, id: sess.ID, started: started}
+	sink.Send("chunk", ollama.ChatChunk{Message: ollama.ChatMessage{Role: "assistant", Content: "partial"}})
+	// Stopping the turn is what marks it: Cancel sets the flag finishSession reads.
+	st.running[sess.ID] = func() {}
+	if !st.Cancel(sess.ID) {
+		t.Fatal("Cancel returned false")
+	}
+	srv.finishSession(sess.ID, started)
+
+	got := st.Get(sess.ID)
+	if got.Status != chatSessionCancelled {
+		t.Fatalf("status = %q, want cancelled", got.Status)
+	}
+	if got.Unseen {
+		t.Error("a turn the user stopped should not nag them with a badge")
+	}
+}
+
+// TestFailedTurnIsFlaggedUnread covers a turn that never started: there was no
+// stream to watch, so nobody can have seen it.
+func TestFailedTurnIsFlaggedUnread(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("m", SessionSettings{})
+	st.AppendUser(sess.ID, "hi", nil)
+	st.AddWatcher(sess.ID)
+	started := time.Now()
+	srv.beginTurn(sess.ID, started)
+	srv.finishSession(sess.ID, started)
+	srv.failSession(sess.ID, "model not found")
+	st.RemoveWatcher(sess.ID)
+
+	got := st.Get(sess.ID)
+	if got.Status != chatSessionError {
+		t.Fatalf("status = %q, want error", got.Status)
+	}
+	if !got.Unseen {
+		t.Error("a failed turn is unread, nobody was there to see it")
 	}
 }
 

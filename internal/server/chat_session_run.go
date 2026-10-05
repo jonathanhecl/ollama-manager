@@ -408,8 +408,8 @@ func (s *Server) beginTurn(id string, startedAt time.Time) bool {
 }
 
 // finishSession settles a session after its turn ends: the pending message is
-// closed, the status becomes idle/error/cancelled, and a run nobody was watching
-// is flagged unseen so its badge turns white.
+// closed, the status becomes idle/error/cancelled, and the reply is flagged
+// unseen so its badge turns white.
 func (s *Server) finishSession(id string, startedAt time.Time) {
 	st := s.chatSessions
 	st.mu.Lock()
@@ -429,8 +429,13 @@ func (s *Server) finishSession(id string, startedAt time.Time) {
 	default:
 		sess.Status = chatSessionIdle
 	}
-	watched := st.watchers[id] > 0
-	if !watched && sess.Status != chatSessionRunning {
+	// Every finished reply counts as unread until a browser says otherwise. An
+	// attached stream does not mean the user read it: with the chat view closed
+	// the session keeps its event source open, so "someone is watching" stayed
+	// true while the reply sat unread on the models page and the white badge
+	// never appeared. A cancelled turn is the exception, because the user pressed
+	// stop and therefore saw exactly what came of it.
+	if sess.Status != chatSessionCancelled {
 		sess.Unseen = true
 	}
 	// The replay log only exists to catch a browser up on a turn that is still
@@ -464,9 +469,9 @@ func (s *Server) failSession(id, reason string) {
 	}
 	sess.Error = reason
 	sess.Status = chatSessionError
-	if st.watchers[id] == 0 {
-		sess.Unseen = true
-	}
+	// A turn that never got off the ground is unread by definition: there is no
+	// stream anyone could have been watching.
+	sess.Unseen = true
 	st.touchLocked(sess)
 	st.flushLocked(sess)
 	sum := summaryOf(sess)

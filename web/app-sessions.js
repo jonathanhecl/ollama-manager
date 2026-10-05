@@ -497,6 +497,12 @@ function handleChatSessionStreamEvent(name, ev) {
     msg.streaming = false;
     chatSessionRunPending = false;
     settleSessionRun();
+    // The server flags every finished reply as unread, because a stream staying
+    // open says nothing about whether anyone read it. Only this browser can say
+    // it was on screen, and only while the chat is actually the visible view:
+    // leaving to the models list keeps the event source alive, so a blind
+    // "I received it" would swallow the badge the user is waiting for.
+    if (chatSessionId && currentView === "chat") markChatSessionSeen(chatSessionId);
   } else {
     flushChatRender();
   }

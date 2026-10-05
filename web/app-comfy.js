@@ -64,13 +64,19 @@ function updateComfyChatUI() {
 
   const summary = comfyWorkflowSummary;
   const enabled = summary ? summary.workflows.filter((w) => w.enabled) : [];
-  // No server URL or no enabled workflow means the toggle would be a lie.
+  // No server URL or no enabled workflow means the toggle would be a lie, so
+  // the whole block stays hidden rather than offering a switch that cannot do
+  // anything. Settings > ComfyUI is where that gets fixed.
   const usable = canTools && !isImageModel &&
     !!(summary && summary.configured) && enabled.length > 0;
 
-  wrap.hidden = !canTools || isImageModel;
-  if (selWrap) selWrap.hidden = !usable || enabled.length < 2;
-  if (!sel || enabled.length < 2) return;
+  // Both the toggle and the picker follow the same gate: a visible switch with
+  // a hidden picker would leave the user with no idea which workflow will run.
+  // The picker shows even with a single workflow, because naming it is how the
+  // user confirms what is about to run.
+  wrap.hidden = !usable;
+  if (selWrap) selWrap.hidden = !usable;
+  if (!sel || enabled.length === 0) return;
 
   // Rebuild only when the option set actually changed, so choosing a workflow
   // does not reset the select on every unrelated repaint.
@@ -78,10 +84,6 @@ function updateComfyChatUI() {
   const have = Array.from(sel.options).map((o) => o.value).filter(Boolean);
   if (have.join(",") !== wanted.join(",")) {
     sel.innerHTML = "";
-    const auto = document.createElement("option");
-    auto.value = "";
-    auto.textContent = t("chat.comfy_workflow_auto") || "Let the model choose";
-    sel.appendChild(auto);
     enabled.forEach((w) => {
       const opt = document.createElement("option");
       opt.value = String(w.id);
@@ -96,13 +98,13 @@ function updateComfyChatUI() {
   }
   // comfyChatWorkflowId is the source of truth, not sel.value: a session can be
   // restored before the workflow list has been fetched, and reading the select
-  // back in that window would silently drop the stored selection.
-  if (wanted.indexOf(comfyChatWorkflowId) >= 0) {
-    sel.value = comfyChatWorkflowId;
-  } else {
-    comfyChatWorkflowId = "";
-    sel.value = "";
+  // back in that window would silently drop the stored selection. An empty id
+  // is never left behind once a workflow exists, so the panel always knows what
+  // it will run rather than leaving the choice to the model.
+  if (wanted.indexOf(comfyChatWorkflowId) < 0) {
+    comfyChatWorkflowId = wanted[0];
   }
+  sel.value = comfyChatWorkflowId;
 }
 
 function comfyChatWorkflowValue() {
@@ -123,18 +125,9 @@ async function refreshComfyChatUI(force) {
 }
 
 function onComfyToggleChanged() {
-  // Turning the toggle on with no workflow selected is legal: the model then
-  // picks among the enabled ones. But if nothing is registered at all the user
-  // needs to be told why nothing happens.
-  const on = !!$("chat-comfy")?.checked;
-  const summary = comfyWorkflowSummary;
-  const enabled = summary ? summary.workflows.filter((w) => w.enabled) : [];
-  if (on && enabled.length === 0) {
-    const msg = summary && summary.configured
-      ? (t("chat.comfy_no_workflows") || "No ComfyUI workflow is enabled yet. Register one in Settings → ComfyUI.")
-      : (t("chat.comfy_not_configured") || "ComfyUI is not configured yet. Add its server URL in Settings → ComfyUI.");
-    toast(msg, "warn");
-  }
+  // The toggle is hidden unless a server is configured and a workflow is
+  // enabled, so there is no longer a reachable state where it is on and nothing
+  // can run.
   updateComfyChatUI();
   if (typeof saveChatOptionsForCurrentModel === "function") saveChatOptionsForCurrentModel();
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -373,10 +374,35 @@ func (s *Server) handleComfyWorkflowsSummary(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workflows": out,
 		// The chat panel needs to know whether the integration is usable at all
-		// before it offers the toggle, and that needs the URL, not just the list.
-		"configured": strings.TrimSpace(s.comfyConfiguredURL()) != "",
+		// before it offers the toggle. A URL alone is not that: Normalize gives
+		// every config a default URL, so "has a URL" is always true and would
+		// show the switch to people who never pointed it at anything. Reachability
+		// is the honest signal.
+		"configured": s.comfyReachable(),
 		"url":        s.comfyConfiguredURL(),
 	})
+}
+
+// comfyProbeTimeout bounds the reachability probe behind the chat toggle. Long
+// enough for a busy machine to answer /system_stats, short enough that the panel
+// is not waiting on it.
+const comfyProbeTimeout = 2 * time.Second
+
+// comfyReachable reports whether the configured ComfyUI answers. It is what the
+// chat panel gates the toggle on. The probe is a GET /system_stats with a short
+// timeout, and the result is not cached: a wrong URL is fixed in Settings and the
+// panel should light up without a restart.
+func (s *Server) comfyReachable() bool {
+	client, err := s.comfyClient()
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), comfyProbeTimeout)
+	defer cancel()
+	if _, err := client.Stats(ctx); err != nil {
+		return false
+	}
+	return true
 }
 
 // comfyDetectRequest asks the server what it would bind for a pasted graph,

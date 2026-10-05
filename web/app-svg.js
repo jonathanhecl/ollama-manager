@@ -3575,7 +3575,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   const modelLabel = m.role === "assistant" && m.model
     ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
     : "";
-  const hideActions = (m.role === "assistant" && m.streaming) || (m.role === "assistant" && isImageModel) || isEditingUser;
+  const hideActions = (m.role === "assistant" && m.streaming) || m._awaitingServerTurn || (m.role === "assistant" && isImageModel) || isEditingUser;
   const ttsPlaying = m.id === speakingMsgId;
   const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
   const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
@@ -3604,7 +3604,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
 </svg></button>`
     : "";
   const isLast = i === chatMessages.length - 1;
-  const canRegen = m.role === "assistant" && isLast && !m.streaming;
+  const canRegen = m.role === "assistant" && isLast && !m.streaming && !m._awaitingServerTurn;
   const regenBtn = canRegen
     ? `<button type="button" class="btn-icon chat-regenerate-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.regenerate_title"))}" aria-label="${escapeHtml(t("chat.regenerate"))}">
 <svg class="chat-regenerate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -3630,7 +3630,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
          ${m.artifactUrl ? `<button type="button" class="btn-icon chat-artifact-open-btn" data-artifact-url="${escapeHtml(m.artifactUrl)}" data-artifact-name="${escapeHtml(m.artifactName || "Artifact")}" title="${escapeHtml(t("chat.artifact.open"))}" aria-label="${escapeHtml(t("chat.artifact.open"))}">↗</button>` : ""}
        </div>`
     : "";
-  const streamCls = m.role === "assistant" && m.streaming ? " chat-streaming" : "";
+  const streamCls = m.role === "assistant" && (m.streaming || m._awaitingServerTurn) ? " chat-streaming" : "";
   let contentBlock;
   if (hasTl) {
     // Timeline mode: all think/md/tool segments are in the timeline in order.

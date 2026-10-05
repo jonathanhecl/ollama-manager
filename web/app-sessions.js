@@ -510,11 +510,34 @@ function sessionLiveMessage() {
   return null;
 }
 
+// adoptBarrierAssistant replaces the synthetic barrier that stands for a turn the
+// server has already started (after Stop + resend) with the real streaming
+// message, so the incoming chunks fill it instead of a second assistant bubble.
+function adoptBarrierAssistant() {
+  const last = chatMessages[chatMessages.length - 1];
+  if (!last || !last._awaitingServerTurn || last.role !== "assistant") return null;
+  const msg = newAssistantMessage();
+  msg.model = last.model || (chatSessionId && chatSessions.get(chatSessionId)?.model) || ($("chat-model")?.value || "");
+  msg.streamStartedAt = Date.now();
+  chatMessages[chatMessages.length - 1] = msg;
+  activeStreamMessage = msg;
+  chatStreamLock = true;
+  updateStreamBar();
+  updateChatSendEnabled();
+  return msg;
+}
+
 // ensureSessionLiveMessage makes sure there is an assistant message to stream
 // into, which matters when the page is opened while the model is already busy.
+//
+// It refuses to open a bubble while a synthetic barrier sits at the end of the
+// transcript. After Stop, the cancelled turn stays on screen with its error, and
+// the resend that follows reuses the server's pending message rather than adding
+// one: opening a fresh bubble here is what produced a second assistant block.
 function ensureSessionLiveMessage() {
   let msg = sessionLiveMessage();
   if (msg) return msg;
+  if (chatMessages.length && chatMessages[chatMessages.length - 1]._awaitingServerTurn) return null;
   const sum = chatSessions.get(chatSessionId);
   if (!sum || (sum.status !== "running" && sum.status !== "queued")) return null;
   msg = newAssistantMessage();
@@ -567,9 +590,12 @@ function handleChatSessionStreamEvent(name, ev) {
       scrollChatToBottom(true);
     }
     ensureSessionLiveMessage();
+    // The server already started the turn, so the barrier stands for its pending
+    // message; adopt it now so the queued-user branch does not leave a gap.
+    adoptBarrierAssistant();
     return;
   }
-  const msg = ensureSessionLiveMessage();
+  const msg = ensureSessionLiveMessage() || adoptBarrierAssistant();
   if (!msg) return;
   if (!chatSessionRun) {
     chatSessionRun = { raw: msg.raw || "", turnStartedAt: msg.streamStartedAt || Date.now(), modelName: msg.model || "" };
@@ -649,20 +675,15 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
   // The optimistic local entry gets a temp id and the message text. When the
   // server answers it echoes the authoritative queue with the real ids, so the
   // temp entry is replaced without ever clashing on identity.
+  // regenerate asks the server (and the local copy) to drop the assistant reply
+  // and answer the same user turn again: no new user message is appended.
+  const isRegenerate = !!opts.replaceLast && !opts.editLast;
   let optimisticQueueId = "";
   if (opts.editLast) {
     // The caller already rewrote the user turn in place.
+  } else if (isRegenerate) {
+    // The caller already trimmed the reply; keep the user turn as it is.
   } else if (!busy) {
-    if (opts.replaceLast) {
-      let keep = 0;
-      for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
-        if (chatMessages[i].role === "user") {
-          keep = i + 1;
-          break;
-        }
-      }
-      chatMessages.length = keep;
-    }
     chatMessages.push({
       id: nanoid(),
       role: "user",
@@ -684,20 +705,29 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
 
   let assistantMsg = null;
   if (startsNow) {
-    assistantMsg = newAssistantMessage();
-    assistantMsg.model = modelName;
-    assistantMsg.streamStartedAt = Date.now();
-    chatMessages.push(assistantMsg);
+    if (typeof opts.barrierIndex === "number" && opts.barrierIndex >= 0 && opts.barrierIndex <= chatMessages.length) {
+      // The server starts this turn itself; it already owns the pending assistant
+      // message. Stand in for it with a barrier so a stream event arriving before
+      // the POST answers reuses this slot instead of opening a second bubble.
+      chatMessages.splice(opts.barrierIndex, 0, { id: nanoid(), role: "assistant", _awaitingServerTurn: true });
+      renderChatMessages();
+      scrollChatToBottom(true);
+    } else {
+      assistantMsg = newAssistantMessage();
+      assistantMsg.model = modelName;
+      assistantMsg.streamStartedAt = Date.now();
+      chatMessages.push(assistantMsg);
 
-    chatSessionRun = { raw: "", turnStartedAt: assistantMsg.streamStartedAt, modelName };
-    chatSessionRunPending = true;
-    chatStreamLock = true;
-    activeStreamMessage = assistantMsg;
-    updateStreamBar();
-    updateChatSendEnabled();
-    startStreamTicker(assistantMsg, chatSessionRun.turnStartedAt);
-    renderChatMessages();
-    scrollChatToBottom(true);
+      chatSessionRun = { raw: "", turnStartedAt: assistantMsg.streamStartedAt, modelName };
+      chatSessionRunPending = true;
+      chatStreamLock = true;
+      activeStreamMessage = assistantMsg;
+      updateStreamBar();
+      updateChatSendEnabled();
+      startStreamTicker(assistantMsg, chatSessionRun.turnStartedAt);
+      renderChatMessages();
+      scrollChatToBottom(true);
+    }
   }
 
   const body = {
@@ -722,8 +752,22 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
       chatPendingQueue = chatPendingQueue.filter((q) => q.id !== optimisticQueueId);
       renderChatQueue();
     }
-    if (startsNow) saveActiveChatSession();
-    else updateChatSendEnabled();
+    if (startsNow) {
+      // The server accepted the turn. If no chunk has arrived yet the barrier is
+      // still standing in for it, so adopt it now to show the run is underway.
+      if (!chatSessionRun && chatMessages.some((m) => m._awaitingServerTurn)) {
+        const live = adoptBarrierAssistant();
+        if (live) {
+          chatSessionRun = { raw: "", turnStartedAt: live.streamStartedAt || Date.now(), modelName };
+          chatSessionRunPending = true;
+          startStreamTicker(live, chatSessionRun.turnStartedAt);
+          renderChatMessages();
+        }
+      }
+      saveActiveChatSession();
+    } else {
+      updateChatSendEnabled();
+    }
   } catch (e) {
     if (assistantMsg) {
       assistantMsg.streaming = false;
@@ -760,20 +804,32 @@ function chatSessionQueueHas(queueID) {
   return chatPendingQueue.some((q) => q.id === queueID);
 }
 
-// regenerateChatSessionReply asks the server to drop the current reply to
-// userMsg and answer again. The server keeps the authoritative transcript, so
-// the local copy is trimmed here only to keep the view honest.
-async function regenerateChatSessionReply(userMsg) {
-  if (!userMsg) return;
-  await sendChatSessionMessage(userMsg.content, userMsg.attachments, { replaceLast: true, editLast: true });
-}
-
 // editChatSessionUserMessage rewrites the last user turn and resends it.
 async function editChatSessionUserMessage(userMsg, text, attachments) {
   if (!userMsg) return;
+  // Drop the cancelled reply that followed this user turn, if it is still on
+  // screen. The server trims it too, so keeping it here left a stale assistant
+  // block above the new one.
+  while (chatMessages.length && chatMessages[chatMessages.length - 1] !== userMsg) {
+    chatMessages.pop();
+  }
+  const keepLen = chatMessages.length;
   userMsg.content = text;
   userMsg.attachments = (attachments || []).map((a) => ({ ...a }));
-  await sendChatSessionMessage(text, attachments, { replaceLast: true, editLast: true });
+  await sendChatSessionMessage(text, attachments, { replaceLast: true, editLast: true, barrierIndex: keepLen });
+}
+
+// regenerateChatSessionReply asks the server to drop the current reply to
+// userMsg and answer again. Only the assistant reply is dropped: the user turn
+// is unchanged, so `replace_last` alone is enough. The local copy is trimmed the
+// same way and a barrier stands in for the new reply the server will start.
+async function regenerateChatSessionReply(userMsg) {
+  if (!userMsg) return;
+  while (chatMessages.length && chatMessages[chatMessages.length - 1] !== userMsg) {
+    chatMessages.pop();
+  }
+  const keepLen = chatMessages.length;
+  await sendChatSessionMessage(userMsg.content, userMsg.attachments, { replaceLast: true, barrierIndex: keepLen });
 }
 
 // ---------- session actions ----------

@@ -1394,6 +1394,54 @@ func TestFinishSessionKeepsTheTranscriptOfAFailedTurn(t *testing.T) {
 	}
 }
 
+// TestRegenerateReplacesReplyWithoutDuplicatingUser drives the exact sequence a
+// "regenerate" click makes: drop the reply to the last user turn, then answer it
+// again. The transcript must end with one user turn and one fresh pending
+// assistant, never a duplicated user or a leftover reply.
+func TestRegenerateReplacesReplyWithoutDuplicatingUser(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+
+	// One finished turn.
+	st.AppendUser(sess.ID, "first question", nil)
+	if !srv.beginTurn(sess.ID, time.Now()) {
+		t.Fatal("beginTurn returned false")
+	}
+	sink := &sessionSink{srv: srv, id: sess.ID, started: time.Now()}
+	sink.Send("chunk", ollama.ChatChunk{Message: ollama.ChatMessage{Role: "assistant", Content: "old answer"}})
+	sink.Send("done", map[string]any{"elapsed_ms": 1})
+	srv.finishSession(sess.ID, time.Now())
+
+	// Regenerate: replace_last trims the reply, then the turn starts again.
+	if !st.TrimAfterLastUser(sess.ID) {
+		t.Fatal("TrimAfterLastUser returned false")
+	}
+	if !srv.beginTurn(sess.ID, time.Now()) {
+		t.Fatal("beginTurn after regenerate returned false")
+	}
+
+	got := st.Get(sess.ID)
+	users, assistants, pending := 0, 0, 0
+	for _, m := range got.Messages {
+		switch m.Role {
+		case "user":
+			users++
+		case "assistant":
+			assistants++
+			if m.Pending {
+				pending++
+			}
+		}
+	}
+	if users != 1 {
+		t.Errorf("user turns = %d, want exactly 1 (regenerate must not duplicate)", users)
+	}
+	if assistants != 1 || pending != 1 {
+		t.Errorf("assistant turns = %d (pending=%d), want exactly 1 pending", assistants, pending)
+	}
+}
+
 // TestSessionNeverDerivesTitleFromPrompt pins that the prompt is never shown
 // back as a title. The list shows the relative time instead; only the user can
 // name a session.

@@ -4877,10 +4877,6 @@ button.chat-send:disabled:hover {
   color: #ff6b6b;
   background: color-mix(in srgb, #ff6b6b 15%, transparent);
 }
-.chat-session-row-stop:hover {
-  color: #ffb020;
-  background: color-mix(in srgb, #ffb020 15%, transparent);
-}
 .session-badges {
   display: inline-flex;
   align-items: center;

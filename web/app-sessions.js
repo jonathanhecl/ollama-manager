@@ -127,7 +127,6 @@ function renderSessionList() {
 
   for (const s of sessions) {
     const active = s.id === chatSessionId;
-    const canStop = s.status === "running" || s.status === "queued";
     // The row shows either the name the user gave it, or just when it was last
     // used. The prompt that started the session is never echoed back here, and
     // neither are notes about the model: a session whose model is gone just
@@ -146,7 +145,6 @@ function renderSessionList() {
         ${body}
       </span>
       <span class="chat-session-row-actions">
-        ${canStop ? `<button type="button" class="chat-session-row-btn chat-session-row-stop" data-session-stop="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_stop"))}" aria-label="${escapeHtml(t("chat.session_stop"))}">■</button>` : ""}
         <button type="button" class="chat-session-row-btn chat-session-row-del" data-session-del="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_delete"))}" aria-label="${escapeHtml(t("chat.session_delete"))}">×</button>
       </span>
     </div>`;
@@ -1015,12 +1013,6 @@ $("chat-sessions-list")?.addEventListener("click", (ev) => {
   if (del) {
     ev.stopPropagation();
     void deleteChatSession(del.getAttribute("data-session-del"));
-    return;
-  }
-  const stop = ev.target.closest("[data-session-stop]");
-  if (stop) {
-    ev.stopPropagation();
-    void cancelChatSession(stop.getAttribute("data-session-stop"));
     return;
   }
   if (ev.target.closest("[data-session-quick]")) {

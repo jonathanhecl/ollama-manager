@@ -361,6 +361,15 @@ func (s *Server) handleChatSessionSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
+	// Refuse early, before the message is appended. A session runs one turn at a
+	// time, and Start quietly ignores a second one, so accepting the message here
+	// would leave it sitting in the transcript with no reply coming and no way for
+	// the browser to tell. Saying "conflict" instead lets the client keep the text
+	// in the composer for a retry once the reply lands.
+	if s.chatSessions.IsBusy(id) {
+		writeError(w, http.StatusConflict, errors.New("this session is still working on its previous message"))
+		return
+	}
 	if req.Settings != nil {
 		s.chatSessions.MergeSettings(id, *req.Settings)
 	}

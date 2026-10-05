@@ -5668,7 +5668,12 @@ async function sendChatMessage(interruptNow = false) {
   chatAttachments = [];
   renderAttachments();
 
-  if (chatStreamLock) {
+  // A persistent session must never wait in the browser's queue. That queue is
+  // local state: it is never posted to the server, so a queued message is lost
+  // the moment the page goes away, and only the quick chat path drains it, which
+  // session turns never reach. The session keeps its own queue on the server, so
+  // the message goes straight there and the server decides when it runs.
+  if (chatStreamLock && !(typeof chatSessionId !== "undefined" && chatSessionId)) {
     if (interruptNow) {
       chatPendingQueue.unshift({ id: nanoid(), text: snapText, attachments: snapAtt });
       renderChatQueue();

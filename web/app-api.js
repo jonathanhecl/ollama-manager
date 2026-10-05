@@ -97,7 +97,10 @@ async function api(path, opts = {}) {
   if (!res.ok) {
     let err = res.statusText;
     try { const j = await res.json(); if (j.error) err = j.error; } catch { }
-    throw new Error(err);
+    // The status rides along so a caller can tell "conflict" from "server broke"
+    // without having to match on the wording of the message, which is translated
+    // and therefore not a reliable thing to branch on.
+    throw Object.assign(new Error(err), { status: res.status });
   }
   return res.json();
 }

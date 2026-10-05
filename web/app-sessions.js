@@ -594,10 +594,25 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
     saveActiveChatSession();
   } catch (e) {
     assistantMsg.streaming = false;
-    assistantMsg.isError = true;
-    assistantMsg.content = t("chat.error_reply", { msg: e.message });
     chatSessionRun = null;
     settleSessionRun();
+    // The server runs one turn per session, so a message sent while the previous
+    // reply is still coming back is refused with 409. Nothing was stored, so put
+    // the text back in the composer instead of dropping it on the floor: the
+    // whole promise of a session is that what you typed survives.
+    if (e && (e.status === 409 || e.statusCode === 409)) {
+      const input = $("chat-input");
+      if (input) {
+        input.value = text;
+        input.focus();
+      }
+      chatMessages.pop();
+      renderChatMessages();
+      void toast(t("chat.session_busy"), "error");
+      return;
+    }
+    assistantMsg.isError = true;
+    assistantMsg.content = t("chat.error_reply", { msg: e.message });
     void toast(t("toast.error", { msg: e.message }), "error");
   }
 }

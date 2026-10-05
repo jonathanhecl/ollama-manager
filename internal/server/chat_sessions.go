@@ -779,18 +779,35 @@ func (st *chatSessionStore) Shutdown() {
 
 // --- persistence ---------------------------------------------------------
 
-// touchLocked refreshes the timestamps and derives a title from the first user
-// message. Callers must hold st.mu.
+// touchLocked refreshes the timestamps and derives a title once the session is
+// worth naming. Callers must hold st.mu.
 func (st *chatSessionStore) touchLocked(sess *ChatSession) {
 	now := time.Now()
 	sess.UpdatedAt = now
 	sess.LastActive = now
 	if sess.Title == "" {
+		// A session with a single prompt is still "the one I just started", and in
+		// the list every such session would carry the same kind of label where the
+		// relative time is the only thing telling them apart. So the name waits
+		// for a second turn, and when it arrives it is the first prompt that names
+		// the session, because that is what the user actually asked for.
+		first := ""
+		turns := 0
 		for _, m := range sess.Messages {
-			if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
-				sess.Title = chatSessionTitle(strings.TrimSpace(m.Content))
-				break
+			if m.Role != "user" {
+				continue
 			}
+			content := strings.TrimSpace(m.Content)
+			if content == "" {
+				continue
+			}
+			turns++
+			if first == "" {
+				first = content
+			}
+		}
+		if turns >= 2 && first != "" {
+			sess.Title = chatSessionTitle(first)
 		}
 	}
 }

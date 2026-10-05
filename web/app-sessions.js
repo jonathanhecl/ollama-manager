@@ -113,18 +113,29 @@ function renderSessionList() {
 
   for (const s of sessions) {
     const active = s.id === chatSessionId;
-    const title = s.title || t("chat.session_untitled");
+    // The server only derives a title once the session has more than one turn, so
+    // an unnamed row is a brand-new session. Showing a placeholder would fill the
+    // panel with rows that all read the same; the relative time is the only line
+    // that tells them apart until there is a name worth showing.
+    const title = s.title || "";
     const canStop = s.status === "running" || s.status === "queued";
     // A session whose model is gone can never run again. The summary has no way
     // to know that, so the row checks the live model list and says so instead of
     // silently failing on the next message.
     const modelMissing = !!s.model && !modelByName(s.model);
-    html += `<div class="chat-session-row${active ? " active" : ""}" data-session-id="${escapeHtml(s.id)}" title="${escapeHtml(title)}">
+    const notes = `${s.error ? ` · ${escapeHtml(s.error)}` : ""}${s.dropped_messages ? ` · ${escapeHtml(t("chat.session_trimmed", { n: s.dropped_messages }))}` : ""}${modelMissing ? ` · ${escapeHtml(t("chat.session_model_missing"))}` : ""}`;
+    const meta = `${escapeHtml(sessionRowStatusText(s))}${notes}`;
+    // With no title the row is brand new, so the relative time takes the place of
+    // the name and the second line is dropped unless there is something to warn
+    // about. That keeps the row a single readable line instead of two lines of
+    // which the first says nothing.
+    const head = title
+      ? `<span class="chat-session-row-title" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_rename_hint"))}">${escapeHtml(title)}</span><span class="chat-session-row-meta">${meta}</span>`
+      : `<span class="chat-session-row-title chat-session-row-title-new" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_rename_hint"))}">${meta}</span>`;
+    html += `<div class="chat-session-row${active ? " active" : ""}${title ? "" : " chat-session-row-new"}" data-session-id="${escapeHtml(s.id)}"${title ? ` title="${escapeHtml(title)}"` : ""}>
       <span class="chat-session-row-badges">${sessionBadgeHtml(s.model)}</span>
       <span class="chat-session-row-main" data-session-open="${escapeHtml(s.id)}">
-        <span class="chat-session-row-title" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_rename_hint"))}">${escapeHtml(title)}</span>
-        <span class="chat-session-row-meta">${escapeHtml(sessionRowStatusText(s))}${s.error ? ` · ${escapeHtml(s.error)}` : ""}${s.dropped_messages ? ` · ${escapeHtml(t("chat.session_trimmed", { n: s.dropped_messages }))}` : ""}${modelMissing ? ` · ${escapeHtml(t("chat.session_model_missing"))}` : ""}</span>
-      </span>
+        ${head}
       <span class="chat-session-row-actions">
         ${canStop ? `<button type="button" class="chat-session-row-btn" data-session-stop="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_stop"))}" aria-label="${escapeHtml(t("chat.session_stop"))}">■</button>` : ""}
         <button type="button" class="chat-session-row-btn" data-session-del="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_delete"))}" aria-label="${escapeHtml(t("chat.session_delete"))}">×</button>

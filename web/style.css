@@ -4819,6 +4819,9 @@ button.chat-send:disabled:hover {
   min-width: 0;
   flex: 1 1 auto;
 }
+/* An unnamed row only shows when it happened, so the time takes the title's
+   place and reads like a name would. */
+.chat-session-row-title-new { opacity: 0.85; font-style: italic; }
 .chat-session-row-title {
   font-size: 0.8rem;
   line-height: 1.25;

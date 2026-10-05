@@ -1327,3 +1327,44 @@ func TestFinishSessionKeepsTheTranscriptOfAFailedTurn(t *testing.T) {
 		t.Error("the error should be recorded on the message")
 	}
 }
+
+// TestSessionTitleWaitsForASecondTurn pins when a session gets its name. A session
+// holding a single prompt is still "the one I just started", and in the list
+// every such row would carry the same kind of label where the relative time is
+// the only thing telling them apart, so the title waits for the second turn.
+func TestSessionTitleWaitsForASecondTurn(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+	if sess.Title != "" {
+		t.Fatalf("a brand-new session should have no title, got %q", sess.Title)
+	}
+
+	st.AppendUser(sess.ID, "first question, please answer at length", nil)
+	if got := st.Get(sess.ID).Title; got != "" {
+		t.Errorf("Title = %q after one user turn, want it to stay empty", got)
+	}
+
+	st.AppendUser(sess.ID, "second question", nil)
+	// The name comes from the FIRST prompt: that is what the user asked for, and
+	// the second turn is only what made the session worth naming.
+	if got := st.Get(sess.ID).Title; got != "first question, please answer at length" {
+		t.Errorf("Title = %q after two user turns, want the first prompt", got)
+	}
+}
+
+// TestSessionTitleIgnoresEmptyPrompts makes sure a turn carrying only an
+// attachment does not count towards the second turn, otherwise a user who sends
+// an image and then a question would get a name made of nothing.
+func TestSessionTitleIgnoresEmptyPrompts(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+	st.AppendUser(sess.ID, "look at this", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: attachmentBase64(64)}})
+	st.AppendUser(sess.ID, "   ", nil)
+	if got := st.Get(sess.ID).Title; got != "" {
+		t.Errorf("Title = %q, want an attachment-only plus blank turn to leave it unnamed", got)
+	}
+	st.AppendUser(sess.ID, "now explain it", nil)
+	if got := st.Get(sess.ID).Title; got != "look at this" {
+		t.Errorf("Title = %q, want the first prompt once a second real turn exists", got)
+	}
+}

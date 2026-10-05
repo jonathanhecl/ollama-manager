@@ -132,6 +132,13 @@ type SessionMessage struct {
 	// StreamStartedAt is the client clock the browser uses to draw the elapsed
 	// timer; it is only a hint and the server recomputes on restore.
 	StreamStartedAt int64 `json:"stream_started_at,omitempty"`
+	// QueueID identifies a queued user turn so the browser can cancel or promote
+	// exactly that one. It stays on the message once it reaches the transcript.
+	QueueID string `json:"queue_id,omitempty"`
+	// Deferred marks a queued turn that was sent while the session was busy. Only
+	// those announce themselves when they start; a direct message is already on
+	// screen and must not be appended twice.
+	Deferred bool `json:"deferred,omitempty"`
 	// Truncated marks a message whose body was cut for size, so the UI says the
 	// reply was trimmed instead of silently showing one that ends mid-sentence.
 	Truncated bool `json:"truncated,omitempty"`
@@ -170,15 +177,23 @@ type SessionEvent struct {
 
 // ChatSession is a persistent chat that keeps working after the browser closes.
 type ChatSession struct {
-	ID         string           `json:"id"`
-	Title      string           `json:"title"`
-	Model      string           `json:"model"`
-	Status     string           `json:"status"`
-	Unseen     bool             `json:"unseen,omitempty"`
-	Cancelled  bool             `json:"cancelled,omitempty"`
-	Error      string           `json:"error,omitempty"`
-	Settings   SessionSettings  `json:"settings"`
-	Messages   []SessionMessage `json:"messages"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// CustomTitle marks a title the user typed. Only a custom title is shown in
+	// the session list; an auto-derived one would put the first prompt back on
+	// screen, which is exactly what the list must not do.
+	CustomTitle bool             `json:"custom_title,omitempty"`
+	Model       string           `json:"model"`
+	Status      string           `json:"status"`
+	Unseen      bool             `json:"unseen,omitempty"`
+	Cancelled   bool             `json:"cancelled,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	Settings    SessionSettings  `json:"settings"`
+	Messages    []SessionMessage `json:"messages"`
+	// Queue holds user turns sent while the session was busy. They are part of
+	// the session (persisted, survive a reload) and become the transcript one by
+	// one as their turn starts, so the model never sees a future message.
+	Queue      []SessionMessage `json:"queue,omitempty"`
 	Events     []SessionEvent   `json:"events,omitempty"`
 	Seq        int              `json:"seq"`
 	QueuedAt   time.Time        `json:"queued_at,omitempty"`
@@ -193,13 +208,16 @@ type ChatSession struct {
 // SessionSummary is the lightweight row used by the session list and by the
 // badges shown next to each model.
 type SessionSummary struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title"`
-	Model      string    `json:"model"`
-	Status     string    `json:"status"`
-	Unseen     bool      `json:"unseen,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	Messages   int       `json:"messages"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	CustomTitle bool   `json:"custom_title,omitempty"`
+	Model       string `json:"model"`
+	Status      string `json:"status"`
+	Unseen      bool   `json:"unseen,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Messages    int    `json:"messages"`
+	// Queued is how many user turns are waiting for the running turn to finish.
+	Queued     int       `json:"queued,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	LastActive time.Time `json:"last_active_at"`
@@ -236,6 +254,16 @@ type chatSessionStore struct {
 
 	running map[string]context.CancelFunc
 	queue   []queuedTurn
+	// pending holds the turns of a session that is already busy, in order. A
+	// queued message owns one entry; when the running turn releases the slot the
+	// next entry starts, which is what drains the session's persisted Queue.
+	pending map[string][]func()
+	// paused is set by an explicit Stop so the finished turn does not start the
+	// next queued one. The queue is kept and Resume clears the flag.
+	paused map[string]bool
+	// defaultRun rebuilds the run for a queued turn that has no parked closure,
+	// which is what happens to a queue restored from disk after a restart.
+	defaultRun func(id string)
 	// watchers counts the browsers currently tailing each session's stream.
 	// A turn that ends while nobody watches is what turns the badge white.
 	watchers map[string]int
@@ -259,6 +287,8 @@ func newChatSessionStore(dir string) *chatSessionStore {
 		dir:      dir,
 		sessions: map[string]*ChatSession{},
 		running:  map[string]context.CancelFunc{},
+		pending:  map[string][]func(){},
+		paused:   map[string]bool{},
 		watchers: map[string]int{},
 		subs:     map[chan ChatSessionEvent]struct{}{},
 		saves:    map[string]*time.Timer{},
@@ -308,6 +338,14 @@ func (st *chatSessionStore) Load() {
 		if sess.ID == "" {
 			sess.ID = strings.TrimSuffix(name, ".json")
 		}
+		// Titles used to be derived from the first prompt. That put the prompt
+		// back on screen in the session list, so only a user-typed title is kept.
+		if !sess.CustomTitle {
+			sess.Title = ""
+		}
+		// A queued message is a turn that never started. The restart sweep below
+		// only closes the running assistant turn; the queue is kept as-is so the
+		// next message or a resume can still run it.
 		if sess.Status == chatSessionRunning || sess.Status == chatSessionQueued {
 			for i := range sess.Messages {
 				if sess.Messages[i].Pending {
@@ -370,16 +408,18 @@ func (st *chatSessionStore) List() []SessionSummary {
 
 func summaryOf(sess *ChatSession) SessionSummary {
 	return SessionSummary{
-		ID:         sess.ID,
-		Title:      sess.Title,
-		Model:      sess.Model,
-		Status:     sess.Status,
-		Unseen:     sess.Unseen,
-		Error:      sess.Error,
-		Messages:   len(sess.Messages),
-		CreatedAt:  sess.CreatedAt,
-		UpdatedAt:  sess.UpdatedAt,
-		LastActive: sess.LastActive,
+		ID:          sess.ID,
+		Title:       sess.Title,
+		CustomTitle: sess.CustomTitle,
+		Model:       sess.Model,
+		Status:      sess.Status,
+		Unseen:      sess.Unseen,
+		Error:       sess.Error,
+		Messages:    len(sess.Messages),
+		Queued:      len(sess.Queue),
+		CreatedAt:   sess.CreatedAt,
+		UpdatedAt:   sess.UpdatedAt,
+		LastActive:  sess.LastActive,
 
 		DroppedMessages: sess.DroppedMessages,
 	}
@@ -421,6 +461,8 @@ func (st *chatSessionStore) Delete(id string) bool {
 	st.mu.Lock()
 	cancel := st.running[id]
 	delete(st.running, id)
+	delete(st.pending, id)
+	delete(st.paused, id)
 	sess := st.sessions[id]
 	delete(st.sessions, id)
 	st.dropFromQueueLocked(id)
@@ -511,11 +553,20 @@ func (st *chatSessionStore) DeleteAll() int {
 	return n
 }
 
-// HasBusy reports whether any session is running or waiting for a slot.
+// HasBusy reports whether any session is running or waiting for a slot. A queue
+// paused by an explicit Stop does not count: nothing is working on it.
 func (st *chatSessionStore) HasBusy() bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return len(st.running) > 0 || len(st.queue) > 0
+	if len(st.running) > 0 || len(st.queue) > 0 {
+		return true
+	}
+	for id, p := range st.pending {
+		if len(p) > 0 && !st.paused[id] {
+			return true
+		}
+	}
+	return false
 }
 
 // CancelAll stops every in-flight turn and settles the sessions as cancelled.
@@ -550,27 +601,13 @@ func (st *chatSessionStore) dropFromQueueLocked(id string) {
 	st.queue = out
 }
 
-// MarkSeen clears the "it finished while you were away" flag.
-func (st *chatSessionStore) MarkSeen(id string) bool {
-	st.mu.Lock()
-	sess := st.sessions[id]
-	if sess == nil || !sess.Unseen {
-		st.mu.Unlock()
-		return false
-	}
-	sess.Unseen = false
-	sess.UpdatedAt = time.Now()
-	st.saveLocked(sess)
-	sum := summaryOf(sess)
-	st.mu.Unlock()
-	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
-	return true
-}
-
-// Cancel stops the turn in flight for a session, without deleting it.
+// Cancel stops the turn in flight for a session, without deleting it and without
+// throwing away what is queued behind it. The queue is paused, so the finished
+// turn does not start the next one; Resume is what lets it continue.
 func (st *chatSessionStore) Cancel(id string) bool {
 	st.mu.Lock()
 	cancel, running := st.running[id]
+	st.paused[id] = true
 	wasQueued := false
 	for _, q := range st.queue {
 		if q.id == id {
@@ -591,8 +628,11 @@ func (st *chatSessionStore) Cancel(id string) bool {
 		return true
 	}
 	if wasQueued && sess != nil {
-		// Nothing was running, so no turn will settle the session for us.
+		// Nothing to cancel directly: no turn will settle the session for us.
 		st.mu.Lock()
+		if msg := pendingMessageLocked(sess); msg != nil {
+			msg.Pending = false
+		}
 		sess.Status = chatSessionCancelled
 		sess.Error = ""
 		st.touchLocked(sess)
@@ -605,11 +645,32 @@ func (st *chatSessionStore) Cancel(id string) bool {
 	return running
 }
 
-// IsBusy reports whether a session already has a turn in flight or queued.
+// MarkSeen clears the "it finished while you were away" flag.
+func (st *chatSessionStore) MarkSeen(id string) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil || !sess.Unseen {
+		st.mu.Unlock()
+		return false
+	}
+	sess.Unseen = false
+	sess.UpdatedAt = time.Now()
+	st.saveLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	return true
+}
+
+// IsBusy reports whether a session already has a turn in flight, parked behind
+// one, or waiting for a global slot.
 func (st *chatSessionStore) IsBusy(id string) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if _, ok := st.running[id]; ok {
+		return true
+	}
+	if len(st.pending[id]) > 0 {
 		return true
 	}
 	for _, q := range st.queue {
@@ -675,23 +736,19 @@ func (st *chatSessionStore) broadcast(ev ChatSessionEvent) {
 	st.mu.Unlock()
 }
 
-// Start begins a detached turn, either right away or once a slot frees up.
-// The turn always runs in its own goroutine so the HTTP handler that queued it
+// Start begins a detached turn, either right away or once a slot frees up. The
+// turn always runs in its own goroutine so the HTTP handler that queued it
 // returns immediately and the page can be closed without stopping the model.
+//
+// When the session is already busy the run is parked in order instead of being
+// dropped: that is what lets a message sent mid-turn wait its turn and then run
+// on its own, without the browser holding it.
 func (st *chatSessionStore) Start(id string, run func()) {
 	st.mu.Lock()
-	// One turn per session. A second request while this session is already
-	// working (or waiting for a slot) would interleave two transcripts and
-	// overwrite the reserved slot, so it is simply ignored.
-	if _, busy := st.running[id]; busy {
+	if _, busy := st.running[id]; busy || len(st.pending[id]) > 0 {
+		st.pending[id] = append(st.pending[id], run)
 		st.mu.Unlock()
 		return
-	}
-	for _, q := range st.queue {
-		if q.id == id {
-			st.mu.Unlock()
-			return
-		}
 	}
 	if len(st.running) >= maxConcurrentChatSessions {
 		st.queue = append(st.queue, queuedTurn{id: id, start: run})
@@ -723,9 +780,75 @@ func (st *chatSessionStore) bindRunning(id string, cancel context.CancelFunc) {
 	st.mu.Unlock()
 }
 
+// Resume starts the next parked turn after an explicit Stop paused the queue.
+func (st *chatSessionStore) Resume(id string) {
+	st.mu.Lock()
+	st.paused[id] = false
+	if _, busy := st.running[id]; busy {
+		st.mu.Unlock()
+		return
+	}
+	st.startNextLocked(id)
+	st.mu.Unlock()
+}
+
+// startNextLocked pops the next parked turn and starts it, respecting the global
+// concurrency limit. Callers must hold st.mu and must have checked the session is
+// not running and not paused. When no parked run is left (for example a queue
+// restored after a restart) it rebuilds one from the default runner.
+func (st *chatSessionStore) startNextLocked(id string) {
+	var next func()
+	if len(st.pending[id]) > 0 {
+		next = st.pending[id][0]
+		st.pending[id] = st.pending[id][1:]
+		if len(st.pending[id]) == 0 {
+			delete(st.pending, id)
+		}
+	} else if st.defaultRun != nil {
+		if sess := st.sessions[id]; sess != nil && len(sess.Queue) > 0 {
+			next = func() { st.defaultRun(id) }
+		}
+	}
+	if next == nil {
+		return
+	}
+	if len(st.running) >= maxConcurrentChatSessions {
+		st.queue = append(st.queue, queuedTurn{id: id, start: next})
+		return
+	}
+	st.running[id] = nil
+	go next()
+}
+
+// hasQueuedWorkLocked reports whether a session has a turn ready to run, either
+// parked or still in its persisted queue. Callers must hold st.mu.
+func (st *chatSessionStore) hasQueuedWorkLocked(id string) bool {
+	if len(st.pending[id]) > 0 {
+		return true
+	}
+	if st.defaultRun == nil {
+		return false
+	}
+	sess := st.sessions[id]
+	return sess != nil && len(sess.Queue) > 0
+}
+
+// releaseRunning frees the session's slot and starts whatever was parked behind
+// it. A Stop leaves the queue paused: the parked runs are held so Resume can run
+// them without the messages being lost.
 func (st *chatSessionStore) releaseRunning(id string) {
 	st.mu.Lock()
 	delete(st.running, id)
+	if st.paused[id] {
+		st.mu.Unlock()
+		st.pump()
+		return
+	}
+	if st.hasQueuedWorkLocked(id) {
+		st.startNextLocked(id)
+		st.mu.Unlock()
+		return
+	}
 	st.mu.Unlock()
 	st.pump()
 }
@@ -739,6 +862,18 @@ func (st *chatSessionStore) pump() {
 		}
 		next := st.queue[0]
 		st.queue = st.queue[1:]
+		if _, busy := st.running[next.id]; busy {
+			st.mu.Unlock()
+			continue
+		}
+		if st.paused[next.id] {
+			// The session was stopped while its turn waited for a slot. Keep the
+			// run parked so Resume can pick it up later.
+			st.pending[next.id] = append([]func(){next.start}, st.pending[next.id]...)
+			st.mu.Unlock()
+			continue
+		}
+		st.running[next.id] = nil
 		st.mu.Unlock()
 		next.start()
 	}
@@ -779,37 +914,14 @@ func (st *chatSessionStore) Shutdown() {
 
 // --- persistence ---------------------------------------------------------
 
-// touchLocked refreshes the timestamps and derives a title once the session is
-// worth naming. Callers must hold st.mu.
+// touchLocked refreshes the timestamps. Callers must hold st.mu. It deliberately
+// does not name the session: a title taken from the first prompt is just the
+// prompt shown again, and the list shows the relative time instead. Only Rename
+// sets a title.
 func (st *chatSessionStore) touchLocked(sess *ChatSession) {
 	now := time.Now()
 	sess.UpdatedAt = now
 	sess.LastActive = now
-	if sess.Title == "" {
-		// A session with a single prompt is still "the one I just started", and in
-		// the list every such session would carry the same kind of label where the
-		// relative time is the only thing telling them apart. So the name waits
-		// for a second turn, and when it arrives it is the first prompt that names
-		// the session, because that is what the user actually asked for.
-		first := ""
-		turns := 0
-		for _, m := range sess.Messages {
-			if m.Role != "user" {
-				continue
-			}
-			content := strings.TrimSpace(m.Content)
-			if content == "" {
-				continue
-			}
-			turns++
-			if first == "" {
-				first = content
-			}
-		}
-		if turns >= 2 && first != "" {
-			sess.Title = chatSessionTitle(first)
-		}
-	}
 }
 
 func chatSessionTitle(s string) string {

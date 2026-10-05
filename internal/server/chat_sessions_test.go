@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gense/ollama-manager/internal/config"
 	"github.com/gense/ollama-manager/internal/ollama"
 )
 
@@ -214,9 +216,13 @@ func TestChatSessionQueuesBeyondConcurrencyLimit(t *testing.T) {
 		id := st.Create("m", SessionSettings{}).ID
 		ids = append(ids, id)
 	}
+	if _, ok := st.enqueueUser(ids[0], "go", nil, false); !ok {
+		t.Fatal("enqueueUser failed")
+	}
 	for _, id := range ids {
 		id := id
 		st.Start(id, func() {
+			st.PopQueuedIntoMessages(id)
 			started <- id
 			<-release
 			st.releaseRunning(id)
@@ -1388,43 +1394,343 @@ func TestFinishSessionKeepsTheTranscriptOfAFailedTurn(t *testing.T) {
 	}
 }
 
-// TestSessionTitleWaitsForASecondTurn pins when a session gets its name. A session
-// holding a single prompt is still "the one I just started", and in the list
-// every such row would carry the same kind of label where the relative time is
-// the only thing telling them apart, so the title waits for the second turn.
-func TestSessionTitleWaitsForASecondTurn(t *testing.T) {
+// TestSessionNeverDerivesTitleFromPrompt pins that the prompt is never shown
+// back as a title. The list shows the relative time instead; only the user can
+// name a session.
+func TestSessionNeverDerivesTitleFromPrompt(t *testing.T) {
 	st := newTestSessionStore(t)
 	sess := st.Create("model-a", defaultSessionSettings())
-	if sess.Title != "" {
-		t.Fatalf("a brand-new session should have no title, got %q", sess.Title)
-	}
-
 	st.AppendUser(sess.ID, "first question, please answer at length", nil)
-	if got := st.Get(sess.ID).Title; got != "" {
-		t.Errorf("Title = %q after one user turn, want it to stay empty", got)
-	}
-
 	st.AppendUser(sess.ID, "second question", nil)
-	// The name comes from the FIRST prompt: that is what the user asked for, and
-	// the second turn is only what made the session worth naming.
-	if got := st.Get(sess.ID).Title; got != "first question, please answer at length" {
-		t.Errorf("Title = %q after two user turns, want the first prompt", got)
+	got := st.Get(sess.ID)
+	if got.Title != "" {
+		t.Errorf("Title = %q after two user turns, want it to stay empty", got.Title)
+	}
+	if got.CustomTitle {
+		t.Error("CustomTitle = true, want a derived-looking title to stay uncustom")
+	}
+	if sum := st.Summary(sess.ID); sum == nil || sum.CustomTitle || sum.Title != "" {
+		t.Errorf("summary leaked a derived title: %+v", sum)
 	}
 }
 
-// TestSessionTitleIgnoresEmptyPrompts makes sure a turn carrying only an
-// attachment does not count towards the second turn, otherwise a user who sends
-// an image and then a question would get a name made of nothing.
-func TestSessionTitleIgnoresEmptyPrompts(t *testing.T) {
+// TestSessionRenameMarksCustomTitle makes sure the only title the list shows is
+// the one the user typed.
+func TestSessionRenameMarksCustomTitle(t *testing.T) {
 	st := newTestSessionStore(t)
 	sess := st.Create("model-a", defaultSessionSettings())
-	st.AppendUser(sess.ID, "look at this", []ChatAttach{{Kind: "image", MimeType: "image/png", Data: attachmentBase64(64)}})
-	st.AppendUser(sess.ID, "   ", nil)
-	if got := st.Get(sess.ID).Title; got != "" {
-		t.Errorf("Title = %q, want an attachment-only plus blank turn to leave it unnamed", got)
+	if !st.Rename(sess.ID, "  My notes  ") {
+		t.Fatal("Rename returned false")
 	}
-	st.AppendUser(sess.ID, "now explain it", nil)
-	if got := st.Get(sess.ID).Title; got != "look at this" {
-		t.Errorf("Title = %q, want the first prompt once a second real turn exists", got)
+	got := st.Get(sess.ID)
+	if got.Title != "My notes" || !got.CustomTitle {
+		t.Fatalf("after rename: title=%q custom=%v, want \"My notes\" and custom", got.Title, got.CustomTitle)
+	}
+	if sum := st.Summary(sess.ID); sum == nil || !sum.CustomTitle || sum.Title != "My notes" {
+		t.Errorf("summary did not carry the custom title: %+v", sum)
+	}
+	// Clearing the name falls back to the anonymous, time-only row.
+	if !st.Rename(sess.ID, "   ") {
+		t.Fatal("Rename with a blank name returned false")
+	}
+	if got := st.Get(sess.ID); got.Title != "" || got.CustomTitle {
+		t.Errorf("blank rename left title=%q custom=%v, want both cleared", got.Title, got.CustomTitle)
+	}
+}
+
+// TestLoadClearsDerivedTitles makes sure a transcript written by an older build,
+// which titled itself from the first prompt, comes back anonymous.
+func TestLoadClearsDerivedTitles(t *testing.T) {
+	dir := t.TempDir()
+	st := newChatSessionStore(dir)
+	st.Load()
+	sess := st.Create("model-a", defaultSessionSettings())
+	st.AppendUser(sess.ID, "an old auto-generated title", nil)
+	// Simulate the old behavior writing a derived title without the marker.
+	st.mu.Lock()
+	st.sessions[sess.ID].Title = "an old auto-generated title"
+	st.sessions[sess.ID].CustomTitle = false
+	st.flushLocked(st.sessions[sess.ID])
+	st.mu.Unlock()
+
+	reloaded := newChatSessionStore(dir)
+	reloaded.Load()
+	got := reloaded.Get(sess.ID)
+	if got == nil {
+		t.Fatal("session did not reload")
+	}
+	if got.Title != "" {
+		t.Errorf("Title = %q after reload, want an old derived title cleared", got.Title)
+	}
+
+	// A user-typed title survives.
+	if !reloaded.Rename(sess.ID, "kept") {
+		t.Fatal("Rename returned false")
+	}
+	reloaded.flush(sess.ID)
+	reloaded2 := newChatSessionStore(dir)
+	reloaded2.Load()
+	if got := reloaded2.Get(sess.ID); got == nil || !got.CustomTitle || got.Title != "kept" {
+		t.Errorf("custom title did not survive reload: %+v", got)
+	}
+}
+
+// TestHandleChatSessionSendQueuesWhileBusy drives the HTTP handler the browser
+// actually calls: a message sent while the session is busy must be accepted (202)
+// with the queue echoed back, not refused with a conflict.
+func TestHandleChatSessionSendQueuesWhileBusy(t *testing.T) {
+	dir := t.TempDir()
+	st := newChatSessionStore(dir)
+	st.Load()
+	srv := &Server{chatSessions: st, cfg: &config.Config{}}
+	srv.chatSessions.defaultRun = srv.sessionTurn
+
+	sess := st.Create("model-a", defaultSessionSettings())
+	// Make the session look busy without running a real model.
+	st.mu.Lock()
+	st.running[sess.ID] = func() {}
+	st.mu.Unlock()
+
+	body := `{"content":"second message","model":"model-a"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/sessions/"+sess.ID+"/messages", strings.NewReader(body))
+	req.SetPathValue("id", sess.ID)
+	rec := httptest.NewRecorder()
+	srv.handleChatSessionSend(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		OK     bool              `json:"ok"`
+		Queued bool              `json:"queued"`
+		Queue  []json.RawMessage `json:"queue"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK || !resp.Queued {
+		t.Fatalf("response = %+v, want ok and queued", resp)
+	}
+	if len(resp.Queue) != 1 {
+		t.Fatalf("queue echoed back has %d entries, want 1", len(resp.Queue))
+	}
+	if got := st.Get(sess.ID); len(got.Queue) != 1 || got.Queue[0].Content != "second message" {
+		t.Fatalf("stored queue = %+v, want the second message", got.Queue)
+	}
+
+	// The queue survives a reload: it is part of the session file.
+	st.flush(sess.ID)
+	reloaded := newChatSessionStore(dir)
+	reloaded.Load()
+	if got := reloaded.Get(sess.ID); got == nil || len(got.Queue) != 1 {
+		t.Fatalf("queue did not survive reload: %+v", got)
+	}
+}
+
+// TestHandleChatSessionQueueRemoveHTTP backs the "cancel a queued message" call.
+func TestHandleChatSessionQueueRemoveHTTP(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+	qid, ok := st.enqueueUser(sess.ID, "take me back", []ChatAttach{{Kind: "text", Name: "a.txt", Text: "hi"}}, true)
+	if !ok {
+		t.Fatal("enqueueUser failed")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/sessions/"+sess.ID+"/queue/remove", strings.NewReader(`{"queue_id":"`+qid+`"}`))
+	req.SetPathValue("id", sess.ID)
+	rec := httptest.NewRecorder()
+	srv.handleChatSessionQueueRemove(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Message SessionMessage `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Message.Content != "take me back" {
+		t.Errorf("returned message = %q, want the queued text", resp.Message.Content)
+	}
+	if len(st.Get(sess.ID).Queue) != 0 {
+		t.Error("queue should be empty after removing the only entry")
+	}
+}
+
+// enqueueAndRun simulates the server side of a turn: it claims the next queued
+// user turn, records it and releases the slot for whatever is behind it.
+func enqueueAndRun(st *chatSessionStore, id string, ran chan<- string) func() {
+	return func() {
+		st.PopQueuedIntoMessages(id)
+		if sess := st.Get(id); sess != nil && len(sess.Messages) > 0 {
+			ran <- sess.Messages[len(sess.Messages)-1].Content
+		}
+		st.releaseRunning(id)
+	}
+}
+
+// TestSessionQueueDrainsInOrder pins the whole point of the queue: messages sent
+// while a turn runs wait in the session and then run one by one, in order.
+func TestSessionQueueDrainsInOrder(t *testing.T) {
+	st := newTestSessionStore(t)
+	ran := make(chan string, 4)
+	sess := st.Create("model-a", defaultSessionSettings())
+
+	if _, ok := st.enqueueUser(sess.ID, "A", nil, false); !ok {
+		t.Fatal("enqueueUser(A) failed")
+	}
+	st.Start(sess.ID, enqueueAndRun(st, sess.ID, ran))
+	if _, ok := st.enqueueUser(sess.ID, "B", nil, true); !ok {
+		t.Fatal("enqueueUser(B) failed")
+	}
+	st.Start(sess.ID, enqueueAndRun(st, sess.ID, ran))
+	if _, ok := st.enqueueUser(sess.ID, "C", nil, true); !ok {
+		t.Fatal("enqueueUser(C) failed")
+	}
+	st.Start(sess.ID, enqueueAndRun(st, sess.ID, ran))
+
+	for i, want := range []string{"A", "B", "C"} {
+		select {
+		case got := <-ran:
+			if got != want {
+				t.Fatalf("turn %d ran %q, want %q", i, got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("turn %d (%s) never ran", i, want)
+		}
+	}
+
+	got := st.Get(sess.ID)
+	if len(got.Queue) != 0 {
+		t.Errorf("queue still holds %d message(s), want it drained", len(got.Queue))
+	}
+	if len(got.Messages) != 3 {
+		t.Errorf("transcript has %d messages, want the three user turns", len(got.Messages))
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for st.HasBusy() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st.HasBusy() {
+		t.Error("nothing should be busy once the queue drained")
+	}
+}
+
+// TestSessionStopPausesQueueAndResumeContinues makes sure Stop ends the turn and
+// holds the queue instead of throwing it away or running the next message.
+func TestSessionStopPausesQueueAndResumeContinues(t *testing.T) {
+	st := newTestSessionStore(t)
+	started := make(chan string, 4)
+	block := make(chan struct{})
+	var mu sync.Mutex
+	blockFirst := true
+	runner := func(id string) {
+		st.PopQueuedIntoMessages(id)
+		if sess := st.Get(id); sess != nil && len(sess.Messages) > 0 {
+			started <- sess.Messages[len(sess.Messages)-1].Content
+		}
+		mu.Lock()
+		first := blockFirst
+		blockFirst = false
+		mu.Unlock()
+		if first {
+			<-block
+		}
+		st.releaseRunning(id)
+	}
+
+	sess := st.Create("model-a", defaultSessionSettings())
+	if _, ok := st.enqueueUser(sess.ID, "A", nil, false); !ok {
+		t.Fatal("enqueueUser(A) failed")
+	}
+	st.Start(sess.ID, func() { runner(sess.ID) })
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first turn never started")
+	}
+
+	if _, ok := st.enqueueUser(sess.ID, "B", nil, true); !ok {
+		t.Fatal("enqueueUser(B) failed")
+	}
+	st.Start(sess.ID, func() { runner(sess.ID) })
+
+	if !st.Cancel(sess.ID) {
+		t.Fatal("Cancel returned false")
+	}
+	close(block)
+
+	select {
+	case got := <-started:
+		t.Fatalf("B ran while the queue was paused (started %q)", got)
+	case <-time.After(250 * time.Millisecond):
+	}
+	if got := st.Get(sess.ID); len(got.Queue) != 1 || got.Queue[0].Content != "B" {
+		t.Fatalf("queue after Stop = %+v, want B still waiting", got.Queue)
+	}
+	if st.HasBusy() {
+		t.Error("a paused queue must not read as busy")
+	}
+
+	// Sending a new message is an explicit resume: the paused B runs first, C
+	// waits its turn.
+	if _, ok := st.enqueueUser(sess.ID, "C", nil, true); !ok {
+		t.Fatal("enqueueUser(C) failed")
+	}
+	st.Resume(sess.ID)
+	st.Start(sess.ID, func() { runner(sess.ID) })
+	for i, want := range []string{"B", "C"} {
+		select {
+		case got := <-started:
+			if got != want {
+				t.Fatalf("after resume turn %d ran %q, want %q", i, got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("after resume, %s never ran", want)
+		}
+	}
+}
+
+// TestSessionRemoveQueuedReturnsMessage backs the "cancel a queued message and
+// get it back in the composer" behavior.
+func TestSessionRemoveQueuedReturnsMessage(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+	qid, ok := st.enqueueUser(sess.ID, "recover me", []ChatAttach{{Kind: "text", Name: "f.txt", Text: "hello"}}, true)
+	if !ok {
+		t.Fatal("enqueueUser failed")
+	}
+	msg, ok := st.RemoveQueued(sess.ID, qid)
+	if !ok {
+		t.Fatal("RemoveQueued returned false")
+	}
+	if msg.Content != "recover me" || len(msg.Attach) != 1 {
+		t.Fatalf("RemoveQueued returned %+v, want the text and attachment", msg)
+	}
+	if got := st.Get(sess.ID); len(got.Queue) != 0 || len(got.Messages) != 0 {
+		t.Fatalf("after remove: queue=%d messages=%d, want both empty", len(got.Queue), len(got.Messages))
+	}
+	if _, ok := st.RemoveQueued(sess.ID, qid); ok {
+		t.Error("removing the same queued message twice should fail")
+	}
+}
+
+// TestSessionPromoteQueuedMovesToFront backs the lightning "run this one next"
+// button.
+func TestSessionPromoteQueuedMovesToFront(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+	_, _ = st.enqueueUser(sess.ID, "A", nil, true)
+	_, _ = st.enqueueUser(sess.ID, "B", nil, true)
+	qidC, _ := st.enqueueUser(sess.ID, "C", nil, true)
+
+	if !st.PromoteQueued(sess.ID, qidC) {
+		t.Fatal("PromoteQueued returned false")
+	}
+	q := st.Get(sess.ID).Queue
+	if len(q) != 3 || q[0].Content != "C" || q[1].Content != "A" || q[2].Content != "B" {
+		t.Fatalf("order after promote = %v, want C, A, B", []string{q[0].Content, q[1].Content, q[2].Content})
 	}
 }

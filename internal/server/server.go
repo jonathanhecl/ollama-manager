@@ -236,6 +236,9 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 	// (OpenAI-compatible) models work in bench, not just Ollama.
 	// chatWithModel already dispatches external vs Ollama.
 	srv.runner.SetChatFunc(srv.chatWithModel)
+	// A queued turn restored from disk has no parked run, so the store rebuilds
+	// one through this when a paused queue resumes.
+	srv.chatSessions.defaultRun = srv.sessionTurn
 	srv.runner.SetIsExternal(func(name string) bool {
 		return srv.externalModels != nil && srv.externalModels.IsExternal(name)
 	})
@@ -303,6 +306,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionDelete))
 	mux.Handle("GET /api/chat/sessions/{id}/events", s.requireAuth(s.handleChatSessionEvents))
 	mux.Handle("POST /api/chat/sessions/{id}/messages", s.requireAuth(s.handleChatSessionSend))
+	mux.Handle("POST /api/chat/sessions/{id}/queue/remove", s.requireAuth(s.handleChatSessionQueueRemove))
+	mux.Handle("POST /api/chat/sessions/{id}/queue/promote", s.requireAuth(s.handleChatSessionQueuePromote))
 	mux.Handle("POST /api/chat/sessions/{id}/cancel", s.requireAuth(s.handleChatSessionCancel))
 	mux.Handle("POST /api/chat/sessions/{id}/seen", s.requireAuth(s.handleChatSessionSeen))
 	mux.Handle("POST /api/embed", s.requireAuth(s.handleEmbed))

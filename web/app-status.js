@@ -310,16 +310,19 @@ function updateChatSendEnabled() {
   const btn = $("chat-send-btn");
   let ok = managerApiOk && ollamaHostOk;
   if (btn) {
+    const queued = typeof chatSessionId !== "undefined" && !!chatSessionId && chatStreamLock;
     if (!ok) {
       if (!managerApiOk) {
         btn.title = t("chat.send_disabled_manager");
       } else {
         btn.title = t("chat.send_disabled_ollama");
       }
+    } else if (queued) {
+      btn.title = t("chat.session_queue_hint") || t("chat.queue_send");
     } else {
       btn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
     }
-    btn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    btn.textContent = queued ? t("chat.queue_send") : t("chat.send");
     btn.disabled = !ok;
   }
 }

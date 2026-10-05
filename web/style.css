@@ -4811,6 +4811,8 @@ button.chat-send:disabled:hover {
   align-items: center;
   gap: 3px;
   flex: 0 0 auto;
+  width: 12px;
+  justify-content: center;
 }
 .chat-session-row-main {
   display: flex;
@@ -4819,9 +4821,9 @@ button.chat-send:disabled:hover {
   min-width: 0;
   flex: 1 1 auto;
 }
-/* An unnamed row only shows when it happened, so the time takes the title's
-   place and reads like a name would. */
-.chat-session-row-title-new { opacity: 0.85; font-style: italic; }
+/* An unnamed row shows only when it happened, so the time is drawn a touch
+   dimmer and reads as metadata rather than a name. */
+.chat-session-row-time { opacity: 0.85; }
 .chat-session-row-title {
   font-size: 0.8rem;
   line-height: 1.25;
@@ -4837,11 +4839,24 @@ button.chat-send:disabled:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.chat-session-row-error {
+  color: #ff6b6b;
+  font-weight: 600;
+}
 .chat-session-row-actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
+  /* Hidden until the row is hovered or focused, so the list reads clean and the
+     timestamp is not crowded by two controls on every line. */
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.chat-session-row:hover .chat-session-row-actions,
+.chat-session-row:focus-within .chat-session-row-actions,
+.chat-session-row.active .chat-session-row-actions {
+  opacity: 1;
 }
 .chat-session-row-btn {
   background: none;
@@ -4850,13 +4865,21 @@ button.chat-send:disabled:hover {
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
-  padding: 3px 4px;
-  border-radius: 5px;
+  padding: 3px 5px;
+  border-radius: 6px;
   transition: color 0.15s ease, background 0.15s ease;
 }
 .chat-session-row-btn:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.08);
+}
+.chat-session-row-del:hover {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #ff6b6b 15%, transparent);
+}
+.chat-session-row-stop:hover {
+  color: #ffb020;
+  background: color-mix(in srgb, #ffb020 15%, transparent);
 }
 .session-badges {
   display: inline-flex;

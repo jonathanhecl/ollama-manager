@@ -215,6 +215,11 @@ type renameSessionRequest struct {
 	Title string `json:"title"`
 }
 
+// queueActionRequest names one queued turn for cancel or promote.
+type queueActionRequest struct {
+	QueueID string `json:"queue_id"`
+}
+
 // handleChatSessionsList serves the session rows used by the side panel and by
 // the badges next to each model.
 func (s *Server) handleChatSessionsList(w http.ResponseWriter, r *http.Request) {
@@ -294,16 +299,18 @@ func (s *Server) sessionDetail(sess *ChatSession) map[string]any {
 	s.chatSessions.mu.Lock()
 	defer s.chatSessions.mu.Unlock()
 	detail := map[string]any{
-		"id":       sess.ID,
-		"title":    sess.Title,
-		"model":    sess.Model,
-		"status":   sess.Status,
-		"unseen":   sess.Unseen,
-		"error":    sess.Error,
-		"settings": sess.Settings,
+		"id":           sess.ID,
+		"title":        sess.Title,
+		"custom_title": sess.CustomTitle,
+		"model":        sess.Model,
+		"status":       sess.Status,
+		"unseen":       sess.Unseen,
+		"error":        sess.Error,
+		"settings":     sess.Settings,
 		// Hydrated on the way out: the stored transcript keeps attachment bytes on
 		// disk, but the browser has to be able to render them again.
 		"messages":       s.chatSessions.hydrateMessages(sess.Messages),
+		"queue":          s.chatSessions.hydrateMessages(sess.Queue),
 		"seq":            sess.Seq,
 		"created_at":     sess.CreatedAt,
 		"updated_at":     sess.UpdatedAt,
@@ -342,7 +349,9 @@ func (s *Server) handleChatSessionDelete(w http.ResponseWriter, r *http.Request)
 }
 
 // handleChatSessionSend appends a user turn and starts a detached run. It
-// answers 202 right away: the browser never waits for the model.
+// answers 202 right away: the browser never waits for the model. A message sent
+// while the session is busy is queued in the session and runs when its turn
+// comes, instead of being refused.
 func (s *Server) handleChatSessionSend(w http.ResponseWriter, r *http.Request) {
 	if !s.requireChatSessions(w) {
 		return
@@ -361,36 +370,88 @@ func (s *Server) handleChatSessionSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
-	// Refuse early, before the message is appended. A session runs one turn at a
-	// time, and Start quietly ignores a second one, so accepting the message here
-	// would leave it sitting in the transcript with no reply coming and no way for
-	// the browser to tell. Saying "conflict" instead lets the client keep the text
-	// in the composer for a retry once the reply lands.
-	if s.chatSessions.IsBusy(id) {
-		writeError(w, http.StatusConflict, errors.New("this session is still working on its previous message"))
-		return
-	}
+	// Whether the message waits or runs now. It is read before the append so the
+	// answer can tell the browser to draw the message in the queue panel.
+	wasBusy := s.chatSessions.IsBusy(id)
 	if req.Settings != nil {
 		s.chatSessions.MergeSettings(id, *req.Settings)
 	}
 	if model := strings.TrimSpace(req.Model); model != "" {
 		s.chatSessions.SetModel(id, model)
 	}
-	if req.ReplaceLast {
-		s.chatSessions.TrimAfterLastUser(id)
-	}
-	if req.EditLast {
-		s.chatSessions.ReplaceLastUser(id, req.Content, req.Attachments)
+
+	queueID := ""
+	if req.ReplaceLast || req.EditLast {
+		// Regenerate and edit-and-resend rewrite the last user turn in place, so
+		// there is nothing to queue: the run answers the turn already there.
+		if req.ReplaceLast {
+			s.chatSessions.TrimAfterLastUser(id)
+		}
+		if req.EditLast {
+			s.chatSessions.ReplaceLastUser(id, req.Content, req.Attachments)
+		}
 	} else {
-		s.chatSessions.AppendUser(id, req.Content, req.Attachments)
+		qid, ok := s.chatSessions.enqueueUser(id, req.Content, req.Attachments, wasBusy)
+		if !ok {
+			writeError(w, http.StatusNotFound, errors.New("session not found"))
+			return
+		}
+		queueID = qid
 	}
+	// Sending a message counts as wanting the queue to move: a queue paused by
+	// Stop picks up where it left off, with the new message at the end.
+	s.chatSessions.Resume(id)
+	s.dispatchSessionTurn(id)
 	sum := s.chatSessions.Summary(id)
 	if sum == nil {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
-	s.dispatchSessionTurn(id)
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "status": sum.Status})
+	detail := s.chatSessions.Get(id)
+	queue := []SessionMessage{}
+	if detail != nil {
+		queue = s.chatSessions.hydrateMessages(detail.Queue)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"ok":       true,
+		"status":   sum.Status,
+		"queued":   wasBusy,
+		"queue_id": queueID,
+		"queue":    queue,
+	})
+}
+
+// handleChatSessionQueueRemove takes a queued turn back out of the session and
+// returns it so the browser can restore the text to the composer.
+func (s *Server) handleChatSessionQueueRemove(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req queueActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
+		return
+	}
+	msg, ok := s.chatSessions.RemoveQueued(id, req.QueueID)
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("queued message not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": msg})
+}
+
+// handleChatSessionQueuePromote moves a queued turn to the front and interrupts
+// the running one so it runs next.
+func (s *Server) handleChatSessionQueuePromote(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req queueActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
+		return
+	}
+	if !s.chatSessions.PromoteQueued(id, req.QueueID) {
+		writeError(w, http.StatusNotFound, errors.New("queued message not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // handleChatSessionCancel stops the turn in flight, leaving the session intact.

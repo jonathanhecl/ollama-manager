@@ -324,26 +324,47 @@ func (s *Server) sessionModelCaps(ctx context.Context, model string) sessionMode
 	}
 }
 
-// dispatchSessionTurn starts a detached turn for a session, queueing it when
-// every concurrency slot is taken. The turn owns its own context so nothing
-// stops when the browser that asked for it goes away.
+// dispatchSessionTurn starts a detached turn for a session, parking it behind
+// the running one when the session is already busy. The turn owns its own
+// context so nothing stops when the browser that asked for it goes away.
 func (s *Server) dispatchSessionTurn(id string) {
-	st := s.chatSessions
-	st.Start(id, func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		st.bindRunning(id, cancel)
-		defer cancel()
-		s.runSessionTurn(ctx, id)
-	})
+	s.chatSessions.Start(id, func() { s.sessionTurn(id) })
 }
 
-// runSessionTurn executes one detached turn: it appends the pending assistant
-// message, runs the appropriate loop against a sessionSink, and settles the
-// session status. It never touches an http.ResponseWriter.
+// sessionTurn is the body of one detached turn: it claims the cancel func, runs
+// the model and settles the session. It is the default run the store uses when
+// it needs to start a queued turn itself (after a paused queue resumes).
+func (s *Server) sessionTurn(id string) {
+	st := s.chatSessions
+	ctx, cancel := context.WithCancel(context.Background())
+	st.bindRunning(id, cancel)
+	defer cancel()
+	s.runSessionTurn(ctx, id)
+}
+
+// runSessionTurn executes one detached turn: it moves the next queued user turn
+// into the transcript, runs the appropriate loop against a sessionSink, and
+// settles the session status. It never touches an http.ResponseWriter.
 func (s *Server) runSessionTurn(ctx context.Context, id string) {
 	st := s.chatSessions
+	// A queued user turn becomes the transcript only now, so the model never
+	// sees a message the user sent while it was still answering the previous one.
+	// A regenerate/edit already put its user turn in place, so there is nothing
+	// to move.
 	sess := st.Get(id)
 	if sess == nil {
+		st.releaseRunning(id)
+		return
+	}
+	if !lastMessageIsUser(sess) {
+		st.PopQueuedIntoMessages(id)
+		sess = st.Get(id)
+	}
+	if sess == nil || !lastMessageIsUser(sess) {
+		// Nothing to answer: a stale run (for example a queued run left over
+		// from before a restart, or a removed message) must not append an
+		// assistant reply to the turn that already finished.
+		st.releaseRunning(id)
 		return
 	}
 	model := sess.Model
@@ -492,7 +513,166 @@ func pendingMessageLocked(sess *ChatSession) *SessionMessage {
 	return nil
 }
 
-// AppendUser adds a user turn and refreshes the derived title.
+// newSessionQueueID labels a queued turn so the browser can cancel or promote
+// exactly that one without relying on a shifting list index.
+func newSessionQueueID() string {
+	return fmt.Sprintf("q-%d-%d", time.Now().UnixMilli(), chatSessionSeq.Add(1))
+}
+
+// enqueueUser parks a user turn in the session queue. deferred marks one sent
+// while the session was already busy; only those announce themselves when they
+// reach the transcript, because a direct message is already on screen.
+func (st *chatSessionStore) enqueueUser(id, content string, attach []ChatAttach, deferred bool) (string, bool) {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return "", false
+	}
+	qid := newSessionQueueID()
+	sess.Queue = append(sess.Queue, SessionMessage{
+		Role:    "user",
+		Content: content,
+		// Park the bytes on disk for the same reason a normal turn does: the
+		// queued message is persisted with the session.
+		Attach:    st.storeAttachBlobs(sess.ID, attach),
+		CreatedAt: time.Now(),
+		QueueID:   qid,
+		Deferred:  deferred,
+	})
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	return qid, true
+}
+
+// PopQueuedIntoMessages moves the next queued user turn into the transcript. It
+// runs at the start of a turn, so the model never sees a message that arrived
+// while it was answering the previous one.
+func (st *chatSessionStore) PopQueuedIntoMessages(id string) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil || len(sess.Queue) == 0 {
+		st.mu.Unlock()
+		return false
+	}
+	msg := sess.Queue[0]
+	sess.Queue = append([]SessionMessage(nil), sess.Queue[1:]...)
+	sess.Messages = append(sess.Messages, msg)
+	if st.trimMessagesLocked(sess) {
+		st.dropOrphanBlobs(sess.ID, sess.Messages)
+	}
+	var seq int
+	if msg.Deferred {
+		sess.Seq++
+		seq = sess.Seq
+		st.appendReplayLocked(sess, seq, "queued_user", msg)
+	}
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	if msg.Deferred {
+		// Tell whoever is watching to move this message from the queue panel
+		// into the transcript. A reconnecting tab gets it from the transcript
+		// instead; the event is only for a stream that is already open.
+		hydrated := st.hydrateMessages([]SessionMessage{msg})[0]
+		st.broadcast(ChatSessionEvent{
+			Kind:  chatSessionEventStream,
+			ID:    id,
+			Seq:   seq,
+			Event: "queued_user",
+			Data:  hydrated,
+		})
+	}
+	return true
+}
+
+// RemoveQueued takes one queued turn out and returns it, so the browser can put
+// the text back in the composer.
+func (st *chatSessionStore) RemoveQueued(id, queueID string) (SessionMessage, bool) {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return SessionMessage{}, false
+	}
+	idx := -1
+	for i := range sess.Queue {
+		if sess.Queue[i].QueueID == queueID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		st.mu.Unlock()
+		return SessionMessage{}, false
+	}
+	msg := sess.Queue[idx]
+	sess.Queue = append(sess.Queue[:idx], sess.Queue[idx+1:]...)
+	st.dropAttachBlobs(msg.Attach)
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	return msg, true
+}
+
+// PromoteQueued moves a queued turn to the front and, when a turn is running,
+// interrupts it so the promoted message runs next.
+func (st *chatSessionStore) PromoteQueued(id, queueID string) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	idx := -1
+	for i := range sess.Queue {
+		if sess.Queue[i].QueueID == queueID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		st.mu.Unlock()
+		return false
+	}
+	msg := sess.Queue[idx]
+	rest := append(append([]SessionMessage{}, sess.Queue[:idx]...), sess.Queue[idx+1:]...)
+	sess.Queue = append([]SessionMessage{msg}, rest...)
+	st.paused[id] = false
+	cancel, running := st.running[id]
+	if running && sess != nil {
+		sess.Cancelled = true
+	}
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	if running {
+		if cancel != nil {
+			cancel()
+		}
+		return true
+	}
+	// Nothing running: start the promoted turn now. Its run is parked in pending
+	// or, after a restart, has to be rebuilt from the default runner.
+	st.mu.Lock()
+	if _, busy := st.running[id]; !busy {
+		st.startNextLocked(id)
+	}
+	st.mu.Unlock()
+	return true
+}
+
+// AppendUser adds a user turn straight to the transcript. The turn runner uses
+// the queue instead; this stays for callers that build a transcript by hand.
 func (st *chatSessionStore) AppendUser(id string, content string, attach []ChatAttach) bool {
 	st.mu.Lock()
 	sess := st.sessions[id]
@@ -516,11 +696,20 @@ func (st *chatSessionStore) AppendUser(id string, content string, attach []ChatA
 	st.touchLocked(sess)
 	st.flushLocked(sess)
 	// Deliberately no broadcast: the caller starts the turn right after, and
-	// beginTurn's update already carries the new title and message count.
-	// Emitting an idle update in between would briefly tell browsers that a turn
-	// had finished when none had started yet.
+	// beginTurn's update already carries the new message count. Emitting an idle
+	// update in between would briefly tell browsers that a turn had finished
+	// when none had started yet.
 	st.mu.Unlock()
 	return true
+}
+
+// appendReplayLocked records one event in the per-session replay log. Callers
+// must hold st.mu.
+func (st *chatSessionStore) appendReplayLocked(sess *ChatSession, seq int, event string, payload any) {
+	sess.Events = append(sess.Events, SessionEvent{Seq: seq, Event: event, Data: trimReplayPayload(event, payload)})
+	if over := len(sess.Events) - maxSessionEvents; over > 0 {
+		sess.Events = append([]SessionEvent(nil), sess.Events[over:]...)
+	}
 }
 
 // trimMessagesLocked keeps a long-running session from growing without bound.
@@ -665,7 +854,8 @@ func (st *chatSessionStore) ReplaceLastUser(id, content string, attach []ChatAtt
 	return false
 }
 
-// Rename overrides the derived title.
+// Rename sets the user-visible title. Only a title set here is shown in the
+// list; everything else stays anonymous and shows its relative time.
 func (st *chatSessionStore) Rename(id, title string) bool {
 	st.mu.Lock()
 	sess := st.sessions[id]
@@ -673,13 +863,24 @@ func (st *chatSessionStore) Rename(id, title string) bool {
 		st.mu.Unlock()
 		return false
 	}
-	sess.Title = chatSessionTitle(strings.TrimSpace(title))
+	clean := strings.TrimSpace(title)
+	sess.Title = chatSessionTitle(clean)
+	sess.CustomTitle = clean != ""
 	st.touchLocked(sess)
 	st.saveLocked(sess)
 	sum := summaryOf(sess)
 	st.mu.Unlock()
 	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
 	return true
+}
+
+// lastMessageIsUser reports whether the transcript ends on a user turn, i.e.
+// whether there is anything for a new turn to answer.
+func lastMessageIsUser(sess *ChatSession) bool {
+	if sess == nil || len(sess.Messages) == 0 {
+		return false
+	}
+	return sess.Messages[len(sess.Messages)-1].Role == "user"
 }
 
 // --- sessionSink ----------------------------------------------------------

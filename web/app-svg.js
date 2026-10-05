@@ -3856,6 +3856,15 @@ function renderChatQueue() {
     addFastTapListener(btn, (e) => {
       e?.stopPropagation?.();
       const id = btn.dataset.id;
+      // Inside a session the queue lives on the server, so promoting means an
+      // API call: the server reorders it and interrupts the running turn.
+      if (typeof chatSessionId !== "undefined" && chatSessionId) {
+        void api(`/api/chat/sessions/${encodeURIComponent(chatSessionId)}/queue/promote`, {
+          method: "POST",
+          body: { queue_id: id },
+        }).catch((err) => toast(t("toast.error", { msg: err.message }), "error"));
+        return;
+      }
       const idx = chatPendingQueue.findIndex((q) => q.id === id);
       if (idx < 0) return;
       const [item] = chatPendingQueue.splice(idx, 1);
@@ -3873,27 +3882,53 @@ function renderChatQueue() {
   host.querySelectorAll(".chat-queue-x").forEach((btn) => {
     addFastTapListener(btn, (e) => {
       e?.stopPropagation?.();
-      const item = chatPendingQueue.find((q) => q.id === btn.dataset.id);
-      if (item) {
-        const inputEl = $("chat-input");
-        if (inputEl) {
-          const currentVal = inputEl.value;
-          if (!currentVal.trim()) {
-            inputEl.value = item.text || "";
-          } else if (item.text) {
-            inputEl.value = currentVal + "\n" + item.text;
+      const id = btn.dataset.id;
+      // Inside a session, cancelling returns the turn to the composer. The
+      // server owns the queue, so it is the one that hands the message back.
+      if (typeof chatSessionId !== "undefined" && chatSessionId) {
+        void (async () => {
+          let msg;
+          try {
+            const res = await api(`/api/chat/sessions/${encodeURIComponent(chatSessionId)}/queue/remove`, {
+              method: "POST",
+              body: { queue_id: id },
+            });
+            msg = res && res.message;
+          } catch (err) {
+            toast(t("toast.error", { msg: err.message }), "error");
+            return;
           }
-          inputEl.focus();
-        }
-        if (item.attachments && item.attachments.length) {
-          chatAttachments = [...chatAttachments, ...item.attachments];
-          renderAttachments();
-        }
+          chatPendingQueue = chatPendingQueue.filter((q) => q.id !== id);
+          renderChatQueue();
+          if (msg) restoreQueuedMessageToComposer(hydrateSessionQueueMessage(msg));
+        })();
+        return;
       }
+      const item = chatPendingQueue.find((q) => q.id === btn.dataset.id);
+      if (item) restoreQueuedMessageToComposer(item);
       chatPendingQueue = chatPendingQueue.filter((q) => q.id !== btn.dataset.id);
       renderChatQueue();
     });
   });
+}
+
+// restoreQueuedMessageToComposer puts a cancelled queued message back where the
+// user can edit and resend it, matching the quick chat's behavior.
+function restoreQueuedMessageToComposer(item) {
+  const inputEl = $("chat-input");
+  if (inputEl) {
+    const currentVal = inputEl.value;
+    if (!currentVal.trim()) {
+      inputEl.value = item.text || "";
+    } else if (item.text) {
+      inputEl.value = currentVal + "\n" + item.text;
+    }
+    inputEl.focus();
+  }
+  if (item.attachments && item.attachments.length) {
+    chatAttachments = [...chatAttachments, ...item.attachments];
+    renderAttachments();
+  }
 }
 
 function stopThinkTicker() {
@@ -5667,12 +5702,13 @@ async function sendChatMessage(interruptNow = false) {
   $("chat-input").value = "";
   chatAttachments = [];
   renderAttachments();
+  // The composer is empty from here on, so a busy session can accept the next
+  // message even while this one is still being posted.
+  updateChatSendEnabled();
 
-  // A persistent session must never wait in the browser's queue. That queue is
-  // local state: it is never posted to the server, so a queued message is lost
-  // the moment the page goes away, and only the quick chat path drains it, which
-  // session turns never reach. The session keeps its own queue on the server, so
-  // the message goes straight there and the server decides when it runs.
+  // A persistent session never waits in the browser's queue for the quick-chat
+  // path: the message goes straight to the server, which accepts it and runs it
+  // when its turn comes, so closing the tab cannot lose it.
   if (chatStreamLock && !(typeof chatSessionId !== "undefined" && chatSessionId)) {
     if (interruptNow) {
       chatPendingQueue.unshift({ id: nanoid(), text: snapText, attachments: snapAtt });

@@ -98,6 +98,20 @@ function sessionRowStatusText(sum) {
   return fmtRelativeTime(sum.last_active_at);
 }
 
+// sessionRowBadgeHtml draws the dot for one session row. Unlike the model-list
+// badge it follows only this session, so a working session does not light up
+// every other session that happens to share its model.
+function sessionRowBadgeHtml(s) {
+  if (!s) return "";
+  if (s.status === "running" || s.status === "queued") {
+    return `<span class="session-badge session-badge-running" title="${escapeHtml(t("chat.session_badge_running"))}"></span>`;
+  }
+  if (s.unseen) {
+    return `<span class="session-badge session-badge-unseen" title="${escapeHtml(t("chat.session_badge_unseen"))}"></span>`;
+  }
+  return "";
+}
+
 function renderSessionList() {
   const list = $("chat-sessions-list");
   if (!list) return;
@@ -113,32 +127,27 @@ function renderSessionList() {
 
   for (const s of sessions) {
     const active = s.id === chatSessionId;
-    // The server only derives a title once the session has more than one turn, so
-    // an unnamed row is a brand-new session. Showing a placeholder would fill the
-    // panel with rows that all read the same; the relative time is the only line
-    // that tells them apart until there is a name worth showing.
-    const title = s.title || "";
     const canStop = s.status === "running" || s.status === "queued";
-    // A session whose model is gone can never run again. The summary has no way
-    // to know that, so the row checks the live model list and says so instead of
-    // silently failing on the next message.
-    const modelMissing = !!s.model && !modelByName(s.model);
-    const notes = `${s.error ? ` · ${escapeHtml(s.error)}` : ""}${s.dropped_messages ? ` · ${escapeHtml(t("chat.session_trimmed", { n: s.dropped_messages }))}` : ""}${modelMissing ? ` · ${escapeHtml(t("chat.session_model_missing"))}` : ""}`;
-    const meta = `${escapeHtml(sessionRowStatusText(s))}${notes}`;
-    // With no title the row is brand new, so the relative time takes the place of
-    // the name and the second line is dropped unless there is something to warn
-    // about. That keeps the row a single readable line instead of two lines of
-    // which the first says nothing.
-    const head = title
-      ? `<span class="chat-session-row-title" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_rename_hint"))}">${escapeHtml(title)}</span><span class="chat-session-row-meta">${meta}</span>`
-      : `<span class="chat-session-row-title chat-session-row-title-new" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_rename_hint"))}">${meta}</span>`;
-    html += `<div class="chat-session-row${active ? " active" : ""}${title ? "" : " chat-session-row-new"}" data-session-id="${escapeHtml(s.id)}"${title ? ` title="${escapeHtml(title)}"` : ""}>
-      <span class="chat-session-row-badges">${sessionBadgeHtml(s.model)}</span>
+    // The row shows either the name the user gave it, or just when it was last
+    // used. The prompt that started the session is never echoed back here, and
+    // neither are notes about the model: a session whose model is gone just
+    // shows its time until the user opens it and finds out.
+    const time = fmtRelativeTime(s.last_active_at);
+    const title = s.title || "";
+    const meta = s.status === "error"
+      ? `<span class="chat-session-row-error">${escapeHtml(sessionRowStatusText(s))}</span>`
+      : escapeHtml(time);
+    const body = title
+      ? `<span class="chat-session-row-title" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(title)} · ${escapeHtml(t("chat.session_rename_hint"))}">${escapeHtml(title)}</span><span class="chat-session-row-meta">${meta}</span>`
+      : `<span class="chat-session-row-title chat-session-row-time" data-session-title="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_rename_hint"))}">${meta}</span>`;
+    html += `<div class="chat-session-row${active ? " active" : ""}" data-session-id="${escapeHtml(s.id)}">
+      <span class="chat-session-row-badges">${sessionRowBadgeHtml(s)}</span>
       <span class="chat-session-row-main" data-session-open="${escapeHtml(s.id)}">
-        ${head}
+        ${body}
+      </span>
       <span class="chat-session-row-actions">
-        ${canStop ? `<button type="button" class="chat-session-row-btn" data-session-stop="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_stop"))}" aria-label="${escapeHtml(t("chat.session_stop"))}">■</button>` : ""}
-        <button type="button" class="chat-session-row-btn" data-session-del="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_delete"))}" aria-label="${escapeHtml(t("chat.session_delete"))}">×</button>
+        ${canStop ? `<button type="button" class="chat-session-row-btn chat-session-row-stop" data-session-stop="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_stop"))}" aria-label="${escapeHtml(t("chat.session_stop"))}">■</button>` : ""}
+        <button type="button" class="chat-session-row-btn chat-session-row-del" data-session-del="${escapeHtml(s.id)}" title="${escapeHtml(t("chat.session_delete"))}" aria-label="${escapeHtml(t("chat.session_delete"))}">×</button>
       </span>
     </div>`;
   }
@@ -256,6 +265,8 @@ function applyChatSessionsAvailability() {
   renderSessionBadges();
 }
 
+// sessionMessageToChatMessage converts a stored turn into the live shape the
+// renderer expects.
 function sessionMessageToChatMessage(m) {
   const out = {
     id: nanoid(),
@@ -306,8 +317,52 @@ function sessionMessageToChatMessage(m) {
   return out;
 }
 
+// sessionQueueMessageToChatMessage exposes a stored queued turn in the shape the
+// shared queue panel expects (id/text/attachments).
+function sessionQueueMessageToChatMessage(m) {
+  return {
+    id: m.queue_id || nanoid(),
+    text: m.content || "",
+    attachments: (m.attachments || []).map((a) => ({
+      kind: a.kind,
+      name: a.name || "",
+      mimeType: a.mime_type || "",
+      text: a.text || "",
+      data: a.data || "",
+    })),
+  };
+}
+
+// setSessionQueueFromDetail replaces the local queue panel with the session's
+// authoritative queue. It only applies while a session is open, so the quick
+// chat keeps its own client-side queue untouched.
+function setSessionQueueFromDetail(queue) {
+  if (typeof chatSessionId === "undefined" || !chatSessionId) return;
+  chatPendingQueue = (queue || []).map(sessionQueueMessageToChatMessage);
+  renderChatQueue();
+}
+
+// hydrateSessionQueueMessage loads one queued turn (cancelled or promoted) back
+// into the shape the queue panel and composer use. The server already hydrates
+// the attachment bytes into data, so there is nothing to fetch.
+function hydrateSessionQueueMessage(m) {
+  return {
+    id: nanoid(),
+    text: m.content || "",
+    attachments: (m.attachments || []).map((a) => ({
+      id: nanoid(),
+      kind: a.kind || "image",
+      name: a.name || "",
+      mimeType: a.mime_type || "",
+      text: a.text || "",
+      data: a.data || "",
+    })),
+  };
+}
+
 function applySessionTranscript(detail) {
   chatMessages = (detail.messages || []).map(sessionMessageToChatMessage);
+  setSessionQueueFromDetail(detail.queue);
 
   // Re-apply the options exactly as they were when the last message was sent,
   // so a continued session keeps its system prompt, tools and artifacts.
@@ -393,6 +448,13 @@ async function openChatSession(id) {
   if (currentView !== "chat") showChatView();
 
   if (detail.status === "running" || detail.status === "queued") {
+    // The transcript is in place before the run is re-adopted, so the live
+    // message and chatSessionRun.raw start from what is already on screen. Doing
+    // it the other way around left chatSessionRun pointing at the empty snapshot
+    // from before the reload, and the next chunk overwrote the restored reply
+    // with just the tail.
+    chatSessionRun = null;
+    activeStreamMessage = null;
     syncSessionRunWithStatus({ status: detail.status, model: detail.model });
   }
   openChatSessionStream(id, detail.seq || 0);
@@ -420,7 +482,7 @@ function openChatSessionStream(id, from) {
   closeChatSessionStream();
   const es = new EventSource(`/api/chat/sessions/${encodeURIComponent(id)}/events?from=${Number(from) || 0}`);
   chatSessionStream = es;
-  for (const name of ["snapshot", "chunk", "tool", "artifact", "artifact_screenshot_request", "artifact_eval_request", "done", "error"]) {
+  for (const name of ["snapshot", "chunk", "tool", "artifact", "artifact_screenshot_request", "artifact_eval_request", "queued_user", "done", "error"]) {
     es.addEventListener(name, (ev) => handleChatSessionStreamEvent(name, ev));
   }
   es.onerror = () => {
@@ -478,6 +540,24 @@ function handleChatSessionStreamEvent(name, ev) {
     }
     return;
   }
+  // A queued turn just started: the server moved it from the queue to the
+  // transcript. Move it here too, then open the assistant bubble the stream is
+  // about to fill. A reconnecting tab skips this and gets the message from the
+  // transcript instead, so it is guarded on the queue still holding it.
+  if (name === "queued_user") {
+    const m = parsed.data || {};
+    const qid = m.queue_id || "";
+    const idx = chatPendingQueue.findIndex((q) => q.id === qid);
+    if (idx >= 0) {
+      chatPendingQueue.splice(idx, 1);
+      renderChatQueue();
+      chatMessages.push(sessionMessageToChatMessage(m));
+      renderChatMessages();
+      scrollChatToBottom(true);
+    }
+    ensureSessionLiveMessage();
+    return;
+  }
   const msg = ensureSessionLiveMessage();
   if (!msg) return;
   if (!chatSessionRun) {
@@ -523,6 +603,12 @@ function chatAttachForWire(a) {
 // Everything after this point arrives through the session event feed, so the
 // page can be closed and reopened without losing the reply.
 //
+// A message sent while the session is busy is accepted and queued by the server
+// so it is never lost; it is drawn in the queue panel instead of as an assistant
+// bubble, and the server appends the user turn to the transcript when its turn
+// finally starts. That keeps the model from reading a message about a reply it
+// has not produced yet.
+//
 // opts.replaceLast asks the server to drop the reply that follows the last user
 // turn, and opts.editLast to rewrite that user turn instead of appending a new
 // one. Regenerate and edit-and-resend both need them, because a session's
@@ -537,13 +623,18 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
   // runs on it.
   const sel = $("chat-model");
   const modelName = sel?.value || sum?.model || activeName || "";
+  const busy = (sum && (sum.status === "running" || sum.status === "queued")) || chatStreamLock;
 
   chatEditingMessageId = "";
   chatEditingDraft = "";
 
+  // A turn that will queue has no assistant bubble yet: the server starts it
+  // later and the stream opens that bubble then.
+  const startsNow = !busy || opts.replaceLast || opts.editLast;
+
   if (opts.editLast) {
     // The caller already rewrote the user turn in place.
-  } else {
+  } else if (!busy) {
     if (opts.replaceLast) {
       let keep = 0;
       for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
@@ -560,22 +651,34 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
       content: text,
       attachments: (attachments || []).map((a) => ({ ...a })),
     });
+  } else {
+    // Draw it in the queue panel right away; the server echoes the authoritative
+    // queue back when the POST answers.
+    chatPendingQueue.push({
+      id: nanoid(),
+      text,
+      attachments: (attachments || []).map((a) => ({ ...a })),
+    });
+    renderChatQueue();
   }
 
-  const assistantMsg = newAssistantMessage();
-  assistantMsg.model = modelName;
-  assistantMsg.streamStartedAt = Date.now();
-  chatMessages.push(assistantMsg);
+  let assistantMsg = null;
+  if (startsNow) {
+    assistantMsg = newAssistantMessage();
+    assistantMsg.model = modelName;
+    assistantMsg.streamStartedAt = Date.now();
+    chatMessages.push(assistantMsg);
 
-  chatSessionRun = { raw: "", turnStartedAt: assistantMsg.streamStartedAt, modelName };
-  chatSessionRunPending = true;
-  chatStreamLock = true;
-  activeStreamMessage = assistantMsg;
-  updateStreamBar();
-  updateChatSendEnabled();
-  startStreamTicker(assistantMsg, chatSessionRun.turnStartedAt);
-  renderChatMessages();
-  scrollChatToBottom(true);
+    chatSessionRun = { raw: "", turnStartedAt: assistantMsg.streamStartedAt, modelName };
+    chatSessionRunPending = true;
+    chatStreamLock = true;
+    activeStreamMessage = assistantMsg;
+    updateStreamBar();
+    updateChatSendEnabled();
+    startStreamTicker(assistantMsg, chatSessionRun.turnStartedAt);
+    renderChatMessages();
+    scrollChatToBottom(true);
+  }
 
   const body = {
     content: text,
@@ -590,29 +693,39 @@ async function sendChatSessionMessage(text, attachments, opts = {}) {
   if (opts.editLast) body.edit_last = true;
 
   try {
-    await api(`/api/chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
-    saveActiveChatSession();
+    const res = await api(`/api/chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
+    if (startsNow) {
+      saveActiveChatSession();
+    } else {
+      // No turn started (it queued), so hand the composer back to the user.
+      updateChatSendEnabled();
+    }
+    // The server is the source of truth for the queue: replace the optimistic
+    // local copy with the exact order it now holds, with real queue ids.
+    if (res && Array.isArray(res.queue)) setSessionQueueFromDetail(res.queue);
   } catch (e) {
-    assistantMsg.streaming = false;
-    chatSessionRun = null;
-    settleSessionRun();
-    // The server runs one turn per session, so a message sent while the previous
-    // reply is still coming back is refused with 409. Nothing was stored, so put
-    // the text back in the composer instead of dropping it on the floor: the
-    // whole promise of a session is that what you typed survives.
+    if (assistantMsg) {
+      assistantMsg.streaming = false;
+      chatSessionRun = null;
+      settleSessionRun();
+    }
+    // The old 409 path: a server that still refuses a busy message gets the text
+    // back in the composer instead of losing it.
     if (e && (e.status === 409 || e.statusCode === 409)) {
       const input = $("chat-input");
       if (input) {
         input.value = text;
         input.focus();
       }
-      chatMessages.pop();
+      if (assistantMsg) chatMessages.pop();
       renderChatMessages();
       void toast(t("chat.session_busy"), "error");
       return;
     }
-    assistantMsg.isError = true;
-    assistantMsg.content = t("chat.error_reply", { msg: e.message });
+    if (assistantMsg) {
+      assistantMsg.isError = true;
+      assistantMsg.content = t("chat.error_reply", { msg: e.message });
+    }
     void toast(t("toast.error", { msg: e.message }), "error");
   }
 }
@@ -692,6 +805,15 @@ async function renameChatSession(id) {
 }
 
 async function deleteChatSession(id) {
+  const sum = chatSessions.get(id);
+  const name = (sum && sum.title) || t("chat.session_untitled");
+  const { ok } = await askConfirm({
+    title: t("chat.session_delete_title"),
+    text: t("chat.session_delete_text", { name }),
+    okText: t("chat.session_delete"),
+    okClass: "danger",
+  });
+  if (!ok) return;
   try {
     await api(`/api/chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
   } catch (e) {
@@ -702,6 +824,8 @@ async function deleteChatSession(id) {
   if (chatSessionId === id) {
     chatSessionId = null;
     chatSessionRun = null;
+    chatPendingQueue = [];
+    renderChatQueue();
     settleSessionRun();
     resetChatState();
     saveActiveChatSession();
@@ -733,6 +857,8 @@ async function clearAllChatSessions() {
     chatSessionId = null;
     chatSessionRun = null;
     chatSessionRunPending = false;
+    chatPendingQueue = [];
+    renderChatQueue();
     settleSessionRun();
     closeChatSessionStream();
     resetChatState();

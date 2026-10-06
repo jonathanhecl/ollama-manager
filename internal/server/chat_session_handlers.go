@@ -407,11 +407,7 @@ func (s *Server) handleChatSessionSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
-	detail := s.chatSessions.Get(id)
-	queue := []SessionMessage{}
-	if detail != nil {
-		queue = s.chatSessions.hydrateMessages(detail.Queue)
-	}
+	queue := s.chatSessions.queueEchoForSend(id, queueID, wasBusy)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"ok":       true,
 		"status":   sum.Status,

@@ -1603,6 +1603,56 @@ func TestHandleChatSessionSendQueuesWhileBusy(t *testing.T) {
 	}
 }
 
+// TestQueueEchoForSendHidesDirectMessage backs the phantom queued row: a message
+// that starts right away is briefly still at the head of Queue while the run
+// goroutine claims it. Echoing it drew a queue row the browser could not clear
+// (no queued_user event ever fires for a direct turn), and it vanished on
+// reload. The echo must hide it, while a turn genuinely parked behind the
+// concurrency limit stays visible.
+func TestQueueEchoForSendHidesDirectMessage(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+
+	st.mu.Lock()
+	sess.Status = chatSessionIdle
+	sess.Queue = []SessionMessage{{Role: "user", Content: "direct", QueueID: "q-direct"}}
+	st.mu.Unlock()
+
+	if got := st.queueEchoForSend(sess.ID, "q-direct", false); len(got) != 0 {
+		t.Fatalf("echo = %+v, want empty for a direct message that is starting", got)
+	}
+
+	// The same message parked behind the global limit is really waiting, so it
+	// has to stay in the echo for the browser to show it.
+	st.mu.Lock()
+	sess.Status = chatSessionQueued
+	st.mu.Unlock()
+	if got := st.queueEchoForSend(sess.ID, "q-direct", false); len(got) != 1 || got[0].Content != "direct" {
+		t.Fatalf("echo = %+v, want the globally parked message", got)
+	}
+
+	// A deferred message sent while the session was busy is also genuine.
+	st.mu.Lock()
+	sess.Status = chatSessionRunning
+	st.mu.Unlock()
+	if got := st.queueEchoForSend(sess.ID, "q-direct", true); len(got) != 1 || got[0].Content != "direct" {
+		t.Fatalf("echo = %+v, want the deferred message", got)
+	}
+
+	// Only the just-accepted entry is withheld; a queued turn ahead of it (which
+	// would make the session busy in the first place) is not.
+	st.mu.Lock()
+	sess.Status = chatSessionRunning
+	sess.Queue = []SessionMessage{
+		{Role: "user", Content: "older", QueueID: "q-older"},
+		{Role: "user", Content: "direct", QueueID: "q-direct"},
+	}
+	st.mu.Unlock()
+	if got := st.queueEchoForSend(sess.ID, "q-direct", false); len(got) != 1 || got[0].Content != "older" {
+		t.Fatalf("echo = %+v, want only the unrelated queued turn", got)
+	}
+}
+
 // TestHandleChatSessionQueueRemoveHTTP backs the "cancel a queued message" call.
 func TestHandleChatSessionQueueRemoveHTTP(t *testing.T) {
 	st := newTestSessionStore(t)

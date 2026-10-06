@@ -548,6 +548,35 @@ func (st *chatSessionStore) enqueueUser(id, content string, attach []ChatAttach,
 	return qid, true
 }
 
+// queueEchoForSend returns the queue the browser should draw right after a
+// message is accepted, with attachments hydrated. It is what stops a direct
+// message from showing up as a phantom queued row.
+//
+// A message that did not have to wait (wasBusy false) is moved into the
+// transcript by the run goroutine, but for the instant before that happens it
+// can still sit at the head of Queue. Echoing it there would draw a row the
+// browser can never clear, because no queued_user event fires for a turn that
+// was never deferred. Withhold exactly that entry, unless the turn is genuinely
+// parked behind the global concurrency limit (status queued), where the message
+// really is still waiting its slot.
+func (st *chatSessionStore) queueEchoForSend(id, queueID string, wasBusy bool) []SessionMessage {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return nil
+	}
+	queue := make([]SessionMessage, 0, len(sess.Queue))
+	for _, m := range sess.Queue {
+		if !wasBusy && queueID != "" && sess.Status != chatSessionQueued && m.QueueID == queueID {
+			continue
+		}
+		queue = append(queue, m)
+	}
+	st.mu.Unlock()
+	return st.hydrateMessages(queue)
+}
+
 // PopQueuedIntoMessages moves the next queued user turn into the transcript. It
 // runs at the start of a turn, so the model never sees a message that arrived
 // while it was answering the previous one.

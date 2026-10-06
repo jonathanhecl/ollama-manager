@@ -439,6 +439,21 @@ func (s *Server) finishSession(id string, startedAt time.Time) {
 		st.mu.Unlock()
 		return
 	}
+	if sess.ResetPending {
+		// The session was reset while this turn was in flight. Settle as a clean,
+		// idle reset: no unread badge for a reply that was thrown away.
+		clearSessionLocked(sess)
+		sess.Status = chatSessionIdle
+		st.touchLocked(sess)
+		st.flushLocked(sess)
+		sum := summaryOf(sess)
+		st.mu.Unlock()
+		st.dropSessionBlobs(id)
+		st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+		st.broadcast(ChatSessionEvent{Kind: chatSessionEventStream, ID: id, Event: "reset"})
+		st.releaseRunning(id)
+		return
+	}
 	if msg := pendingMessageLocked(sess); msg != nil {
 		msg.Pending = false
 	}
@@ -482,6 +497,20 @@ func (s *Server) failSession(id, reason string) {
 	sess := st.sessions[id]
 	if sess == nil {
 		st.mu.Unlock()
+		return
+	}
+	if sess.ResetPending {
+		// A reset cancelled this turn; its failure is not the user's error.
+		clearSessionLocked(sess)
+		sess.Status = chatSessionIdle
+		st.touchLocked(sess)
+		st.flushLocked(sess)
+		sum := summaryOf(sess)
+		st.mu.Unlock()
+		st.dropSessionBlobs(id)
+		st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+		st.broadcast(ChatSessionEvent{Kind: chatSessionEventStream, ID: id, Event: "reset"})
+		st.releaseRunning(id)
 		return
 	}
 	if msg := pendingMessageLocked(sess); msg != nil {

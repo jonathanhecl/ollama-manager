@@ -309,6 +309,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/chat/sessions/{id}/queue/remove", s.requireAuth(s.handleChatSessionQueueRemove))
 	mux.Handle("POST /api/chat/sessions/{id}/queue/promote", s.requireAuth(s.handleChatSessionQueuePromote))
 	mux.Handle("POST /api/chat/sessions/{id}/cancel", s.requireAuth(s.handleChatSessionCancel))
+	mux.Handle("POST /api/chat/sessions/{id}/reset", s.requireAuth(s.handleChatSessionReset))
 	mux.Handle("POST /api/chat/sessions/{id}/seen", s.requireAuth(s.handleChatSessionSeen))
 	mux.Handle("POST /api/embed", s.requireAuth(s.handleEmbed))
 	mux.Handle("POST /api/pull", s.requireAuth(s.handlePull))

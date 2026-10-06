@@ -864,27 +864,29 @@ function bindChatEvents() {
     swapToArtifact($("chat-view"));
   });
   $("chat-reset-btn")?.addEventListener("click", async () => {
-    // Reset means "start over", so an open persistent session has to end with
-    // it. Clearing the transcript alone would leave the session streaming, and
-    // the next chunk would render an assistant reply with nothing above it.
-    const endsSession = typeof chatSessionId !== "undefined" && !!chatSessionId
-      && typeof closeChatSession === "function";
-    if (chatMessages.length === 0 && !activeArtifactTimestamp && chatAttachments.length === 0 && !$("chat-input")?.value.trim()) {
-      if (endsSession) void closeChatSession();
-      else resetChatState();
+    // A persistent session resets in place: the server clears its transcript and
+    // cancels the running turn, but the session stays open, so the user does not
+    // fall back into the throwaway quick chat.
+    const session = typeof chatSessionId !== "undefined" && !!chatSessionId
+      && typeof resetChatSession === "function" ? chatSessionId : "";
+    const empty = chatMessages.length === 0 && !activeArtifactTimestamp
+      && chatAttachments.length === 0 && !$("chat-input")?.value.trim();
+    if (!empty) {
+      const res = await askConfirm({
+        title: t("chat.reset_confirm_title"),
+        text: t("chat.reset_confirm_text"),
+        okText: t("chat.reset_confirm_ok"),
+        okClass: "primary",
+      });
+      if (!res || !res.ok) return;
+    }
+    if (session) {
+      await resetChatSession(session);
+      if (!empty) toast(t("chat.reset_success"), "success");
       return;
     }
-    const res = await askConfirm({
-      title: t("chat.reset_confirm_title"),
-      text: t("chat.reset_confirm_text"),
-      okText: t("chat.reset_confirm_ok"),
-      okClass: "primary",
-    });
-    if (res && res.ok) {
-      if (endsSession) void closeChatSession();
-      else resetChatState();
-      toast(t("chat.reset_success"), "success");
-    }
+    resetChatState();
+    if (!empty) toast(t("chat.reset_success"), "success");
   });
   $("chat-model")?.addEventListener("change", () => {
     updateChatCapabilityUI();

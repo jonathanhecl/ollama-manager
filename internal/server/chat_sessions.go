@@ -203,6 +203,11 @@ type ChatSession struct {
 	// DroppedMessages counts transcript entries removed by the size cap, so the
 	// UI can be honest about a session that no longer shows its whole history.
 	DroppedMessages int `json:"dropped_messages,omitempty"`
+	// ResetPending marks a session whose reset has cleared the transcript while
+	// a turn was still in flight. When that turn settles, finishSession (or
+	// failSession) finalizes the reset instead of flagging an unread badge for a
+	// reply that no longer exists. Transient: never written to disk.
+	ResetPending bool `json:"-"`
 }
 
 // SessionSummary is the lightweight row used by the session list and by the
@@ -643,6 +648,61 @@ func (st *chatSessionStore) Cancel(id string) bool {
 		return true
 	}
 	return running
+}
+
+// clearSessionLocked drops a session's transcript, queue and replay log in
+// place. The id, model and settings stay, which is what makes a reset a restart
+// of the same session rather than a new one. Callers must hold st.mu.
+func clearSessionLocked(sess *ChatSession) {
+	sess.Messages = nil
+	sess.Queue = nil
+	sess.Events = nil
+	sess.Seq = 0
+	sess.DroppedMessages = 0
+	sess.Error = ""
+	sess.Cancelled = false
+	sess.Unseen = false
+	sess.QueuedAt = time.Time{}
+	sess.ResetPending = false
+}
+
+// ResetSession empties a session without deleting it. A turn in flight is
+// cancelled: its sink writes land on no pending message once the transcript is
+// gone, and the settle is finalized as a clean reset so the reply it was
+// producing never comes back as an unread badge.
+func (st *chatSessionStore) ResetSession(id string) bool {
+	st.mu.Lock()
+	sess := st.sessions[id]
+	if sess == nil {
+		st.mu.Unlock()
+		return false
+	}
+	cancel, running := st.running[id]
+	// Park the queue so a turn that was waiting behind the reset cannot start.
+	st.paused[id] = true
+	st.dropFromQueueLocked(id)
+	delete(st.pending, id)
+	clearSessionLocked(sess)
+	if running {
+		sess.ResetPending = true
+	} else {
+		sess.Status = chatSessionIdle
+	}
+	st.touchLocked(sess)
+	st.flushLocked(sess)
+	sum := summaryOf(sess)
+	st.mu.Unlock()
+	st.broadcast(ChatSessionEvent{Kind: chatSessionUpdate, Session: &sum})
+	// Nothing references the cleared attachments any more.
+	st.dropSessionBlobs(id)
+	if cancel != nil {
+		cancel()
+	}
+	if !running {
+		// Nothing to wait for, so the stream can drop the old transcript now.
+		st.broadcast(ChatSessionEvent{Kind: chatSessionEventStream, ID: id, Event: "reset"})
+	}
+	return true
 }
 
 // MarkSeen clears the "it finished while you were away" flag.

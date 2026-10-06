@@ -461,6 +461,22 @@ func (s *Server) handleChatSessionCancel(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// handleChatSessionReset empties a session in place. The id, model and settings
+// stay, so the Reset button restarts the session the user is in instead of
+// dropping them back into the throwaway quick chat.
+func (s *Server) handleChatSessionReset(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if s.chatSessions.Get(id) == nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	if !s.chatSessions.ResetSession(id) {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // handleChatSessionSeen clears the white badge once the user has read the reply.
 func (s *Server) handleChatSessionSeen(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

@@ -302,6 +302,7 @@ function resetChatState() {
     chatAbortController = null;
   }
   chatStreamLock = false;
+  chatSessionResetting = false;
   chatMessages = [];
   chatAttachments = [];
   chatPendingQueue = [];

@@ -25,6 +25,7 @@ let chatStreamTicker = null;
 let chatLastUsedTokens = 0;
 let chatDndDepth = 0;
 let chatPendingQueue = [];
+let chatSessionResetting = false;
 let chatIsRecording = false;
 let chatRecorderStream = null;
 let chatAudioContext = null;

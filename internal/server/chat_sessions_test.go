@@ -1653,6 +1653,101 @@ func TestQueueEchoForSendHidesDirectMessage(t *testing.T) {
 	}
 }
 
+// TestResetSessionClearsInPlace backs the Reset button on a persistent session:
+// it must empty the session but keep the id, model and settings, so the user
+// stays in the same session instead of falling back to the quick chat.
+func TestResetSessionClearsInPlace(t *testing.T) {
+	st := newTestSessionStore(t)
+	sess := st.Create("model-a", defaultSessionSettings())
+	st.AppendUser(sess.ID, "hello", nil)
+	if _, ok := st.enqueueUser(sess.ID, "later", nil, true); !ok {
+		t.Fatal("enqueueUser failed")
+	}
+	if !st.ResetSession(sess.ID) {
+		t.Fatal("ResetSession returned false")
+	}
+	got := st.Get(sess.ID)
+	if got == nil {
+		t.Fatal("reset removed the session")
+	}
+	if len(got.Messages) != 0 || len(got.Queue) != 0 {
+		t.Fatalf("reset left messages=%d queue=%d, want both empty", len(got.Messages), len(got.Queue))
+	}
+	if got.Status != chatSessionIdle {
+		t.Fatalf("status = %q, want idle", got.Status)
+	}
+	if got.Model != "model-a" {
+		t.Fatalf("model = %q, want it kept", got.Model)
+	}
+	if got.ResetPending {
+		t.Fatal("ResetPending must be clear when no turn was running")
+	}
+}
+
+// TestResetSessionWhileRunningFinalizes checks the harder case: a reset while a
+// turn streams cancels it and settles as a clean, idle session, without leaving
+// the cancelled reply behind as an unread badge.
+func TestResetSessionWhileRunningFinalizes(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+	st.mu.Lock()
+	st.sessions[sess.ID].Status = chatSessionRunning
+	st.sessions[sess.ID].Messages = append(st.sessions[sess.ID].Messages,
+		SessionMessage{Role: "user", Content: "hello"},
+		SessionMessage{Role: "assistant", Pending: true},
+	)
+	cancelled := false
+	st.running[sess.ID] = func() { cancelled = true }
+	st.mu.Unlock()
+
+	if !st.ResetSession(sess.ID) {
+		t.Fatal("ResetSession returned false")
+	}
+	if !cancelled {
+		t.Fatal("ResetSession did not cancel the running turn")
+	}
+	if got := st.Get(sess.ID); !got.ResetPending {
+		t.Fatal("ResetPending should be set while the cancelled turn settles")
+	}
+
+	// The cancelled turn settles; the reset finalizes it.
+	srv.finishSession(sess.ID, time.Now())
+	got := st.Get(sess.ID)
+	if len(got.Messages) != 0 || len(got.Queue) != 0 {
+		t.Fatalf("after settle: messages=%d queue=%d, want empty", len(got.Messages), len(got.Queue))
+	}
+	if got.Status != chatSessionIdle {
+		t.Fatalf("status = %q, want idle", got.Status)
+	}
+	if got.Unseen {
+		t.Fatal("a reset turn must not leave an unread badge")
+	}
+	if got.ResetPending {
+		t.Fatal("ResetPending should clear once the turn settles")
+	}
+}
+
+// TestHandleChatSessionResetHTTP backs the endpoint the Reset button calls.
+func TestHandleChatSessionResetHTTP(t *testing.T) {
+	st := newTestSessionStore(t)
+	srv := &Server{chatSessions: st}
+	sess := st.Create("model-a", defaultSessionSettings())
+	st.AppendUser(sess.ID, "hi", nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/sessions/"+sess.ID+"/reset", nil)
+	req.SetPathValue("id", sess.ID)
+	rec := httptest.NewRecorder()
+	srv.handleChatSessionReset(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := st.Get(sess.ID); got == nil || len(got.Messages) != 0 {
+		t.Fatalf("session not cleared in place: %+v", got)
+	}
+}
+
 // TestHandleChatSessionQueueRemoveHTTP backs the "cancel a queued message" call.
 func TestHandleChatSessionQueueRemoveHTTP(t *testing.T) {
 	st := newTestSessionStore(t)

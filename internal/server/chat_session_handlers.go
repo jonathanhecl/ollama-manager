@@ -240,10 +240,19 @@ func (s *Server) handleChatSessionsList(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleChatSessionsDeleteAll wipes every session of every model ("clear all").
-// It never 404s: clearing an already empty list is a no-op the UI can treat as
-// success.
+// handleChatSessionsDeleteAll wipes sessions ("clear all"). It never 404s:
+// clearing an already empty list is a no-op the UI can treat as success.
+//
+// An optional ?model= narrows the wipe to one model. Sessions are private to
+// their model, so the "clear all" button in the chat panel only deletes the
+// ones the user can see; the settings page calls it without the parameter and
+// still wipes everything.
 func (s *Server) handleChatSessionsDeleteAll(w http.ResponseWriter, r *http.Request) {
+	if model := strings.TrimSpace(r.URL.Query().Get("model")); model != "" {
+		n := s.chatSessions.DeleteByModel(model)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": n})
+		return
+	}
 	n := s.chatSessions.DeleteAll()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": n})
 }

@@ -2542,6 +2542,7 @@ async function showChatViewWithModel(name) {
     updateChatCapabilityUI();
     updateChatContextMeter();
     void applyChatDefaultsForModel(name, true);
+    if (typeof syncChatModelScope === "function") syncChatModelScope();
   }
 
   const model = modelByName(name);

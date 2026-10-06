@@ -441,6 +441,9 @@ function showChatView() {
   updateChatContextMeter();
   updateChatSendEnabled();
   void applyChatDefaultsForModel($("chat-model").value);
+  // The session panel is scoped to the selected model, so a full view switch
+  // has to re-apply that filter (and drop a session that belongs elsewhere).
+  if (typeof syncChatModelScope === "function") syncChatModelScope();
   // Coming back to the chat is the same as reading the last message of an open
   // session, so its unread badge has to go. It cannot wait for openChatSession:
   // a session that was already open is never re-opened on the way back, only

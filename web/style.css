@@ -2722,6 +2722,12 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
 }
+/* The throwaway quick chat wears a white shell, so it reads apart at a glance
+   from the saved sessions, which carry the light-blue accent on their border. */
+.chat-view:not(.has-session) .chat-shell {
+  border-color: color-mix(in srgb, #ffffff 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ffffff 14%, transparent);
+}
 .chat-splitter {
   grid-column: 2 / 3;
   grid-row: 1 / 2;
@@ -4812,6 +4818,12 @@ button.chat-send:disabled:hover {
 .chat-session-row.active {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+/* The temporary quick chat keeps one colour identity: the selected row follows
+   the white shell, while saved session rows keep the light-blue accent. */
+.chat-session-row-quick.active {
+  border-color: color-mix(in srgb, #ffffff 42%, transparent);
+  background: color-mix(in srgb, #ffffff 9%, transparent);
 }
 .chat-session-row-badges {
   display: inline-flex;

@@ -892,6 +892,7 @@ function bindChatEvents() {
     updateChatCapabilityUI();
     updateChatContextMeter();
     void applyChatDefaultsForModel($("chat-model").value, true);
+    if (typeof syncChatModelScope === "function") syncChatModelScope();
 
     const name = $("chat-model").value;
     const model = modelByName(name);

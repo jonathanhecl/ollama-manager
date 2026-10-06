@@ -122,11 +122,21 @@ function updateChatSessionChrome() {
   view.classList.toggle("has-session", active);
 }
 
+// currentChatModelName is the model the chat view is on. A persistent session
+// belongs to exactly one model, so this is also the key the panel filters by.
+function currentChatModelName() {
+  return $("chat-model")?.value || activeName || "";
+}
+
 function renderSessionList() {
   updateChatSessionChrome();
   const list = $("chat-sessions-list");
   if (!list) return;
-  const sessions = [...chatSessions.values()];
+  // Sessions are private to their model: the panel only lists the ones that run
+  // on the model picked in the chat, so switching models swaps the whole list
+  // instead of mixing every model's chats together.
+  const model = currentChatModelName();
+  const sessions = [...chatSessions.values()].filter((s) => s.model === model);
 
   let html = `<button type="button" class="chat-session-row chat-session-row-quick${chatSessionId ? "" : " active"}" data-session-quick="1">
     <span class="chat-session-row-badges"></span>
@@ -429,6 +439,23 @@ function applySessionTranscript(detail) {
 }
 
 // ---------- open / close ----------
+
+// syncChatModelScope keeps the open persistent session and the session panel in
+// step with the model picked in the chat. A session lives on exactly one model,
+// so landing on a different one leaves the session and returns to that model's
+// own quick chat; the panel then lists only that model's sessions. Quick chats
+// are unaffected: with no session open they simply keep their transcript.
+function syncChatModelScope() {
+  const model = currentChatModelName();
+  if (chatSessionId) {
+    const sum = chatSessions.get(chatSessionId);
+    if (sum && sum.model && model && sum.model !== model) {
+      void closeChatSession();
+      return;
+    }
+  }
+  renderSessionList();
+}
 
 async function openChatSession(id) {
   let detail;
@@ -1023,26 +1050,30 @@ async function deleteChatSession(id) {
   renderSessionBadges();
 }
 
-// clearAllChatSessions wipes every session of every model. It asks first,
-// because there is no undo and no per-session backup.
+// clearAllChatSessions wipes every session of the model on screen. Sessions are
+// private to their model, so other models keep theirs; the settings page owns
+// the global wipe. It asks first, because there is no undo and no per-session
+// backup.
 async function clearAllChatSessions() {
-  const n = chatSessions.size;
+  const model = currentChatModelName();
+  const targets = [...chatSessions.values()].filter((s) => s.model === model);
+  const n = targets.length;
   if (!n) return;
   const { ok } = await askConfirm({
     title: t("chat.session_clear_all_title"),
-    text: t("chat.session_clear_all_text", { n }),
+    text: t("chat.session_clear_all_text", { n, model }),
     okText: t("chat.session_clear_all_ok"),
     okClass: "danger",
   });
   if (!ok) return;
   try {
-    await api("/api/chat/sessions", { method: "DELETE" });
+    await api(`/api/chat/sessions?model=${encodeURIComponent(model)}`, { method: "DELETE" });
   } catch (e) {
     toast(t("toast.error", { msg: e.message }), "error");
     return;
   }
-  chatSessions.clear();
-  if (chatSessionId) {
+  for (const s of targets) chatSessions.delete(s.id);
+  if (chatSessionId && !chatSessions.has(chatSessionId)) {
     chatSessionId = null;
     chatSessionRun = null;
     chatSessionRunPending = false;

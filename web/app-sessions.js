@@ -112,7 +112,18 @@ function sessionRowBadgeHtml(s) {
   return "";
 }
 
+// updateChatSessionChrome marks the chat view while a persistent session is
+// open. The blue shell border it drives is what tells the saved session apart
+// from the throwaway quick chat at a glance.
+function updateChatSessionChrome() {
+  const view = $("chat-view");
+  if (!view) return;
+  const active = typeof chatSessionId !== "undefined" && !!chatSessionId;
+  view.classList.toggle("has-session", active);
+}
+
 function renderSessionList() {
+  updateChatSessionChrome();
   const list = $("chat-sessions-list");
   if (!list) return;
   const sessions = [...chatSessions.values()];

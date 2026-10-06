@@ -2715,6 +2715,13 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; }
   position: relative;
   overflow: hidden;
 }
+/* A persistent session is not the throwaway quick chat, so its shell wears the
+   session accent on the border plus a faint halo, making the saved session
+   unmistakable at a glance. */
+.chat-view.has-session .chat-shell {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
+}
 .chat-splitter {
   grid-column: 2 / 3;
   grid-row: 1 / 2;
@@ -5517,6 +5524,12 @@ button.chat-send:disabled:hover {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--panel);
+  }
+  /* Narrow layout has no separate shell panel, so the class lands on the view
+     that now draws the border. */
+  .chat-view.has-session {
+    border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
   }
   .chat-view[hidden],
   .chat-view.artifact-open[hidden] {

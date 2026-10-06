@@ -425,6 +425,7 @@ function showChatView() {
   currentView = "chat";
   chatView.classList.remove("chat-options-open");
   chatView.hidden = false;
+  if (typeof updateChatSessionChrome === "function") updateChatSessionChrome();
   syncChatPanels(chatView);
   $("chat-btn")?.classList.add("active");
   if (activeName) {

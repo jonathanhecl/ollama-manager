@@ -14,7 +14,7 @@ import (
 
 const repairFixedTag = "fixed"
 
-var repairCaps = []string{"completion", "tools", "thinking", "vision", "audio", "embedding"}
+var repairCaps = []string{"completion", "tools", "thinking", "vision", "audio", "embedding", "decision"}
 
 type modelRepairRequest struct {
 	Model             string   `json:"model"`

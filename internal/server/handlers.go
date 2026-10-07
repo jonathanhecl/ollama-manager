@@ -666,38 +666,72 @@ type modelView struct {
 	MinColdLoadAt        *time.Time `json:"min_cold_load_at,omitempty"`
 	TotalTokens          int64      `json:"total_tokens,omitempty"`
 	TotalCalls           int64      `json:"total_calls,omitempty"`
-	Digest               string     `json:"digest"`
-	Family               string     `json:"family"`
-	Families             []string   `json:"families"`
-	Format               string     `json:"format"`
-	ParameterSize        string     `json:"parameter_size"`
-	Quantization         string     `json:"quantization"`
-	ContextLength        int64      `json:"context_length,omitempty"`
-	Capabilities         []string   `json:"capabilities,omitempty"`
-	ParameterCount       int64      `json:"parameter_count,omitempty"`
-	Architecture         string     `json:"architecture,omitempty"`
-	FileType             int64      `json:"file_type,omitempty"`
-	SizeLabel            string     `json:"size_label,omitempty"`
-	IsMOE                bool       `json:"is_moe,omitempty"`
-	Loaded               bool       `json:"loaded"`
-	SizeVRAM             int64      `json:"size_vram,omitempty"`
-	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
-	Archived             bool       `json:"archived"`
-	IsGhost              bool       `json:"is_ghost,omitempty"`
-	UninstallReason      string     `json:"uninstall_reason,omitempty"`
-	UninstallAt          *time.Time `json:"uninstall_at,omitempty"`
-	IsCustom             bool       `json:"is_custom,omitempty"`
-	IsExternal           bool       `json:"is_external,omitempty"`
-	Disabled             bool       `json:"disabled,omitempty"`
-	URL                  string     `json:"url,omitempty"`
-	RemoteName           string     `json:"remote_name,omitempty"`
-	Provider             string     `json:"provider,omitempty"`
-	BaseModel            string     `json:"base_model,omitempty"`
-	BenchOverall         *float64   `json:"bench_overall,omitempty"`
-	BenchTested          bool       `json:"bench_tested,omitempty"`
-	BenchComplete        bool       `json:"bench_complete,omitempty"`
-	BenchMissing         []string   `json:"bench_missing,omitempty"`
-	BenchPossible        []string   `json:"bench_possible,omitempty"`
+	// Decision (System One) metrics.
+	DecisionCalls           int64      `json:"decision_calls,omitempty"`
+	DecisionQuestions       int64      `json:"decision_questions,omitempty"`
+	DecisionInputTokens     int64      `json:"decision_input_tokens,omitempty"`
+	DecisionOutputTokens    int64      `json:"decision_output_tokens,omitempty"`
+	DecisionAvgMs           int64      `json:"decision_avg_ms,omitempty"`
+	DecisionMinMs           int64      `json:"decision_min_ms,omitempty"`
+	DecisionMaxMs           int64      `json:"decision_max_ms,omitempty"`
+	DecisionLastMs          int64      `json:"decision_last_ms,omitempty"`
+	DecisionQuestionsPerSec float64    `json:"decision_questions_per_sec,omitempty"`
+	DecisionColdMs          int64      `json:"decision_cold_ms,omitempty"`
+	DecisionColdAt          *time.Time `json:"decision_cold_at,omitempty"`
+	Digest                  string     `json:"digest"`
+	Family                  string     `json:"family"`
+	Families                []string   `json:"families"`
+	Format                  string     `json:"format"`
+	ParameterSize           string     `json:"parameter_size"`
+	Quantization            string     `json:"quantization"`
+	ContextLength           int64      `json:"context_length,omitempty"`
+	Capabilities            []string   `json:"capabilities,omitempty"`
+	ParameterCount          int64      `json:"parameter_count,omitempty"`
+	Architecture            string     `json:"architecture,omitempty"`
+	FileType                int64      `json:"file_type,omitempty"`
+	SizeLabel               string     `json:"size_label,omitempty"`
+	IsMOE                   bool       `json:"is_moe,omitempty"`
+	Loaded                  bool       `json:"loaded"`
+	SizeVRAM                int64      `json:"size_vram,omitempty"`
+	ExpiresAt               *time.Time `json:"expires_at,omitempty"`
+	Archived                bool       `json:"archived"`
+	IsGhost                 bool       `json:"is_ghost,omitempty"`
+	UninstallReason         string     `json:"uninstall_reason,omitempty"`
+	UninstallAt             *time.Time `json:"uninstall_at,omitempty"`
+	IsCustom                bool       `json:"is_custom,omitempty"`
+	IsExternal              bool       `json:"is_external,omitempty"`
+	Disabled                bool       `json:"disabled,omitempty"`
+	URL                     string     `json:"url,omitempty"`
+	RemoteName              string     `json:"remote_name,omitempty"`
+	Provider                string     `json:"provider,omitempty"`
+	BaseModel               string     `json:"base_model,omitempty"`
+	BenchOverall            *float64   `json:"bench_overall,omitempty"`
+	BenchTested             bool       `json:"bench_tested,omitempty"`
+	BenchComplete           bool       `json:"bench_complete,omitempty"`
+	BenchMissing            []string   `json:"bench_missing,omitempty"`
+	BenchPossible           []string   `json:"bench_possible,omitempty"`
+}
+
+// applyUsageRecord copies a persisted usage/metrics record onto a model view.
+func applyUsageRecord(v *modelView, rec ModelUsageRecord) {
+	v.LastUsedAt = rec.LastUsedAt
+	v.RecordTokensPerSec = rec.RecordTokensPerSec
+	v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+	v.MinColdLoadMs = rec.MinColdLoadMs
+	v.MinColdLoadAt = rec.MinColdLoadAt
+	v.TotalTokens = rec.TotalTokens
+	v.TotalCalls = rec.TotalCalls
+	v.DecisionCalls = rec.DecisionCalls
+	v.DecisionQuestions = rec.DecisionQuestions
+	v.DecisionInputTokens = rec.DecisionInputTokens
+	v.DecisionOutputTokens = rec.DecisionOutputTokens
+	v.DecisionAvgMs = rec.DecisionAvgMs()
+	v.DecisionMinMs = rec.DecisionMinMs
+	v.DecisionMaxMs = rec.DecisionMaxMs
+	v.DecisionLastMs = rec.DecisionLastMs
+	v.DecisionQuestionsPerSec = rec.DecisionQuestionsPerSec()
+	v.DecisionColdMs = rec.DecisionColdMs
+	v.DecisionColdAt = rec.DecisionColdAt
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -793,31 +827,13 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		if s.usage != nil {
 			if isCurrentDevice {
 				if rec, ok := s.getModelUsage(m.Name); ok {
-					v.LastUsedAt = rec.LastUsedAt
-					v.RecordTokensPerSec = rec.RecordTokensPerSec
-					v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
-					v.MinColdLoadMs = rec.MinColdLoadMs
-					v.MinColdLoadAt = rec.MinColdLoadAt
-					v.TotalTokens = rec.TotalTokens
-					v.TotalCalls = rec.TotalCalls
+					applyUsageRecord(&v, rec)
 				}
 			} else if deviceUsage != nil {
 				if rec, ok := deviceUsage[m.Name]; ok {
-					v.LastUsedAt = rec.LastUsedAt
-					v.RecordTokensPerSec = rec.RecordTokensPerSec
-					v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
-					v.MinColdLoadMs = rec.MinColdLoadMs
-					v.MinColdLoadAt = rec.MinColdLoadAt
-					v.TotalTokens = rec.TotalTokens
-					v.TotalCalls = rec.TotalCalls
+					applyUsageRecord(&v, rec)
 				} else if rec, ok := deviceUsage[strings.TrimSuffix(m.Name, ":latest")]; ok {
-					v.LastUsedAt = rec.LastUsedAt
-					v.RecordTokensPerSec = rec.RecordTokensPerSec
-					v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
-					v.MinColdLoadMs = rec.MinColdLoadMs
-					v.MinColdLoadAt = rec.MinColdLoadAt
-					v.TotalTokens = rec.TotalTokens
-					v.TotalCalls = rec.TotalCalls
+					applyUsageRecord(&v, rec)
 				}
 			}
 		}
@@ -2539,6 +2555,33 @@ func (s *Server) recordModelColdLoad(name string, durationMs int64, at time.Time
 	}
 }
 
+// recordModelDecision stores one System One ("decision") invocation against the
+// model and every member of its family.
+func (s *Server) recordModelDecision(name string, questions, inputTokens, outputTokens int, latencyMs int64, cold bool, at time.Time) {
+	if s.usage == nil || name == "" {
+		return
+	}
+	for _, member := range s.modelFamily(name) {
+		_ = s.usage.RecordDecision(member, questions, inputTokens, outputTokens, latencyMs, cold, at)
+	}
+}
+
+// sameModelName reports whether two Ollama model references point at the same
+// model, tolerating the ":latest" tag and registry namespaces.
+func sameModelName(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == b {
+		return true
+	}
+	if strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest") {
+		return true
+	}
+	aBase := a[strings.LastIndex(a, "/")+1:]
+	bBase := b[strings.LastIndex(b, "/")+1:]
+	return strings.TrimSuffix(aBase, ":latest") == strings.TrimSuffix(bBase, ":latest")
+}
+
 // recordCancelUsage records a cancelled streaming response as used when it was
 // progressing too slowly to wait for completion (< cancelRecordThreshold). Rates
 // below minRecordTPS are indexed at that floor so the model is registered as
@@ -2644,22 +2687,9 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var wasCold bool = true
-	isSameModelName := func(a, b string) bool {
-		a = strings.TrimSpace(a)
-		b = strings.TrimSpace(b)
-		if a == b {
-			return true
-		}
-		if strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest") {
-			return true
-		}
-		aBase := a[strings.LastIndex(a, "/")+1:]
-		bBase := b[strings.LastIndex(b, "/")+1:]
-		return strings.TrimSuffix(aBase, ":latest") == strings.TrimSuffix(bBase, ":latest")
-	}
 	if running, err := s.ollama.PS(r.Context()); err == nil {
 		for _, rm := range running {
-			if isSameModelName(rm.Name, body.Model) || isSameModelName(rm.Model, body.Model) {
+			if sameModelName(rm.Name, body.Model) || sameModelName(rm.Model, body.Model) {
 				wasCold = false
 				break
 			}
@@ -2682,6 +2712,93 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		"model":     body.Model,
 		"embedding": out.Embedding,
 		"dims":      len(out.Embedding),
+	})
+}
+
+// handleDecision proxies POST /v1/systemone for Ollama "decision" (System One)
+// models. Unlike chat/embed these models take a JSON state plus named questions
+// and return JSON answers; there is no streaming and the response carries no
+// load/eval timing, so the handler measures wall-clock latency and, when the
+// model was not loaded beforehand, records that latency as a cold-start value.
+func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Model     string                              `json:"model"`
+		State     json.RawMessage                     `json:"state"`
+		Images    []string                            `json:"images"`
+		Questions map[string]ollama.SystemOneQuestion `json:"questions"`
+		KeepAlive any                                 `json:"keep_alive,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	body.Model = strings.TrimSpace(body.Model)
+	if body.Model == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'model'"))
+		return
+	}
+	state := bytes.TrimSpace(body.State)
+	if len(state) == 0 || string(state) == "null" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'state'"))
+		return
+	}
+	if len(body.Questions) == 0 {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'questions'"))
+		return
+	}
+	if len(body.Questions) > 64 {
+		writeError(w, http.StatusBadRequest, errors.New("too many questions (max 64)"))
+		return
+	}
+	for name, q := range body.Questions {
+		if strings.TrimSpace(name) == "" {
+			writeError(w, http.StatusBadRequest, errors.New("questions must have non-empty names"))
+			return
+		}
+		switch strings.ToLower(strings.TrimSpace(q.Type)) {
+		case "choice", "noul", "score":
+		default:
+			writeError(w, http.StatusBadRequest, fmt.Errorf("question %q has invalid type %q", name, q.Type))
+			return
+		}
+		if strings.TrimSpace(q.Instructions) == "" {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("question %q is missing instructions", name))
+			return
+		}
+	}
+
+	wasCold := true
+	if running, err := s.ollama.PS(r.Context()); err == nil {
+		for _, rm := range running {
+			if sameModelName(rm.Name, body.Model) || sameModelName(rm.Model, body.Model) {
+				wasCold = false
+				break
+			}
+		}
+	}
+
+	started := time.Now()
+	out, err := s.ollama.SystemOne(r.Context(), ollama.SystemOneRequest{
+		Model:     body.Model,
+		State:     body.State,
+		Images:    body.Images,
+		Questions: body.Questions,
+		KeepAlive: body.KeepAlive,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	latencyMs := time.Since(started).Milliseconds()
+
+	s.recordModelDecision(body.Model, len(body.Questions), out.Usage.InputTokens, out.Usage.OutputTokens, latencyMs, wasCold, time.Now())
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"model":      out.Model,
+		"answers":    out.Answers,
+		"usage":      out.Usage,
+		"latency_ms": latencyMs,
+		"was_cold":   wasCold,
 	})
 }
 

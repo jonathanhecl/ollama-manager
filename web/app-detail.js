@@ -473,7 +473,7 @@ async function toggleArchived(name, toArchive) {
 }
 window.toggleArchived = toggleArchived;
 
-const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embedding"];
+const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embedding", "decision"];
 
 function isFixedModelName(name) {
   return String(name || "").trim().endsWith(":fixed");

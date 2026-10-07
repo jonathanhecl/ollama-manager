@@ -43,6 +43,36 @@ type ModelUsageRecord struct {
 	SizeLabel      string `json:"size_label,omitempty"`
 	IsMOE          bool   `json:"is_moe,omitempty"`
 	ContextLength  int64  `json:"context_length,omitempty"`
+	// Decision (System One) metrics. These models answer JSON questions rather
+	// than stream tokens, so throughput is tracked as wall-clock latency and
+	// question rate instead of tokens/sec.
+	DecisionCalls        int64      `json:"decision_calls,omitempty"`
+	DecisionQuestions    int64      `json:"decision_questions,omitempty"`
+	DecisionInputTokens  int64      `json:"decision_input_tokens,omitempty"`
+	DecisionOutputTokens int64      `json:"decision_output_tokens,omitempty"`
+	DecisionTotalMs      int64      `json:"decision_total_ms,omitempty"`
+	DecisionMinMs        int64      `json:"decision_min_ms,omitempty"`
+	DecisionMaxMs        int64      `json:"decision_max_ms,omitempty"`
+	DecisionLastMs       int64      `json:"decision_last_ms,omitempty"`
+	DecisionColdMs       int64      `json:"decision_cold_ms,omitempty"`
+	DecisionColdAt       *time.Time `json:"decision_cold_at,omitempty"`
+}
+
+// DecisionAvgMs is the mean wall-clock latency of recorded decision calls.
+func (r ModelUsageRecord) DecisionAvgMs() int64 {
+	if r.DecisionCalls > 0 && r.DecisionTotalMs > 0 {
+		return r.DecisionTotalMs / r.DecisionCalls
+	}
+	return 0
+}
+
+// DecisionQuestionsPerSec is the observed question throughput of recorded
+// decision calls.
+func (r ModelUsageRecord) DecisionQuestionsPerSec() float64 {
+	if r.DecisionTotalMs > 0 && r.DecisionQuestions > 0 {
+		return float64(r.DecisionQuestions) / (float64(r.DecisionTotalMs) / 1000)
+	}
+	return 0
 }
 
 // modelUsageMeta carries the persistent metadata fields stored per model.
@@ -346,6 +376,24 @@ func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
 		out.TotalCalls = target.TotalCalls
 		out.TotalTokens = target.TotalTokens
 	}
+	if target.DecisionCalls > out.DecisionCalls {
+		out.DecisionCalls = target.DecisionCalls
+		out.DecisionQuestions = target.DecisionQuestions
+		out.DecisionInputTokens = target.DecisionInputTokens
+		out.DecisionOutputTokens = target.DecisionOutputTokens
+		out.DecisionTotalMs = target.DecisionTotalMs
+		out.DecisionLastMs = target.DecisionLastMs
+	}
+	if target.DecisionMinMs > 0 && (out.DecisionMinMs == 0 || target.DecisionMinMs < out.DecisionMinMs) {
+		out.DecisionMinMs = target.DecisionMinMs
+	}
+	if target.DecisionMaxMs > out.DecisionMaxMs {
+		out.DecisionMaxMs = target.DecisionMaxMs
+	}
+	if target.DecisionColdMs > 0 && (out.DecisionColdMs == 0 || target.DecisionColdMs < out.DecisionColdMs) {
+		out.DecisionColdMs = target.DecisionColdMs
+		out.DecisionColdAt = target.DecisionColdAt
+	}
 	if target.ParameterSize != "" {
 		out.ParameterSize = target.ParameterSize
 	}
@@ -402,27 +450,27 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 // fallbacks. Pure function over the given map: holds no locks itself.
 func lookupUsageModel(models map[string]ModelUsageRecord, name string) (ModelUsageRecord, bool) {
 	rec, ok := models[name]
-	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0) {
+	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0 || rec.DecisionCalls > 0) {
 		return rec, true
 	}
 	// Fallback for :latest aliases
 	if strings.HasSuffix(name, ":latest") {
 		trimmed := strings.TrimSuffix(name, ":latest")
-		if baseRec, baseOk := models[trimmed]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[trimmed]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	} else if !strings.Contains(name, ":") {
-		if baseRec, baseOk := models[name+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[name+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	}
 	// Fallback for :fixed models inheriting from their base model (exact name or :latest alias)
 	if isFixedModelName(name) {
 		base := fixedBaseName(name)
-		if baseRec, baseOk := models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
-		if baseRec, baseOk := models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0) {
+		if baseRec, baseOk := models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	}
@@ -530,6 +578,56 @@ func (s *modelUsageStore) RecordColdLoad(name string, durationMs int64, at time.
 	if rec.MinColdLoadMs == 0 || durationMs < rec.MinColdLoadMs {
 		rec.MinColdLoadMs = durationMs
 		rec.MinColdLoadAt = &at
+	}
+	models[name] = rec
+	s.mu.Unlock()
+
+	return s.save()
+}
+
+// RecordDecision stores one System One ("decision") invocation: wall-clock
+// latency, question count and token usage. When cold is true the request found
+// the model unloaded, so the latency also captures model load time (the
+// /v1/systemone response reports no load/eval timing of its own).
+func (s *modelUsageStore) RecordDecision(name string, questions, inputTokens, outputTokens int, latencyMs int64, cold bool, usedAt time.Time) error {
+	if name == "" {
+		return nil
+	}
+	if usedAt.IsZero() {
+		usedAt = time.Now()
+	}
+
+	s.mu.Lock()
+	models := s.currentModelsLocked()
+	rec := models[name]
+	rec.LastUsedAt = &usedAt
+	rec.TotalCalls++
+	rec.DecisionCalls++
+	if questions > 0 {
+		rec.DecisionQuestions += int64(questions)
+	}
+	if inputTokens > 0 {
+		rec.DecisionInputTokens += int64(inputTokens)
+	}
+	if outputTokens > 0 {
+		rec.DecisionOutputTokens += int64(outputTokens)
+	}
+	if inputTokens > 0 || outputTokens > 0 {
+		rec.TotalTokens += int64(inputTokens + outputTokens)
+	}
+	if latencyMs > 0 {
+		rec.DecisionTotalMs += latencyMs
+		rec.DecisionLastMs = latencyMs
+		if rec.DecisionMinMs == 0 || latencyMs < rec.DecisionMinMs {
+			rec.DecisionMinMs = latencyMs
+		}
+		if latencyMs > rec.DecisionMaxMs {
+			rec.DecisionMaxMs = latencyMs
+		}
+		if cold && (rec.DecisionColdMs == 0 || latencyMs < rec.DecisionColdMs) {
+			rec.DecisionColdMs = latencyMs
+			rec.DecisionColdAt = &usedAt
+		}
 	}
 	models[name] = rec
 	s.mu.Unlock()
@@ -682,6 +780,16 @@ func (s *modelUsageStore) ResetAnalytics(name string) error {
 		rec.TotalTokens = 0
 		rec.TotalCalls = 0
 		rec.LastUsedAt = nil
+		rec.DecisionCalls = 0
+		rec.DecisionQuestions = 0
+		rec.DecisionInputTokens = 0
+		rec.DecisionOutputTokens = 0
+		rec.DecisionTotalMs = 0
+		rec.DecisionMinMs = 0
+		rec.DecisionMaxMs = 0
+		rec.DecisionLastMs = 0
+		rec.DecisionColdMs = 0
+		rec.DecisionColdAt = nil
 		models[k] = rec
 		return true
 	}

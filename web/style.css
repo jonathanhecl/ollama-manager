@@ -5037,6 +5037,13 @@ button.chat-send:disabled:hover {
   color: #fb7185 !important;
   background: rgba(251, 113, 133, 0.08) !important;
 }
+.chat-cap-pill[data-cap="decision"],
+.pill[data-cap="decision"],
+.model-cap-list .pill[data-cap="decision"] {
+  border: 1px solid rgba(249, 115, 22, 0.28) !important;
+  color: #f97316 !important;
+  background: rgba(249, 115, 22, 0.08) !important;
+}
 .chat-side-card h3 {
   margin: 0 0 2px;
   font-size: 11px;
@@ -11471,6 +11478,11 @@ button.chat-send:disabled:hover {
   border-color: rgba(251, 113, 133, 0.35);
   background: rgba(251, 113, 133, 0.12);
   color: #fb7185;
+}
+.ext-cap-pill[data-cap="decision"].active {
+  border-color: rgba(249, 115, 22, 0.35);
+  background: rgba(249, 115, 22, 0.12);
+  color: #f97316;
 }
 .ext-cap-pill.inactive {
   opacity: 0.45;

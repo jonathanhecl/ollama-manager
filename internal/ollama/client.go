@@ -554,6 +554,77 @@ func (c *Client) Embed(ctx context.Context, model string, input any) (*EmbedResp
 	return nil, err
 }
 
+// SystemOneQuestion is one named question in a /v1/systemone request.
+// The Criteria layout depends on Type:
+//   - choice: object of {key: description}
+//   - noul:   optional object {"false": desc, "true": desc}
+//   - score:  array of level descriptions ordered lowest -> highest
+type SystemOneQuestion struct {
+	Type         string          `json:"type"`
+	Instructions string          `json:"instructions"`
+	Criteria     json.RawMessage `json:"criteria,omitempty"`
+}
+
+// SystemOneRequest mirrors POST /v1/systemone. State is passed through as raw
+// JSON (a string, object or array); Questions maps a name to its definition.
+type SystemOneRequest struct {
+	Model     string                       `json:"model"`
+	State     json.RawMessage              `json:"state"`
+	Images    []string                     `json:"images,omitempty"`
+	Questions map[string]SystemOneQuestion `json:"questions"`
+	KeepAlive any                          `json:"keep_alive,omitempty"`
+}
+
+// SystemOneUsage reports token accounting for a systemone call.
+type SystemOneUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// SystemOneAnswer is the model's answer to one question. The populated fields
+// depend on Type: choice -> Choice/Probabilities/Confidence; noul -> Noul;
+// score -> Score/Legend/Probabilities/Confidence.
+type SystemOneAnswer struct {
+	Type          string             `json:"type"`
+	Choice        string             `json:"choice,omitempty"`
+	Noul          *float64           `json:"noul,omitempty"`
+	Score         *float64           `json:"score,omitempty"`
+	Legend        map[string]string  `json:"legend,omitempty"`
+	Probabilities map[string]float64 `json:"probabilities,omitempty"`
+	Confidence    *float64           `json:"confidence,omitempty"`
+}
+
+// SystemOneResponse is the body of a successful POST /v1/systemone.
+type SystemOneResponse struct {
+	Model   string                     `json:"model"`
+	Answers map[string]SystemOneAnswer `json:"answers"`
+	Usage   SystemOneUsage             `json:"usage"`
+}
+
+// SystemOne calls POST /v1/systemone, the endpoint used by Ollama "decision"
+// (System One) models. The request body is passed through as-is so callers
+// keep full control of state and question criteria. This endpoint is
+// non-streaming and reports no load/eval timing.
+func (c *Client) SystemOne(ctx context.Context, req SystemOneRequest) (*SystemOneResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/v1/systemone", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return nil, err
+	}
+	var out SystemOneResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode systemone response: %w", err)
+	}
+	return &out, nil
+}
+
 // Ping checks whether the Ollama server responds. Useful at startup.
 func (c *Client) Ping(ctx context.Context) error {
 	resp, err := c.do(ctx, http.MethodGet, "/api/tags", nil, "")

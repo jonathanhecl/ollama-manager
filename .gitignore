@@ -65,3 +65,6 @@ uninstall_history.json
 model_usage.json
 custom_models.json
 external_models.json
+
+.engram/
+.atl/

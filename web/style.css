@@ -15746,6 +15746,14 @@ button.chat-send:disabled:hover {
   color: inherit;
   font: inherit;
 }
+/* Native select popups ignore a transparent background and fall back to the
+   OS list colors, which renders the inherited light text illegible (white on
+   white). Give the options an explicit dark background/light text, matching the
+   .tests-model-select / .battery-history-model-select pattern. */
+.decision-q select option {
+  background: var(--panel-2);
+  color: var(--text);
+}
 .decision-q textarea { width: 100%; resize: vertical; }
 .decision-q-criteria { display: flex; flex-direction: column; gap: 6px; }
 .decision-crit-list { display: flex; flex-direction: column; gap: 4px; }

@@ -209,6 +209,7 @@ function updateChatCapabilityUI() {
 
   if (toksValEl && toksCard) {
     const tps = Number(m?.record_tokens_per_sec) || 0;
+    const decisionMinMs = Number(m?.decision_min_ms) || 0;
     if (tps > 0) {
       const col = (typeof getToksRecordColor === "function") ? getToksRecordColor(tps) : "";
       const colStyle = col ? `style="color:${col}"` : "";
@@ -216,6 +217,10 @@ function updateChatCapabilityUI() {
       toksCard.title = m.record_tokens_per_sec_at
         ? t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })
         : t("detail.record_tokens");
+    } else if (decisionMinMs > 0) {
+      // Decision (System One) models have no tok/s; show their best latency.
+      toksValEl.innerHTML = `<span>${Math.round(decisionMinMs)}</span> <span class="stat-unit">ms</span>`;
+      toksCard.title = t("analytics.usage_stat_decision_min");
     } else {
       toksValEl.innerHTML = `<span style="color:var(--muted)">—</span>`;
       toksCard.title = t("detail.record_tokens");
@@ -224,11 +229,16 @@ function updateChatCapabilityUI() {
 
   if (loadValEl && loadCard) {
     const isExt = !!(m && m.is_external);
-    const coldMs = Number(m?.min_cold_load_ms) || 0;
+    const hasMinLoad = (Number(m?.min_cold_load_ms) || 0) > 0;
+    const decisionColdMs = Number(m?.decision_cold_ms) || 0;
+    // Decision models do not record min_cold_load_ms; their cold latency is the
+    // closest thing to a load time, so fall back to it.
+    const coldMs = hasMinLoad ? Number(m.min_cold_load_ms) : decisionColdMs;
     if (!isExt && coldMs > 0) {
       loadValEl.textContent = fmtColdLoad(coldMs);
-      loadCard.title = m.min_cold_load_at
-        ? t("detail.min_load_at", { date: fmtDateTimeFull(m.min_cold_load_at) })
+      const at = hasMinLoad ? m.min_cold_load_at : m.decision_cold_at;
+      loadCard.title = at
+        ? t("detail.min_load_at", { date: fmtDateTimeFull(at) })
         : t("detail.min_cold_load");
     } else {
       loadValEl.innerHTML = `<span style="color:var(--muted)">—</span>`;

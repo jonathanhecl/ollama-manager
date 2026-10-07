@@ -4962,8 +4962,14 @@ function updateStreamBar() {
   }
   const sendBtn = $("chat-send-btn");
   if (sendBtn) {
-    sendBtn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
-    sendBtn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    // Delegate to updateChatSendEnabled so the status poller and this ticker
+    // share one source of truth and the label can't flicker while generating.
+    if (typeof updateChatSendEnabled === "function") {
+      updateChatSendEnabled();
+    } else {
+      sendBtn.textContent = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+      sendBtn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+    }
   }
 }
 

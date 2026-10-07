@@ -308,9 +308,15 @@ function updateMetricWidget({ wrapId, fillId, textId, pct, text, title, warn = f
 
 function updateChatSendEnabled() {
   const btn = $("chat-send-btn");
-  let ok = managerApiOk && ollamaHostOk;
+  const ok = managerApiOk && ollamaHostOk;
   if (btn) {
-    const queued = typeof chatSessionId !== "undefined" && !!chatSessionId && chatStreamLock;
+    // The button offers "Queue" whenever a turn is in flight, wherever the
+    // message waits: a persistent session queues on the server, a quick chat
+    // queues in the browser. Gating this on the session id made the status
+    // poller and the stream ticker disagree, so the label flickered between
+    // Send and Queue while the model was working.
+    const inSession = typeof chatSessionId !== "undefined" && !!chatSessionId;
+    const queued = chatStreamLock;
     if (!ok) {
       if (!managerApiOk) {
         btn.title = t("chat.send_disabled_manager");
@@ -318,9 +324,9 @@ function updateChatSendEnabled() {
         btn.title = t("chat.send_disabled_ollama");
       }
     } else if (queued) {
-      btn.title = t("chat.session_queue_hint") || t("chat.queue_send");
+      btn.title = inSession ? (t("chat.session_queue_hint") || t("chat.queue_send")) : t("chat.queue_send");
     } else {
-      btn.title = chatStreamLock ? t("chat.queue_send") : t("chat.send");
+      btn.title = t("chat.send");
     }
     btn.textContent = queued ? t("chat.queue_send") : t("chat.send");
     btn.disabled = !ok;

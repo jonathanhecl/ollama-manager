@@ -2793,13 +2793,11 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 
 	s.recordModelDecision(body.Model, len(body.Questions), out.Usage.InputTokens, out.Usage.OutputTokens, latencyMs, wasCold, time.Now())
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"model":      out.Model,
-		"answers":    out.Answers,
-		"usage":      out.Usage,
-		"latency_ms": latencyMs,
-		"was_cold":   wasCold,
-	})
+	// Return Ollama's response verbatim; the manager's own measurements travel
+	// in headers so the body stays exactly what the model produced.
+	w.Header().Set("X-Ollama-Latency-Ms", fmt.Sprintf("%d", latencyMs))
+	w.Header().Set("X-Ollama-Was-Cold", fmt.Sprintf("%t", wasCold))
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {

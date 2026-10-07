@@ -206,14 +206,14 @@
           <div class="decision-head">
             <span class="decision-badge">decision</span>
             <span class="decision-hint" data-i18n="chat.decision.hint">Build the System One input and run it.</span>
+            <div class="decision-state-modes">
+              <button type="button" class="decision-mode-btn active" data-mode="text" data-i18n="chat.decision.mode_text">Text</button>
+              <button type="button" class="decision-mode-btn" data-mode="json" data-i18n="chat.decision.mode_json">JSON</button>
+            </div>
           </div>
           <div class="decision-state-wrap">
             <div class="decision-row-head">
               <label for="decision-state" data-i18n="chat.decision.state">State</label>
-              <div class="decision-state-modes">
-                <button type="button" class="decision-mode-btn active" data-mode="text" data-i18n="chat.decision.mode_text">Text</button>
-                <button type="button" class="decision-mode-btn" data-mode="json" data-i18n="chat.decision.mode_json">JSON</button>
-              </div>
             </div>
             <textarea id="decision-state" rows="3" autocomplete="off" data-i18n-attr="placeholder" data-i18n="chat.decision.state_placeholder" placeholder="Context the model reasons about..."></textarea>
             <div id="decision-image-wrap" class="decision-image-wrap" hidden>
@@ -233,6 +233,9 @@
             <button type="button" id="decision-add-question" class="ghost" data-i18n="chat.decision.add_question">+ Question</button>
           </div>
           <div id="decision-questions" class="decision-questions"></div>
+          <div class="decision-json-wrap">
+            <textarea id="decision-json-input" class="decision-json-input mono" rows="14" spellcheck="false" autocomplete="off"></textarea>
+          </div>
           <div class="decision-run-row">
             <button type="button" id="decision-run-btn" class="primary" data-i18n="chat.decision.run">Run</button>
             <span id="decision-status" class="decision-status muted"></span>

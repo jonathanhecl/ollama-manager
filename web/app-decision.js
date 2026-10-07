@@ -8,6 +8,9 @@
 
 let decisionStateMode = "text";
 let decisionImages = [];
+let decisionResultMode = "cards";
+let decisionLastResult = null;
+let decisionLastQuestions = {};
 
 function isDecisionOnlyModel(modelName) {
   const caps = modelCaps(modelName);
@@ -188,27 +191,115 @@ function decisionBuildState() {
   return raw;
 }
 
+// Best-effort assembly of the current form into the System One payload,
+// used to seed the editable JSON view. Unlike collectDecisionQuestions it
+// does not throw, so the JSON is always shown.
+function decisionAssembleInput() {
+  const model = $("chat-model")?.value || "";
+  const state = $("decision-state")?.value || "";
+  const questions = {};
+  document.querySelectorAll("#decision-questions .decision-q").forEach((q) => {
+    const name = q.querySelector(".decision-q-name").value.trim();
+    if (!name) return;
+    const type = q.querySelector(".decision-q-type").value;
+    const instructions = q.querySelector(".decision-q-instructions").value.trim();
+    const item = { type, instructions };
+    if (type === "choice") {
+      const criteria = {};
+      q.querySelectorAll(".decision-crit-list .decision-crit-row").forEach((row) => {
+        const k = row.querySelector(".decision-crit-key").value.trim();
+        const d = row.querySelector(".decision-crit-desc").value.trim();
+        if (k) criteria[k] = d || k;
+      });
+      item.criteria = criteria;
+    } else if (type === "score") {
+      const criteria = [];
+      q.querySelectorAll(".decision-crit-list .decision-crit-row").forEach((row) => {
+        criteria.push(row.querySelector(".decision-crit-desc").value.trim());
+      });
+      item.criteria = criteria;
+    } else {
+      const f = q.querySelector(".decision-noul-false").value.trim();
+      const tr = q.querySelector(".decision-noul-true").value.trim();
+      if (f || tr) item.criteria = { false: f, true: tr };
+    }
+    questions[name] = item;
+  });
+  const payload = { model, state, questions };
+  if (decisionImages.length) payload.images = decisionImages.map((i) => i.data);
+  return payload;
+}
+
+function decisionSyncJsonView() {
+  const el = $("decision-json-input");
+  if (el) el.value = JSON.stringify(decisionAssembleInput(), null, 2);
+}
+
 // ---------- execution ----------
+
+async function decisionPost(payload) {
+  const res = await fetch("/api/decision", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let msg = res.statusText || "request failed";
+    try {
+      const j = await res.json();
+      if (j && j.error) msg = j.error;
+    } catch { /* keep statusText */ }
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  return {
+    data,
+    latencyMs: Number(res.headers.get("X-Ollama-Latency-Ms")) || 0,
+    wasCold: res.headers.get("X-Ollama-Was-Cold") === "true",
+  };
+}
 
 async function runDecision() {
   const model = $("chat-model")?.value || "";
   const btn = $("decision-run-btn");
   const status = $("decision-status");
   try {
-    const state = decisionBuildState();
-    const questions = collectDecisionQuestions();
-    const payload = { model, state, questions };
-    if (decisionImages.length) payload.images = decisionImages.map((i) => i.data);
+    let payload;
+    let questions;
+    if (decisionStateMode === "json") {
+      const raw = ($("decision-json-input")?.value || "").trim();
+      if (!raw) throw new Error(t("chat.decision.err_state"));
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        throw new Error(t("chat.decision.err_json"));
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error(t("chat.decision.err_json"));
+      }
+      if (!payload.model) payload.model = model;
+      if (payload.state === undefined || payload.state === null || payload.state === "") {
+        throw new Error(t("chat.decision.err_state"));
+      }
+      if (!payload.questions || !Object.keys(payload.questions).length) {
+        throw new Error(t("chat.decision.err_no_questions"));
+      }
+      questions = payload.questions;
+    } else {
+      const state = decisionBuildState();
+      questions = collectDecisionQuestions();
+      payload = { model, state, questions };
+      if (decisionImages.length) payload.images = decisionImages.map((i) => i.data);
+    }
 
     if (btn) btn.disabled = true;
     if (status) status.textContent = t("chat.decision.running");
 
-    const data = await api("/api/decision", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    renderDecisionResult(data, questions);
+    const { data, latencyMs, wasCold } = await decisionPost(payload);
+    renderDecisionResult(data, questions, { latencyMs, wasCold });
     if (status) status.textContent = "";
   } catch (e) {
     const msg = (e && e.message) || "failed";
@@ -286,37 +377,58 @@ function renderDecisionAnswer(name, ans, qtype) {
     </div>`;
 }
 
-function renderDecisionResult(data, questions) {
-  const host = $("decision-result");
-  if (!host) return;
-  host.hidden = false;
-  const usage = data.usage || {};
+function decisionResultBodyHtml() {
+  const data = decisionLastResult || {};
+  if (decisionResultMode === "json") {
+    return `<pre class="decision-raw-pre">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+  }
   const answers = data.answers || {};
-  const latency = Number(data.latency_ms) || 0;
-
-  const meta = `
-    <div class="decision-meta">
-      <span class="decision-meta-item"><b class="mono">${latency}</b> ms</span>
-      <span class="decision-meta-item">${escapeHtml(t("chat.decision.tokens_in"))} <b class="mono">${usage.input_tokens || 0}</b></span>
-      <span class="decision-meta-item">${escapeHtml(t("chat.decision.tokens_out"))} <b class="mono">${usage.output_tokens || 0}</b></span>
-      ${data.was_cold ? `<span class="decision-meta-item decision-cold">${escapeHtml(t("chat.decision.cold"))}</span>` : ""}
-    </div>`;
-
+  const questions = decisionLastQuestions || {};
   const answerKeys = Object.keys(answers);
   const cards = answerKeys.length
     ? answerKeys.map((name) => renderDecisionAnswer(name, answers[name], questions[name]?.type)).join("")
     : `<div class="muted">${escapeHtml(t("chat.decision.no_answers"))}</div>`;
+  return `<div class="decision-answers">${cards}</div>`;
+}
+
+function renderDecisionResultView() {
+  const host = $("decision-result");
+  if (!host) return;
+  const body = host.querySelector(".decision-result-body");
+  if (body) body.innerHTML = decisionResultBodyHtml();
+  host.querySelectorAll(".decision-result-mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === decisionResultMode);
+  });
+}
+
+function renderDecisionResult(data, questions, meta) {
+  const host = $("decision-result");
+  if (!host) return;
+  const info = meta || {};
+  decisionLastResult = data || {};
+  decisionLastQuestions = questions || {};
+  host.hidden = false;
+  const usage = data.usage || {};
+  const latency = Number(info.latencyMs) || 0;
+
+  const metaHtml = `
+    <div class="decision-meta">
+      <span class="decision-meta-item"><b class="mono">${latency}</b> ms</span>
+      <span class="decision-meta-item">${escapeHtml(t("chat.decision.tokens_in"))} <b class="mono">${usage.input_tokens || 0}</b></span>
+      <span class="decision-meta-item">${escapeHtml(t("chat.decision.tokens_out"))} <b class="mono">${usage.output_tokens || 0}</b></span>
+      ${info.wasCold ? `<span class="decision-meta-item decision-cold">${escapeHtml(t("chat.decision.cold"))}</span>` : ""}
+    </div>`;
 
   host.innerHTML = `
     <div class="decision-result-head">
       <span class="decision-result-title">${escapeHtml(t("chat.decision.result"))}</span>
-      ${meta}
+      <div class="decision-result-modes">
+        <button type="button" class="decision-result-mode-btn${decisionResultMode === "cards" ? " active" : ""}" data-mode="cards">${escapeHtml(t("chat.decision.view_cards"))}</button>
+        <button type="button" class="decision-result-mode-btn${decisionResultMode === "json" ? " active" : ""}" data-mode="json">${escapeHtml(t("chat.decision.raw_json"))}</button>
+      </div>
+      ${metaHtml}
     </div>
-    <div class="decision-answers">${cards}</div>
-    <details class="decision-raw">
-      <summary>${escapeHtml(t("chat.decision.raw_json"))}</summary>
-      <pre class="decision-raw-pre">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
-    </details>`;
+    <div class="decision-result-body">${decisionResultBodyHtml()}</div>`;
 }
 
 // ---------- init ----------
@@ -330,8 +442,21 @@ function initDecisionPanel() {
     btn.addEventListener("click", () => {
       decisionStateMode = btn.dataset.mode === "json" ? "json" : "text";
       panel.querySelectorAll(".decision-mode-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      panel.classList.toggle("decision-json-mode", decisionStateMode === "json");
+      if (decisionStateMode === "json") decisionSyncJsonView();
     });
   });
+
+  // result view toggle (Cards / JSON)
+  const resultHost = $("decision-result");
+  if (resultHost) {
+    resultHost.addEventListener("click", (e) => {
+      const b = e.target.closest(".decision-result-mode-btn");
+      if (!b) return;
+      decisionResultMode = b.dataset.mode === "json" ? "json" : "cards";
+      renderDecisionResultView();
+    });
+  }
 
   // images
   const imgBtn = $("decision-image-btn");

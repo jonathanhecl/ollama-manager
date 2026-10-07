@@ -15641,8 +15641,21 @@ button.chat-send:disabled:hover {
 }
 .chat-decision-panel[hidden] { display: none; }
 .chat-decision-mode .chat-actions-row { display: none; }
+.chat-decision-mode #chat-scroll-shell { display: none; }
 
-.decision-head { display: flex; align-items: center; gap: 8px; }
+/* In decision mode the playground replaces the transcript, so it should fill the
+   chat shell instead of hugging the top and leaving dead space below. */
+.chat-decision-mode .chat-shell { grid-template-rows: auto minmax(0, 1fr); }
+.chat-decision-mode .chat-compose { height: 100%; min-height: 0; overflow: hidden; }
+.chat-decision-mode .chat-decision-panel { flex: 1 1 auto; max-height: none; min-height: 0; }
+.chat-decision-mode .decision-result { flex: 1 1 auto; min-height: 0; }
+.chat-decision-mode .decision-result-body { flex: 1 1 auto; min-height: 0; }
+.chat-decision-mode .decision-raw-pre { flex: 1 1 auto; min-height: 0; max-height: none; }
+.chat-decision-mode .decision-json-wrap { flex: 1 1 auto; min-height: 0; }
+.chat-decision-mode .decision-json-input { flex: 1 1 auto; min-height: 0; height: 100%; }
+
+.decision-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.decision-head .decision-state-modes { margin-left: auto; }
 .decision-badge {
   font-size: 11px;
   font-weight: 600;
@@ -15676,13 +15689,30 @@ button.chat-send:disabled:hover {
 #decision-state {
   width: 100%;
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font: inherit;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
   background: transparent;
   color: inherit;
+}
+.decision-json-wrap { display: none; }
+.chat-decision-panel.decision-json-mode .decision-state-wrap,
+.chat-decision-panel.decision-json-mode .decision-questions-head,
+.chat-decision-panel.decision-json-mode #decision-questions { display: none; }
+.chat-decision-panel.decision-json-mode .decision-json-wrap { display: block; }
+.decision-json-input {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  white-space: pre;
+  overflow: auto;
 }
 .decision-image-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .decision-image-list { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -15714,9 +15744,9 @@ button.chat-send:disabled:hover {
   padding: 5px 7px;
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font: inherit;
 }
-.decision-q textarea { width: 100%; resize: vertical; font-family: inherit; }
+.decision-q textarea { width: 100%; resize: vertical; }
 .decision-q-criteria { display: flex; flex-direction: column; gap: 6px; }
 .decision-crit-list { display: flex; flex-direction: column; gap: 4px; }
 .decision-crit-row { display: flex; gap: 6px; align-items: center; }
@@ -15734,6 +15764,22 @@ button.chat-send:disabled:hover {
 .decision-result[hidden] { display: none; }
 .decision-result-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
 .decision-result-title { font-size: 12px; font-weight: 700; }
+.decision-result-modes { display: flex; gap: 4px; margin-left: auto; }
+.decision-result-mode-btn {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.decision-result-mode-btn.active {
+  color: #ff6a00;
+  border-color: rgba(255, 106, 0, 0.35);
+  background: rgba(255, 106, 0, 0.12);
+}
+.decision-result-body { display: flex; flex-direction: column; gap: 10px; }
 .decision-meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
 .decision-meta-item.decision-cold { color: #ff6a00; }
 .decision-answers { display: flex; flex-direction: column; gap: 10px; }

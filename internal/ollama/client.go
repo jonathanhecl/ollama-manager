@@ -498,7 +498,10 @@ func (c *Client) ChatOnce(ctx context.Context, req ChatRequest) (*ChatOnceRespon
 
 // Embed calls POST /api/embed and returns the first embedding vector.
 // Some Ollama versions expose /api/embeddings; we fallback to that endpoint.
-func (c *Client) Embed(ctx context.Context, model, input string) (*EmbedResponse, error) {
+// input is either a plain string (text) or a slice of multimodal objects such
+// as []map[string]any{{"text": ..., "image": ..., "audio": ...}}; it is passed
+// through to Ollama as-is.
+func (c *Client) Embed(ctx context.Context, model string, input any) (*EmbedResponse, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model": model,
 		"input": input,

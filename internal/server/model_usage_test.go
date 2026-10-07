@@ -933,7 +933,48 @@ func TestHandleGetUsageDevices(t *testing.T) {
 	}
 }
 
-
-
-
-
+func TestEmbeddingThroughput(t *testing.T) {
+	cases := []struct {
+		name    string
+		out     ollama.EmbedResponse
+		wantN   int
+		wantDur int64
+	}{
+		{
+			name:    "eval timing preferred when present",
+			out:     ollama.EmbedResponse{EvalCount: 8, EvalDuration: 2e9, PromptEvalCount: 4, PromptEvalDuration: 1e9, TotalDuration: 3e9, LoadDuration: 5e8},
+			wantN:   8,
+			wantDur: 2e9,
+		},
+		{
+			name:    "prompt eval timing used when eval missing",
+			out:     ollama.EmbedResponse{PromptEvalCount: 4, PromptEvalDuration: 1e9, TotalDuration: 3e9, LoadDuration: 5e8},
+			wantN:   4,
+			wantDur: 1e9,
+		},
+		{
+			name:    "derived from total minus load for /api/embed",
+			out:     ollama.EmbedResponse{PromptEvalCount: 260, TotalDuration: 306000000, LoadDuration: 19000000},
+			wantN:   260,
+			wantDur: 287000000,
+		},
+		{
+			name:    "no duration available returns zero duration",
+			out:     ollama.EmbedResponse{PromptEvalCount: 4},
+			wantN:   4,
+			wantDur: 0,
+		},
+		{
+			name:    "no tokens returns zeroes",
+			out:     ollama.EmbedResponse{TotalDuration: 5e6},
+			wantN:   0,
+			wantDur: 0,
+		},
+	}
+	for _, tc := range cases {
+		gotN, gotDur := embeddingThroughput(&tc.out)
+		if gotN != tc.wantN || gotDur != tc.wantDur {
+			t.Errorf("%s: got (%d, %d), want (%d, %d)", tc.name, gotN, gotDur, tc.wantN, tc.wantDur)
+		}
+	}
+}

@@ -66,6 +66,7 @@ func TestFetchModelMetaStripsVisionWithoutProjector(t *testing.T) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"capabilities": []string{"completion", "tools", "thinking", "vision", "audio"},
+			"details":      map[string]any{"format": "gguf"},
 		})
 	}))
 	defer ollamaSrv.Close()
@@ -98,5 +99,54 @@ func TestFetchModelMetaKeepsVisionWithProjector(t *testing.T) {
 	want := []string{"completion", "vision"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("caps = %v, want %v (projector keeps vision)", got, want)
+	}
+}
+
+// Native multimodal models loaded from safetensors (e.g. EmbeddingGemma 2)
+// report vision/audio from the weights and ship no projector_info; those
+// capabilities are real and must be kept.
+func TestFetchModelMetaKeepsModalitiesForNativeMultimodal(t *testing.T) {
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/show" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"capabilities": []string{"embedding", "vision", "audio"},
+			"details":      map[string]any{"format": "safetensors"},
+		})
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	models := []ollama.Model{{Name: "embeddinggemma-2:latest", Digest: "sha256:embed"}}
+	got := srv.fetchModelMeta(context.Background(), models)["sha256:embed"].Capabilities
+	want := []string{"embedding", "vision", "audio"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("caps = %v, want %v (native multimodal keeps modalities)", got, want)
+	}
+}
+
+// An embedding model carries its image/audio encoders in the weights, so its
+// modalities stay even if a runtime reports a GGUF format with no projector.
+func TestFetchModelMetaKeepsModalitiesForEmbeddingModel(t *testing.T) {
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/show" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"capabilities": []string{"embedding", "vision", "audio"},
+			"details":      map[string]any{"format": "gguf"},
+		})
+	}))
+	defer ollamaSrv.Close()
+
+	srv := newTestServer(t, ollamaSrv.URL)
+	models := []ollama.Model{{Name: "embed-gguf:latest", Digest: "sha256:embed-gguf"}}
+	got := srv.fetchModelMeta(context.Background(), models)["sha256:embed-gguf"].Capabilities
+	want := []string{"embedding", "vision", "audio"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("caps = %v, want %v (embedding keeps modalities)", got, want)
 	}
 }

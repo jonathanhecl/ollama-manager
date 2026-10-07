@@ -4779,15 +4779,31 @@ function isEmbeddingOnlyModel(modelName) {
   return caps.has("embedding") && !caps.has("completion");
 }
 
-function buildEmbeddingInputText() {
+// buildEmbeddingInput collects the last user turn for an embedding request.
+// Text comes from the outbound message (including appended text-file blocks);
+// image/audio come from that turn's attachments. Multimodal embedding models
+// combine text+image+audio into one vector per input object.
+function buildEmbeddingInput() {
   const outbound = buildOutboundMessages();
+  let text = "";
   for (let i = outbound.length - 1; i >= 0; i -= 1) {
     const m = outbound[i];
     if (m.role === "user" && String(m.content || "").trim()) {
-      return String(m.content).trim();
+      text = String(m.content).trim();
+      break;
     }
   }
-  return "";
+  let images = [];
+  let audios = [];
+  for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
+    const m = chatMessages[i];
+    if (m.role !== "user") continue;
+    const atts = m.attachments || [];
+    images = atts.filter((a) => a.kind === "image" && a.data).map((a) => a.data);
+    audios = atts.filter((a) => a.kind === "audio" && a.data).map((a) => a.data);
+    break;
+  }
+  return { text, images, audios };
 }
 
 function formatEmbeddingResult(vec) {
@@ -5387,21 +5403,60 @@ async function runChatRequest(assistantMsg) {
   const modelName = $("chat-model").value;
   assistantMsg.model = modelName;
   if (isEmbeddingOnlyModel(modelName)) {
-    const input = buildEmbeddingInputText();
-    if (!input) {
-      throw new Error(t("chat.embed_empty_input"));
+    // Embedding models return a vector instead of a stream, so they take a short
+    // path that never reaches the generation try/finally below. Release the
+    // stream lock here or the composer stays stuck on "Queue" and Regenerate
+    // reports a generation still in flight.
+    try {
+      const { text, images, audios } = buildEmbeddingInput();
+      const hasMedia = images.length > 0 || audios.length > 0;
+      if (!text && !hasMedia) {
+        throw new Error(t("chat.embed_empty_input"));
+      }
+      // Text-only is sent as a plain string. With media, Ollama expects a list
+      // of objects with a singular `image`/`audio` field (raw base64, no data:
+      // prefix), optionally combined with `text` into one unified vector.
+      let input = text;
+      if (hasMedia) {
+        const item = {};
+        if (text) item.text = text;
+        if (images.length) item.image = images[0];
+        if (audios.length) item.audio = audios[0];
+        input = [item];
+      }
+      const started = Date.now();
+      const data = await api("/api/embed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: modelName, input }),
+      });
+      assistantMsg.streaming = false;
+      assistantMsg.elapsedMs = Date.now() - started;
+      assistantMsg.hasDebug = false;
+      assistantMsg.content = formatEmbeddingResult(data.embedding || []);
+    } catch (e) {
+      assistantMsg.streaming = false;
+      assistantMsg.isError = true;
+      const errMsg = (e && e.message) || "failed";
+      if (!assistantMsg.content) {
+        assistantMsg.content = t("chat.error_reply", { msg: errMsg });
+      }
+      toast(t("toast.error", { msg: errMsg }), "error");
+    } finally {
+      chatStreamLock = false;
+      activeStreamMessage = null;
+      updateStreamBar();
+      updateChatSendEnabled();
+      flushChatRender();
+      void refreshModelArtifactCount();
+      if (chatPendingQueue.length > 0) {
+        const next = chatPendingQueue.shift();
+        renderChatQueue();
+        setTimeout(() => { runOneChatTurn(next.text, next.attachments); }, 0);
+      } else {
+        renderChatQueue();
+      }
     }
-    const started = Date.now();
-    const data = await api("/api/embed", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: modelName, input }),
-    });
-    assistantMsg.streaming = false;
-    assistantMsg.elapsedMs = Date.now() - started;
-    assistantMsg.hasDebug = false;
-    assistantMsg.content = formatEmbeddingResult(data.embedding || []);
-    flushChatRender();
     return;
   }
 

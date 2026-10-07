@@ -308,7 +308,7 @@ func hasVisionModel(ctx context.Context, s *Server, model string) bool {
 	if err != nil || show == nil {
 		return false
 	}
-	caps := withoutProjectorCaps(show.Capabilities, len(show.ProjectorInfo) > 0)
+	caps := withoutProjectorCaps(show.Capabilities, len(show.ProjectorInfo) > 0, show.Details.Format)
 	for _, c := range caps {
 		if strings.EqualFold(c, "vision") {
 			return true

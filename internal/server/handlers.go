@@ -1158,8 +1158,19 @@ var projectorCaps = map[string]bool{"vision": true, "audio": true}
 // otherwise mark a text-only model as vision-capable and force it through
 // vision tests it cannot run. A present projector_info means a real mmproj
 // blob exists, so its capabilities are kept as-is.
-func withoutProjectorCaps(caps []string, hasProjector bool) []string {
+//
+// The strip only applies to GGUF imports. Native multimodal models loaded from
+// safetensors (and embedding models, which carry their image/audio encoders in
+// the weights) report no projector_info yet genuinely support the modalities,
+// so their capabilities are kept. An unknown format keeps the old protective
+// behavior and is stripped.
+func withoutProjectorCaps(caps []string, hasProjector bool, format string) []string {
 	if hasProjector {
+		return caps
+	}
+	normFormat := strings.ToLower(strings.TrimSpace(format))
+	nativeMultimodal := normFormat != "" && normFormat != "gguf"
+	if nativeMultimodal || hasCapability(caps, "embedding") {
 		return caps
 	}
 	out := make([]string, 0, len(caps))
@@ -1170,6 +1181,16 @@ func withoutProjectorCaps(caps []string, hasProjector bool) []string {
 		out = append(out, c)
 	}
 	return out
+}
+
+// hasCapability reports whether caps contains name, case-insensitively.
+func hasCapability(caps []string, name string) bool {
+	for _, c := range caps {
+		if strings.EqualFold(strings.TrimSpace(c), name) {
+			return true
+		}
+	}
+	return false
 }
 
 // fetchModelMeta returns digest-keyed model metadata for list rendering,
@@ -1246,7 +1267,7 @@ func (s *Server) fetchModelMeta(ctx context.Context, models []ollama.Model) map[
 				digest:         m.Digest,
 				ok:             true,
 				contextLen:     extractContextLength(show),
-				capabilities:   withoutProjectorCaps(append([]string(nil), show.Capabilities...), len(show.ProjectorInfo) > 0),
+				capabilities:   withoutProjectorCaps(append([]string(nil), show.Capabilities...), len(show.ProjectorInfo) > 0, show.Details.Format),
 				parameterCount: extractParameterCount(show),
 				architecture:   extractArchitecture(show),
 				fileType:       extractFileType(show),
@@ -1500,7 +1521,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		Template:     show.Template,
 		System:       show.System,
 		Details:      show.Details,
-		Capabilities: withoutProjectorCaps(append([]string(nil), show.Capabilities...), len(show.ProjectorInfo) > 0),
+		Capabilities: withoutProjectorCaps(append([]string(nil), show.Capabilities...), len(show.ProjectorInfo) > 0, show.Details.Format),
 		ModifiedAt:   show.ModifiedAt,
 		IsCustom:     isCustom,
 		BaseModel:    baseModel,
@@ -2565,22 +2586,59 @@ func estimatePromptTokens(body chatRequestBody) int {
 	return tokens
 }
 
+// embeddingThroughput returns the token count and duration (nanoseconds) used
+// to record a speed for an embedding request. Ollama's /api/embed does not
+// report eval timing, only prompt_eval_count plus total/load durations, so when
+// neither eval nor prompt-eval duration is available the prompt tokens are
+// measured against the compute portion of the request (total minus load).
+func embeddingThroughput(out *ollama.EmbedResponse) (int, int64) {
+	count := out.EvalCount
+	durationNs := out.EvalDuration
+	if count <= 0 || durationNs <= 0 {
+		count = out.PromptEvalCount
+		durationNs = out.PromptEvalDuration
+	}
+	if durationNs <= 0 && count > 0 && out.TotalDuration > 0 {
+		if compute := out.TotalDuration - out.LoadDuration; compute > 0 {
+			durationNs = compute
+		}
+	}
+	return count, durationNs
+}
+
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Model string `json:"model"`
-		Input string `json:"input"`
+		Model string          `json:"model"`
+		Input json.RawMessage `json:"input"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
 		return
 	}
 	body.Model = strings.TrimSpace(body.Model)
-	body.Input = strings.TrimSpace(body.Input)
 	if body.Model == "" {
 		writeError(w, http.StatusBadRequest, errors.New("missing 'model'"))
 		return
 	}
-	if body.Input == "" {
+	// input may be a text string or a list of multimodal objects
+	// ({text,image,audio}) for embedding models that accept image/audio.
+	rawInput := bytes.TrimSpace(body.Input)
+	if len(rawInput) == 0 || string(rawInput) == "null" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'input'"))
+		return
+	}
+	var input any
+	if err := json.Unmarshal(rawInput, &input); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid 'input': %w", err))
+		return
+	}
+	if s, ok := input.(string); ok {
+		input = strings.TrimSpace(s)
+		if input == "" {
+			writeError(w, http.StatusBadRequest, errors.New("missing 'input'"))
+			return
+		}
+	} else if arr, ok := input.([]any); ok && len(arr) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("missing 'input'"))
 		return
 	}
@@ -2608,19 +2666,14 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	out, err := s.ollama.Embed(r.Context(), body.Model, body.Input)
+	out, err := s.ollama.Embed(r.Context(), body.Model, input)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 
-	evalCount := out.EvalCount
-	evalDuration := out.EvalDuration
-	if evalCount <= 0 || evalDuration <= 0 {
-		evalCount = out.PromptEvalCount
-		evalDuration = out.PromptEvalDuration
-	}
-	s.recordModelUsage(body.Model, evalCount, evalDuration, out.PromptEvalCount, time.Now())
+	count, durationNs := embeddingThroughput(out)
+	s.recordModelUsage(body.Model, count, durationNs, out.PromptEvalCount, time.Now())
 	if wasCold && out.LoadDuration > 0 {
 		s.recordModelColdLoad(body.Model, out.LoadDuration/1e6, time.Now())
 	}

@@ -252,6 +252,9 @@ function updateChatCapabilityUI() {
   if (typeof adjustChatSystemPromptHeight === "function") {
     adjustChatSystemPromptHeight();
   }
+  if (typeof updateDecisionChatUI === "function") {
+    updateDecisionChatUI();
+  }
 }
 
 function updateChatContextMeter() {

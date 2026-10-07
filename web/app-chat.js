@@ -29,7 +29,7 @@ function formatCapabilityLabel(raw) {
   return k.charAt(0).toUpperCase() + k.slice(1);
 }
 
-const CAPABILITY_ORDER = ["decision", "completion", "tools", "thinking", "vision", "audio", "embedding"];
+const CAPABILITY_ORDER = ["embedding", "decision", "completion", "tools", "thinking", "vision", "audio"];
 
 function capabilityOrderKey(cap) {
   const k = String(cap || "").toLowerCase().trim();

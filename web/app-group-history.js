@@ -147,6 +147,15 @@ try {
   if (_sm === "overall" || _sm === "coverage") _lbSortMode = _sm;
 } catch (_) {}
 
+// Capability league scope for the leaderboard (page + modal): all /
+// completion / embedding / decision. Decision and embedding leagues stay
+// empty until a benchmark runner exists for those capabilities.
+let _lbScope = "all";
+try {
+  const _sc = localStorage.getItem("leaderboard_scope");
+  if (["all", "completion", "embedding", "decision"].includes(_sc)) _lbScope = _sc;
+} catch (_) {}
+
 async function refreshVisibleLeaderboards() {
   const jobs = [];
   if ($("leaderboard-modal") && !$("leaderboard-modal").hidden) jobs.push(renderLeaderboardModal());
@@ -158,6 +167,13 @@ function setLbSortMode(mode) {
   if (mode !== "overall" && mode !== "coverage") return;
   _lbSortMode = mode;
   try { localStorage.setItem("leaderboard_sort", mode); } catch (_) {}
+  void refreshVisibleLeaderboards();
+}
+
+function setLbScope(scope) {
+  if (!["all", "completion", "embedding", "decision"].includes(scope)) return;
+  _lbScope = scope;
+  try { localStorage.setItem("leaderboard_scope", scope); } catch (_) {}
   void refreshVisibleLeaderboards();
 }
 
@@ -256,6 +272,12 @@ document.addEventListener("click", (e) => {
   const sortBtn = e.target?.closest?.(".lb-sort-btn");
   if (!sortBtn) return;
   setLbSortMode(_lbSortMode === "coverage" ? "overall" : "coverage");
+});
+
+document.addEventListener("click", (e) => {
+  const scopeBtn = e.target?.closest?.(".lb-scope-btn");
+  if (!scopeBtn) return;
+  setLbScope(scopeBtn.dataset.lbScope || "all");
 });
 
 // "/" focuses the filter when the leaderboard page is visible; Esc clears it.
@@ -644,6 +666,24 @@ async function buildLeaderboardTableHtml() {
     });
   }
 
+  // Capability league scope: keep only groups and models belonging to the
+  // selected capability. Uninstalled models have unknown capabilities and
+  // only appear in the "all" scope.
+  if (_lbScope && _lbScope !== "all") {
+    cols = cols.filter((col) => {
+      const caps = col.requiredCaps || [];
+      if (_lbScope === "embedding") return caps.includes("embedding");
+      if (_lbScope === "decision") return caps.includes("decision");
+      return !caps.includes("embedding") && !caps.includes("decision");
+    });
+    lbRows = lbRows.filter((row) => {
+      const info = modelInfo.get(row.model);
+      if (!info) return false;
+      const caps = new Set((info.capabilities || []).map((c) => String(c).toLowerCase()));
+      return caps.has(_lbScope);
+    });
+  }
+
   if (cols.length === 0 || lbRows.length === 0) {
     const readySectionHtml = buildReadySectionHtml(modelsData, [], cols);
     return `<div class="battery-empty">${t("battery.no_history")}</div>${readySectionHtml}`;
@@ -847,6 +887,9 @@ async function buildLeaderboardTableHtml() {
       <span class="lb-filter-icon" aria-hidden="true">🔍</span>
       <input type="search" class="lb-filter-input" placeholder="${lbFilterPlaceholder}" value="${lbFilterVal}" autocomplete="off" spellcheck="false" aria-label="${lbFilterPlaceholder}">
       <button type="button" class="ghost lb-filter-clear" title="${lbFilterClearTitle}"${_lbModelFilter ? "" : " hidden"}>✕</button>
+      <span class="lb-scope-group" role="group" aria-label="${escapeHtml(lbFilterText("analytics.filter_scope", "League"))}">
+        ${["all", "completion", "embedding", "decision"].map((s) => `<button type="button" class="ghost lb-scope-btn${_lbScope === s ? " active" : ""}" data-lb-scope="${s}">${escapeHtml(lbFilterText(`analytics.scope_${s}`, s))}</button>`).join("")}
+      </span>
       <button type="button" class="ghost lb-sort-btn${lbIsCoverage ? " active" : ""}" title="${lbSortTitle}">${lbSortLabel}</button>
       <span class="lb-filter-count muted mono"${lbTotal > 0 ? "" : ` style="display:none"`}>${lbFilterCount}</span>
     </div>

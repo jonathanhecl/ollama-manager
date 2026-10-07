@@ -183,6 +183,30 @@ function renderDetail(d) {
   const minColdLoadVal = (!isExternal && (d.min_cold_load_ms || m.min_cold_load_ms) > 0)
     ? `${fmtColdLoad(d.min_cold_load_ms || m.min_cold_load_ms)}${(d.min_cold_load_at || m.min_cold_load_at) ? ` (${fmtDate(d.min_cold_load_at || m.min_cold_load_at)})` : ""}`
     : "—";
+  const isDecisionModel = (d.capabilities || []).some((c) => String(c).toLowerCase() === "decision");
+  const decisionCalls = Number(d.decision_calls) || 0;
+  const decisionAvgMs = Number(d.decision_avg_ms) || 0;
+  const decisionMinMs = Number(d.decision_min_ms) || 0;
+  const decisionMaxMs = Number(d.decision_max_ms) || 0;
+  const decisionQps = Number(d.decision_questions_per_sec) || 0;
+  const decisionColdMs = Number(d.decision_cold_ms) || 0;
+  const decisionTokens = (Number(d.decision_input_tokens) || 0) + (Number(d.decision_output_tokens) || 0);
+  const fmtMs = (v) => (v > 0 ? `${Math.round(v)} ms` : "—");
+  const decisionLatencyVal = decisionAvgMs > 0
+    ? `${fmtMs(decisionAvgMs)}${decisionQps > 0 ? ` · ${decisionQps.toFixed(2)} dec/s` : ""}`
+    : "—";
+  const decisionRangeVal = (decisionMinMs > 0 || decisionMaxMs > 0)
+    ? `${fmtMs(decisionMinMs)} – ${fmtMs(decisionMaxMs)}`
+    : "—";
+  const decisionCallsVal = decisionCalls > 0
+    ? `${decisionCalls.toLocaleString()} (${(Number(d.decision_questions) || 0).toLocaleString()} q)`
+    : "—";
+  const decisionTokensVal = decisionTokens > 0
+    ? `${decisionTokens.toLocaleString()} (in ${(Number(d.decision_input_tokens) || 0).toLocaleString()} · out ${(Number(d.decision_output_tokens) || 0).toLocaleString()})`
+    : "—";
+  const decisionColdVal = decisionColdMs > 0
+    ? `${fmtMs(decisionColdMs)}${d.decision_cold_at ? ` (${fmtDate(d.decision_cold_at)})` : ""}`
+    : "—";
   const siteUrl = !isExternal ? modelHomepageUrl(d.name, isCustom) : "";
   const hostLabel = siteUrl ? (siteUrl.startsWith("https://huggingface.co") ? "Hugging Face" : "Ollama") : "";
   let hfRepoId = getHFRepoFromModel(d.name);
@@ -214,6 +238,13 @@ function renderDetail(d) {
       [t("detail.record_tokens"), recordToksVal, false],
       [t("detail.min_cold_load"), minColdLoadVal, false],
       [t("detail.last_used"), lastUsedVal, false],
+      ...((isDecisionModel || decisionCalls > 0) ? [
+        [t("analytics.usage_stat_decision_avg"), decisionLatencyVal, false],
+        [t("analytics.usage_stat_decision_min"), decisionRangeVal, false],
+        [t("analytics.usage_stat_decision_calls"), decisionCallsVal, false],
+        [t("analytics.usage_stat_decision_tokens"), decisionTokensVal, false],
+        [t("analytics.usage_stat_decision_cold"), decisionColdVal, false],
+      ] : []),
       [t("detail.state"), stateText, true],
       [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
       [t("detail.digest"), `<span class="mono">${escapeHtml((m.digest || "").slice(0, 16))}…</span>`, false]

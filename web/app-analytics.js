@@ -4,7 +4,7 @@
 
 const ANALYTICS_FILTER_KEY = "ollamaMgr.analyticsFilters";
 let analyticsAllData = [];
-let analyticsFilters = { name: "", device: "current", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
+let analyticsFilters = { name: "", device: "current", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all", scope: "all" };
 try {
   const saved = JSON.parse(localStorage.getItem(ANALYTICS_FILTER_KEY) || "null");
   if (saved) analyticsFilters = Object.assign(analyticsFilters, saved);
@@ -101,7 +101,7 @@ function populateAnalyticsFamilyFilter(all) {
 }
 
 function syncAnalyticsFilterControls() {
-  const map = { device: "analytics-filter-device", source: "analytics-filter-source", family: "analytics-filter-family", type: "analytics-filter-type" };
+  const map = { device: "analytics-filter-device", source: "analytics-filter-source", scope: "analytics-filter-scope", family: "analytics-filter-family", type: "analytics-filter-type" };
   for (const k in map) {
     const el = $(map[k]);
     if (el) el.value = analyticsFilters[k];
@@ -129,6 +129,7 @@ function analyticsFilterMatches(p) {
   if (f.paramsMin !== "" && p.params > 0 && p.params < Number(f.paramsMin) * 1e9) return false;
   if (f.paramsMax !== "" && p.params > 0 && p.params > Number(f.paramsMax) * 1e9) return false;
   if (f.tpsMin !== "" && p.tps > 0 && p.tps < Number(f.tpsMin)) return false;
+  if (f.scope && f.scope !== "all" && !p.caps.has(f.scope)) return false;
   return true;
 }
 
@@ -151,6 +152,7 @@ function bindAnalyticsFilters() {
   };
   bind("analytics-filter-name", "name");
   bind("analytics-filter-source", "source");
+  bind("analytics-filter-scope", "scope");
   bind("analytics-filter-family", "family");
   bind("analytics-filter-type", "type");
   bind("analytics-filter-params-min", "paramsMin");
@@ -169,7 +171,7 @@ function bindAnalyticsFilters() {
   const reset = $("analytics-filter-reset");
   if (reset) {
     reset.addEventListener("click", () => {
-      analyticsFilters = { name: "", device: "current", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all" };
+      analyticsFilters = { name: "", device: "current", source: "all", paramsMin: "", paramsMax: "", tpsMin: "", family: "all", type: "all", scope: "all" };
       persistAnalyticsFilters();
       syncAnalyticsFilterControls();
       renderAnalytics();
@@ -190,6 +192,17 @@ function analyticsPoint(m) {
   const coldLoadMs = Number(m.min_cold_load_ms) || 0;
   const totalTokens = Number(m.total_tokens) || 0;
   const totalCalls = Number(m.total_calls) || 0;
+  const caps = new Set((m.capabilities || []).map((c) => String(c).toLowerCase()));
+  const decisionCalls = Number(m.decision_calls) || 0;
+  const decisionQuestions = Number(m.decision_questions) || 0;
+  const decisionAvgMs = Number(m.decision_avg_ms) || 0;
+  const decisionMinMs = Number(m.decision_min_ms) || 0;
+  const decisionMaxMs = Number(m.decision_max_ms) || 0;
+  const decisionLastMs = Number(m.decision_last_ms) || 0;
+  const decisionQps = Number(m.decision_questions_per_sec) || 0;
+  const decisionColdMs = Number(m.decision_cold_ms) || 0;
+  const decisionInputTokens = Number(m.decision_input_tokens) || 0;
+  const decisionOutputTokens = Number(m.decision_output_tokens) || 0;
 
   // Derived metrics
   const sizeGB = sizeBytes > 0 ? sizeBytes / 1e9 : 0;
@@ -228,6 +241,17 @@ function analyticsPoint(m) {
     sizeLabel: m.size_label || "",
     isMOE: !!m.is_moe,
     contextLength: Number(m.context_length) || 0,
+    caps,
+    decisionCalls,
+    decisionQuestions,
+    decisionAvgMs,
+    decisionMinMs,
+    decisionMaxMs,
+    decisionLastMs,
+    decisionQps,
+    decisionColdMs,
+    decisionInputTokens,
+    decisionOutputTokens,
   };
 }
 
@@ -273,8 +297,28 @@ function modelFamilyColor(family, isGhost) {
   return "#38bdf8";
 }
 
+function analyticsScopeIsDecision() {
+  return analyticsFilters.scope === "decision";
+}
+
+function setAnalyticsLabel(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
+
+function updateAnalyticsChartLabels() {
+  const decision = analyticsScopeIsDecision();
+  setAnalyticsLabel("analytics-tps-title", t(decision ? "analytics.decision_tps_title" : "analytics.tps_title"));
+  setAnalyticsLabel("analytics-tps-sub", t(decision ? "analytics.decision_tps_sub" : "analytics.tps_sub"));
+  setAnalyticsLabel("analytics-efficiency-title", t(decision ? "analytics.decision_efficiency_title" : "analytics.efficiency_title"));
+  setAnalyticsLabel("analytics-efficiency-sub", t(decision ? "analytics.decision_efficiency_sub" : "analytics.efficiency_sub"));
+  setAnalyticsLabel("analytics-coldload-title", t(decision ? "analytics.decision_latency_title" : "analytics.coldload_title"));
+  setAnalyticsLabel("analytics-coldload-sub", t(decision ? "analytics.decision_latency_sub" : "analytics.coldload_sub"));
+}
+
 function renderAnalyticsFiltered() {
   const filtered = analyticsAllData.filter((m) => analyticsFilterMatches(analyticsPoint(m)));
+  updateAnalyticsChartLabels();
   renderAnalyticsKPIs(filtered);
   renderTpsVsParams(filtered);
   renderSizeVsParams(filtered);

@@ -369,7 +369,7 @@ function initDecisionPanel() {
   if (addBtn) addBtn.addEventListener("click", decisionAddQuestion);
 
   const qHost = $("decision-questions");
-  if (false) { // bisect: qHost listeners disabled
+  if (qHost) {
     qHost.addEventListener("change", (e) => {
       const sel = e.target.closest(".decision-q-type");
       if (!sel) return;

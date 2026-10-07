@@ -22,6 +22,7 @@ function fmtAxis(v, kind) {
   if (kind === "gb") return `${v.toFixed(1)} GB`;
   if (kind === "paramsB") return `${v.toFixed(1)}B`;
   if (kind === "tps") return `${v.toFixed(0)} tok/s`;
+  if (kind === "qps") return `${v.toFixed(1)} dec/s`;
   if (kind === "num") return `${Math.round(v)}`;
   return `${Math.round(v)}`;
 }
@@ -177,6 +178,52 @@ function renderAnalyticsKPIs(data) {
   const points = data.map(analyticsPoint);
   const totalModels = points.length;
   const installedCount = points.filter((p) => !p.ghost).length;
+
+  if (typeof analyticsScopeIsDecision === "function" && analyticsScopeIsDecision()) {
+    const withQps = points.filter((p) => p.decisionQps > 0).sort((a, b) => b.decisionQps - a.decisionQps);
+    const topQps = withQps[0];
+    const withLat = points.filter((p) => p.decisionAvgMs > 0).sort((a, b) => a.decisionAvgMs - b.decisionAvgMs);
+    const fastest = withLat[0];
+    const validQps = points.filter((p) => p.decisionQps > 0);
+    const avgQps = validQps.length ? validQps.reduce((acc, p) => acc + p.decisionQps, 0) / validQps.length : 0;
+    const validLat = points.filter((p) => p.decisionAvgMs > 0);
+    const avgLat = validLat.length ? validLat.reduce((acc, p) => acc + p.decisionAvgMs, 0) / validLat.length : 0;
+    container.innerHTML = `
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon">📊</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.kpi_models"))}</span>
+        <strong class="analytics-kpi-val">${totalModels}</strong>
+        <span class="analytics-kpi-sub muted">${installedCount} ${escapeHtml(t("analytics.source_installed").toLowerCase())}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-cyan-icon">⚡</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.decision_kpi_peak_qps"))}</span>
+        <strong class="analytics-kpi-val highlight-cyan">${topQps ? topQps.decisionQps.toFixed(2) + " <small>dec/s</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted" title="${topQps ? escapeHtml(topQps.name) : ""}">${topQps ? escapeHtml(shortModelLabel(topQps.name, 16)) : "—"}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-emerald-icon">🚀</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.decision_kpi_fastest"))}</span>
+        <strong class="analytics-kpi-val highlight-emerald">${fastest ? Math.round(fastest.decisionAvgMs) + " <small>ms</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted" title="${fastest ? escapeHtml(fastest.name) : ""}">${fastest ? escapeHtml(shortModelLabel(fastest.name, 16)) : "—"}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-purple-icon">📈</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.decision_kpi_avg_latency"))}</span>
+        <strong class="analytics-kpi-val highlight-purple">${avgLat > 0 ? Math.round(avgLat) + " <small>ms</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted">${avgQps > 0 ? avgQps.toFixed(2) + " dec/s" : "—"}</span>
+      </div>
+    </div>
+  `;
+    return;
+  }
 
   // Peak speed
   const withTps = points.filter((p) => p.tps > 0).sort((a, b) => b.tps - a.tps);
@@ -530,11 +577,12 @@ if (typeof document !== "undefined") {
 function renderTpsVsParams(all) {
   const el = $("analytics-chart-tps");
   if (!el) return;
+  const decision = typeof analyticsScopeIsDecision === "function" && analyticsScopeIsDecision();
   renderModernScatter(el, all, {
-    xLabel: t("analytics.tps_x"), yLabel: t("analytics.tps_y"),
-    xKind: "paramsB", yKind: "tps",
+    xLabel: t("analytics.tps_x"), yLabel: decision ? t("analytics.decision_qps_unit") : t("analytics.tps_y"),
+    xKind: "paramsB", yKind: decision ? "qps" : "tps",
     xValue: (p) => p.paramsB,
-    yValue: (p) => p.tps,
+    yValue: (p) => decision ? p.decisionQps : p.tps,
     showTrendline: true,
     showPareto: true,
     theme: "speed",
@@ -559,11 +607,14 @@ function renderSizeVsParams(all) {
 function renderEfficiency(all) {
   const el = $("analytics-chart-efficiency");
   if (!el) return;
+  const decision = typeof analyticsScopeIsDecision === "function" && analyticsScopeIsDecision();
   renderModernBars(el, all, {
-    label: t("analytics.efficiency"),
-    value: (p) => p.efficiencyTokPerGB,
-    formatVal: (v) => `${v.toFixed(1)} tok/s/GB`,
-    formatSub: (p) => p.tps > 0 && p.sizeBytes > 0 ? `${p.tps.toFixed(1)} tok/s · ${fmtBytes(p.sizeBytes)}` : "",
+    label: t(decision ? "analytics.decision_efficiency_title" : "analytics.efficiency"),
+    value: decision ? (p) => (p.sizeGB > 0 ? p.decisionQps / p.sizeGB : 0) : (p) => p.efficiencyTokPerGB,
+    formatVal: (v) => decision ? `${v.toFixed(2)} dec/s/GB` : `${v.toFixed(1)} tok/s/GB`,
+    formatSub: decision
+      ? (p) => p.decisionQps > 0 && p.sizeBytes > 0 ? `${p.decisionQps.toFixed(1)} dec/s · ${fmtBytes(p.sizeBytes)}` : ""
+      : (p) => p.tps > 0 && p.sizeBytes > 0 ? `${p.tps.toFixed(1)} tok/s · ${fmtBytes(p.sizeBytes)}` : "",
     gradientClass: "grad-emerald",
   });
 }
@@ -571,6 +622,17 @@ function renderEfficiency(all) {
 function renderColdLoad(all) {
   const el = $("analytics-chart-coldload");
   if (!el) return;
+  const decision = typeof analyticsScopeIsDecision === "function" && analyticsScopeIsDecision();
+  if (decision) {
+    renderModernBars(el, all, {
+      label: t("analytics.decision_latency_title"),
+      value: (p) => p.decisionAvgMs,
+      formatVal: (v) => `${Math.round(v)} ms`,
+      formatSub: (p) => p.decisionCalls > 0 ? `${p.decisionCalls} calls · ${p.decisionQuestions} q` : "",
+      gradientClass: "grad-cyan",
+    });
+    return;
+  }
   renderModernBars(el, all, {
     label: t("analytics.coldload"),
     value: (p) => p.loadThroughputMBs,
@@ -891,6 +953,48 @@ function renderModelUsageModalContent(m, u, uninst, installedModel, detail) {
   const tmplBlock = template ? renderUsageCodeBlock(t("detail.template"), template) : "";
   const modelfileBlock = modelfile ? renderUsageCodeBlock("Modelfile", modelfile) : "";
 
+  const decisionCalls = p.decisionCalls || 0;
+  const isDecisionModel = (rawCaps || []).some((c) => String(c).toLowerCase() === "decision");
+  let decisionSection = "";
+  if (isDecisionModel || decisionCalls > 0) {
+    const fmtMs = (v) => (v > 0 ? `${Math.round(v)} ms` : "—");
+    const decTokens = (p.decisionInputTokens || 0) + (p.decisionOutputTokens || 0);
+    const coldSub = p.decisionColdMs > 0
+      ? `${(p.decisionColdMs / 1000).toFixed(2)}s${(u?.decision_cold_at || m?.decision_cold_at) ? ` · ${fmtDate(u?.decision_cold_at || m?.decision_cold_at)}` : ""}`
+      : "—";
+    decisionSection = `
+    <div class="model-usage-section">
+      <h4 class="model-usage-section-title">${escapeHtml(t("analytics.usage_decision_title"))}</h4>
+      <div class="model-usage-grid">
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🧭</span>${escapeHtml(t("analytics.usage_stat_decision_avg"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(fmtMs(p.decisionAvgMs))}</div>
+          <div class="model-usage-metric-sub">${p.decisionQps > 0 ? p.decisionQps.toFixed(2) + " dec/s" : "—"}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">⚡</span>${escapeHtml(t("analytics.usage_stat_decision_min"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(fmtMs(p.decisionMinMs))}</div>
+          <div class="model-usage-metric-sub">${p.decisionMaxMs > 0 ? `max ${Math.round(p.decisionMaxMs)} ms` : "—"}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🔢</span>${escapeHtml(t("analytics.usage_stat_decision_calls"))}</div>
+          <div class="model-usage-metric-val mono">${decisionCalls.toLocaleString()}</div>
+          <div class="model-usage-metric-sub">${(p.decisionQuestions || 0).toLocaleString()} ${escapeHtml(t("analytics.usage_stat_decision_questions").toLowerCase())}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🔤</span>${escapeHtml(t("analytics.usage_stat_decision_tokens"))}</div>
+          <div class="model-usage-metric-val mono">${decTokens.toLocaleString()}</div>
+          <div class="model-usage-metric-sub">in ${(p.decisionInputTokens || 0).toLocaleString()} · out ${(p.decisionOutputTokens || 0).toLocaleString()}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">❄️</span>${escapeHtml(t("analytics.usage_stat_decision_cold"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(fmtMs(p.decisionColdMs))}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(coldSub)}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
   body.innerHTML = `
     <div class="model-usage-hero">
       <div class="model-usage-hero-top">
@@ -959,6 +1063,8 @@ function renderModelUsageModalContent(m, u, uninst, installedModel, detail) {
         </div>
       </div>
     </div>
+
+    ${decisionSection}
 
     ${capsSection}
 

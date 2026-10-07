@@ -510,6 +510,8 @@ function renderTable() {
   function getBenchCellHtml(m) {
     const overall = (typeof m.bench_overall === "number" && isFinite(m.bench_overall)) ? m.bench_overall : null;
     if (m.isPending) return "—";
+    // Embedding and decision (System One) models cannot be benchmarked.
+    if (typeof capsCannotBench === "function" && capsCannotBench(m.capabilities)) return "—";
     // Without recorded tok/s there is no evidence the model actually runs,
     // so the bench cell is always "—" (even with failed bench attempts).
     if ((Number(m.record_tokens_per_sec) || 0) <= 0) return "—";
@@ -553,8 +555,22 @@ function renderTable() {
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
       ? `<span class="cell-record-tok" title="${m.record_tokens_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })) : ""}"><span class="record-num"${colorStyle}>${m.record_tokens_per_sec.toFixed(1)}</span> <span class="unit">tok/s</span></span>`
       : "—";
-    const minLoadHtml = (!m.is_external && m.min_cold_load_ms && m.min_cold_load_ms > 0)
-      ? `<div class="cell-min-load mono" title="${m.min_cold_load_at ? escapeHtml(t("detail.min_load_at", { date: fmtDateTimeFull(m.min_cold_load_at) })) : ""}">${escapeHtml(t("col.min_load"))}: ${fmtColdLoad(m.min_cold_load_ms)}</div>`
+    // Decision (System One) models produce no tok/s, so surface their latency
+    // instead: best processing time (ms) as the main value, cold/load time below.
+    const decisionCalls = Number(m.decision_calls) || 0;
+    const decisionMinMs = Number(m.decision_min_ms) || 0;
+    const decisionColdMs = Number(m.decision_cold_ms) || 0;
+    const isDecision = decisionCalls > 0 || decisionMinMs > 0;
+    const decisionMsHtml = decisionMinMs > 0
+      ? `<span class="cell-record-tok" title="${escapeHtml(t("analytics.usage_stat_decision_min"))}"><span class="record-num">${Math.round(decisionMinMs)}</span> <span class="unit">ms</span></span>`
+      : "—";
+    const recordMainHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
+      ? recordTokHtml
+      : (isDecision ? decisionMsHtml : "—");
+    const loadMs = (Number(m.min_cold_load_ms) || 0) > 0 ? Number(m.min_cold_load_ms) : decisionColdMs;
+    const loadAt = (Number(m.min_cold_load_ms) || 0) > 0 ? m.min_cold_load_at : m.decision_cold_at;
+    const minLoadHtml = (!m.is_external && loadMs > 0)
+      ? `<div class="cell-min-load mono" title="${loadAt ? escapeHtml(t("detail.min_load_at", { date: fmtDateTimeFull(loadAt) })) : ""}">${escapeHtml(t("col.min_load"))}: ${fmtColdLoad(loadMs)}</div>`
       : "";
     
     const lastUsedDisplay = m.last_used_at ? fmtDate(m.last_used_at) : "—";
@@ -608,7 +624,7 @@ function renderTable() {
       </td>
       <td class="cell-record-tok-col">
         <div class="cell-record-wrap">
-          <div class="cell-record-main">${m.isPending ? "—" : recordTokHtml}</div>
+          <div class="cell-record-main">${m.isPending ? "—" : recordMainHtml}</div>
           ${m.isPending ? "" : minLoadHtml}
         </div>
       </td>
@@ -669,6 +685,9 @@ function renderTable() {
         tr._m_last_used !== m.last_used_at ||
         tr._m_record_tok !== m.record_tokens_per_sec ||
         tr._m_tok_color !== tokColor ||
+        tr._m_decision_min !== m.decision_min_ms ||
+        tr._m_decision_cold !== m.decision_cold_ms ||
+        tr._m_decision_calls !== m.decision_calls ||
         tr._m_bench_sig !== benchSig ||
         tr._m_min_cold_load !== m.min_cold_load_ms ||
         tr._m_ctx !== m.context_length ||
@@ -766,6 +785,9 @@ function renderTable() {
       newTr._m_last_used = m.last_used_at;
       newTr._m_record_tok = m.record_tokens_per_sec;
       newTr._m_tok_color = tokColor;
+      newTr._m_decision_min = m.decision_min_ms;
+      newTr._m_decision_cold = m.decision_cold_ms;
+      newTr._m_decision_calls = m.decision_calls;
       newTr._m_bench_sig = benchSig;
       newTr._m_min_cold_load = m.min_cold_load_ms;
       newTr._m_ctx = m.context_length;

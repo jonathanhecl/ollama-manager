@@ -47,6 +47,15 @@ const fmtColdLoad = (ms) => {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 };
+// Embedding and decision (System One) models are not chat generators, so they
+// cannot be benchmarked. Accepts a capability Set (modelCaps) or an array.
+const capsCannotBench = (caps) => {
+  const arr = caps instanceof Set ? [...caps] : (Array.isArray(caps) ? caps : []);
+  return arr.some((c) => {
+    const k = String(c).toLowerCase();
+    return k === "embedding" || k === "decision";
+  });
+};
 const getToksRecordColor = (tps, minT, maxT) => {
   if (!tps || tps <= 0) return "";
   let min = typeof minT === "number" && isFinite(minT) ? minT : 10;

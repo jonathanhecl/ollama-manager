@@ -577,6 +577,7 @@ function renderBatteryModalModels() {
   // Only show active models that have verified speed (record_tokens_per_sec > 0)
   const activeModels = (typeof models !== "undefined" ? models : []).filter((m) => {
     if (m.archived || m.disabled || m.is_ghost) return false;
+    if (typeof capsCannotBench === "function" && capsCannotBench(m.capabilities)) return false;
     const tps = Number(m.record_tokens_per_sec) || 0;
     return tps > 0;
   });
@@ -1659,6 +1660,7 @@ function buildBatteryTimelineQueue(groupFilter, modelIDs) {
   let idx = 0;
   for (const model of modelIDs) {
     const caps = modelCaps(model);
+    if (typeof capsCannotBench === "function" && capsCannotBench(caps)) continue;
     for (const test of activeTests) {
       const required = [...batteryTestEffectiveCaps(test)];
       if (required.every((c) => caps.has(c))) {

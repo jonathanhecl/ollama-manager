@@ -891,6 +891,7 @@ function bindChatEvents() {
     if (!empty) toast(t("chat.reset_success"), "success");
   });
   $("chat-model")?.addEventListener("change", () => {
+    if (typeof resetDecisionState === "function") resetDecisionState();
     updateChatCapabilityUI();
     updateChatContextMeter();
     void applyChatDefaultsForModel($("chat-model").value, true);

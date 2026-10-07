@@ -2643,7 +2643,12 @@ async function showChatViewWithModel(name) {
       opt.textContent = name;
       sel.appendChild(opt);
     }
+    const prevModel = sel.value;
     sel.value = name;
+    // Switching to a different model starts a fresh decision composer.
+    if (prevModel && prevModel !== name && typeof resetDecisionState === "function") {
+      resetDecisionState();
+    }
     updateChatModelLoadDot();
     updateChatCapabilityUI();
     updateChatContextMeter();

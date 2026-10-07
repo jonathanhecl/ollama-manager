@@ -457,6 +457,7 @@ const I18N = {
     "chat.decision.mode_text": "Text",
     "chat.decision.mode_json": "JSON",
     "chat.decision.state_placeholder": "Context the model reasons about...",
+    "chat.decision.image_default_state": "Analyze the attached image.",
     "chat.decision.questions": "Questions",
     "chat.decision.add_question": "+ Question",
     "chat.decision.run": "Run",

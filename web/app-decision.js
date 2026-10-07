@@ -131,10 +131,30 @@ function decisionRenderImages() {
   list.innerHTML = decisionImages
     .map((img, i) => `
       <span class="decision-image-chip">
-        <img src="${img.url || ""}" alt="">
-        <button type="button" class="ghost decision-image-remove" data-idx="${i}" aria-label="remove">×</button>
+        <button type="button" class="decision-image-thumb image-preview-open" data-name="${escapeHtml(img.name || "")}" title="${escapeHtml(t("chat.image_preview_title"))}" aria-label="${escapeHtml(t("chat.image_preview_title"))}">
+          <img src="${img.url || ""}" alt="${escapeHtml(img.name || "")}">
+        </button>
+        <button type="button" class="decision-image-remove" data-idx="${i}" aria-label="${escapeHtml(t("chat.remove_attachment"))}">×</button>
       </span>`)
     .join("");
+}
+
+// System One always requires a non-empty `state` (it is the context shared by
+// every question, even when images are attached). When the user attaches an
+// image and left the state empty, prefill a generic editable context so running
+// does not fail with "State is required". This value is model input, not UI
+// copy, so it stays in English regardless of the interface language.
+function decisionDefaultImageState() {
+  const key = "chat.decision.image_default_state";
+  const tr = t(key, null, "en");
+  return tr === key ? "Analyze the attached image." : tr;
+}
+
+function decisionMaybeAutofillState() {
+  if (!decisionImages.length) return;
+  const el = $("decision-state");
+  if (!el || el.value.trim()) return;
+  el.value = decisionDefaultImageState();
 }
 
 // ---------- validation + collection ----------
@@ -472,6 +492,7 @@ function initDecisionPanel() {
           const comma = res.indexOf(",");
           decisionImages.push({ name: file.name, url: res, data: comma >= 0 ? res.slice(comma + 1) : res });
           decisionRenderImages();
+          decisionMaybeAutofillState();
         };
         reader.readAsDataURL(file);
       });

@@ -255,6 +255,100 @@ function decisionSyncJsonView() {
   if (el) el.value = JSON.stringify(decisionAssembleInput(), null, 2);
 }
 
+// Base64 has no MIME type, but the browser needs one to render a data URL in the
+// chip preview. Sniff it from the leading bytes of the most common formats the
+// System One endpoint accepts (PNG/JPEG/WebP), defaulting to PNG.
+function decisionImageMime(base64) {
+  const s = String(base64 || "");
+  if (s.startsWith("iVBORw0KGgo")) return "image/png";
+  if (s.startsWith("/9j/")) return "image/jpeg";
+  if (s.startsWith("UklGR")) return "image/webp";
+  if (s.startsWith("R0lGOD")) return "image/gif";
+  return "image/png";
+}
+
+function decisionContentToString(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+// Rebuild the visual (Text mode) form from the editable JSON, so switching
+// JSON -> Text reflects the JSON, including questions and attached images.
+// Returns false when the JSON is invalid so the caller can stay in JSON mode.
+function decisionApplyJsonToForm() {
+  const raw = ($("decision-json-input")?.value || "").trim();
+  if (!raw) return false;
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+
+  const stateEl = $("decision-state");
+  if (stateEl && payload.state !== undefined && payload.state !== null) {
+    stateEl.value = decisionContentToString(payload.state);
+  }
+
+  decisionImages = Array.isArray(payload.images)
+    ? payload.images
+        .filter((d) => typeof d === "string" && d)
+        .map((data, i) => ({
+          name: `image-${i + 1}`,
+          url: `data:${decisionImageMime(data)};base64,${data}`,
+          data,
+        }))
+    : [];
+  decisionRenderImages();
+
+  const host = $("decision-questions");
+  const questions = payload.questions && typeof payload.questions === "object" && !Array.isArray(payload.questions)
+    ? payload.questions
+    : {};
+  if (host) {
+    host.innerHTML = "";
+    Object.entries(questions).forEach(([name, item]) => {
+      const src = item && typeof item === "object" ? item : {};
+      const type = src.type === "score" ? "score" : src.type === "noul" ? "noul" : "choice";
+      host.insertAdjacentHTML("beforeend", decisionQuestionRowHtml());
+      const q = host.lastElementChild;
+      q.querySelector(".decision-q-name").value = name;
+      q.querySelector(".decision-q-type").value = type;
+      q.querySelector(".decision-q-instructions").value = decisionContentToString(src.instructions);
+      decisionFillCriteria(q, type);
+      const list = q.querySelector(".decision-crit-list");
+      if (type === "choice") {
+        list.innerHTML = "";
+        const crit = src.criteria && typeof src.criteria === "object" ? src.criteria : {};
+        Object.entries(crit).forEach(([key, desc]) => {
+          list.insertAdjacentHTML("beforeend", decisionChoiceRowHtml(key, decisionContentToString(desc)));
+        });
+      } else if (type === "score") {
+        list.innerHTML = "";
+        const crit = Array.isArray(src.criteria) ? src.criteria : [];
+        crit.forEach((desc) => {
+          list.insertAdjacentHTML("beforeend", decisionScoreRowHtml(decisionContentToString(desc)));
+        });
+        decisionReindexScore(list);
+      } else {
+        const crit = src.criteria && typeof src.criteria === "object" ? src.criteria : {};
+        const falseEl = q.querySelector(".decision-noul-false");
+        const trueEl = q.querySelector(".decision-noul-true");
+        if (falseEl) falseEl.value = decisionContentToString(crit.false);
+        if (trueEl) trueEl.value = decisionContentToString(crit.true);
+      }
+    });
+    if (!host.children.length) decisionAddQuestion();
+  }
+  return true;
+}
+
 // ---------- execution ----------
 
 async function decisionPost(payload) {
@@ -460,7 +554,14 @@ function initDecisionPanel() {
   // state mode toggle
   panel.querySelectorAll(".decision-mode-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      decisionStateMode = btn.dataset.mode === "json" ? "json" : "text";
+      const nextMode = btn.dataset.mode === "json" ? "json" : "text";
+      // Switching back to Text must reflect the edited JSON; if it is invalid,
+      // stay in JSON mode so the user can fix it.
+      if (nextMode === "text" && decisionStateMode === "json" && !decisionApplyJsonToForm()) {
+        toast(t("chat.decision.err_json"), "error");
+        return;
+      }
+      decisionStateMode = nextMode;
       panel.querySelectorAll(".decision-mode-btn").forEach((b) => b.classList.toggle("active", b === btn));
       panel.classList.toggle("decision-json-mode", decisionStateMode === "json");
       if (decisionStateMode === "json") decisionSyncJsonView();

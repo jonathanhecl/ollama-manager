@@ -869,8 +869,9 @@ function bindChatEvents() {
     // fall back into the throwaway quick chat.
     const session = typeof chatSessionId !== "undefined" && !!chatSessionId
       && typeof resetChatSession === "function" ? chatSessionId : "";
+    const decisionDirty = typeof decisionHasContent === "function" && decisionHasContent();
     const empty = chatMessages.length === 0 && !activeArtifactTimestamp
-      && chatAttachments.length === 0 && !$("chat-input")?.value.trim();
+      && chatAttachments.length === 0 && !$("chat-input")?.value.trim() && !decisionDirty;
     if (!empty) {
       const res = await askConfirm({
         title: t("chat.reset_confirm_title"),
@@ -886,6 +887,7 @@ function bindChatEvents() {
       return;
     }
     resetChatState();
+    if (typeof resetDecisionState === "function") resetDecisionState();
     if (!empty) toast(t("chat.reset_success"), "success");
   });
   $("chat-model")?.addEventListener("change", () => {

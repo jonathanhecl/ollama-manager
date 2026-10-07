@@ -527,6 +527,7 @@ async function closeChatSession() {
 async function resetChatSession(id) {
   if (!id) return;
   resetChatState();
+  if (typeof resetDecisionState === "function") resetDecisionState();
   // resetChatState cleared the flag; arm it after, so the turn we are about to
   // cancel cannot draw over the cleared transcript before the reset lands.
   chatSessionResetting = true;
@@ -619,6 +620,7 @@ function handleChatSessionStreamEvent(name, ev) {
     // tab). Drop the transcript and stop treating the cancelled turn as
     // something still to render.
     resetChatState();
+    if (typeof resetDecisionState === "function") resetDecisionState();
     return;
   }
   if (chatSessionResetting) {

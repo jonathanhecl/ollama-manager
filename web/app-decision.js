@@ -49,11 +49,11 @@ function decisionCriteriaHtml(type) {
       <div class="decision-crit-list" data-crit="score"></div>
       <button type="button" class="ghost decision-crit-add">${escapeHtml(t("chat.decision.add_level"))}</button>`;
   }
-  // noul
+  // noul: prefill the API defaults ("No"/"Yes"); they stay editable.
   return `
     <div class="decision-noul-row">
-      <input class="decision-noul-false" autocomplete="off" placeholder="${escapeHtml(t("chat.decision.noul_false"))}">
-      <input class="decision-noul-true" autocomplete="off" placeholder="${escapeHtml(t("chat.decision.noul_true"))}">
+      <input class="decision-noul-false" autocomplete="off" placeholder="${escapeHtml(t("chat.decision.noul_false"))}" value="No">
+      <input class="decision-noul-true" autocomplete="off" placeholder="${escapeHtml(t("chat.decision.noul_true"))}" value="Yes">
     </div>`;
 }
 
@@ -113,11 +113,25 @@ function decisionQuestionRowHtml() {
     </div>`;
 }
 
+// Next free auto-name for a question: question_1, question_2, ... skipping any
+// that already exist so added questions never collide.
+function decisionNextQuestionName() {
+  const used = new Set();
+  document.querySelectorAll("#decision-questions .decision-q-name").forEach((el) => {
+    used.add(el.value.trim());
+  });
+  let n = 1;
+  while (used.has(`question_${n}`)) n += 1;
+  return `question_${n}`;
+}
+
 function decisionAddQuestion() {
   const host = $("decision-questions");
   if (!host) return;
   host.insertAdjacentHTML("beforeend", decisionQuestionRowHtml());
   const q = host.lastElementChild;
+  const nameEl = q.querySelector(".decision-q-name");
+  if (nameEl && !nameEl.value.trim()) nameEl.value = decisionNextQuestionName();
   decisionFillCriteria(q, "choice");
 }
 
@@ -340,8 +354,9 @@ function decisionApplyJsonToForm() {
         const crit = src.criteria && typeof src.criteria === "object" ? src.criteria : {};
         const falseEl = q.querySelector(".decision-noul-false");
         const trueEl = q.querySelector(".decision-noul-true");
-        if (falseEl) falseEl.value = decisionContentToString(crit.false);
-        if (trueEl) trueEl.value = decisionContentToString(crit.true);
+        // Missing entries keep the prefilled API defaults ("No"/"Yes").
+        if (falseEl && crit.false !== undefined && crit.false !== null) falseEl.value = decisionContentToString(crit.false);
+        if (trueEl && crit.true !== undefined && crit.true !== null) trueEl.value = decisionContentToString(crit.true);
       }
     });
     if (!host.children.length) decisionAddQuestion();
@@ -349,8 +364,58 @@ function decisionApplyJsonToForm() {
   return true;
 }
 
-// ---------- execution ----------
+// True when the decision composer holds something the user would not want to
+// lose on a session reset (images, a state text, or JSON being edited). Question
+// rows always exist with an auto-name, so they are not part of this check.
+function decisionHasContent() {
+  if (decisionImages.length) return true;
+  if (($("decision-state")?.value || "").trim()) return true;
+  if (decisionStateMode === "json" && ($("decision-json-input")?.value || "").trim()) return true;
+  return false;
+}
 
+// Clear the decision composer back to its initial state: Text mode, empty state,
+// a single empty question, no images and no result. Used by the chat session
+// reset so the decision playground resets with the conversation.
+function resetDecisionState() {
+  decisionStateMode = "text";
+  decisionResultMode = "cards";
+  decisionLastResult = null;
+  decisionLastQuestions = {};
+  decisionImages = [];
+  decisionRenderImages();
+
+  const stateEl = $("decision-state");
+  if (stateEl) stateEl.value = "";
+
+  const host = $("decision-questions");
+  if (host) {
+    host.innerHTML = "";
+    decisionAddQuestion();
+  }
+
+  const jsonEl = $("decision-json-input");
+  if (jsonEl) jsonEl.value = "";
+
+  const panel = $("chat-decision-panel");
+  if (panel) {
+    panel.classList.remove("decision-json-mode");
+    panel.querySelectorAll(".decision-mode-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.mode === "text");
+    });
+  }
+
+  const resultHost = $("decision-result");
+  if (resultHost) {
+    resultHost.hidden = true;
+    resultHost.innerHTML = "";
+  }
+
+  const status = $("decision-status");
+  if (status) status.textContent = "";
+}
+
+// ---------- execution ----------
 async function decisionPost(payload) {
   const res = await fetch("/api/decision", {
     method: "POST",

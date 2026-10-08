@@ -135,6 +135,44 @@ func TestCreateDuplicateNamesGetUniqueFiles(t *testing.T) {
 	}
 }
 
+func TestReplaceKeepsFilenameAndID(t *testing.T) {
+	dir := t.TempDir()
+	meta, filename, err := Create(context.Background(), dir, testMeta(), testEntries(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedMeta := meta
+	updatedMeta.Name = "Renamed Base"
+	updatedMeta.Description = "updated"
+	got, err := Replace(context.Background(), dir, filename, updatedMeta, []Entry{
+		{Term: "new", Content: "updated", InputMode: "combined", Embedding: []float64{1, 2, 3}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != meta.ID || got.CreatedAt != meta.CreatedAt {
+		t.Fatalf("replace changed identity: %+v", got)
+	}
+	fis, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range fis {
+		names = append(names, f.Name())
+	}
+	if len(names) != 1 || names[0] != filename {
+		t.Fatalf("replace files = %v, want only %q", names, filename)
+	}
+	d, err := Get(dir, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Meta.Name != "Renamed Base" || len(d.Entries) != 1 || d.Entries[0].Term != "new" {
+		t.Fatalf("updated detail = %+v", d)
+	}
+}
+
 func TestCreateRejectsBadVectors(t *testing.T) {
 	dir := t.TempDir()
 	bad := []Entry{{Term: "t", Content: "c", Embedding: []float64{0.1, math.NaN(), 0.3}}}

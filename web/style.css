@@ -16213,6 +16213,11 @@ div.rag-entry-content {
   color: var(--text);
   word-break: break-all;
 }
+.rag-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .rag-detail-meta {
   margin-bottom: 12px;
   line-height: 1.6;

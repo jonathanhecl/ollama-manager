@@ -14,6 +14,9 @@ const ragState = {
   modelsError: "",
   modelsGen: 0,
   settingsGen: 0,
+  defaultEmbedding: "",
+  editingFilename: "",
+  createPreferredModel: "",
   settingsLoading: false,
   settingsDirty: false,
   settingsMissingModel: "",
@@ -64,9 +67,15 @@ function ragSubview() {
   const p = window.location.pathname;
   if (p === "/rags/new") return "create";
   if (p.startsWith("/rags/") && p.length > 6) {
-    return { view: "detail", filename: decodeURIComponent(p.substring(6)) };
+    const rest = decodeURIComponent(p.substring(6));
+    if (rest.endsWith("/edit")) return { view: "edit", filename: rest.slice(0, -5) };
+    return { view: "detail", filename: rest };
   }
   return "list";
+}
+
+function ragIsFormView(sub) {
+  return sub === "create" || (sub && sub.view === "edit");
 }
 
 function ragMediaPending() {
@@ -99,6 +108,7 @@ async function ragLoadModels(source) {
     if (ragState[genKey] !== gen) return null;
     ragState.models = res.models || [];
     ragState.modelsWarnings = res.warnings || [];
+    ragState.defaultEmbedding = res.default_embedding || "";
     ragState.modelsError = "";
     return res;
   } catch (e) {
@@ -145,7 +155,8 @@ async function showRagsView() {
   const detailBox = document.getElementById("rags-detail");
   const listWrap = document.getElementById("rags-list-wrap");
   const headActions = document.querySelector("#rags-view .tests-head-actions");
-  if (createBox) createBox.hidden = sub !== "create";
+  const isForm = ragIsFormView(sub);
+  if (createBox) createBox.hidden = !isForm;
   if (detailBox) detailBox.hidden = !(sub && sub.view === "detail");
   if (listWrap) listWrap.hidden = sub !== "list";
   if (headActions) headActions.style.display = sub === "list" ? "" : "none";
@@ -153,6 +164,8 @@ async function showRagsView() {
     void ragRefreshList();
   } else if (sub === "create") {
     ragStartCreate();
+  } else if (sub && sub.view === "edit") {
+    void ragStartEdit(sub.filename);
   } else if (sub && sub.view === "detail") {
     void ragLoadDetail(sub.filename);
   }
@@ -312,32 +325,107 @@ function ragNewEntry() {
   return { key, term: "", content: "", inputMode: "combined", media: {}, mediaPending: false, mediaError: "" };
 }
 
+function ragConfiguredDefault() {
+  return (currentConfig && currentConfig.rag && currentConfig.rag.default_embedding) || ragState.defaultEmbedding || "";
+}
+
+function ragGoToRequiredSettings() {
+  history.pushState(null, "", "/settings/rag");
+  void showSettingsView();
+}
+
+async function ragEnsureDefaultModel() {
+  const res = await ragLoadModels();
+  if (!res) return;
+  if (!ragState.editingFilename && !ragState.defaultEmbedding) {
+    toast(t("rag.default_required"), "error");
+    ragGoToRequiredSettings();
+    return;
+  }
+  if (!ragState.createPreferredModel) {
+    ragState.createPreferredModel = ragState.editingFilename ? "" : ragState.defaultEmbedding;
+  }
+  ragRebuildModelSelect();
+  ragRenderEntries();
+}
+
 function ragStartCreate() {
+  const wasEditing = !!ragState.editingFilename;
+  ragState.editingFilename = "";
+  ragState.createPreferredModel = ragConfiguredDefault();
+  if (wasEditing) ragState.entries = [];
   if (!ragState.entries.length) ragState.entries = [ragNewEntry()];
   if (!ragState.entries.some((e) => e.key === ragState.activeEntry)) {
     ragState.activeEntry = ragState.entries[0].key;
   }
-  const sel = document.getElementById("rag-new-model");
-  const def = (currentConfig && currentConfig.rag && currentConfig.rag.default_embedding) || "";
-  if (sel && !sel.value && def) {
-    const o = ragEl("option", "", def);
-    o.value = def;
-    sel.appendChild(o);
-    sel.value = def;
-  }
-  void ragLoadModels().then(() => ragRebuildModelSelect());
   ragRebuildModelSelect();
   ragRenderEntries();
+  const btn = document.getElementById("rag-create-btn");
+  if (btn) btn.textContent = t("rag.create_btn");
+  void ragEnsureDefaultModel();
+}
+
+async function ragStartEdit(filename) {
+  const btn = document.getElementById("rag-create-btn");
+  if (btn) btn.textContent = t("rag.save_btn");
+  ragState.editingFilename = filename;
+  ragState.createPreferredModel = "";
+  ragState.entries = [];
+  ragState.activeEntry = 0;
+  ragSetCreateError(t("rag.loading"));
+  ragSetCreateDisabled(true);
+  try {
+    const detail = await api("/api/rags/" + encodeURIComponent(filename));
+    const nameIn = document.getElementById("rag-new-name");
+    const descIn = document.getElementById("rag-new-desc");
+    if (nameIn) nameIn.value = detail.meta && detail.meta.name || "";
+    if (descIn) descIn.value = detail.meta && detail.meta.description || "";
+    ragState.createPreferredModel = detail.meta && detail.meta.embedding_model || "";
+    ragState.entries = (detail.entries || []).map((e) => {
+      const entry = {
+        key: ++ragState.entrySeq,
+        term: e.term || "",
+        content: e.content || "",
+        inputMode: e.input_mode || "combined",
+        media: {},
+        mediaPending: false,
+        mediaError: "",
+      };
+      for (const m of e.media || []) {
+        entry.media[m.type] = {
+          type: m.type,
+          name: m.name || m.type,
+          mime: m.mime || "",
+          size: m.size || 0,
+          existing: true,
+          entryID: e.id,
+        };
+      }
+      return entry;
+    });
+    ragState.activeEntry = ragState.entries[0] ? ragState.entries[0].key : 0;
+    ragSetCreateError("");
+    await ragLoadModels();
+    ragRebuildModelSelect();
+    ragRenderEntries();
+  } catch (e) {
+    ragSetCreateError(String(e && e.message ? e.message : e));
+  } finally {
+    ragSetCreateDisabled(false);
+  }
 }
 
 function ragRebuildModelSelect() {
   const sel = document.getElementById("rag-new-model");
   if (!sel) return;
-  const wanted = sel.value;
+  const wanted = ragState.createPreferredModel || sel.value || ragState.defaultEmbedding;
   sel.innerHTML = "";
-  const none = ragEl("option", "", ragState.modelsLoading ? t("rag.loading_models") : t("rag.no_default"));
-  none.value = "";
-  sel.appendChild(none);
+  if (ragState.modelsLoading && !ragState.models.length) {
+    const loading = ragEl("option", "", t("rag.loading_models"));
+    loading.value = "";
+    loading.disabled = true;
+    sel.appendChild(loading);
+  }
   for (const m of ragState.models) {
     const o = ragEl("option", "", m.name);
     o.value = m.name;
@@ -348,7 +436,8 @@ function ragRebuildModelSelect() {
     o.value = wanted;
     sel.appendChild(o);
   }
-  sel.value = wanted;
+  if (wanted) sel.value = wanted;
+  else if (ragState.models.length) sel.value = ragState.models[0].name;
   const hint = document.getElementById("rag-new-model-hint");
   if (hint) {
     hint.innerHTML = "";
@@ -359,8 +448,9 @@ function ragRebuildModelSelect() {
     if (!ragState.modelsLoading && !ragState.modelsError && !ragState.models.length) {
       hint.appendChild(ragEl("div", "form-hint", t("rag.no_embedding_models")));
     }
-    const def = (currentConfig && currentConfig.rag && currentConfig.rag.default_embedding) || "";
-    if (def) hint.appendChild(ragEl("div", "form-hint", t("rag.default_model_hint", { model: def })));
+    if (!ragState.editingFilename && ragState.defaultEmbedding) {
+      hint.appendChild(ragEl("div", "form-hint", t("rag.default_model_hint", { model: ragState.defaultEmbedding })));
+    }
   }
 }
 
@@ -391,7 +481,14 @@ function ragSetActiveEntry(key) {
 }
 
 function ragMediaDataURL(media) {
-  return "data:" + (media.mime || "application/octet-stream") + ";base64," + media.base64;
+  if (media.base64) {
+    return "data:" + (media.mime || "application/octet-stream") + ";base64," + media.base64;
+  }
+  if (media.existing && media.entryID && ragState.editingFilename) {
+    return "/api/rags/" + encodeURIComponent(ragState.editingFilename) +
+      "/media/" + encodeURIComponent(String(media.entryID)) + "/" + encodeURIComponent(media.type);
+  }
+  return "";
 }
 
 function ragShowMediaPreview(media, mediaType, src) {
@@ -711,7 +808,13 @@ async function ragSubmitCreate() {
       term: e.term,
       content: e.content,
       input_mode: e.inputMode,
-      media: ragEntryMediaList(e).map((m) => ({
+      media: ragEntryMediaList(e).map((m) => (m.existing ? {
+        type: m.type,
+        name: m.name,
+        mime: m.mime,
+        existing: true,
+        entry_id: m.entryID,
+      } : {
         type: m.type,
         name: m.name,
         mime: m.mime,
@@ -722,30 +825,34 @@ async function ragSubmitCreate() {
   ragState.creating = true;
   ragSetCreateDisabled(true);
   const btn = document.getElementById("rag-create-btn");
-  if (btn) btn.textContent = t("rag.generating");
+  const editing = ragState.editingFilename;
+  if (btn) btn.textContent = editing ? t("rag.saving") : t("rag.generating");
   try {
-    await api("/api/rags", {
-      method: "POST",
+    const res = await api(editing ? "/api/rags/" + encodeURIComponent(editing) : "/api/rags", {
+      method: editing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     ragState.entries = [];
     ragState.activeEntry = 0;
+    ragState.editingFilename = "";
+    ragState.createPreferredModel = "";
     const nameIn = document.getElementById("rag-new-name");
     const descIn = document.getElementById("rag-new-desc");
     if (nameIn) nameIn.value = "";
     if (descIn) descIn.value = "";
-    toast(t("rag.created", { name }), "success");
+    toast(t(editing ? "rag.updated" : "rag.created", { name }), "success");
     ragState.creating = false;
     if (btn) btn.textContent = t("rag.create_btn");
-    ragNav("/rags");
+    const filename = res && res.rag && res.rag.filename;
+    ragNav(editing && filename ? "/rags/" + encodeURIComponent(filename) : "/rags");
     return;
   } catch (e) {
     ragSetCreateError(String(e && e.message ? e.message : e));
   } finally {
     ragState.creating = false;
-    if (btn) btn.textContent = t("rag.create_btn");
-    if (ragSubview() === "create") ragSetCreateDisabled(ragMediaPending());
+    if (btn) btn.textContent = editing ? t("rag.save_btn") : t("rag.create_btn");
+    if (ragIsFormView(ragSubview())) ragSetCreateDisabled(ragMediaPending());
   }
 }
 
@@ -753,7 +860,7 @@ function ragSettingsPayload() {
   const body = {};
   if (!ragState.settingsLoading) {
     const sel = document.getElementById("set-rag-embedding");
-    if (sel) body.default_embedding = sel.value;
+    if (sel && sel.value) body.default_embedding = sel.value;
   }
   const dir = document.getElementById("set-rag-dir");
   if (dir) body.directory = dir.value.trim();
@@ -766,6 +873,7 @@ function applyRagConfigResponse(res) {
     if (hint) hint.textContent = res.rag_directory;
   }
   if (res && res.rag && typeof res.rag.default_embedding === "string") {
+    ragState.defaultEmbedding = res.rag.default_embedding;
     ragState.settingsMissingModel = "";
     ragState.settingsDirty = false;
   }
@@ -785,13 +893,15 @@ function ragSettingsInit() {
     ragState.settingsDirty = true;
   };
   sel.innerHTML = "";
-  const none = ragEl("option", "", t("rag.loading_models"));
-  none.value = "";
-  sel.appendChild(none);
   if (saved) {
     const o = ragEl("option", "", saved);
     o.value = saved;
     sel.appendChild(o);
+  } else {
+    const loading = ragEl("option", "", t("rag.loading_models"));
+    loading.value = "";
+    loading.disabled = true;
+    sel.appendChild(loading);
   }
   sel.value = saved;
 
@@ -801,21 +911,25 @@ function ragSettingsInit() {
     ragState.settingsLoading = false;
     const current = sel.value;
     sel.innerHTML = "";
-    const none2 = ragEl("option", "", t("rag.no_default"));
-    none2.value = "";
-    sel.appendChild(none2);
     for (const m of ragState.models) {
       const o = ragEl("option", "", m.name);
       o.value = m.name;
       sel.appendChild(o);
     }
-    const wanted = ragState.settingsDirty ? current : ((currentConfig.rag && currentConfig.rag.default_embedding) || "");
+    let wanted = ragState.settingsDirty ? current : ((currentConfig.rag && currentConfig.rag.default_embedding) || "");
+    if (!wanted && ragState.models.length) wanted = ragState.models[0].name;
     ragState.settingsMissingModel = "";
     if (wanted && !ragState.models.some((m) => m.name === wanted)) {
       ragState.settingsMissingModel = wanted;
       const o = ragEl("option", "", wanted + " (" + t("rag.model_missing") + ")");
       o.value = wanted;
       sel.appendChild(o);
+    }
+    if (!wanted && !ragState.models.length) {
+      const empty = ragEl("option", "", t("rag.no_embedding_models"));
+      empty.value = "";
+      empty.disabled = true;
+      sel.appendChild(empty);
     }
     sel.value = wanted;
     const warn = document.getElementById("set-rag-embedding-warn");
@@ -826,6 +940,9 @@ function ragSettingsInit() {
         warn.appendChild(ragEl("div", "", t("rag.models_load_failed") + ": " + ragState.modelsError));
       }
       for (const w of ragState.modelsWarnings) warn.appendChild(ragEl("div", "", String(w)));
+      if (!ragState.modelsError && !ragState.models.length) {
+        warn.appendChild(ragEl("div", "", t("rag.no_embedding_models")));
+      }
       if (ragState.settingsMissingModel) {
         warn.appendChild(ragEl("div", "", t("settings.rag_embedding_missing", { model: ragState.settingsMissingModel })));
       }
@@ -844,8 +961,11 @@ document.getElementById("rags-reload-btn")?.addEventListener("click", () => void
 document.getElementById("rags-new-btn")?.addEventListener("click", () => ragNav("/rags/new"));
 document.getElementById("rag-create-cancel-btn")?.addEventListener("click", () => {
   if (ragBusy()) return;
+  const editing = ragState.editingFilename;
   ragState.entries = [];
   ragState.activeEntry = 0;
+  ragState.editingFilename = "";
+  ragState.createPreferredModel = "";
   ragSetCreateError("");
   const nameIn = document.getElementById("rag-new-name");
   const descIn = document.getElementById("rag-new-desc");
@@ -853,7 +973,7 @@ document.getElementById("rag-create-cancel-btn")?.addEventListener("click", () =
   if (nameIn) nameIn.value = "";
   if (descIn) descIn.value = "";
   if (modelSel) modelSel.value = "";
-  ragNav("/rags");
+  ragNav(editing ? "/rags/" + encodeURIComponent(editing) : "/rags");
 });
 document.getElementById("rag-add-entry-btn")?.addEventListener("click", () => {
   if (ragBusy()) return;
@@ -873,8 +993,14 @@ document.getElementById("rag-entry-list")?.addEventListener("keydown", (ev) => {
     document.querySelector(`.rag-entry-nav[data-entry-key="${next.key}"]`)?.focus();
   });
 });
+document.getElementById("rag-detail-edit-btn")?.addEventListener("click", () => {
+  if (ragState.detailFilename) ragNav("/rags/" + encodeURIComponent(ragState.detailFilename) + "/edit");
+});
 document.getElementById("rag-detail-back-btn")?.addEventListener("click", () => ragNav("/rags"));
-document.getElementById("rag-new-model")?.addEventListener("change", () => ragRenderEntries());
+document.getElementById("rag-new-model")?.addEventListener("change", (ev) => {
+  ragState.createPreferredModel = ev.target.value;
+  ragRenderEntries();
+});
 document.getElementById("rag-media-modal-close")?.addEventListener("click", ragCloseMediaPreview);
 document.getElementById("rag-media-modal")?.addEventListener("click", (ev) => {
   if (ev.target && ev.target.id === "rag-media-modal") ragCloseMediaPreview();

@@ -417,6 +417,60 @@ func TestRAGCreateMedia(t *testing.T) {
 	}
 }
 
+func TestRAGUpdateKeepsFileAndExistingMedia(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+
+	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0x49, 0x48, 0x44, 0x52}
+	b64 := base64.StdEncoding.EncodeToString(png)
+	code, out := ragCall(t, srv, http.MethodPost, "/api/rags", map[string]any{
+		"name": "Pics", "embedding_model": "embed-vision:latest",
+		"entries": []any{map[string]any{
+			"term": "logo", "content": "old", "media": []any{
+				map[string]any{"type": "image", "name": "logo.png", "base64": b64},
+			},
+		}},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %v", code, out)
+	}
+	filename := out["rag"].(map[string]any)["filename"].(string)
+	_, det := ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	entryID := int64(det["entries"].([]any)[0].(map[string]any)["id"].(float64))
+
+	code, out = ragCall(t, srv, http.MethodPut, "/api/rags/"+filename, map[string]any{
+		"name": "Pics renamed", "embedding_model": "embed-vision:latest",
+		"entries": []any{map[string]any{
+			"term": "logo2", "content": "updated", "media": []any{
+				map[string]any{"type": "image", "entry_id": entryID, "existing": true},
+			},
+		}},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("update status = %d, body = %v", code, out)
+	}
+	if out["rag"].(map[string]any)["filename"] != filename {
+		t.Fatalf("update changed filename: %v", out["rag"])
+	}
+	if files := countDBFiles(t, ragDirOf(t, srv)); len(files) != 1 || files[0] != filename {
+		t.Fatalf("update files = %v", files)
+	}
+	_, det = ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	entry := det["entries"].([]any)[0].(map[string]any)
+	if entry["term"] != "logo2" || len(entry["media"].([]any)) != 1 {
+		t.Fatalf("updated entry = %v", entry)
+	}
+	embeds := fake.recordedEmbeds()
+	if len(embeds) != 2 {
+		t.Fatalf("embed calls = %d", len(embeds))
+	}
+	item := embeds[1]["input"].([]any)[0].(map[string]any)
+	if item["image"] != b64 || item["text"] != "logo2\n\nupdated" {
+		t.Fatalf("updated embed input = %v", item)
+	}
+}
+
 func TestRAGCreateMediaOnlyWithImageAndAudio(t *testing.T) {
 	fake := newFakeOllamaRAG()
 	defer fake.Close()
@@ -731,6 +785,7 @@ func TestRAGRoutesRequireAuth(t *testing.T) {
 		{http.MethodGet, "/api/rags/models"},
 		{http.MethodGet, "/api/rags/x.db"},
 		{http.MethodGet, "/api/rags/x.db/media/1/image"},
+		{http.MethodPut, "/api/rags/x.db"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		rr := httptest.NewRecorder()

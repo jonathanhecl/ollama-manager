@@ -252,7 +252,7 @@ func validate(db *sql.DB, m Meta, version int) error {
 	return nil
 }
 
-func Create(ctx context.Context, dir string, meta Meta, entries []Entry) (Meta, string, error) {
+func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Meta, string, error) {
 	if len(entries) == 0 {
 		return Meta{}, "", errors.New("a base needs at least one entry")
 	}
@@ -397,7 +397,18 @@ func Create(ctx context.Context, dir string, meta Meta, entries []Entry) (Meta, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
+	return meta, tmp, nil
+}
 
+func Create(ctx context.Context, dir string, meta Meta, entries []Entry) (Meta, string, error) {
+	meta, tmp, err := createTemp(ctx, dir, meta, entries)
+	if err != nil {
+		return Meta{}, "", err
+	}
+	fail := func(err error) (Meta, string, error) {
+		_ = os.Remove(tmp)
+		return Meta{}, "", err
+	}
 	base := sanitizeFileName(meta.Name)
 	for attempt := 0; attempt < 8; attempt++ {
 		suffix, err := randHex(6)
@@ -418,6 +429,39 @@ func Create(ctx context.Context, dir string, meta Meta, entries []Entry) (Meta, 
 		}
 	}
 	return fail(errors.New("could not allocate a unique base file name"))
+}
+
+func Replace(ctx context.Context, dir, filename string, meta Meta, entries []Entry) (Meta, error) {
+	if !ValidFilename(filename) {
+		return Meta{}, errors.New("invalid base name")
+	}
+	target := filepath.Join(dir, filename)
+	st, err := os.Lstat(target)
+	if err != nil || !st.Mode().IsRegular() {
+		return Meta{}, os.ErrNotExist
+	}
+	meta, tmp, err := createTemp(ctx, dir, meta, entries)
+	if err != nil {
+		return Meta{}, err
+	}
+	cleanup := func(err error) (Meta, error) {
+		_ = os.Remove(tmp)
+		return Meta{}, err
+	}
+	suffix, err := randHex(6)
+	if err != nil {
+		return cleanup(err)
+	}
+	backup := target + ".bak-" + suffix
+	if err := os.Rename(target, backup); err != nil {
+		return cleanup(err)
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		_ = os.Rename(backup, target)
+		return cleanup(err)
+	}
+	_ = os.Remove(backup)
+	return meta, nil
 }
 
 func ValidFilename(name string) bool {

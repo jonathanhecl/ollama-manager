@@ -34,10 +34,12 @@ const (
 )
 
 type ragMediaBody struct {
-	Type   string `json:"type"`
-	Name   string `json:"name"`
-	MIME   string `json:"mime"`
-	Base64 string `json:"base64"`
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	MIME     string `json:"mime"`
+	Base64   string `json:"base64"`
+	Existing bool   `json:"existing"`
+	EntryID  int64  `json:"entry_id"`
 }
 
 type ragEntryBody struct {
@@ -246,6 +248,14 @@ func (s *Server) handleRAGModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
+	s.handleSaveRAG(w, r, "")
+}
+
+func (s *Server) handleUpdateRAG(w http.ResponseWriter, r *http.Request) {
+	s.handleSaveRAG(w, r, r.PathValue("id"))
+}
+
+func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFilename string) {
 	r.Body = http.MaxBytesReader(w, r.Body, ragMaxBody)
 	var body ragCreateBody
 	dec := json.NewDecoder(r.Body)
@@ -264,6 +274,24 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dir, defaultModel := s.ragConfigSnapshot()
+	var existing *rag.Detail
+	if updateFilename != "" {
+		if !rag.ValidFilename(updateFilename) {
+			writeError(w, http.StatusBadRequest, errors.New("invalid base name"))
+			return
+		}
+		var err error
+		existing, err = rag.Get(dir, updateFilename)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				writeError(w, http.StatusNotFound, errors.New("rag base not found"))
+				return
+			}
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		defaultModel = existing.Meta.EmbeddingModel
+	}
 
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
@@ -398,8 +426,12 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			seenMedia[mediaType] = true
-			if mediaB64 == "" {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %s entries require base64 media", i+1, mediaType))
+			if m.Existing && mediaB64 != "" {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: existing %s media must not include base64", i+1, mediaType))
+				return
+			}
+			if m.EntryID != 0 && !m.Existing {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media entry_id requires existing=true", i+1))
 				return
 			}
 			needCap := "vision"
@@ -410,10 +442,37 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: model %q lacks the %s capability for %s media", i+1, installed.Name, needCap, mediaType))
 				return
 			}
-			raw, err := base64.StdEncoding.DecodeString(mediaB64)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: invalid %s base64: %v", i+1, mediaType, err))
-				return
+
+			var raw []byte
+			if m.Existing {
+				if updateFilename == "" || m.EntryID <= 0 {
+					writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: existing %s media requires a valid entry_id", i+1, mediaType))
+					return
+				}
+				stored, err := rag.MediaAt(dir, updateFilename, m.EntryID, mediaType)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: could not read existing %s media", i+1, mediaType))
+					return
+				}
+				raw = stored.Data
+				if mediaName == "" {
+					mediaName = stored.Name
+				}
+				if declaredMime == "" {
+					declaredMime = stored.MIME
+				}
+				mediaB64 = base64.StdEncoding.EncodeToString(raw)
+			} else {
+				if mediaB64 == "" {
+					writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %s entries require base64 media", i+1, mediaType))
+					return
+				}
+				var err error
+				raw, err = base64.StdEncoding.DecodeString(mediaB64)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: invalid %s base64: %v", i+1, mediaType, err))
+					return
+				}
 			}
 			if len(raw) == 0 {
 				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %s media is empty", i+1, mediaType))
@@ -517,13 +576,26 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, filename, err := rag.Create(ctx, dir, rag.Meta{
+	metaIn := rag.Meta{
 		Name:            name,
 		Description:     desc,
 		EmbeddingModel:  installed.Name,
 		EmbeddingDigest: installed.Digest,
 		Dimensions:      dims,
-	}, storeEntries)
+	}
+	var meta rag.Meta
+	var filename string
+	var status int
+	if existing != nil {
+		metaIn.ID = existing.Meta.ID
+		metaIn.CreatedAt = existing.Meta.CreatedAt
+		meta, err = rag.Replace(ctx, dir, updateFilename, metaIn, storeEntries)
+		filename = updateFilename
+		status = http.StatusOK
+	} else {
+		meta, filename, err = rag.Create(ctx, dir, metaIn, storeEntries)
+		status = http.StatusCreated
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			writeError(w, http.StatusGatewayTimeout, errors.New("embedding timed out or was cancelled"))
@@ -532,7 +604,7 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("could not write rag base: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	writeJSON(w, status, map[string]any{
 		"ok": true,
 		"rag": map[string]any{
 			"filename":         filename,

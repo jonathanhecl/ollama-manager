@@ -341,6 +341,11 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/jobs/{id}/promote", s.requireAuth(s.handleJobPromote))
 	mux.Handle("DELETE /api/jobs/{id}", s.requireAuth(s.handleJobRemove))
 
+	mux.Handle("GET /api/rags", s.requireAuth(s.handleListRAGs))
+	mux.Handle("POST /api/rags", s.requireAuth(s.handleCreateRAG))
+	mux.Handle("GET /api/rags/models", s.requireAuth(s.handleRAGModels))
+	mux.Handle("GET /api/rags/{id}", s.requireAuth(s.handleGetRAG))
+
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))
 	mux.Handle("POST /api/config/password", s.requireAuth(s.handleSetPassword))

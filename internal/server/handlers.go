@@ -67,7 +67,9 @@ func isSPAClientPath(path string) bool {
 		path == "/hf" ||
 		strings.HasPrefix(path, "/hf/") ||
 		path == "/huggingface" ||
-		strings.HasPrefix(path, "/huggingface/")
+		strings.HasPrefix(path, "/huggingface/") ||
+		path == "/rags" ||
+		strings.HasPrefix(path, "/rags/")
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -358,6 +360,8 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
 		"comfyui":                 s.cfg.ComfyUI,
+		"rag":                     s.cfg.RAG,
+		"rag_directory":           s.cfg.RAGDirectory(),
 		"version":                 s.versionInfo,
 	})
 }
@@ -386,6 +390,12 @@ type patchConfigBody struct {
 	Testing               *config.TestingLimits  `json:"testing"`
 	Gateway               *patchGatewayBody      `json:"gateway"`
 	ComfyUI               *config.ComfyUIConfig  `json:"comfyui"`
+	RAG                   *patchRAGBody          `json:"rag"`
+}
+
+type patchRAGBody struct {
+	DefaultEmbedding *string `json:"default_embedding"`
+	Directory        *string `json:"directory"`
 }
 
 // patchChatSessionsBody is the PATCH /api/config payload for the persistent
@@ -589,8 +599,25 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 	if body.ComfyUI != nil {
 		s.cfg.ComfyUI = body.ComfyUI.Normalize()
 	}
+	var oldRAG config.RAGConfig
+	ragTouched := false
+	if body.RAG != nil {
+		oldRAG = s.cfg.RAG
+		ragTouched = true
+		newRAG := s.cfg.RAG
+		if body.RAG.DefaultEmbedding != nil {
+			newRAG.DefaultEmbedding = strings.TrimSpace(*body.RAG.DefaultEmbedding)
+		}
+		if body.RAG.Directory != nil {
+			newRAG.Directory = strings.TrimSpace(*body.RAG.Directory)
+		}
+		s.cfg.RAG = newRAG
+	}
 
 	if err := s.cfg.Save(); err != nil {
+		if ragTouched {
+			s.cfg.RAG = oldRAG
+		}
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -611,6 +638,8 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"testing":                 s.cfg.Testing,
 		"gateway":                 s.cfg.Gateway,
 		"comfyui":                 s.cfg.ComfyUI,
+		"rag":                     s.cfg.RAG,
+		"rag_directory":           s.cfg.RAGDirectory(),
 	})
 }
 

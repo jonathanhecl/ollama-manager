@@ -1,0 +1,397 @@
+package rag
+
+import (
+	"context"
+	"database/sql"
+	"encoding/binary"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	_ "modernc.org/sqlite"
+)
+
+func testMeta() Meta {
+	return Meta{Name: "Base", EmbeddingModel: "nomic-embed-text:latest", EmbeddingDigest: "sha256:abc", Dimensions: 3}
+}
+
+func testEntries(n int) []Entry {
+	out := make([]Entry, n)
+	for i := range out {
+		out[i] = Entry{Term: "term", Content: "content", MediaType: "text",
+			Embedding: []float64{0.1, 0.2, 0.3}}
+	}
+	return out
+}
+
+func TestCreateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	meta := testMeta()
+	meta.Name = "My Base"
+	meta.Description = "d"
+	got, filename, err := Create(context.Background(), dir, meta, testEntries(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "My Base" || got.EmbeddingProvider != EmbeddingProvider ||
+		got.InputFormat != InputFormat || got.ID == "" || got.CreatedAt == 0 {
+		t.Fatalf("unexpected meta: %+v", got)
+	}
+	fis, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fis) != 1 || fis[0].Name() != filename {
+		names := []string{}
+		for _, f := range fis {
+			names = append(names, f.Name())
+		}
+		t.Fatalf("dir contents = %v, want only %q", names, filename)
+	}
+	head, err := os.ReadFile(filepath.Join(dir, filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(head[:16]) != "SQLite format 3\x00" {
+		t.Fatalf("bad header %q", head[:16])
+	}
+
+	d, err := Get(dir, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Meta.Dimensions != 3 || d.Meta.EmbeddingModel != "nomic-embed-text:latest" ||
+		d.Meta.EmbeddingDigest != "sha256:abc" {
+		t.Fatalf("unexpected detail meta: %+v", d.Meta)
+	}
+	if len(d.Entries) != 3 || d.Entries[0].Term != "term" || d.Entries[0].MediaType != "text" {
+		t.Fatalf("unexpected entries: %+v", d.Entries)
+	}
+	infos, warnings, err := List(dir)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("List err=%v warnings=%v", err, warnings)
+	}
+	if len(infos) != 1 || infos[0].Entries != 3 || infos[0].Dimensions != 3 {
+		t.Fatalf("unexpected info: %+v", infos)
+	}
+}
+
+func TestVectorBytesExactRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	vec := []float64{0.1, -2.5, math.MaxFloat64, math.SmallestNonzeroFloat64}
+	m := testMeta()
+	m.Dimensions = 4
+	_, filename, err := Create(context.Background(), dir, m,
+		[]Entry{{Term: "t", Content: "c", Embedding: vec}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", fileURI(filepath.Join(dir, filename), "ro"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var blob []byte
+	if err := db.QueryRow(`SELECT embedding FROM entries`).Scan(&blob); err != nil {
+		t.Fatal(err)
+	}
+	want := packVector(vec)
+	if len(blob) != len(want) {
+		t.Fatalf("blob len = %d", len(blob))
+	}
+	for i := range blob {
+		if blob[i] != want[i] {
+			t.Fatalf("byte %d: got %x want %x", i, blob[i], want[i])
+		}
+	}
+	for i := range vec {
+		got := math.Float64frombits(binary.LittleEndian.Uint64(blob[i*8:]))
+		if got != vec[i] {
+			t.Fatalf("vec[%d] = %v want %v", i, got, vec[i])
+		}
+	}
+}
+
+func TestCreateDuplicateNamesGetUniqueFiles(t *testing.T) {
+	dir := t.TempDir()
+	_, f1, err := Create(context.Background(), dir, testMeta(), testEntries(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2 := testMeta()
+	_, f2, err := Create(context.Background(), dir, m2, testEntries(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f1 == f2 {
+		t.Fatalf("duplicate filename %q", f1)
+	}
+	infos, _, err := List(dir)
+	if err != nil || len(infos) != 2 {
+		t.Fatalf("List = %v, %v", infos, err)
+	}
+}
+
+func TestCreateRejectsBadVectors(t *testing.T) {
+	dir := t.TempDir()
+	bad := []Entry{{Term: "t", Content: "c", Embedding: []float64{0.1, math.NaN(), 0.3}}}
+	cases := []struct {
+		name    string
+		dims    int
+		entries []Entry
+	}{
+		{"no entries", 3, nil},
+		{"wrong dims", 4, testEntries(1)},
+		{"nonfinite", 3, bad},
+		{"inconsistent", 3, []Entry{
+			{Term: "t", Content: "c", Embedding: []float64{1, 2, 3}},
+			{Term: "t", Content: "c", Embedding: []float64{1, 2}},
+		}},
+		{"huge dims", 70000, testEntries(1)},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			m := testMeta()
+			m.Dimensions = tt.dims
+			_, _, err := Create(context.Background(), dir, m, tt.entries)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			fis, _ := os.ReadDir(dir)
+			if len(fis) != 0 {
+				names := []string{}
+				for _, f := range fis {
+					names = append(names, f.Name())
+				}
+				t.Fatalf("failure left files %v", names)
+			}
+		})
+	}
+}
+
+func TestCreateCancelledPublishesNothing(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := Create(ctx, dir, testMeta(), testEntries(1))
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	fis, _ := os.ReadDir(dir)
+	if len(fis) != 0 {
+		t.Fatalf("cancelled create left %d files", len(fis))
+	}
+	infos, warnings, err := List(dir)
+	if err != nil || len(infos) != 0 || len(warnings) != 0 {
+		t.Fatalf("List after cancel = %v warnings=%v err=%v", infos, warnings, err)
+	}
+}
+
+func TestCreateInSpecialDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "weird ?#ü dir")
+	m := testMeta()
+	m.Name = "Unicode Ünïcode"
+	_, filename, err := Create(context.Background(), dir, m, testEntries(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Get(dir, filename); err != nil {
+		t.Fatalf("Get in special dir: %v", err)
+	}
+	infos, warnings, err := List(dir)
+	if err != nil || len(warnings) != 0 || len(infos) != 1 {
+		t.Fatalf("List = %v warnings=%v err=%v", infos, warnings, err)
+	}
+}
+
+func TestListSeesCopiedDB(t *testing.T) {
+	src := t.TempDir()
+	m := testMeta()
+	m.Name = "Copied"
+	_, filename, err := Create(context.Background(), src, m, testEntries(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	data, err := os.ReadFile(filepath.Join(src, filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "hand-copied.db"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	infos, warnings, err := List(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(infos) != 1 || infos[0].Filename != "hand-copied.db" || infos[0].Name != "Copied" {
+		t.Fatalf("List = %+v warnings=%v", infos, warnings)
+	}
+}
+
+func TestListCorruptAndUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "junk.db"), []byte("not sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrongVer := filepath.Join(dir, "v2.db")
+	db, err := sql.Open("sqlite", fileURI(wrongVer, "rwc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE metadata (key INTEGER PRIMARY KEY, schema_version INTEGER,
+		id TEXT, name TEXT, description TEXT, created_at INTEGER, embedding_provider TEXT,
+		embedding_model TEXT, embedding_digest TEXT, dimensions INTEGER, input_format TEXT);
+		INSERT INTO metadata VALUES (1, 99, 'x', 'n', '', 0, 'ollama', 'm', 'd', 3, 'fmt');
+		CREATE TABLE entries (id INTEGER PRIMARY KEY, term TEXT, content TEXT, media_type TEXT,
+		media_name TEXT, media_mime TEXT, media BLOB, embedding BLOB);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	realDir := t.TempDir()
+	rm := testMeta()
+	rm.Name = "Real"
+	_, realFile, err := Create(context.Background(), realDir, rm, testEntries(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "linked.db")
+	if err := os.Symlink(filepath.Join(realDir, realFile), link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".tmp-leftover.db"), []byte("not sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	infos, warnings, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("expected no valid bases, got %+v", infos)
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %v, want 2 (corrupt + version)", warnings)
+	}
+	for _, w := range warnings {
+		if strings.Contains(w, "linked.db") || strings.Contains(w, ".tmp-") || strings.Contains(w, "notes.txt") {
+			t.Fatalf("unexpected warning for skipped file: %s", w)
+		}
+	}
+}
+
+func TestListBadMetadata(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(name, provider, model, digest, inFmt string, dims int) string {
+		p := filepath.Join(dir, name)
+		db, err := sql.Open("sqlite", fileURI(p, "rwc"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`CREATE TABLE metadata (key INTEGER PRIMARY KEY, schema_version INTEGER,
+			id TEXT, name TEXT, description TEXT, created_at INTEGER, embedding_provider TEXT,
+			embedding_model TEXT, embedding_digest TEXT, dimensions INTEGER, input_format TEXT);
+			CREATE TABLE entries (id INTEGER PRIMARY KEY, term TEXT, content TEXT, media_type TEXT,
+			media_name TEXT, media_mime TEXT, media BLOB, embedding BLOB);`); err != nil {
+			t.Fatal(err)
+		}
+		emb := packVector([]float64{1, 2, 3})
+		if _, err := db.Exec(`INSERT INTO metadata VALUES (1, 1, 'id1', 'n', '', 0, ?, ?, ?, ?, ?);
+			INSERT INTO entries (term, content, media_type, media_name, media_mime, embedding)
+			VALUES ('t','c','text','','',?)`, provider, model, digest, dims, inFmt, emb); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return name
+	}
+	mk("bad-provider.db", "openai", "m", "d", InputFormat, 3)
+	mk("bad-format.db", "ollama", "m", "d", "other", 3)
+	mk("no-model.db", "ollama", "", "d", InputFormat, 3)
+	mk("no-digest.db", "ollama", "m", "", InputFormat, 3)
+	mk("no-entries.db", "ollama", "m", "d", InputFormat, 3)
+	if db, err := sql.Open("sqlite", fileURI(filepath.Join(dir, "no-entries.db"), "rw")); err == nil {
+		_, _ = db.Exec(`DELETE FROM entries`)
+		_ = db.Close()
+	}
+	infos, warnings, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 0 || len(warnings) != 5 {
+		t.Fatalf("infos=%v warnings=%v", infos, warnings)
+	}
+}
+
+func TestGetGuardsFilename(t *testing.T) {
+	dir := t.TempDir()
+	_, filename, err := Create(context.Background(), dir, testMeta(), testEntries(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", ".", "..", "../x.db", "a/b.db", `a\b.db`, "x.txt", ".hidden.db", filename + ".x"} {
+		if _, err := Get(dir, bad); err == nil {
+			t.Fatalf("Get(%q) should fail", bad)
+		}
+	}
+	if _, err := Get(dir, "missing.db"); err == nil {
+		t.Fatal("missing db should fail")
+	}
+	target := filepath.Join(dir, filename)
+	link := filepath.Join(dir, "link.db")
+	if err := os.Symlink(target, link); err == nil {
+		if _, err := Get(dir, "link.db"); err == nil {
+			t.Fatal("symlinked db should be rejected")
+		}
+	}
+	if _, err := Get(dir, filename); err != nil {
+		t.Fatalf("Get(%q): %v", filename, err)
+	}
+}
+
+func TestMediaStoredAndListed(t *testing.T) {
+	dir := t.TempDir()
+	payload := []byte{0x89, 0x50, 0x4E, 0x47, 0xAA, 0xBB}
+	entries := []Entry{{
+		Term: "pic", Content: "", MediaType: "image", MediaName: "p.png",
+		MediaMIME: "image/png", Media: payload,
+		Embedding: []float64{1, 2, 3},
+	}}
+	_, filename, err := Create(context.Background(), dir, testMeta(), entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := Get(dir, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Entries[0].MediaType != "image" || d.Entries[0].MediaMIME != "image/png" ||
+		d.Entries[0].MediaSize != int64(len(payload)) || d.Entries[0].MediaName != "p.png" {
+		t.Fatalf("unexpected entry view: %+v", d.Entries[0])
+	}
+	db, err := sql.Open("sqlite", fileURI(filepath.Join(dir, filename), "ro"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var media []byte
+	if err := db.QueryRow(`SELECT media FROM entries`).Scan(&media); err != nil {
+		t.Fatal(err)
+	}
+	if len(media) != len(payload) {
+		t.Fatalf("media len = %d", len(media))
+	}
+	for i := range media {
+		if media[i] != payload[i] {
+			t.Fatalf("media byte %d mismatch", i)
+		}
+	}
+}

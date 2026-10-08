@@ -2744,6 +2744,7 @@ async function handleRouting() {
         else if (path === "/settings/external") showSettingsSection("sec-ext-models", false);
         else if (path === "/settings/archived") showSettingsSection("sec-archived", false);
         else if (path === "/settings/gateway") showSettingsSection("sec-gateway", false);
+        else if (path === "/settings/rag") showSettingsSection("sec-rag", false);
         else if (path === "/settings/opencode") showSettingsSection("sec-opencode", false);
         else if ((path === "/settings" || path === "/settings/") && window.innerWidth <= 900 && typeof showSettingsMobileMenu === "function") {
           showSettingsMobileMenu();
@@ -2771,6 +2772,10 @@ async function handleRouting() {
   } else if (path === "/hf" || path === "/hf/" || path === "/huggingface" || path === "/huggingface/") {
     if (typeof showHFView === "function") {
       showHFView();
+    }
+  } else if (path === "/rags" || path.startsWith("/rags/")) {
+    if (typeof showRagsView === "function") {
+      void showRagsView();
     }
   } else if (path === "/") {
     if (currentView !== "models") {

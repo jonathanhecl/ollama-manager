@@ -226,3 +226,42 @@ func TestLoadRejectsBadGatewayPort(t *testing.T) {
 		t.Fatalf("expected Load to reject gateway port 70000")
 	}
 }
+
+func TestRAGDirectoryResolution(t *testing.T) {
+	path := writeTempConfig(t, `{"port": 7860}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := filepath.Join(filepath.Dir(path), "rags")
+	if got := cfg.RAGDirectory(); got != want {
+		t.Errorf("default RAGDirectory = %q, want %q", got, want)
+	}
+	if cfg.RAG.DefaultEmbedding != "" || cfg.RAG.Directory != "" {
+		t.Errorf("unexpected rag defaults: %+v", cfg.RAG)
+	}
+
+	cfg.RAG.Directory = "custom-rags"
+	if got := cfg.RAGDirectory(); got != filepath.Join(filepath.Dir(path), "custom-rags") {
+		t.Errorf("relative RAGDirectory = %q", got)
+	}
+	abs := filepath.Join(t.TempDir(), "abs-rags")
+	cfg.RAG.Directory = abs
+	if got := cfg.RAGDirectory(); got != filepath.Clean(abs) {
+		t.Errorf("absolute RAGDirectory = %q, want %q", got, abs)
+	}
+
+	cfg.RAG.Directory = "custom-rags"
+	cfg.RAG.DefaultEmbedding = "nomic-embed-text:latest"
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	re, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if re.RAG.DefaultEmbedding != "nomic-embed-text:latest" || re.RAG.Directory != "custom-rags" {
+		t.Fatalf("rag config did not round-trip: %+v", re.RAG)
+	}
+}

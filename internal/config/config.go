@@ -195,6 +195,11 @@ type ComfyUIConfig struct {
 	Workflow string `json:"workflow,omitempty"`
 }
 
+type RAGConfig struct {
+	DefaultEmbedding string `json:"default_embedding"`
+	Directory        string `json:"directory"`
+}
+
 // DefaultComfyUIURL is ComfyUI's default listen address.
 const DefaultComfyUIURL = "http://127.0.0.1:8188"
 
@@ -237,6 +242,7 @@ type Config struct {
 	Testing               TestingLimits      `json:"testing"`
 	Gateway               GatewayConfig      `json:"gateway"`
 	ComfyUI               ComfyUIConfig      `json:"comfyui"`
+	RAG                   RAGConfig          `json:"rag"`
 
 	path string `json:"-"`
 }
@@ -419,6 +425,17 @@ func (c *Config) Save() error {
 
 // Path returns the absolute path of the loaded config file.
 func (c *Config) Path() string { return c.path }
+
+func (c *Config) RAGDirectory() string {
+	dir := strings.TrimSpace(c.RAG.Directory)
+	if dir == "" {
+		dir = "rags"
+	}
+	if filepath.IsAbs(dir) || c.path == "" {
+		return filepath.Clean(dir)
+	}
+	return filepath.Join(filepath.Dir(c.path), dir)
+}
 
 // HasPassword reports whether a password is configured.
 func (c *Config) HasPassword() bool { return c.PasswordHash != "" }

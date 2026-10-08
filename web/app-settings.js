@@ -63,6 +63,7 @@ async function showSettingsView() {
     buildEl.title = currentConfig.version || "";
   }
   loadComfySettings(currentConfig);
+  if (typeof ragSettingsInit === "function") ragSettingsInit();
   bindExternalModelsEvents();
   bindSystemPromptsEvents();
   bindGatewayEvents();
@@ -94,6 +95,7 @@ async function showSettingsView() {
   else if (path === "/settings/external") targetSecId = "sec-ext-models";
   else if (path === "/settings/archived" || path === "/archived") targetSecId = "sec-archived";
   else if (path === "/settings/gateway") targetSecId = "sec-gateway";
+  else if (path === "/settings/rag") targetSecId = "sec-rag";
   else if (path === "/settings/comfyui") targetSecId = "sec-comfyui";
   else if (path === "/settings/opencode" || path === "/opencode") targetSecId = "sec-opencode";
   else if (path === "/settings/general") targetSecId = "sec-general";
@@ -425,6 +427,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
     else if (sectionId === "sec-ext-models") subRoute = "/settings/external";
     else if (sectionId === "sec-archived") subRoute = "/settings/archived";
     else if (sectionId === "sec-gateway") subRoute = "/settings/gateway";
+    else if (sectionId === "sec-rag") subRoute = "/settings/rag";
     else if (sectionId === "sec-opencode") subRoute = "/settings/opencode";
     if (window.location.pathname !== subRoute) {
       history.pushState(null, "", subRoute);

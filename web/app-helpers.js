@@ -460,6 +460,7 @@ function hideAllMainViews() {
     "battery-leaderboard-view",
     "analytics-view",
     "settings-view",
+    "rags-view",
     "modelfile-view",
     "hf-view",
     "detail-panel"

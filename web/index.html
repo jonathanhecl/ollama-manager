@@ -59,6 +59,7 @@
         <button id="hf-topbar-btn" class="ghost" data-i18n-attr="title" data-i18n="hf.title" title="HuggingFace Models">🤗</button>
         <button id="modelfile-btn" class="ghost" data-i18n-attr="title" data-i18n="modelfile.title" title="Modelfile Studio">🪄</button>
         <button id="analytics-btn" class="ghost" data-i18n-attr="title" data-i18n="analytics.button" title="Analytics" hidden>📊</button>
+        <button id="rags-btn" class="ghost" data-i18n-attr="title" data-i18n="rag.button" title="RAGs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></button>
         <button id="tests-btn" class="ghost" data-i18n-attr="title" data-i18n="tests.button" title="Tests" hidden>⚡</button>
         <button id="settings-btn" class="ghost" data-i18n-attr="title" data-i18n="action.settings" title="Settings">🛠️</button>
       </div>
@@ -504,6 +505,88 @@
           </div>
         </div>
       </section>
+    </div>
+  </main>
+
+  <main id="rags-view" class="tests-view" hidden>
+    <header class="tests-head">
+      <div class="tests-head-left">
+        <button id="rags-back-btn" class="ghost header-breadcrumb-back" data-i18n="nav.models">Models</button>
+        <span class="breadcrumb-separator">/</span>
+        <h2>
+          <span class="gear"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+          <span data-i18n="rag.title">Knowledge Bases</span>
+        </h2>
+      </div>
+      <div class="tests-head-actions">
+        <button id="rags-reload-btn" class="ghost" data-i18n="rag.reload">Reload</button>
+        <button id="rags-new-btn" class="primary" data-i18n="rag.new">New Base</button>
+      </div>
+    </header>
+    <div class="tests-main">
+      <div class="tests-main-container">
+        <div id="rags-dir" class="muted small mono" style="margin-bottom: 10px;"></div>
+        <div id="rags-warnings" class="callout callout-warn" hidden></div>
+
+        <div id="rag-create-box" class="prompt-editor-box" hidden>
+          <div class="field">
+            <label for="rag-new-model" data-i18n="rag.embedding_model">Embedding model</label>
+            <select id="rag-new-model"></select>
+            <p class="form-hint" id="rag-new-model-hint"></p>
+          </div>
+          <div class="field">
+            <label for="rag-new-name" data-i18n="rag.name_label">Name</label>
+            <input type="text" id="rag-new-name" autocomplete="off" data-i18n-attr="placeholder" data-i18n="rag.name_placeholder" placeholder="e.g. Project glossary">
+          </div>
+          <div class="field field-vertical">
+            <label for="rag-new-desc" data-i18n="rag.desc_label">Description</label>
+            <input type="text" id="rag-new-desc" autocomplete="off">
+          </div>
+          <div class="section-head">
+            <h4 data-i18n="rag.entries_title">Entries</h4>
+            <button type="button" id="rag-add-entry-btn" class="ghost small" data-i18n="rag.add_entry">+ Entry</button>
+          </div>
+          <div id="rag-entries"></div>
+          <div id="rag-create-status" class="muted small" hidden></div>
+          <div class="prompt-editor-actions">
+            <button type="button" id="rag-create-btn" class="primary" data-i18n="rag.create_btn">Create Base</button>
+            <button type="button" id="rag-create-cancel-btn" class="ghost" data-i18n="action.cancel">Cancel</button>
+          </div>
+        </div>
+
+        <div id="rags-detail" hidden>
+          <div class="section-head">
+            <div class="section-head-title-wrap">
+              <h4 id="rag-detail-title"></h4>
+              <button type="button" id="rag-detail-back-btn" class="ghost small" data-i18n="rag.back_to_list">Back to list</button>
+            </div>
+          </div>
+          <div id="rag-detail-meta" class="muted small" style="margin-bottom: 10px;"></div>
+          <div id="rag-detail-entries" class="prompts-list"></div>
+        </div>
+
+        <div id="rags-list-wrap">
+          <section class="table-wrap">
+            <table id="rags-table">
+              <thead>
+                <tr>
+                  <th data-i18n="rag.col_name">Name</th>
+                  <th data-i18n="rag.col_model">Model</th>
+                  <th data-i18n="rag.col_dims">Dims</th>
+                  <th data-i18n="rag.col_entries">Entries</th>
+                  <th data-i18n="rag.col_created">Created</th>
+                  <th data-i18n="rag.col_file">File</th>
+                </tr>
+              </thead>
+              <tbody id="rags-tbody"></tbody>
+            </table>
+          </section>
+          <div id="rags-empty" class="tests-empty muted" hidden>
+            <div data-i18n="rag.empty">No knowledge bases yet.</div>
+            <div class="tests-empty-hint" id="rags-empty-hint"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -1626,6 +1709,10 @@
             <span class="settings-nav-label" data-i18n="settings.nav_archived">Archived Models</span>
             <span class="badge" id="archived-nav-badge">0</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-rag">
+            <span class="settings-nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+            <span class="settings-nav-label" data-i18n="settings.nav_rag">RAG</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-opencode">
             <span class="settings-nav-icon">💻</span>
             <span class="settings-nav-label" data-i18n="settings.nav_opencode">OpenCode</span>
@@ -2137,6 +2224,27 @@
               </div>
               <div id="comfy-workflows-list" class="ext-models-list">
                 <div class="muted small" data-i18n="settings.comfyui_workflows_none">No workflows registered yet.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section-card" id="sec-rag" hidden>
+            <div class="settings-section-header">
+              <h3 class="settings-section-title" data-i18n="settings.rag_section">Knowledge Bases (RAG)</h3>
+              <p class="settings-section-desc" data-i18n="settings.rag_hint">Term/content knowledge bases embedded into standalone .db files. You can also drop compatible .db files into the folder directly.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="field">
+                <label for="set-rag-embedding" data-i18n="settings.rag_embedding">Default embedding model</label>
+                <select id="set-rag-embedding"></select>
+                <p class="form-hint" id="set-rag-embedding-warn" hidden></p>
+                <p class="form-hint" data-i18n="settings.rag_embedding_hint">Only installed Ollama models that report the embedding capability are listed.</p>
+              </div>
+              <div class="field field-vertical">
+                <label for="set-rag-dir" data-i18n="settings.rag_dir">Storage folder</label>
+                <input id="set-rag-dir" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.rag_dir_placeholder" placeholder="rags">
+                <p class="form-hint" id="set-rag-dir-hint"></p>
+                <p class="form-hint" data-i18n="settings.rag_dir_hint2">Relative paths are resolved next to the config file. Existing files are not moved when the folder changes.</p>
               </div>
             </div>
           </section>
@@ -3027,8 +3135,8 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20261005_03"></script>
-  <script src="/static/app-helpers.js?v=20261004_02"></script>
+  <script src="/static/i18n.js?v=20261008_01"></script>
+  <script src="/static/app-helpers.js?v=20261008_01"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20261004_01"></script>
   <script src="/static/app-status.js?v=20261004_07"></script>
@@ -3038,7 +3146,8 @@
   <script src="/static/app-decision.js?v=20261006_01"></script>
   <script src="/static/app-tests.js?v=20260908_02"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-svg.js?v=20261005_04"></script>
+  <script src="/static/app-rag.js?v=20261008_01"></script>
+  <script src="/static/app-svg.js?v=20261008_01"></script>
   <script src="/static/app-artifacts.js?v=20261004_01"></script>
   <script src="/static/app-comfy.js?v=20261004_01"></script>
   <script src="/static/app-delete.js?v=20260820"></script>
@@ -3046,8 +3155,8 @@
   <script src="/static/app-hf-search.js?v=20260911_05"></script>
   <script src="/static/app-modelfile.js?v=20260822"></script>
   <script src="/static/app-topbar.js?v=20260820"></script>
-  <script src="/static/app-settings.js?v=20260909_03"></script>
-  <script src="/static/app-opencode.js?v=20260909_03"></script>
+  <script src="/static/app-settings.js?v=20261008_01"></script>
+  <script src="/static/app-opencode.js?v=20261008_01"></script>
   <script src="/static/app-opencode-actions.js?v=20260821"></script>
   <script src="/static/app-agent-session.js?v=20260820"></script>
   <script src="/static/app-sessions.js?v=20261005_05"></script>

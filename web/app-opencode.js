@@ -479,6 +479,7 @@ $("settings-save").addEventListener("click", async () => {
       require_auth: $("gw-require-auth")?.checked ?? false,
     },
     comfyui: typeof comfySettingsPayload === "function" ? comfySettingsPayload() : undefined,
+    rag: typeof ragSettingsPayload === "function" ? ragSettingsPayload() : undefined,
   };
   // Only send the token when the user typed a new one; leaving the field
   // empty must not wipe an already-saved token (use "Remove" for that).
@@ -492,6 +493,7 @@ $("settings-save").addEventListener("click", async () => {
     });
     currentConfig = { ...currentConfig, ...res };
     window.I18n.setLang(res.language);
+    if (typeof applyRagConfigResponse === "function") applyRagConfigResponse(res);
 
     if (hfToken) {
       // Leave the typed value in the field so it doesn't look like the save

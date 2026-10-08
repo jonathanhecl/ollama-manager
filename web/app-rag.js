@@ -22,6 +22,7 @@ const ragState = {
   detailError: "",
   entries: [],
   entrySeq: 0,
+  activeEntry: 0,
 };
 
 function ragEl(tag, cls, text) {
@@ -51,13 +52,6 @@ function ragModelCaps(name) {
   const m = (ragState.models || []).find((x) => x.name === name);
   if (!m || !m.capabilities) return new Set();
   return new Set(String(m.capabilities).split(",").map((s) => s.trim()).filter(Boolean));
-}
-
-function ragMediaAccept(caps) {
-  const parts = [];
-  if (caps.has("vision")) parts.push("image/*");
-  if (caps.has("audio")) parts.push("audio/*");
-  return parts.join(",");
 }
 
 function ragMediaAllowed(mediaType, caps) {
@@ -140,6 +134,7 @@ function ragNav(path) {
 }
 
 async function showRagsView() {
+  ragCloseMediaPreview();
   currentView = "rags";
   hideAllMainViews();
   document.getElementById("rags-btn")?.classList.add("active");
@@ -265,20 +260,63 @@ function ragRenderDetail() {
     head.appendChild(ragEl("div", "rag-entry-term", e.term));
     item.appendChild(head);
     if (e.content) item.appendChild(ragEl("div", "rag-entry-content", e.content));
-    if (e.media_type && e.media_type !== "text") {
-      item.appendChild(ragEl("div", "rag-entry-media muted small",
-        (e.media_name || e.media_type) + " · " + (e.media_mime || e.media_type) + " · " + ragFmtBytes(e.media_size || 0)));
+    const media = e.media || [];
+    if (media.length || e.input_mode === "media") {
+      const mediaBox = ragEl("div", "rag-entry-media");
+      if (e.input_mode === "media") mediaBox.appendChild(ragEl("span", "rag-mode-pill", t("rag.input_media")));
+      for (const m of media) {
+        const mediaURL = "/api/rags/" + encodeURIComponent(ragState.detailFilename) +
+          "/media/" + encodeURIComponent(String(e.id || 0)) + "/" + encodeURIComponent(m.type);
+        const tile = ragEl("div", "rag-media-slot rag-detail-media", "");
+        tile.appendChild(ragEl("div", "rag-media-slot-title", (m.type === "audio" ? "🔊 " : "🖼️ ") + (m.name || m.type)));
+        const preview = ragEl(m.type === "audio" ? "div" : "button", "rag-media-preview", "");
+        if (m.type === "image") {
+          preview.type = "button";
+          const img = ragEl("img", "rag-media-thumb");
+          img.src = mediaURL;
+          img.alt = m.name || m.type;
+          preview.appendChild(img);
+        } else {
+          preview.setAttribute("role", "button");
+          preview.tabIndex = 0;
+          preview.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              ragShowMediaPreview(m, m.type, mediaURL);
+            }
+          });
+          const audio = ragEl("audio", "rag-media-audio");
+          audio.controls = true;
+          audio.preload = "metadata";
+          audio.src = mediaURL;
+          audio.addEventListener("click", (ev) => ev.stopPropagation());
+          audio.addEventListener("keydown", (ev) => ev.stopPropagation());
+          preview.appendChild(audio);
+          preview.appendChild(ragEl("span", "rag-media-open", t("rag.preview")));
+        }
+        preview.addEventListener("click", () => ragShowMediaPreview(m, m.type, mediaURL));
+        tile.appendChild(preview);
+        tile.appendChild(ragEl("div", "rag-media-meta",
+          (m.mime || m.type) + " · " + ragFmtBytes(m.size || 0)));
+        mediaBox.appendChild(tile);
+      }
+      item.appendChild(mediaBox);
     }
     box.appendChild(item);
   }
 }
 
 function ragNewEntry() {
-  return { key: ++ragState.entrySeq, term: "", content: "", media: null, mediaPending: false, mediaError: "" };
+  const key = ++ragState.entrySeq;
+  ragState.activeEntry = key;
+  return { key, term: "", content: "", inputMode: "combined", media: {}, mediaPending: false, mediaError: "" };
 }
 
 function ragStartCreate() {
   if (!ragState.entries.length) ragState.entries = [ragNewEntry()];
+  if (!ragState.entries.some((e) => e.key === ragState.activeEntry)) {
+    ragState.activeEntry = ragState.entries[0].key;
+  }
   const sel = document.getElementById("rag-new-model");
   const def = (currentConfig && currentConfig.rag && currentConfig.rag.default_embedding) || "";
   if (sel && !sel.value && def) {
@@ -331,105 +369,272 @@ function ragCreateCaps() {
   return ragModelCaps(sel ? sel.value : "");
 }
 
-function ragRenderEntries() {
-  const host = document.getElementById("rag-entries");
-  if (!host) return;
-  host.innerHTML = "";
-  const caps = ragCreateCaps();
-  for (const entry of ragState.entries) {
-    const card = ragEl("div", "rag-entry-card");
-    const top = ragEl("div", "rag-entry-head");
-    const term = ragEl("input", "rag-entry-term");
-    term.type = "text";
-    term.placeholder = t("rag.term_placeholder");
-    term.maxLength = 256;
-    term.value = entry.term;
-    term.addEventListener("input", () => {
-      entry.term = term.value;
-    });
-    top.appendChild(term);
-    const rm = ragEl("button", "ghost small rag-entry-remove", "");
-    rm.type = "button";
-    rm.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
-    rm.title = t("rag.remove_entry");
-    rm.addEventListener("click", () => {
-      if (ragBusy()) return;
-      ragState.entries = ragState.entries.filter((x) => x !== entry);
-      ragRenderEntries();
-    });
-    top.appendChild(rm);
-    card.appendChild(top);
-
-    const content = ragEl("textarea", "rag-entry-content");
-    content.placeholder = t("rag.content_placeholder");
-    content.rows = 3;
-    content.value = entry.content;
-    content.addEventListener("input", () => {
-      entry.content = content.value;
-    });
-    card.appendChild(content);
-
-    const mediaRow = ragEl("div", "rag-entry-media");
-    const fileIn = ragEl("input", "");
-    fileIn.type = "file";
-    fileIn.style.display = "none";
-    fileIn.accept = ragMediaAccept(caps);
-    fileIn.addEventListener("change", () => {
-      const f = fileIn.files && fileIn.files[0];
-      fileIn.value = "";
-      ragOnFileChosen(entry, f);
-    });
-    card.appendChild(fileIn);
-
-    if (entry.media) {
-      const chip = ragEl("span", "muted small",
-        entry.media.name + " · " + entry.media.type + " · " + ragFmtBytes(entry.media.size) + " ");
-      const clear = ragEl("button", "ghost small", t("rag.remove_attachment"));
-      clear.type = "button";
-      clear.addEventListener("click", () => {
-        if (ragBusy()) return;
-        entry.media = null;
-        ragRenderEntries();
-      });
-      chip.appendChild(clear);
-      mediaRow.appendChild(chip);
-      if (!ragMediaAllowed(entry.media.type, caps)) {
-        mediaRow.appendChild(ragEl("span", "form-hint", t("rag.media_unsupported")));
-      }
-    } else {
-      const attach = ragEl("button", "ghost small", t("rag.attach"));
-      attach.type = "button";
-      attach.title = t("rag.attach_title");
-      if (!ragMediaAccept(caps)) attach.disabled = true;
-      attach.addEventListener("click", () => {
-        const a = ragMediaAccept(ragCreateCaps());
-        if (!a) {
-          entry.mediaError = t("rag.no_media_cap");
-          ragRenderEntries();
-          return;
-        }
-        fileIn.accept = a;
-        fileIn.click();
-      });
-      mediaRow.appendChild(attach);
-    }
-    if (entry.mediaPending) mediaRow.appendChild(ragEl("span", "muted small", t("rag.file_pending")));
-    if (entry.mediaError) mediaRow.appendChild(ragEl("span", "form-hint", entry.mediaError));
-    card.appendChild(mediaRow);
-    host.appendChild(card);
-  }
-  const mediaHint = ragEl("p", "form-hint", t("rag.media_hint"));
-  host.appendChild(mediaHint);
+function ragEntryMediaList(entry) {
+  return ["image", "audio"].map((type) => entry.media[type]).filter(Boolean);
 }
 
-function ragOnFileChosen(entry, file) {
+function ragEntryTitle(entry, idx) {
+  return entry.term.trim() || (entry.media.image && entry.media.image.name) ||
+    (entry.media.audio && entry.media.audio.name) || t("rag.entry_untitled", { index: idx + 1 });
+}
+
+function ragUpdateEntryNav(entry) {
+  const btn = document.querySelector(`.rag-entry-nav[data-entry-key="${entry.key}"] .rag-entry-nav-title`);
+  if (!btn) return;
+  const idx = ragState.entries.indexOf(entry);
+  btn.textContent = ragEntryTitle(entry, idx);
+}
+
+function ragSetActiveEntry(key) {
+  ragState.activeEntry = key;
+  ragRenderEntries();
+}
+
+function ragMediaDataURL(media) {
+  return "data:" + (media.mime || "application/octet-stream") + ";base64," + media.base64;
+}
+
+function ragShowMediaPreview(media, mediaType, src) {
+  const modal = document.getElementById("rag-media-modal");
+  const body = document.getElementById("rag-media-modal-body");
+  const caption = document.getElementById("rag-media-modal-caption");
+  if (!media || !modal || !body || !caption) return;
+  body.innerHTML = "";
+  caption.textContent = (media.name || media.type) + " · " + (media.mime || media.type) + " · " + ragFmtBytes(media.size || 0);
+  if (mediaType === "image") {
+    const img = ragEl("img", "rag-media-modal-img");
+    img.src = src;
+    img.alt = media.name || mediaType;
+    body.appendChild(img);
+  } else {
+    const audio = ragEl("audio", "rag-media-modal-audio");
+    audio.controls = true;
+    audio.autoplay = true;
+    audio.src = src;
+    body.appendChild(audio);
+  }
+  modal.hidden = false;
+}
+
+function ragCloseMediaPreview() {
+  const modal = document.getElementById("rag-media-modal");
+  const body = document.getElementById("rag-media-modal-body");
+  if (body) body.innerHTML = "";
+  if (modal) modal.hidden = true;
+}
+
+function ragRenderMediaSlot(entry, mediaType, caps, fileIn) {
+  const media = entry.media[mediaType];
+  const box = ragEl("div", "rag-media-slot");
+  const icon = mediaType === "audio" ? "🔊" : "🖼️";
+  const label = t(mediaType === "audio" ? "rag.media_audio" : "rag.media_image");
+  box.appendChild(ragEl("div", "rag-media-slot-title", icon + " " + label));
+  if (!media) {
+    const attach = ragEl("button", "ghost small rag-media-add", t(mediaType === "audio" ? "rag.attach_audio" : "rag.attach_image"));
+    attach.type = "button";
+    attach.disabled = !ragMediaAllowed(mediaType, caps);
+    attach.title = t("rag.attach_title");
+    attach.addEventListener("click", () => {
+      if (!ragMediaAllowed(mediaType, ragCreateCaps())) {
+        entry.mediaError = t("rag.no_media_cap");
+        ragRenderEntries();
+        return;
+      }
+      fileIn.dataset.mediaType = mediaType;
+      fileIn.accept = mediaType + "/*";
+      fileIn.click();
+    });
+    box.appendChild(attach);
+    return box;
+  }
+
+  const preview = ragEl(mediaType === "audio" ? "div" : "button", "rag-media-preview", "");
+  if (mediaType === "image") {
+    preview.type = "button";
+  } else {
+    preview.setAttribute("role", "button");
+    preview.tabIndex = 0;
+    preview.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        ragShowMediaPreview(media, mediaType, ragMediaDataURL(media));
+      }
+    });
+  }
+  preview.title = t("rag.preview");
+  preview.addEventListener("click", () => ragShowMediaPreview(media, mediaType, ragMediaDataURL(media)));
+  if (mediaType === "image") {
+    const img = ragEl("img", "rag-media-thumb");
+    img.src = ragMediaDataURL(media);
+    img.alt = media.name || mediaType;
+    preview.appendChild(img);
+  } else {
+    const audio = ragEl("audio", "rag-media-audio");
+    audio.controls = true;
+    audio.preload = "metadata";
+    audio.src = ragMediaDataURL(media);
+    audio.addEventListener("click", (ev) => ev.stopPropagation());
+    audio.addEventListener("keydown", (ev) => ev.stopPropagation());
+    preview.appendChild(audio);
+    preview.appendChild(ragEl("span", "rag-media-open", t("rag.preview")));
+  }
+  box.appendChild(preview);
+
+  const meta = ragEl("div", "rag-media-meta", media.name || media.type);
+  meta.title = (media.name || "") + " · " + (media.mime || "") + " · " + ragFmtBytes(media.size || 0);
+  box.appendChild(meta);
+  const actions = ragEl("div", "rag-media-actions");
+  const replace = ragEl("button", "ghost small", t("rag.replace"));
+  replace.type = "button";
+  replace.addEventListener("click", () => {
+    if (ragBusy()) return;
+    fileIn.dataset.mediaType = mediaType;
+    fileIn.accept = mediaType + "/*";
+    fileIn.click();
+  });
+  const remove = ragEl("button", "ghost small", t("rag.remove_attachment"));
+  remove.type = "button";
+  remove.addEventListener("click", () => {
+    if (ragBusy()) return;
+    delete entry.media[mediaType];
+    if (entry.inputMode === "media" && !ragEntryMediaList(entry).length) entry.inputMode = "combined";
+    ragRenderEntries();
+  });
+  actions.appendChild(replace);
+  actions.appendChild(remove);
+  box.appendChild(actions);
+  if (!ragMediaAllowed(mediaType, caps)) box.appendChild(ragEl("div", "form-hint", t("rag.media_unsupported")));
+  return box;
+}
+
+function ragRenderEntries() {
+  const host = document.getElementById("rag-entries");
+  const list = document.getElementById("rag-entry-list");
+  const count = document.getElementById("rag-entry-count");
+  if (!host || !list) return;
+  list.innerHTML = "";
+  host.innerHTML = "";
+  if (count) count.textContent = "· " + ragState.entries.length;
+  const caps = ragCreateCaps();
+
+  ragState.entries.forEach((entry, idx) => {
+    const btn = ragEl("button", "rag-entry-nav" + (entry.key === ragState.activeEntry ? " active" : ""), "");
+    btn.type = "button";
+    btn.dataset.entryKey = String(entry.key);
+    btn.setAttribute("role", "option");
+    btn.setAttribute("aria-selected", entry.key === ragState.activeEntry ? "true" : "false");
+    const title = ragEl("span", "rag-entry-nav-title", ragEntryTitle(entry, idx));
+    const meta = ragEl("span", "rag-entry-nav-meta", "");
+    if (entry.media.image) meta.appendChild(document.createTextNode("🖼️"));
+    if (entry.media.audio) meta.appendChild(document.createTextNode("🔊"));
+    if (entry.inputMode === "media") meta.appendChild(ragEl("span", "rag-mode-pill", t("rag.input_media_short")));
+    btn.appendChild(title);
+    btn.appendChild(meta);
+    btn.addEventListener("click", () => ragSetActiveEntry(entry.key));
+    list.appendChild(btn);
+  });
+
+  const entry = ragState.entries.find((e) => e.key === ragState.activeEntry) || ragState.entries[0];
+  if (!entry) {
+    host.appendChild(ragEl("div", "muted", t("rag.entries_required")));
+    return;
+  }
+  ragState.activeEntry = entry.key;
+
+  const card = ragEl("div", "rag-entry-card");
+  const top = ragEl("div", "rag-entry-head");
+  const term = ragEl("input", "rag-entry-term");
+  term.type = "text";
+  term.placeholder = t("rag.term_placeholder");
+  term.maxLength = 256;
+  term.value = entry.term;
+  term.addEventListener("input", () => {
+    entry.term = term.value;
+    ragUpdateEntryNav(entry);
+  });
+  top.appendChild(term);
+  const rm = ragEl("button", "ghost small rag-entry-remove", "");
+  rm.type = "button";
+  rm.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+  rm.title = t("rag.remove_entry");
+  rm.addEventListener("click", () => {
+    if (ragBusy()) return;
+    const idx = ragState.entries.indexOf(entry);
+    ragState.entries = ragState.entries.filter((x) => x !== entry);
+    if (entry.key === ragState.activeEntry) {
+      const next = ragState.entries[Math.min(idx, ragState.entries.length - 1)];
+      ragState.activeEntry = next ? next.key : 0;
+    }
+    ragRenderEntries();
+  });
+  top.appendChild(rm);
+  card.appendChild(top);
+
+  const fileIn = ragEl("input", "");
+  fileIn.type = "file";
+  fileIn.style.display = "none";
+  fileIn.addEventListener("change", () => {
+    const f = fileIn.files && fileIn.files[0];
+    const mediaType = fileIn.dataset.mediaType || "";
+    fileIn.value = "";
+    ragOnFileChosen(entry, mediaType, f);
+  });
+  card.appendChild(fileIn);
+
+  const grid = ragEl("div", "rag-entry-grid");
+  const textBox = ragEl("div", "rag-entry-text");
+  const modeField = ragEl("label", "rag-input-mode", "");
+  modeField.appendChild(ragEl("span", "", t("rag.input_mode_label")));
+  const modeSel = ragEl("select", "", "");
+  const combined = ragEl("option", "", t("rag.input_combined"));
+  combined.value = "combined";
+  const mediaOnly = ragEl("option", "", t("rag.input_media"));
+  mediaOnly.value = "media";
+  mediaOnly.disabled = !ragEntryMediaList(entry).length;
+  modeSel.appendChild(combined);
+  modeSel.appendChild(mediaOnly);
+  if (entry.inputMode === "media" && !ragEntryMediaList(entry).length) entry.inputMode = "combined";
+  modeSel.value = entry.inputMode;
+  modeSel.addEventListener("change", () => {
+    entry.inputMode = modeSel.value;
+    ragRenderEntries();
+  });
+  modeField.appendChild(modeSel);
+  textBox.appendChild(modeField);
+  textBox.appendChild(ragEl("div", "form-hint", t("rag.input_mode_hint")));
+
+  const content = ragEl("textarea", "rag-entry-content");
+  content.placeholder = t("rag.content_placeholder");
+  content.rows = 6;
+  content.value = entry.content;
+  content.addEventListener("input", () => {
+    entry.content = content.value;
+  });
+  textBox.appendChild(content);
+  grid.appendChild(textBox);
+
+  const mediaBox = ragEl("div", "rag-entry-media-grid");
+  mediaBox.appendChild(ragRenderMediaSlot(entry, "image", caps, fileIn));
+  mediaBox.appendChild(ragRenderMediaSlot(entry, "audio", caps, fileIn));
+  grid.appendChild(mediaBox);
+  card.appendChild(grid);
+
+  if (entry.mediaPending) card.appendChild(ragEl("div", "rag-entry-media muted small", t("rag.file_pending")));
+  if (entry.mediaError) card.appendChild(ragEl("div", "rag-entry-media form-hint", entry.mediaError));
+  host.appendChild(card);
+  host.appendChild(ragEl("p", "form-hint", t("rag.media_hint")));
+}
+
+function ragOnFileChosen(entry, mediaType, file) {
   if (!file) return;
   const caps = ragCreateCaps();
-  const isImage = file.type.startsWith("image/");
-  const isAudio = file.type.startsWith("audio/");
-  const mediaType = isImage ? "image" : isAudio ? "audio" : "";
-  if (!mediaType || !ragMediaAllowed(mediaType, caps)) {
+  if ((mediaType !== "image" && mediaType !== "audio") || !file.type.startsWith(mediaType + "/")) {
     entry.mediaError = t("rag.media_bad_type");
+    ragRenderEntries();
+    return;
+  }
+  if (!ragMediaAllowed(mediaType, caps)) {
+    entry.mediaError = t("rag.media_unsupported");
     ragRenderEntries();
     return;
   }
@@ -452,7 +657,7 @@ function ragOnFileChosen(entry, file) {
     entry.mediaPending = false;
     const result = String(reader.result || "");
     const idx = result.indexOf(",");
-    entry.media = {
+    entry.media[mediaType] = {
       type: mediaType,
       name: file.name,
       mime: file.type,
@@ -487,9 +692,11 @@ async function ragSubmitCreate() {
   else if (!ragState.entries.length) err = t("rag.entries_required");
   for (const e of ragState.entries) {
     if (err) break;
-    if (!e.term.trim()) err = t("rag.term_required");
-    else if (e.media && !ragMediaAllowed(e.media.type, caps)) err = t("rag.media_unsupported");
-    else if (!e.media && !e.content.trim()) err = t("rag.content_required");
+    const media = ragEntryMediaList(e);
+    if (!e.term.trim() && !media.length) err = t("rag.term_required");
+    else if (media.some((m) => !ragMediaAllowed(m.type, caps))) err = t("rag.media_unsupported");
+    else if (e.inputMode === "media" && !media.length) err = t("rag.media_required");
+    else if (!media.length && !e.content.trim()) err = t("rag.content_required");
   }
   if (err) {
     ragSetCreateError(err);
@@ -500,16 +707,17 @@ async function ragSubmitCreate() {
     name,
     description,
     embedding_model: model,
-    entries: ragState.entries.map((e) => {
-      const row = { term: e.term, content: e.content };
-      if (e.media) {
-        row.media_type = e.media.type;
-        row.media_name = e.media.name;
-        row.media_mime = e.media.mime;
-        row.media_base64 = e.media.base64;
-      }
-      return row;
-    }),
+    entries: ragState.entries.map((e) => ({
+      term: e.term,
+      content: e.content,
+      input_mode: e.inputMode,
+      media: ragEntryMediaList(e).map((m) => ({
+        type: m.type,
+        name: m.name,
+        mime: m.mime,
+        base64: m.base64,
+      })),
+    })),
   };
   ragState.creating = true;
   ragSetCreateDisabled(true);
@@ -522,6 +730,7 @@ async function ragSubmitCreate() {
       body: JSON.stringify(payload),
     });
     ragState.entries = [];
+    ragState.activeEntry = 0;
     const nameIn = document.getElementById("rag-new-name");
     const descIn = document.getElementById("rag-new-desc");
     if (nameIn) nameIn.value = "";
@@ -636,6 +845,7 @@ document.getElementById("rags-new-btn")?.addEventListener("click", () => ragNav(
 document.getElementById("rag-create-cancel-btn")?.addEventListener("click", () => {
   if (ragBusy()) return;
   ragState.entries = [];
+  ragState.activeEntry = 0;
   ragSetCreateError("");
   const nameIn = document.getElementById("rag-new-name");
   const descIn = document.getElementById("rag-new-desc");
@@ -651,5 +861,24 @@ document.getElementById("rag-add-entry-btn")?.addEventListener("click", () => {
   ragRenderEntries();
 });
 document.getElementById("rag-create-btn")?.addEventListener("click", () => void ragSubmitCreate());
+document.getElementById("rag-entry-list")?.addEventListener("keydown", (ev) => {
+  if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+  const idx = ragState.entries.findIndex((e) => e.key === ragState.activeEntry);
+  const nextIdx = idx + (ev.key === "ArrowDown" ? 1 : -1);
+  const next = ragState.entries[nextIdx];
+  if (!next) return;
+  ev.preventDefault();
+  ragSetActiveEntry(next.key);
+  requestAnimationFrame(() => {
+    document.querySelector(`.rag-entry-nav[data-entry-key="${next.key}"]`)?.focus();
+  });
+});
 document.getElementById("rag-detail-back-btn")?.addEventListener("click", () => ragNav("/rags"));
 document.getElementById("rag-new-model")?.addEventListener("change", () => ragRenderEntries());
+document.getElementById("rag-media-modal-close")?.addEventListener("click", ragCloseMediaPreview);
+document.getElementById("rag-media-modal")?.addEventListener("click", (ev) => {
+  if (ev.target && ev.target.id === "rag-media-modal") ragCloseMediaPreview();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") ragCloseMediaPreview();
+});

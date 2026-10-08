@@ -20,7 +20,7 @@ func testMeta() Meta {
 func testEntries(n int) []Entry {
 	out := make([]Entry, n)
 	for i := range out {
-		out[i] = Entry{Term: "term", Content: "content", MediaType: "text",
+		out[i] = Entry{Term: "term", Content: "content", InputMode: "combined",
 			Embedding: []float64{0.1, 0.2, 0.3}}
 	}
 	return out
@@ -66,7 +66,8 @@ func TestCreateRoundTrip(t *testing.T) {
 		d.Meta.EmbeddingDigest != "sha256:abc" {
 		t.Fatalf("unexpected detail meta: %+v", d.Meta)
 	}
-	if len(d.Entries) != 3 || d.Entries[0].Term != "term" || d.Entries[0].MediaType != "text" {
+	if len(d.Entries) != 3 || d.Entries[0].Term != "term" || d.Entries[0].InputMode != "combined" ||
+		len(d.Entries[0].Media) != 0 {
 		t.Fatalf("unexpected entries: %+v", d.Entries)
 	}
 	infos, warnings, err := List(dir)
@@ -331,6 +332,55 @@ func TestListBadMetadata(t *testing.T) {
 	}
 }
 
+func TestGetReadsV1Base(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.db")
+	db, err := sql.Open("sqlite", fileURI(path, "rwc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := []byte{0x89, 0x50, 0x4E, 0x47}
+	emb := packVector([]float64{1, 2, 3})
+	if _, err := db.Exec(`CREATE TABLE metadata (key INTEGER PRIMARY KEY CHECK (key = 1),
+		schema_version INTEGER NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+		created_at INTEGER NOT NULL, embedding_provider TEXT NOT NULL, embedding_model TEXT NOT NULL,
+		embedding_digest TEXT NOT NULL, dimensions INTEGER NOT NULL, input_format TEXT NOT NULL);
+		CREATE TABLE entries (id INTEGER PRIMARY KEY, term TEXT NOT NULL, content TEXT NOT NULL,
+		media_type TEXT NOT NULL, media_name TEXT NOT NULL, media_mime TEXT NOT NULL, media BLOB,
+		embedding BLOB NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO metadata VALUES
+		(1, 1, 'legacy', 'Legacy', '', 1, 'ollama', 'm', 'd', 3, ?)`, InputFormatV1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO entries
+		(term, content, media_type, media_name, media_mime, media, embedding)
+		VALUES ('pic', '', 'image', 'p.png', 'image/png', ?, ?)`, media, emb); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	infos, warnings, err := List(dir)
+	if err != nil || len(warnings) != 0 || len(infos) != 1 {
+		t.Fatalf("List = %+v warnings=%v err=%v", infos, warnings, err)
+	}
+	d, err := Get(dir, "legacy.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Meta.InputFormat != InputFormatV1 || len(d.Entries) != 1 ||
+		d.Entries[0].InputMode != "combined" || len(d.Entries[0].Media) != 1 ||
+		d.Entries[0].Media[0].Type != "image" || d.Entries[0].Media[0].Size != int64(len(media)) {
+		t.Fatalf("legacy detail = %+v", d)
+	}
+	m, err := MediaAt(dir, "legacy.db", d.Entries[0].ID, "image")
+	if err != nil || string(m.Data) != string(media) || m.MIME != "image/png" {
+		t.Fatalf("legacy media = %+v err=%v", m, err)
+	}
+}
+
 func TestGetGuardsFilename(t *testing.T) {
 	dir := t.TempDir()
 	_, filename, err := Create(context.Background(), dir, testMeta(), testEntries(1))
@@ -359,10 +409,14 @@ func TestGetGuardsFilename(t *testing.T) {
 
 func TestMediaStoredAndListed(t *testing.T) {
 	dir := t.TempDir()
-	payload := []byte{0x89, 0x50, 0x4E, 0x47, 0xAA, 0xBB}
+	imagePayload := []byte{0x89, 0x50, 0x4E, 0x47, 0xAA, 0xBB}
+	audioPayload := []byte{'R', 'I', 'F', 'F', 1, 2, 3}
 	entries := []Entry{{
-		Term: "pic", Content: "", MediaType: "image", MediaName: "p.png",
-		MediaMIME: "image/png", Media: payload,
+		Term: "pic", Content: "", InputMode: "media",
+		Media: []Media{
+			{Type: "image", Name: "p.png", MIME: "image/png", Data: imagePayload},
+			{Type: "audio", Name: "a.wav", MIME: "audio/wav", Data: audioPayload},
+		},
 		Embedding: []float64{1, 2, 3},
 	}}
 	_, filename, err := Create(context.Background(), dir, testMeta(), entries)
@@ -373,8 +427,11 @@ func TestMediaStoredAndListed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Entries[0].MediaType != "image" || d.Entries[0].MediaMIME != "image/png" ||
-		d.Entries[0].MediaSize != int64(len(payload)) || d.Entries[0].MediaName != "p.png" {
+	if d.Entries[0].InputMode != "media" || len(d.Entries[0].Media) != 2 ||
+		d.Entries[0].Media[0].Type != "image" || d.Entries[0].Media[0].MIME != "image/png" ||
+		d.Entries[0].Media[0].Size != int64(len(imagePayload)) || d.Entries[0].Media[0].Name != "p.png" ||
+		d.Entries[0].Media[1].Type != "audio" || d.Entries[0].Media[1].MIME != "audio/wav" ||
+		d.Entries[0].Media[1].Size != int64(len(audioPayload)) || d.Entries[0].Media[1].Name != "a.wav" {
 		t.Fatalf("unexpected entry view: %+v", d.Entries[0])
 	}
 	db, err := sql.Open("sqlite", fileURI(filepath.Join(dir, filename), "ro"))
@@ -382,16 +439,11 @@ func TestMediaStoredAndListed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	var media []byte
-	if err := db.QueryRow(`SELECT media FROM entries`).Scan(&media); err != nil {
+	var image, audio []byte
+	if err := db.QueryRow(`SELECT image, audio FROM entries`).Scan(&image, &audio); err != nil {
 		t.Fatal(err)
 	}
-	if len(media) != len(payload) {
-		t.Fatalf("media len = %d", len(media))
-	}
-	for i := range media {
-		if media[i] != payload[i] {
-			t.Fatalf("media byte %d mismatch", i)
-		}
+	if string(image) != string(imagePayload) || string(audio) != string(audioPayload) {
+		t.Fatalf("media payloads changed: image=%x audio=%x", image, audio)
 	}
 }

@@ -18,8 +18,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const SchemaVersion = 1
-const InputFormat = "term-content-v1"
+const SchemaVersion = 2
+const InputFormatV1 = "term-content-v1"
+const InputFormat = "entry-inputs-v2"
 const EmbeddingProvider = "ollama"
 const maxDimensions = 65536
 
@@ -35,13 +36,18 @@ type Meta struct {
 	InputFormat       string `json:"input_format"`
 }
 
+type Media struct {
+	Type string
+	Name string
+	MIME string
+	Data []byte
+}
+
 type Entry struct {
 	Term      string
 	Content   string
-	MediaType string
-	MediaName string
-	MediaMIME string
-	Media     []byte
+	InputMode string
+	Media     []Media
 	Embedding []float64
 }
 
@@ -56,13 +62,19 @@ type Info struct {
 	SizeBytes  int64  `json:"size_bytes"`
 }
 
+type MediaView struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+	MIME string `json:"mime"`
+	Size int64  `json:"size"`
+}
+
 type EntryView struct {
-	Term      string `json:"term"`
-	Content   string `json:"content"`
-	MediaType string `json:"media_type"`
-	MediaName string `json:"media_name"`
-	MediaMIME string `json:"media_mime"`
-	MediaSize int64  `json:"media_size"`
+	ID        int64       `json:"id"`
+	Term      string      `json:"term"`
+	Content   string      `json:"content"`
+	InputMode string      `json:"input_mode"`
+	Media     []MediaView `json:"media"`
 }
 
 type Detail struct {
@@ -89,10 +101,13 @@ CREATE TABLE entries (
 	id INTEGER PRIMARY KEY,
 	term TEXT NOT NULL,
 	content TEXT NOT NULL,
-	media_type TEXT NOT NULL,
-	media_name TEXT NOT NULL,
-	media_mime TEXT NOT NULL,
-	media BLOB,
+	input_mode TEXT NOT NULL,
+	image_name TEXT NOT NULL,
+	image_mime TEXT NOT NULL,
+	image BLOB,
+	audio_name TEXT NOT NULL,
+	audio_mime TEXT NOT NULL,
+	audio BLOB,
 	embedding BLOB NOT NULL
 );`
 
@@ -190,14 +205,20 @@ func readMeta(db *sql.DB) (Meta, int, error) {
 }
 
 func validate(db *sql.DB, m Meta, version int) error {
-	if version != SchemaVersion {
+	switch version {
+	case 1:
+		if m.InputFormat != InputFormatV1 {
+			return fmt.Errorf("unsupported input format %q", m.InputFormat)
+		}
+	case SchemaVersion:
+		if m.InputFormat != InputFormat {
+			return fmt.Errorf("unsupported input format %q", m.InputFormat)
+		}
+	default:
 		return fmt.Errorf("unsupported schema version %d", version)
 	}
 	if m.EmbeddingProvider != EmbeddingProvider {
 		return fmt.Errorf("unsupported embedding provider %q", m.EmbeddingProvider)
-	}
-	if m.InputFormat != InputFormat {
-		return fmt.Errorf("unsupported input format %q", m.InputFormat)
 	}
 	if strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.ID) == "" ||
 		strings.TrimSpace(m.EmbeddingModel) == "" || strings.TrimSpace(m.EmbeddingDigest) == "" {
@@ -241,6 +262,29 @@ func Create(ctx context.Context, dir string, meta Meta, entries []Entry) (Meta, 
 	for i, e := range entries {
 		if !validVector(e.Embedding, meta.Dimensions) {
 			return Meta{}, "", fmt.Errorf("entry %d has an invalid embedding", i)
+		}
+		mode := e.InputMode
+		if mode == "" {
+			mode = "combined"
+		}
+		if mode != "combined" && mode != "media" {
+			return Meta{}, "", fmt.Errorf("entry %d has unsupported input mode %q", i, mode)
+		}
+		seen := map[string]bool{}
+		for _, m := range e.Media {
+			if m.Type != "image" && m.Type != "audio" {
+				return Meta{}, "", fmt.Errorf("entry %d has unsupported media type %q", i, m.Type)
+			}
+			if seen[m.Type] {
+				return Meta{}, "", fmt.Errorf("entry %d has duplicate %s media", i, m.Type)
+			}
+			seen[m.Type] = true
+			if len(m.Data) == 0 {
+				return Meta{}, "", fmt.Errorf("entry %d has empty %s media", i, m.Type)
+			}
+		}
+		if mode == "media" && len(e.Media) == 0 {
+			return Meta{}, "", fmt.Errorf("entry %d uses media input without media", i)
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -321,15 +365,24 @@ func Create(ctx context.Context, dir string, meta Meta, entries []Entry) (Meta, 
 		return failDB(err)
 	}
 	for _, e := range entries {
-		mediaType := e.MediaType
-		if mediaType == "" {
-			mediaType = "text"
+		mode := e.InputMode
+		if mode == "" {
+			mode = "combined"
+		}
+		var image, audio Media
+		for _, m := range e.Media {
+			if m.Type == "image" {
+				image = m
+			} else if m.Type == "audio" {
+				audio = m
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO entries
-			(term, content, media_type, media_name, media_mime, media, embedding)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			e.Term, e.Content, mediaType, e.MediaName, e.MediaMIME, e.Media,
-			packVector(e.Embedding)); err != nil {
+			(term, content, input_mode, image_name, image_mime, image,
+			 audio_name, audio_mime, audio, embedding)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.Term, e.Content, mode, image.Name, image.MIME, image.Data,
+			audio.Name, audio.MIME, audio.Data, packVector(e.Embedding)); err != nil {
 			_ = tx.Rollback()
 			return failDB(err)
 		}
@@ -472,8 +525,15 @@ func Get(dir, filename string) (*Detail, error) {
 	if err := validate(db, m, version); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT term, content, media_type, media_name, media_mime,
-		COALESCE(LENGTH(media), 0) FROM entries ORDER BY id`)
+	query := `SELECT id, term, content, 'combined' AS input_mode, media_type, media_name, media_mime,
+		COALESCE(LENGTH(media), 0), '', '', '', 0 FROM entries ORDER BY id`
+	if version == SchemaVersion {
+		query = `SELECT id, term, content, input_mode,
+			'image', image_name, image_mime, COALESCE(LENGTH(image), 0),
+			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0)
+			FROM entries ORDER BY id`
+	}
+	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -481,9 +541,21 @@ func Get(dir, filename string) (*Detail, error) {
 	d := &Detail{Filename: filename, Meta: m, Entries: []EntryView{}}
 	for rows.Next() {
 		var ev EntryView
-		if err := rows.Scan(&ev.Term, &ev.Content, &ev.MediaType, &ev.MediaName,
-			&ev.MediaMIME, &ev.MediaSize); err != nil {
+		var imageType, imageName, imageMIME string
+		var imageSize int64
+		var audioType, audioName, audioMIME string
+		var audioSize int64
+		if err := rows.Scan(&ev.ID, &ev.Term, &ev.Content, &ev.InputMode,
+			&imageType, &imageName, &imageMIME, &imageSize,
+			&audioType, &audioName, &audioMIME, &audioSize); err != nil {
 			return nil, err
+		}
+		ev.Media = []MediaView{}
+		if imageType != "" && imageType != "text" && (imageName != "" || imageMIME != "" || imageSize > 0) {
+			ev.Media = append(ev.Media, MediaView{Type: imageType, Name: imageName, MIME: imageMIME, Size: imageSize})
+		}
+		if audioType == "audio" && (audioName != "" || audioMIME != "" || audioSize > 0) {
+			ev.Media = append(ev.Media, MediaView{Type: audioType, Name: audioName, MIME: audioMIME, Size: audioSize})
 		}
 		d.Entries = append(d.Entries, ev)
 	}
@@ -491,4 +563,58 @@ func Get(dir, filename string) (*Detail, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+func MediaAt(dir, filename string, entryID int64, mediaType string) (Media, error) {
+	if !ValidFilename(filename) {
+		return Media{}, errors.New("invalid base name")
+	}
+	if mediaType != "image" && mediaType != "audio" {
+		return Media{}, errors.New("invalid media type")
+	}
+	if entryID <= 0 {
+		return Media{}, errors.New("invalid entry id")
+	}
+	path := filepath.Join(dir, filename)
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		return Media{}, os.ErrNotExist
+	}
+	db, err := openRO(path)
+	if err != nil {
+		return Media{}, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	m, version, err := readMeta(db)
+	if err != nil {
+		return Media{}, fmt.Errorf("not a RAG base (%v)", err)
+	}
+	if err := validate(db, m, version); err != nil {
+		return Media{}, err
+	}
+	var out Media
+	out.Type = mediaType
+	if version == 1 {
+		var storedType string
+		err = db.QueryRow(`SELECT media_type, media_name, media_mime, media FROM entries WHERE id = ?`, entryID).
+			Scan(&storedType, &out.Name, &out.MIME, &out.Data)
+		if err != nil {
+			return Media{}, err
+		}
+		if storedType != mediaType {
+			return Media{}, os.ErrNotExist
+		}
+	} else {
+		col := mediaType
+		err = db.QueryRow(`SELECT `+col+`_name, `+col+`_mime, `+col+` FROM entries WHERE id = ?`, entryID).
+			Scan(&out.Name, &out.MIME, &out.Data)
+		if err != nil {
+			return Media{}, err
+		}
+	}
+	if len(out.Data) == 0 {
+		return Media{}, os.ErrNotExist
+	}
+	return out, nil
 }

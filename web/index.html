@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20261008_01">
+  <link rel="stylesheet" href="/static/style.css?v=20261008_02">
 </head>
 <body>
   <header class="topbar">
@@ -542,10 +542,13 @@
             <input type="text" id="rag-new-desc" autocomplete="off">
           </div>
           <div class="rag-divider">
-            <h4 data-i18n="rag.entries_title">Entries</h4>
+            <h4><span data-i18n="rag.entries_title">Entries</span> <span id="rag-entry-count" class="muted"></span></h4>
             <button type="button" id="rag-add-entry-btn" class="ghost small" data-i18n="rag.add_entry">+ Entry</button>
           </div>
-          <div id="rag-entries" class="rag-entries"></div>
+          <div class="rag-entries-layout">
+            <div id="rag-entry-list" class="rag-entry-list" role="listbox" aria-label="Entries"></div>
+            <div id="rag-entries" class="rag-entry-editor"></div>
+          </div>
           <div id="rag-create-status" class="rag-status" role="status" hidden></div>
           <div class="rag-actions">
             <button type="button" id="rag-create-btn" class="primary" data-i18n="rag.create_btn">Create Base</button>
@@ -587,6 +590,14 @@
       </div>
     </div>
   </main>
+
+  <div id="rag-media-modal" class="rag-media-modal" role="dialog" aria-modal="true" aria-label="Media preview" hidden>
+    <div class="rag-media-modal-card">
+      <button type="button" id="rag-media-modal-close" class="ghost small rag-media-modal-close">×</button>
+      <div id="rag-media-modal-body" class="rag-media-modal-body"></div>
+      <div id="rag-media-modal-caption" class="rag-media-modal-caption muted small"></div>
+    </div>
+  </div>
 
   <main id="analytics-view" class="analytics-view" hidden>
     <header class="analytics-head">
@@ -1687,6 +1698,10 @@
             <span class="settings-nav-label" data-i18n="settings.nav_prompts">System Prompts</span>
             <span class="badge" id="prompts-nav-badge">0</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-rag">
+            <span class="settings-nav-icon">📚</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_rag">RAG</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-gateway">
             <span class="settings-nav-icon">📡</span>
             <span class="settings-nav-label" data-i18n="settings.nav_gateway">Tunneling Models</span>
@@ -1706,10 +1721,6 @@
             <span class="settings-nav-icon">📦</span>
             <span class="settings-nav-label" data-i18n="settings.nav_archived">Archived Models</span>
             <span class="badge" id="archived-nav-badge">0</span>
-          </button>
-          <button type="button" class="settings-nav-item" data-section="sec-rag">
-            <span class="settings-nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
-            <span class="settings-nav-label" data-i18n="settings.nav_rag">RAG</span>
           </button>
           <button type="button" class="settings-nav-item" data-section="sec-opencode">
             <span class="settings-nav-icon">💻</span>
@@ -3133,7 +3144,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20261008_01"></script>
+  <script src="/static/i18n.js?v=20261008_02"></script>
   <script src="/static/app-helpers.js?v=20261008_01"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20261004_01"></script>
@@ -3144,7 +3155,7 @@
   <script src="/static/app-decision.js?v=20261006_01"></script>
   <script src="/static/app-tests.js?v=20260908_02"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-rag.js?v=20261008_02"></script>
+  <script src="/static/app-rag.js?v=20261008_03"></script>
   <script src="/static/app-svg.js?v=20261008_01"></script>
   <script src="/static/app-artifacts.js?v=20261004_01"></script>
   <script src="/static/app-comfy.js?v=20261004_01"></script>

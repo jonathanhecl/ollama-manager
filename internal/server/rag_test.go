@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -32,14 +33,16 @@ type fakeOllamaRAG struct {
 func newFakeOllamaRAG() *fakeOllamaRAG {
 	f := &fakeOllamaRAG{
 		caps: map[string][]string{
-			"embed-model:latest":  {"embedding"},
-			"embed-vision:latest": {"embedding", "vision"},
-			"chat-model:latest":   {"completion"},
+			"embed-model:latest":      {"embedding"},
+			"embed-vision:latest":     {"embedding", "vision"},
+			"embed-multimodal:latest": {"embedding", "vision", "audio"},
+			"chat-model:latest":       {"completion"},
 		},
 	}
 	f.tags = []map[string]any{
 		{"name": "embed-model:latest", "digest": "sha256:embed1"},
 		{"name": "embed-vision:latest", "digest": "sha256:embedv"},
+		{"name": "embed-multimodal:latest", "digest": "sha256:embedm"},
 		{"name": "chat-model:latest", "digest": "sha256:chat1"},
 	}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +123,14 @@ func (f *fakeOllamaRAG) Close() { f.srv.Close() }
 
 func ragCall(t *testing.T, srv *Server, method, target string, payload any) (int, map[string]any) {
 	t.Helper()
+	code, _, raw := ragRawCall(t, srv, method, target, payload)
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+	return code, out
+}
+
+func ragRawCall(t *testing.T, srv *Server, method, target string, payload any) (int, http.Header, []byte) {
+	t.Helper()
 	var body *bytes.Reader
 	if payload != nil {
 		raw, _ := json.Marshal(payload)
@@ -131,9 +142,7 @@ func ragCall(t *testing.T, srv *Server, method, target string, payload any) (int
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Routes().ServeHTTP(rr, req)
-	var out map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &out)
-	return rr.Code, out
+	return rr.Code, rr.Header(), rr.Body.Bytes()
 }
 
 func ragDirOf(t *testing.T, srv *Server) string {
@@ -336,6 +345,28 @@ func TestRAGCreateValidation(t *testing.T) {
 	}
 }
 
+func TestRAGMimeAliases(t *testing.T) {
+	cases := []struct {
+		name     string
+		detected string
+		declared string
+		want     bool
+	}{
+		{"wav detector alias", "audio/wave", "audio/wav", true},
+		{"wav browser alias", "audio/wav", "audio/x-wav", true},
+		{"jpeg alias", "image/jpeg", "image/jpg", true},
+		{"ogg detector alias", "application/ogg", "audio/ogg", true},
+		{"different media", "audio/wav", "image/png", false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mimeMatches(tt.detected, tt.declared); got != tt.want {
+				t.Fatalf("mimeMatches(%q, %q) = %v, want %v", tt.detected, tt.declared, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRAGCreateMedia(t *testing.T) {
 	fake := newFakeOllamaRAG()
 	defer fake.Close()
@@ -363,15 +394,68 @@ func TestRAGCreateMedia(t *testing.T) {
 		t.Fatalf("media input = %v", embeds[0]["input"])
 	}
 	item, _ := input[0].(map[string]any)
-	if item["image"] != b64 || item["text"] != "logo\n\n" {
+	if item["image"] != b64 || item["text"] != "logo" {
 		t.Fatalf("media input item = %v", item)
 	}
 
 	filename := out["rag"].(map[string]any)["filename"].(string)
 	_, det := ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
 	entry := det["entries"].([]any)[0].(map[string]any)
-	if entry["media_type"] != "image" || entry["media_mime"] != "image/png" || entry["media_size"] != float64(len(png)) {
+	media, _ := entry["media"].([]any)
+	if entry["input_mode"] != "combined" || len(media) != 1 {
 		t.Fatalf("entry = %v", entry)
+	}
+	m := media[0].(map[string]any)
+	if m["type"] != "image" || m["mime"] != "image/png" || m["size"] != float64(len(png)) {
+		t.Fatalf("media = %v", m)
+	}
+	entryID := int64(entry["id"].(float64))
+	code, headers, raw := ragRawCall(t, srv, http.MethodGet,
+		"/api/rags/"+filename+"/media/"+strconv.FormatInt(entryID, 10)+"/image", nil)
+	if code != http.StatusOK || !bytes.Equal(raw, png) || headers.Get("Content-Type") != "image/png" {
+		t.Fatalf("media endpoint = status %d content-type %q len %d", code, headers.Get("Content-Type"), len(raw))
+	}
+}
+
+func TestRAGCreateMediaOnlyWithImageAndAudio(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+
+	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0x49, 0x48, 0x44, 0x52}
+	wav := append([]byte("RIFF"), append([]byte{0x24, 0, 0, 0}, []byte("WAVEfmt ")...)...)
+	imageB64 := base64.StdEncoding.EncodeToString(png)
+	audioB64 := base64.StdEncoding.EncodeToString(wav)
+	code, out := ragCall(t, srv, http.MethodPost, "/api/rags", map[string]any{
+		"name":            "Media keys",
+		"embedding_model": "embed-multimodal:latest",
+		"entries": []any{map[string]any{
+			"term": "", "input_mode": "media",
+			"media": []any{
+				map[string]any{"type": "image", "name": "logo.png", "base64": imageB64},
+				map[string]any{"type": "audio", "name": "sonic.wav", "mime": "audio/wav", "base64": audioB64},
+			},
+		}},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %v", code, out)
+	}
+	embeds := fake.recordedEmbeds()
+	if len(embeds) != 1 {
+		t.Fatalf("embeds = %v", embeds)
+	}
+	item := embeds[0]["input"].([]any)[0].(map[string]any)
+	if _, hasText := item["text"]; hasText || item["image"] != imageB64 || item["audio"] != audioB64 {
+		t.Fatalf("media-only input = %v", item)
+	}
+	filename := out["rag"].(map[string]any)["filename"].(string)
+	_, det := ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	entry := det["entries"].([]any)[0].(map[string]any)
+	if entry["input_mode"] != "media" || len(entry["media"].([]any)) != 2 {
+		t.Fatalf("entry = %v", entry)
+	}
+	if entry["term"] != "logo.png" {
+		t.Fatalf("generated media key = %v", entry["term"])
 	}
 }
 
@@ -474,14 +558,15 @@ func TestRAGModelsEndpoint(t *testing.T) {
 		t.Fatalf("status = %d, body = %v", code, out)
 	}
 	models, _ := out["models"].([]any)
-	if len(models) != 2 {
+	if len(models) != 3 {
 		t.Fatalf("models = %v", out)
 	}
 	names := map[string]bool{}
 	for _, m := range models {
 		names[m.(map[string]any)["name"].(string)] = true
 	}
-	if !names["embed-model:latest"] || !names["embed-vision:latest"] || names["chat-model:latest"] {
+	if !names["embed-model:latest"] || !names["embed-vision:latest"] ||
+		!names["embed-multimodal:latest"] || names["chat-model:latest"] {
 		t.Fatalf("models = %v", models)
 	}
 }
@@ -618,7 +703,7 @@ func TestRAGModelsWarnings(t *testing.T) {
 	}
 	models, _ := out["models"].([]any)
 	warnings, _ := out["warnings"].([]any)
-	if len(models) != 1 || len(warnings) != 1 {
+	if len(models) != 2 || len(warnings) != 1 {
 		t.Fatalf("models = %v warnings = %v", models, warnings)
 	}
 	if !strings.Contains(warnings[0].(string), "embed-vision:latest") {
@@ -645,6 +730,7 @@ func TestRAGRoutesRequireAuth(t *testing.T) {
 		{http.MethodPost, "/api/rags"},
 		{http.MethodGet, "/api/rags/models"},
 		{http.MethodGet, "/api/rags/x.db"},
+		{http.MethodGet, "/api/rags/x.db/media/1/image"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		rr := httptest.NewRecorder()

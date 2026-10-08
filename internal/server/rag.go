@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -31,13 +33,22 @@ const (
 	ragMaxMediaTotal = 16 << 20
 )
 
+type ragMediaBody struct {
+	Type   string `json:"type"`
+	Name   string `json:"name"`
+	MIME   string `json:"mime"`
+	Base64 string `json:"base64"`
+}
+
 type ragEntryBody struct {
-	Term        string `json:"term"`
-	Content     string `json:"content"`
-	MediaType   string `json:"media_type"`
-	MediaName   string `json:"media_name"`
-	MediaMIME   string `json:"media_mime"`
-	MediaBase64 string `json:"media_base64"`
+	Term        string         `json:"term"`
+	Content     string         `json:"content"`
+	InputMode   string         `json:"input_mode"`
+	Media       []ragMediaBody `json:"media"`
+	MediaType   string         `json:"media_type"`
+	MediaName   string         `json:"media_name"`
+	MediaMIME   string         `json:"media_mime"`
+	MediaBase64 string         `json:"media_base64"`
 }
 
 type ragCreateBody struct {
@@ -83,29 +94,30 @@ func normalizeMime(m string) string {
 	return m
 }
 
+func canonicalMime(m string) string {
+	m = normalizeMime(m)
+	for canonical, aliases := range ragMimeAliases {
+		if m == canonical {
+			return canonical
+		}
+		for _, alias := range aliases {
+			if m == alias {
+				return canonical
+			}
+		}
+	}
+	return m
+}
+
 func mimeMatches(detected, declared string) bool {
 	if declared == "" {
 		return true
 	}
-	if declared == detected {
-		return true
-	}
-	for _, alias := range ragMimeAliases[detected] {
-		if declared == alias {
-			return true
-		}
-	}
-	return false
+	return canonicalMime(detected) == canonicalMime(declared)
 }
 
 func detectRAGMediaMIME(declared string, raw []byte, declaredMime string) (string, error) {
-	detected := normalizeMime(http.DetectContentType(raw))
-	switch detected {
-	case "application/ogg":
-		detected = "audio/ogg"
-	case "video/webm":
-		detected = "audio/webm"
-	}
+	detected := canonicalMime(http.DetectContentType(raw))
 	allowed := false
 	switch declared {
 	case "image":
@@ -115,15 +127,14 @@ func detectRAGMediaMIME(declared string, raw []byte, declaredMime string) (strin
 		}
 	case "audio":
 		switch detected {
-		case "audio/wav", "audio/x-wav", "audio/wave", "audio/mpeg", "audio/mp3",
-			"audio/ogg", "audio/webm", "audio/mp4", "audio/m4a", "audio/flac":
+		case "audio/wav", "audio/mpeg", "audio/ogg", "audio/webm", "audio/mp4", "audio/flac":
 			allowed = true
 		}
 	}
 	if !allowed {
 		return "", fmt.Errorf("unsupported or mismatched %s media (detected %q)", declared, detected)
 	}
-	if declaredMime != "" && !mimeMatches(detected, normalizeMime(declaredMime)) {
+	if declaredMime != "" && !mimeMatches(detected, declaredMime) {
 		return "", fmt.Errorf("declared media_mime %q does not match detected %q", declaredMime, detected)
 	}
 	return detected, nil
@@ -166,6 +177,35 @@ func (s *Server) handleGetRAG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleGetRAGMedia(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("id")
+	mediaType := r.PathValue("type")
+	entryID, parseErr := strconv.ParseInt(r.PathValue("entry"), 10, 64)
+	if !rag.ValidFilename(filename) || parseErr != nil || entryID <= 0 {
+		writeError(w, http.StatusBadRequest, errors.New("invalid media path"))
+		return
+	}
+	dir, _ := s.ragConfigSnapshot()
+	media, err := rag.MediaAt(dir, filename, entryID, mediaType)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("media not found"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	contentType := media.MIME
+	if contentType == "" {
+		contentType = http.DetectContentType(media.Data)
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(media.Data)
 }
 
 func (s *Server) handleRAGModels(w http.ResponseWriter, r *http.Request) {
@@ -281,24 +321,24 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type preparedMedia struct {
+		mediaType string
+		name      string
+		mime      string
+		b64       string
+		raw       []byte
+	}
 	type preparedEntry struct {
 		term      string
 		content   string
 		text      string
-		mediaType string
-		mediaName string
-		mediaMIME string
-		mediaB64  string
-		media     []byte
+		inputMode string
+		media     []preparedMedia
 	}
 	prepared := make([]preparedEntry, 0, len(body.Entries))
 	var totalMedia int
 	for i, e := range body.Entries {
 		term := strings.TrimSpace(e.Term)
-		if term == "" {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: term is required", i+1))
-			return
-		}
 		if utf8.RuneCountInString(term) > ragMaxTermLen {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: term must be at most %d characters", i+1, ragMaxTermLen))
 			return
@@ -308,35 +348,58 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: content must be at most %d characters", i+1, ragMaxContentLen))
 			return
 		}
-		mediaName := strings.TrimSpace(e.MediaName)
-		if utf8.RuneCountInString(mediaName) > ragMaxMediaName {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media_name must be at most %d characters", i+1, ragMaxMediaName))
+		mode := strings.ToLower(strings.TrimSpace(e.InputMode))
+		if mode == "" {
+			mode = "combined"
+		}
+		if mode != "combined" && mode != "media" {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: unsupported input_mode %q", i+1, e.InputMode))
 			return
 		}
-		mediaType := strings.ToLower(strings.TrimSpace(e.MediaType))
-		mediaB64 := strings.TrimSpace(e.MediaBase64)
-		declaredMime := strings.TrimSpace(e.MediaMIME)
-		switch mediaType {
-		case "", "text":
-			if mediaB64 != "" {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: text entries cannot carry media", i+1))
-				return
-			}
-			if declaredMime != "" || mediaName != "" {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media fields require a media payload", i+1))
-				return
-			}
-			if content == "" {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: content is required for text entries", i+1))
-				return
-			}
-			prepared = append(prepared, preparedEntry{
-				term: term, content: content, mediaType: "text",
-				text: term + "\n\n" + content,
+		mediaList := append([]ragMediaBody(nil), e.Media...)
+		legacyUsed := e.MediaType != "" || e.MediaName != "" || e.MediaMIME != "" || e.MediaBase64 != ""
+		if len(mediaList) > 0 && legacyUsed {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media must use either media[] or media_* fields", i+1))
+			return
+		}
+		if legacyUsed {
+			mediaList = append(mediaList, ragMediaBody{
+				Type: e.MediaType, Name: e.MediaName, MIME: e.MediaMIME, Base64: e.MediaBase64,
 			})
-		case "image", "audio":
+		}
+		if len(mediaList) > 2 {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: at most one image and one audio attachment are supported", i+1))
+			return
+		}
+		text := term
+		if content != "" {
+			if text != "" {
+				text += "\n\n"
+			}
+			text += content
+		}
+		pe := preparedEntry{term: term, content: content, text: text, inputMode: mode}
+		seenMedia := map[string]bool{}
+		for _, m := range mediaList {
+			mediaType := strings.ToLower(strings.TrimSpace(m.Type))
+			mediaName := strings.TrimSpace(m.Name)
+			mediaB64 := strings.TrimSpace(m.Base64)
+			declaredMime := strings.TrimSpace(m.MIME)
+			if utf8.RuneCountInString(mediaName) > ragMaxMediaName {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media name must be at most %d characters", i+1, ragMaxMediaName))
+				return
+			}
+			if mediaType != "image" && mediaType != "audio" {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: unsupported media type %q", i+1, m.Type))
+				return
+			}
+			if seenMedia[mediaType] {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: duplicate %s attachment", i+1, mediaType))
+				return
+			}
+			seenMedia[mediaType] = true
 			if mediaB64 == "" {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %s entries require media_base64", i+1, mediaType))
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %s entries require base64 media", i+1, mediaType))
 				return
 			}
 			needCap := "vision"
@@ -349,15 +412,15 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 			}
 			raw, err := base64.StdEncoding.DecodeString(mediaB64)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: invalid media_base64: %v", i+1, err))
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: invalid %s base64: %v", i+1, mediaType, err))
 				return
 			}
 			if len(raw) == 0 {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media is empty", i+1))
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %s media is empty", i+1, mediaType))
 				return
 			}
 			if len(raw) > ragMaxMediaBytes {
-				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media exceeds %d MiB", i+1, ragMaxMediaBytes>>20))
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %s media exceeds %d MiB", i+1, mediaType, ragMaxMediaBytes>>20))
 				return
 			}
 			totalMedia += len(raw)
@@ -370,27 +433,42 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %v", i+1, err))
 				return
 			}
-			prepared = append(prepared, preparedEntry{
-				term: term, content: content, text: term + "\n\n" + content,
-				mediaType: mediaType, mediaName: mediaName,
-				mediaMIME: mime, mediaB64: mediaB64, media: raw,
+			pe.media = append(pe.media, preparedMedia{
+				mediaType: mediaType, name: mediaName, mime: mime, b64: mediaB64, raw: raw,
 			})
-		default:
-			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: unsupported media_type %q", i+1, e.MediaType))
+		}
+		if pe.term == "" {
+			if len(pe.media) == 0 {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: term is required for text entries", i+1))
+				return
+			}
+			pe.term = pe.media[0].name
+			if pe.term == "" {
+				pe.term = fmt.Sprintf("Entry %d", i+1)
+			}
+		}
+		if len(pe.media) == 0 && content == "" {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: content is required for text entries", i+1))
 			return
 		}
+		if mode == "media" && len(pe.media) == 0 {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media input mode requires an attachment", i+1))
+			return
+		}
+		prepared = append(prepared, pe)
 	}
 
 	storeEntries := make([]rag.Entry, 0, len(prepared))
 	dims := 0
 	for i, pe := range prepared {
 		var input any = pe.text
-		if pe.mediaType == "image" || pe.mediaType == "audio" {
-			item := map[string]any{"text": pe.text}
-			if pe.mediaType == "image" {
-				item["image"] = pe.mediaB64
-			} else {
-				item["audio"] = pe.mediaB64
+		if len(pe.media) > 0 {
+			item := map[string]any{}
+			if pe.inputMode != "media" && pe.text != "" {
+				item["text"] = pe.text
+			}
+			for _, m := range pe.media {
+				item[m.mediaType] = m.b64
 			}
 			input = []map[string]any{item}
 		}
@@ -420,13 +498,17 @@ func (s *Server) handleCreateRAG(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, fmt.Errorf("entry %d embedding has %d dims, want %d", i+1, len(vec), dims))
 			return
 		}
+		storeMedia := make([]rag.Media, 0, len(pe.media))
+		for _, m := range pe.media {
+			storeMedia = append(storeMedia, rag.Media{
+				Type: m.mediaType, Name: m.name, MIME: m.mime, Data: m.raw,
+			})
+		}
 		storeEntries = append(storeEntries, rag.Entry{
 			Term:      pe.term,
 			Content:   pe.content,
-			MediaType: pe.mediaType,
-			MediaName: pe.mediaName,
-			MediaMIME: pe.mediaMIME,
-			Media:     pe.media,
+			InputMode: pe.inputMode,
+			Media:     storeMedia,
 			Embedding: vec,
 		})
 	}

@@ -5,7 +5,6 @@ const RAG_MAX_FILE_BYTES = 8 * 1024 * 1024;
 const ragState = {
   list: [],
   warnings: [],
-  directory: "",
   loadError: "",
   loading: false,
   creating: false,
@@ -113,7 +112,7 @@ async function ragLoadModels(source) {
     ragState.models = [];
     ragState.modelsWarnings = [];
     ragState.modelsError = String(e && e.message ? e.message : e);
-    return null;
+    return { models: [], warnings: [], error: ragState.modelsError };
   } finally {
     if (ragState[genKey] === gen) ragState.modelsLoading = false;
   }
@@ -126,7 +125,6 @@ async function ragRefreshList() {
     const res = await api("/api/rags");
     ragState.list = res.rags || [];
     ragState.warnings = res.warnings || [];
-    ragState.directory = res.directory || "";
     ragState.loadError = "";
   } catch (e) {
     ragState.loadError = String(e && e.message ? e.message : e);
@@ -180,8 +178,6 @@ async function ragLoadDetail(filename) {
 }
 
 function ragRenderList() {
-  const dir = document.getElementById("rags-dir");
-  if (dir) dir.textContent = ragState.directory || "";
   const warn = document.getElementById("rags-warnings");
   if (warn) {
     warn.innerHTML = "";
@@ -190,6 +186,7 @@ function ragRenderList() {
   }
   const tbody = document.getElementById("rags-tbody");
   const empty = document.getElementById("rags-empty");
+  const emptyTitle = document.getElementById("rags-empty-title");
   const emptyHint = document.getElementById("rags-empty-hint");
   const table = document.getElementById("rags-table");
   if (!tbody || !empty || !table) return;
@@ -197,19 +194,19 @@ function ragRenderList() {
   if (ragState.loadError) {
     table.closest(".table-wrap").hidden = true;
     empty.hidden = false;
-    empty.firstElementChild.textContent = ragState.loadError;
+    if (emptyTitle) emptyTitle.textContent = ragState.loadError;
     if (emptyHint) emptyHint.textContent = "";
     return;
   }
   if (!ragState.list.length) {
     table.closest(".table-wrap").hidden = true;
     empty.hidden = false;
-    empty.firstElementChild.textContent = ragState.loading ? t("rag.loading_models") : t("rag.empty");
+    if (emptyTitle) emptyTitle.textContent = ragState.loading ? t("rag.loading_models") : t("rag.empty");
     if (emptyHint) {
       emptyHint.innerHTML = "";
       if (!ragState.loading) {
         emptyHint.appendChild(document.createTextNode(t("rag.empty_hint") + " "));
-        const link = ragEl("a", "", t("rag.empty_settings_link"));
+        const link = ragEl("a", "rag-empty-link", t("rag.empty_settings_link"));
         link.href = "/settings/rag";
         link.addEventListener("click", (ev) => {
           ev.preventDefault();
@@ -224,8 +221,7 @@ function ragRenderList() {
   table.closest(".table-wrap").hidden = false;
   empty.hidden = true;
   for (const r of ragState.list) {
-    const tr = document.createElement("tr");
-    tr.style.cursor = "pointer";
+    const tr = ragEl("tr", "rag-row");
     tr.addEventListener("click", () => ragNav("/rags/" + encodeURIComponent(r.filename)));
     for (const v of [r.name, r.embedding_model || "", String(r.dimensions || ""), String(r.entries || 0), ragFmtDate(r.created_at), r.filename]) {
       tr.appendChild(ragEl("td", "", v));
@@ -264,11 +260,13 @@ function ragRenderDetail() {
     return;
   }
   for (const e of entries) {
-    const item = ragEl("div", "prompt-card");
-    item.appendChild(ragEl("div", "prompt-card-title", e.term));
-    if (e.content) item.appendChild(ragEl("div", "prompt-card-body", e.content));
+    const item = ragEl("div", "rag-entry-card");
+    const head = ragEl("div", "rag-entry-head");
+    head.appendChild(ragEl("div", "rag-entry-term", e.term));
+    item.appendChild(head);
+    if (e.content) item.appendChild(ragEl("div", "rag-entry-content", e.content));
     if (e.media_type && e.media_type !== "text") {
-      item.appendChild(ragEl("div", "muted small",
+      item.appendChild(ragEl("div", "rag-entry-media muted small",
         (e.media_name || e.media_type) + " · " + (e.media_mime || e.media_type) + " · " + ragFmtBytes(e.media_size || 0)));
     }
     box.appendChild(item);
@@ -282,8 +280,11 @@ function ragNewEntry() {
 function ragStartCreate() {
   if (!ragState.entries.length) ragState.entries = [ragNewEntry()];
   const sel = document.getElementById("rag-new-model");
-  if (sel && !sel.value) {
-    const def = (currentConfig && currentConfig.rag && currentConfig.rag.default_embedding) || "";
+  const def = (currentConfig && currentConfig.rag && currentConfig.rag.default_embedding) || "";
+  if (sel && !sel.value && def) {
+    const o = ragEl("option", "", def);
+    o.value = def;
+    sel.appendChild(o);
     sel.value = def;
   }
   void ragLoadModels().then(() => ragRebuildModelSelect());
@@ -336,9 +337,10 @@ function ragRenderEntries() {
   host.innerHTML = "";
   const caps = ragCreateCaps();
   for (const entry of ragState.entries) {
-    const card = ragEl("div", "prompt-card");
-    const top = ragEl("div", "prompt-card-head");
-    const term = ragEl("input", "input");
+    const card = ragEl("div", "rag-entry-card");
+    const top = ragEl("div", "rag-entry-head");
+    const term = ragEl("input", "rag-entry-term");
+    term.type = "text";
     term.placeholder = t("rag.term_placeholder");
     term.maxLength = 256;
     term.value = entry.term;
@@ -346,7 +348,7 @@ function ragRenderEntries() {
       entry.term = term.value;
     });
     top.appendChild(term);
-    const rm = ragEl("button", "ghost small", "");
+    const rm = ragEl("button", "ghost small rag-entry-remove", "");
     rm.type = "button";
     rm.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
     rm.title = t("rag.remove_entry");
@@ -358,7 +360,7 @@ function ragRenderEntries() {
     top.appendChild(rm);
     card.appendChild(top);
 
-    const content = ragEl("textarea", "input");
+    const content = ragEl("textarea", "rag-entry-content");
     content.placeholder = t("rag.content_placeholder");
     content.rows = 3;
     content.value = entry.content;
@@ -367,7 +369,7 @@ function ragRenderEntries() {
     });
     card.appendChild(content);
 
-    const mediaRow = ragEl("div", "prompt-card-meta");
+    const mediaRow = ragEl("div", "rag-entry-media");
     const fileIn = ragEl("input", "");
     fileIn.type = "file";
     fileIn.style.display = "none";
@@ -585,9 +587,8 @@ function ragSettingsInit() {
   sel.value = saved;
 
   ragState.settingsLoading = true;
-  const gen = ++ragState.settingsGen;
-  ragLoadModels("settings").then(() => {
-    if (ragState.settingsGen !== gen) return;
+  ragLoadModels("settings").then((res) => {
+    if (!res) return;
     ragState.settingsLoading = false;
     const current = sel.value;
     sel.innerHTML = "";

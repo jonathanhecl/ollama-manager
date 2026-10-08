@@ -19,6 +19,7 @@ func TestIsSPAClientPath(t *testing.T) {
 		"/opencode", "/opencode/", "/archived", "/archived/",
 		"/modelfile", "/modelfile/x",
 		"/hf", "/hf/", "/huggingface", "/huggingface/",
+		"/rags", "/rags/new", "/rags/base.db",
 	}
 	for _, p := range spa {
 		if !isSPAClientPath(p) {
@@ -27,7 +28,7 @@ func TestIsSPAClientPath(t *testing.T) {
 	}
 	notSPA := []string{
 		"/api/tests", "/static/app.js", "/login", "/favicon.ico",
-		"/leaderboardx", "/analyticss", "/nope",
+		"/leaderboardx", "/analyticss", "/ragsx", "/nope",
 	}
 	for _, p := range notSPA {
 		if isSPAClientPath(p) {

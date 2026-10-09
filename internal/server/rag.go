@@ -321,6 +321,11 @@ func (s *Server) handleUpdateRAG(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFilename string) {
+	dir, defaultModel := s.ragConfigSnapshot()
+	s.handleSaveRAGInDirectory(w, r, updateFilename, dir, defaultModel, nil)
+}
+
+func (s *Server) handleSaveRAGInDirectory(w http.ResponseWriter, r *http.Request, updateFilename, dir, defaultModel string, finish func(meta rag.Meta, filename string, status int)) {
 	r.Body = http.MaxBytesReader(w, r.Body, ragMaxBody)
 	var body ragCreateBody
 	dec := json.NewDecoder(r.Body)
@@ -347,7 +352,6 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 	}
 	defer unlock()
 
-	dir, defaultModel := s.ragConfigSnapshot()
 	var existing *rag.Detail
 	existingEntries := map[int64]rag.EntryView{}
 	if updateFilename != "" {
@@ -730,6 +734,10 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("could not write rag base: %w", err))
 		return
 	}
+	if finish != nil {
+		finish(meta, filename, status)
+		return
+	}
 	writeJSON(w, status, map[string]any{
 		"ok": true,
 		"rag": map[string]any{
@@ -744,4 +752,163 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 			"updated_at":       meta.UpdatedAt,
 		},
 	})
+}
+
+func (s *Server) handleOpenExternalRAG(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, ragMaxImportBody)
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if !rag.ValidFilename(name) {
+		writeError(w, http.StatusBadRequest, errors.New("invalid base name"))
+		return
+	}
+	tmpDir, err := os.MkdirTemp("", "rag-external-*")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("could not stage external base: %w", err))
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+	info, err := rag.Import(tmpDir, name, r.Body)
+	if err != nil {
+		var mbErr *http.MaxBytesError
+		if errors.As(err, &mbErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("rag file exceeds %d MiB", ragMaxImportBody>>20))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	detail, err := rag.GetContext(r.Context(), tmpDir, info.Filename)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if len(detail.Entries) > ragMaxEntries {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("external base exceeds the editor limit of %d entries", ragMaxEntries))
+		return
+	}
+	var totalMedia int64
+	for i := range detail.Entries {
+		for j := range detail.Entries[i].Media {
+			m := &detail.Entries[i].Media[j]
+			if m.Size > ragMaxMediaBytes {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("external base media exceeds the editor limit of %d MiB per attachment", ragMaxMediaBytes>>20))
+				return
+			}
+			totalMedia += m.Size
+			if totalMedia > ragMaxMediaTotal {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("external base media exceeds the editor limit of %d MiB in total", ragMaxMediaTotal>>20))
+				return
+			}
+			stored, err := rag.MediaAt(tmpDir, info.Filename, detail.Entries[i].ID, m.Type)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("could not read external media: %w", err))
+				return
+			}
+			m.Base64 = base64.StdEncoding.EncodeToString(stored.Data)
+		}
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleSaveExternalRAG(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, ragMaxImportBody+ragMaxBody+(1<<20))
+	if err := r.ParseMultipartForm(ragMaxBody); err != nil {
+		var mbErr *http.MaxBytesError
+		if errors.As(err, &mbErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("request exceeds %d MiB", (ragMaxImportBody+ragMaxBody+(1<<20))>>20))
+			return
+		}
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid multipart body: %w", err))
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	form := r.MultipartForm
+	if form == nil || len(form.Value) != 2 || len(form.Value["changes"]) != 1 ||
+		len(form.Value["destination"]) != 1 || len(form.File) != 1 || len(form.File["file"]) != 1 {
+		writeError(w, http.StatusBadRequest, errors.New("multipart body must contain exactly file, changes and destination"))
+		return
+	}
+	destination := form.Value["destination"][0]
+	if destination != "local" && destination != "download" {
+		writeError(w, http.StatusBadRequest, errors.New("destination must be local or download"))
+		return
+	}
+	changes := form.Value["changes"][0]
+	if len(changes) > ragMaxBody {
+		writeError(w, http.StatusRequestEntityTooLarge, errors.New("changes body too large"))
+		return
+	}
+	fh := form.File["file"][0]
+	if !rag.ValidFilename(fh.Filename) {
+		writeError(w, http.StatusBadRequest, errors.New("invalid base name"))
+		return
+	}
+	if fh.Size > ragMaxImportBody {
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("rag file exceeds %d MiB", ragMaxImportBody>>20))
+		return
+	}
+	src, err := fh.Open()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("could not read uploaded file: %w", err))
+		return
+	}
+	defer src.Close()
+	tmpDir, err := os.MkdirTemp("", "rag-external-*")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("could not stage external base: %w", err))
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+	info, err := rag.Import(tmpDir, fh.Filename, src)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	staged, err := rag.GetContext(r.Context(), tmpDir, info.Filename)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	clone := new(http.Request)
+	*clone = *r
+	clone.Body = io.NopCloser(strings.NewReader(changes))
+	clone.ContentLength = int64(len(changes))
+	var finish func(meta rag.Meta, filename string, status int)
+	if destination == "local" {
+		finish = func(_ rag.Meta, filename string, _ int) {
+			stagedPath, err := rag.Path(tmpDir, filename)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("could not read staged base: %w", err))
+				return
+			}
+			f, err := os.Open(stagedPath)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("could not read staged base: %w", err))
+				return
+			}
+			defer f.Close()
+			dir, _ := s.ragConfigSnapshot()
+			out, err := rag.Import(dir, fh.Filename, f)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("could not store edited base: %w", err))
+				return
+			}
+			writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "rag": out})
+		}
+	} else {
+		finish = func(_ rag.Meta, filename string, _ int) {
+			stagedPath, err := rag.Path(tmpDir, filename)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("could not read staged base: %w", err))
+				return
+			}
+			w.Header().Set("Content-Type", "application/vnd.sqlite3")
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fh.Filename}))
+			w.Header().Set("Cache-Control", "no-store")
+			http.ServeFile(w, r, stagedPath)
+		}
+	}
+	s.handleSaveRAGInDirectory(w, clone, info.Filename, tmpDir, staged.Meta.EmbeddingModel, finish)
 }

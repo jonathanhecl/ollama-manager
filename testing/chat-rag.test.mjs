@@ -71,7 +71,13 @@ class FakeEl {
     this._html = v;
     if (v === "") this.children = [];
   }
-  appendChild(c) { this.children.push(c); return c; }
+  appendChild(c) { this.children.push(c); if (c instanceof FakeEl) c.parentEl = this; return c; }
+  remove() {
+    if (this.parentEl) {
+      this.parentEl.children = this.parentEl.children.filter((x) => x !== this);
+      this.parentEl = null;
+    }
+  }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k]; }
   addEventListener(name, fn) { (this.listeners[name] ||= []).push(fn); }
@@ -121,13 +127,18 @@ const findDeep = (root, pred) => {
 };
 
 const els = new Map();
+const boundEls = new Map();
 const fakeEl = (id) => {
-  if (!els.has(id)) {
-    const el = new FakeEl("div");
-    el.id = id;
+  if (boundEls.has(id)) {
+    const el = boundEls.get(id);
     els.set(id, el);
+    return el;
   }
-  return els.get(id);
+  const el = new FakeEl("div");
+  el.id = id;
+  boundEls.set(id, el);
+  els.set(id, el);
+  return el;
 };
 
 class FakeFileReader {
@@ -139,6 +150,33 @@ class FakeFileReader {
   readAsDataURL() {}
 }
 FakeFileReader.instances = [];
+
+class FakeFormData {
+  constructor() { this._f = []; }
+  append(name, value) { this._f.push([name, value]); }
+  get(name) {
+    const hits = this._f.filter(([k]) => k === name);
+    return hits.length ? hits[hits.length - 1][1] : null;
+  }
+  count(name) { return this._f.filter(([k]) => k === name).length; }
+}
+
+class FakeBlob {
+  constructor(parts) { this.parts = parts || []; }
+}
+
+const createdURLs = [];
+class FakeURL extends URL {
+  static createObjectURL(blob) {
+    const u = "blob:fake-" + createdURLs.length;
+    createdURLs.push({ url: u, blob, revoked: false });
+    return u;
+  }
+  static revokeObjectURL(u) {
+    const rec = createdURLs.find((x) => x.url === u);
+    if (rec) rec.revoked = true;
+  }
+}
 
 const toasts = [];
 const imageOnly = { value: false };
@@ -217,19 +255,40 @@ const sandbox = {
   newAssistantMessage: () => ({ role: "assistant", toolLog: [] }),
   $: (id) => els.get(id) || null,
   document: {
-    getElementById: (id) => els.get(id) || null,
+    getElementById: (id) => fakeEl(id),
     querySelectorAll: () => [],
     querySelector: () => null,
     createElement: (tag) => new FakeEl(tag),
     createTextNode: (text) => ({ textContent: String(text) }),
+    body: new FakeEl("body"),
     documentElement: {},
     readyState: "complete",
     addEventListener() {},
   },
   FileReader: FakeFileReader,
-  api: async (url, opts) => (url === "/api/rags" && !(opts && opts.method)
-    ? { rags: [{ filename: "a.db" }, { filename: "b.db" }] }
-    : {}),
+  FormData: FakeFormData,
+  Blob: FakeBlob,
+  URL: FakeURL,
+  _apiCalls: [],
+  api: async (url, opts = {}, responseType = "json") => {
+    sandbox._apiCalls.push({ url, opts, responseType });
+    if (url === "/api/rags" && !(opts && opts.method)) {
+      return { rags: [{ filename: "a.db" }, { filename: "b.db" }] };
+    }
+    if (String(url).startsWith("/api/rags/external/open")) {
+      if (sandbox._failOpen) throw new Error("open boom");
+      return sandbox._externalDetail;
+    }
+    if (url === "/api/rags/models") {
+      return { models: [{ name: "embed-multimodal:latest", capabilities: "embedding,vision,audio" }], default_embedding: "", warnings: [] };
+    }
+    if (url === "/api/rags/external/save") {
+      if (sandbox._failSave) throw new Error("save boom");
+      if (responseType === "blob") return new FakeBlob(["edited-db"]);
+      return { ok: true, rag: { filename: "saved-1.db", name: "External local" } };
+    }
+    return {};
+  },
   fmtDate: (s) => String(s),
   fmtBytes: (n) => String(n),
   escapeHtml: (s) => String(s),
@@ -238,7 +297,10 @@ const sandbox = {
   chatRagPaths: [],
   chatRagEditable: [],
   location: { pathname: "/" },
-  history: { pushState() {} },
+  history: {
+    pushState(_a, _b, p) { sandbox.location.pathname = p; },
+    replaceState(_a, _b, p) { sandbox.location.pathname = p; },
+  },
   hideAllMainViews() {},
   showSettingsView: async () => {},
   showModelsView() {},
@@ -544,6 +606,265 @@ const {
   const i18nSrc = readFileSync(join(web, "i18n.js"), "utf8");
   assert.equal((i18nSrc.match(/"rag\.load_content"/g) || []).length, 2, "EN+ES labels for load content");
   assert.equal((i18nSrc.match(/"rag\.content_label"/g) || []).length, 2, "EN+ES labels for content label");
+}
+
+{
+  els.clear();
+  toasts.length = 0;
+  createdURLs.length = 0;
+  FakeFileReader.instances.length = 0;
+  sandbox._apiCalls = [];
+  sandbox._failOpen = false;
+  sandbox._failSave = false;
+  const ragState = ragEval("ragState");
+  ragState.entries = [];
+  ragState.creating = false;
+  ragState.externalFile = null;
+  ragState.externalName = "";
+  ragState.externalLoading = false;
+  sandbox.location.pathname = "/rags";
+
+  const openBtn = fakeEl("rags-open-file-btn");
+  const fileInput = fakeEl("rags-external-file-input");
+  const dlBtn = fakeEl("rag-download-edited-btn");
+  const createBtn = fakeEl("rag-create-btn");
+  const extHint = fakeEl("rag-external-hint");
+  fakeEl("rag-create-box");
+  fakeEl("rag-entries");
+  fakeEl("rag-entry-list");
+  fakeEl("rag-entry-count");
+  fakeEl("rag-new-name");
+  fakeEl("rag-new-desc");
+  fakeEl("rag-new-model");
+  fakeEl("rag-edit-meta");
+  fakeEl("rag-create-status");
+
+  sandbox._externalDetail = {
+    filename: "staged-abc.db",
+    size_bytes: 2048,
+    meta: { id: "m1", name: "Ext", description: "d", created_at: 100, updated_at: 200, embedding_model: "embed-multimodal:latest" },
+    entries: [
+      { id: 7, term: "alpha", content: "first", input_mode: "combined", created_at: 100, updated_at: 100,
+        media: [{ type: "image", name: "logo.png", mime: "image/png", size: 3, base64: "QUJD" }] },
+      { id: 8, term: "beta", content: "second", input_mode: "combined", created_at: 100, updated_at: 100 },
+    ],
+  };
+
+  let opened = 0;
+  fileInput.click = () => { opened++; };
+  openBtn.dispatch("click", {});
+  assert.equal(opened, 1, "open button must trigger the file picker");
+
+  const extFile = { name: "external.db", size: 2048 };
+  fileInput.value = "C:\\fake\\external.db";
+  fileInput.files = [extFile];
+  fileInput.dispatch("change", { target: fileInput });
+  assert.equal(fileInput.value, "", "picker resets so the same file reloads");
+  assert.equal(ragState.externalLoading, true, "open marks external loading");
+  assert.equal(ragEval("ragBusy()"), true, "busy covers externalLoading");
+  await sandbox.ragSubmitCreate();
+  assert.ok(!sandbox._apiCalls.some((c) => c.url === "/api/rags/external/save"),
+    "submit blocked while external open is pending");
+
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ragState.externalLoading, false);
+  assert.equal(ragState.externalFile, extFile, "source file retained for save");
+  assert.equal(sandbox.location.pathname, "/rags/external", "navigates to external editor");
+  const openCall = sandbox._apiCalls.find((c) => String(c.url).includes("/api/rags/external/open"));
+  assert.ok(openCall, "open request sent");
+  assert.match(openCall.url, /name=external\.db/);
+  assert.equal(openCall.opts.method, "POST");
+  assert.equal(ragState.entries.length, 2);
+  const e0 = ragState.entries[0];
+  assert.equal(e0.id, 7);
+  assert.equal(e0.media.image.existing, true);
+  assert.equal(e0.media.image.entryID, 7);
+  assert.equal(e0.media.image.previewBase64, "QUJD", "external media keeps preview base64");
+  assert.equal(ragState.editingFilename, "", "external edit is not a local base");
+  assert.equal(ragState.createPreferredModel, "embed-multimodal:latest", "imported model retained");
+  assert.equal(els.get("rag-new-model").value, "embed-multimodal:latest");
+  assert.equal(sandbox.ragMediaDataURL(e0.media.image), "data:image/png;base64,QUJD");
+
+  await ragEval("showRagsView()");
+  assert.match(createBtn.textContent, /rag\.save_local/, "save button switches to Save as local");
+  assert.equal(createBtn.dataset.i18n, "rag.save_local", "language switch keeps the external label");
+  assert.equal(dlBtn.hidden, false, "download button visible on external route");
+  assert.equal(extHint.hidden, false, "external hint visible");
+
+  await sandbox.ragSubmitCreate("download");
+  let saveCall = sandbox._apiCalls.filter((c) => c.url === "/api/rags/external/save").pop();
+  assert.equal(saveCall.responseType, "blob", "download asks for a blob");
+  const fd = saveCall.opts.body;
+  assert.ok(fd instanceof FakeFormData, "external save posts FormData");
+  assert.equal(fd.count("file"), 1);
+  assert.equal(fd.get("file"), extFile, "original file is sent back unchanged");
+  assert.equal(fd.get("destination"), "download");
+  const changes = JSON.parse(fd.get("changes"));
+  assert.equal(changes.entries.length, 2);
+  assert.deepEqual(
+    { type: changes.entries[0].media[0].type, existing: changes.entries[0].media[0].existing, entry_id: changes.entries[0].media[0].entry_id, hasB64: "base64" in changes.entries[0].media[0] },
+    { type: "image", existing: true, entry_id: 7, hasB64: false },
+    "existing media referenced by id without bytes",
+  );
+  assert.equal(createdURLs.length, 1);
+  assert.equal(createdURLs[0].revoked, true, "object URL revoked");
+  assert.equal(sandbox.document.body.children.length, 0, "download anchor removed");
+  assert.equal(ragState.externalFile, extFile, "draft retained after download");
+  assert.equal(ragState.entries.length, 2);
+  assert.equal(sandbox.location.pathname, "/rags/external", "no list navigation after download");
+
+  sandbox._failSave = true;
+  const toastBase = toasts.length;
+  await sandbox.ragSubmitCreate();
+  assert.equal(ragState.externalFile, extFile, "save failure keeps the draft");
+  assert.equal(ragState.entries.length, 2);
+  sandbox._failSave = false;
+  void toastBase;
+
+  await sandbox.ragSubmitCreate();
+  saveCall = sandbox._apiCalls.filter((c) => c.url === "/api/rags/external/save").pop();
+  assert.equal(saveCall.responseType, "json");
+  assert.equal(saveCall.opts.body.get("destination"), "local");
+  assert.equal(ragState.externalFile, null, "local save clears external state");
+  assert.equal(ragState.entries.length, 0);
+  assert.equal(sandbox.location.pathname, "/rags", "local save returns to the list");
+  assert.equal(dlBtn.hidden, true, "download button hidden after leaving external");
+  assert.equal(openBtn.disabled, false, "open button re-enabled after save-local");
+  assert.equal(els.get("rags-new-btn").disabled, false, "new button re-enabled after save-local");
+  assert.equal(els.get("rags-reload-btn").disabled, false, "reload button re-enabled after save-local");
+
+  sandbox.location.pathname = "/rags/external";
+  const refreshCount = sandbox._ragRefreshes || 0;
+  await ragEval("showRagsView()");
+  assert.equal(sandbox.location.pathname, "/rags", "external route without a source redirects to list");
+  assert.equal(sandbox._ragRefreshes, refreshCount + 1, "redirect lands on the list");
+
+  const staleFile = { name: "stale.db", size: 1 };
+  const openPromise = sandbox.ragOpenExternalFile(staleFile);
+  assert.equal(ragState.externalLoading, true);
+  sandbox.ragStartCreate();
+  await openPromise;
+  assert.equal(ragState.externalFile, null, "stale open cannot replace newer form state");
+  assert.equal(ragState.externalLoading, false);
+  assert.equal(ragState.entries.length, 1, "new form gets a fresh entry");
+  assert.equal(ragState.entries[0].id, 0, "external entry ids are not reused");
+  assert.equal(Object.keys(ragState.entries[0].media).length, 0, "external media refs are not reused");
+  assert.equal(els.get("rag-new-name").value, "", "name cleared when leaving external");
+
+  sandbox.location.pathname = "/rags";
+  const navOpen = sandbox.ragOpenExternalFile(extFile);
+  assert.equal(ragState.externalLoading, true);
+  sandbox.location.pathname = "/";
+  await navOpen;
+  assert.equal(ragState.externalFile, null, "navigation away drops a pending open");
+  assert.equal(ragState.externalLoading, false, "stale open still unlocks");
+  assert.equal(sandbox.location.pathname, "/", "stale open must not hijack the new view");
+
+  ragState.externalFile = extFile;
+  ragState.entries = [sandbox.ragNewEntry()];
+  ragState.entries[0].id = 7;
+  ragState.entries[0].media.image = { existing: true, entryID: 7 };
+  els.get("rag-new-name").value = "dirty name";
+  els.get("rag-new-desc").value = "dirty desc";
+  ragState.createPreferredModel = "stale-external-model";
+  sandbox.location.pathname = "/rags";
+  await ragEval("showRagsView()");
+  assert.equal(ragState.externalFile, null, "leaving external to the list clears the source");
+  assert.equal(ragState.entries.length, 0, "external entries cleared on leaving external");
+  assert.equal(els.get("rag-new-name").value, "", "list reset clears external name");
+  assert.equal(els.get("rag-new-desc").value, "", "list reset clears external description");
+  assert.notEqual(ragState.createPreferredModel, "stale-external-model", "list reset clears preferred model");
+
+  sandbox.currentConfig = { rag: { default_embedding: "embed-multimodal:latest" } };
+  sandbox.location.pathname = "/rags/new";
+  await ragEval("showRagsView()");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ragState.entries.length, 1, "new after external gets a fresh entry");
+  assert.equal(ragState.entries[0].id, 0, "new after external reuses no external id");
+  assert.equal(Object.keys(ragState.entries[0].media).length, 0, "new after external reuses no media");
+  ragState.entries[0].term = "n";
+  ragState.entries[0].content = "c";
+  els.get("rag-new-name").value = "Ordinary";
+  await sandbox.ragSubmitCreate();
+  assert.equal(sandbox.location.pathname, "/rags", "ordinary create navigates to the list");
+  assert.equal(openBtn.disabled, false, "open button re-enabled after ordinary create");
+  assert.equal(els.get("rags-new-btn").disabled, false, "new button re-enabled after ordinary create");
+  sandbox.currentConfig = {};
+
+  sandbox._failOpen = true;
+  toasts.length = 0;
+  await sandbox.ragOpenExternalFile(extFile);
+  assert.equal(ragState.externalFile, null);
+  assert.equal(ragState.externalLoading, false, "failed open unlocks");
+  assert.equal(toasts[0] && toasts[0].type, "error");
+  sandbox._failOpen = false;
+
+  ragState.externalFile = extFile;
+  els.get("rag-create-cancel-btn").dispatch("click", {});
+  assert.equal(ragState.externalFile, null, "cancel clears external state");
+  assert.equal(sandbox.location.pathname, "/rags");
+
+  const i18nSrc2 = readFileSync(join(web, "i18n.js"), "utf8");
+  for (const key of ["rag.open_external", "rag.save_local", "rag.download_edited", "rag.external_hint"]) {
+    assert.equal((i18nSrc2.match(new RegExp(`"${key.replace(".", "\\.")}"`, "g")) || []).length, 2, `EN+ES label ${key}`);
+  }
+}
+
+{
+  const apiSrc = readFileSync(join(web, "app-api.js"), "utf8");
+  const apiSandbox = {
+    console,
+    window: { location: { href: "" } },
+    fetchCalls: [],
+    reauths: 0,
+    _queue: [],
+    _enqueue(res) { this._queue.push(res); },
+    fetch: null,
+    promptInPlaceAuth: null,
+    Blob: FakeBlob,
+    FormData: FakeFormData,
+  };
+  apiSandbox.fetch = (path, opts) => {
+    apiSandbox.fetchCalls.push({ path, opts });
+    return Promise.resolve(apiSandbox._queue.shift());
+  };
+  apiSandbox.promptInPlaceAuth = () => {
+    apiSandbox.reauths++;
+    return Promise.resolve();
+  };
+  apiSandbox.globalThis = apiSandbox;
+  vm.createContext(apiSandbox);
+  vm.runInContext(apiSrc.slice(apiSrc.indexOf("async function api(")), apiSandbox, { filename: "app-api.js:api" });
+  const api = apiSandbox.api;
+  const mkRes = (o) => ({
+    ok: o.ok !== false,
+    status: o.status || 200,
+    statusText: o.statusText || "",
+    json: async () => (o.json !== undefined ? o.json : {}),
+    blob: async () => (o.blob !== undefined ? o.blob : new FakeBlob([])),
+  });
+  const blobOut = new FakeBlob(["db"]);
+
+  apiSandbox._enqueue(mkRes({ json: { hello: 1 } }));
+  assert.deepEqual(await api("/api/x"), { hello: 1 }, "default response stays JSON");
+
+  apiSandbox._enqueue(mkRes({ blob: blobOut }));
+  assert.equal(await api("/api/x", {}, "blob"), blobOut, "blob responseType returns res.blob()");
+
+  apiSandbox._enqueue(mkRes({ ok: false, status: 401 }));
+  apiSandbox._enqueue(mkRes({ blob: blobOut }));
+  const callsBefore = apiSandbox.fetchCalls.length;
+  assert.equal(await api("/api/x", {}, "blob"), blobOut, "401 re-auths and retries");
+  assert.equal(apiSandbox.reauths, 1);
+  assert.equal(apiSandbox.fetchCalls.length - callsBefore, 2, "401 triggers exactly one retried request");
+
+  apiSandbox._enqueue(mkRes({ ok: false, status: 502, statusText: "Bad Gateway", json: { error: "embed broke" } }));
+  await assert.rejects(() => api("/api/x", {}, "blob"), (e) => {
+    assert.equal(e.message, "embed broke");
+    assert.equal(e.status, 502, "blob errors keep the status");
+    return true;
+  });
 }
 
 assert.match(svgSrc, /if \(!isImageModel && typeof chatRagOptionPayload === "function"\)/);

@@ -26,6 +26,10 @@ const ragState = {
   chatListLoaded: false,
   chatImporting: false,
   pickerSelected: new Set(),
+  externalFile: null,
+  externalName: "",
+  externalLoading: false,
+  formGen: 0,
 };
 
 function ragEl(tag, cls, text) {
@@ -66,6 +70,7 @@ function ragMediaAllowed(mediaType, caps) {
 function ragSubview() {
   const p = window.location.pathname;
   if (p === "/rags/new") return "create";
+  if (p === "/rags/external") return "external";
   if (p.startsWith("/rags/") && p.length > 6) {
     let filename = decodeURIComponent(p.substring(6));
     if (filename.endsWith("/edit")) filename = filename.slice(0, -5);
@@ -75,7 +80,7 @@ function ragSubview() {
 }
 
 function ragIsFormView(sub) {
-  return sub === "create" || (sub && sub.view === "edit");
+  return sub === "create" || sub === "external" || (sub && sub.view === "edit");
 }
 
 function ragMediaPending() {
@@ -87,7 +92,7 @@ function ragContentPending() {
 }
 
 function ragBusy() {
-  return ragState.creating || ragMediaPending() || ragContentPending();
+  return ragState.creating || ragMediaPending() || ragContentPending() || ragState.externalLoading;
 }
 
 function ragSetCreateDisabled(disabled) {
@@ -96,7 +101,7 @@ function ragSetCreateDisabled(disabled) {
   box.querySelectorAll("input, select, textarea, button").forEach((el) => {
     el.disabled = disabled;
   });
-  for (const id of ["rags-new-btn", "rags-reload-btn", "rag-create-btn", "rag-create-cancel-btn"]) {
+  for (const id of ["rags-new-btn", "rags-reload-btn", "rag-create-btn", "rag-create-cancel-btn", "rags-open-file-btn", "rag-download-edited-btn"]) {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = disabled;
   }
@@ -155,13 +160,17 @@ async function showRagsView() {
   document.getElementById("rags-btn")?.classList.add("active");
   const view = document.getElementById("rags-view");
   if (view) view.hidden = false;
-  const sub = ragSubview();
+  let sub = ragSubview();
+  if (sub === "external" && !ragState.externalFile) {
+    history.replaceState(null, "", "/rags");
+    sub = "list";
+  }
   const createBox = document.getElementById("rag-create-box");
   const listWrap = document.getElementById("rags-list-wrap");
   const isForm = ragIsFormView(sub);
   if (createBox) createBox.hidden = !isForm;
   if (listWrap) listWrap.hidden = sub !== "list";
-  for (const id of ["rags-reload-btn", "rags-new-btn"]) {
+  for (const id of ["rags-reload-btn", "rags-new-btn", "rags-open-file-btn"]) {
     const el = document.getElementById(id);
     if (el) el.hidden = isForm;
   }
@@ -169,10 +178,33 @@ async function showRagsView() {
     const el = document.getElementById(id);
     if (el) el.hidden = !isForm;
   }
+  const dlBtn = document.getElementById("rag-download-edited-btn");
+  if (dlBtn) dlBtn.hidden = !(sub === "external" && ragState.externalFile);
+  const extHint = document.getElementById("rag-external-hint");
+  if (extHint) extHint.hidden = !(sub === "external" && ragState.externalFile);
   if (sub === "list") {
+    ++ragState.formGen;
+    if (ragState.externalFile || ragState.externalLoading) {
+      ragResetExternal();
+      ragState.entries = [];
+      ragState.activeEntry = 0;
+      ragState.editingFilename = "";
+      ragState.createPreferredModel = ragConfiguredDefault();
+      const nameIn = document.getElementById("rag-new-name");
+      const descIn = document.getElementById("rag-new-desc");
+      if (nameIn) nameIn.value = "";
+      if (descIn) descIn.value = "";
+      const meta = document.getElementById("rag-edit-meta");
+      if (meta) {
+        meta.textContent = "";
+        meta.hidden = true;
+      }
+    }
     void ragRefreshList();
   } else if (sub === "create") {
     ragStartCreate();
+  } else if (sub === "external") {
+    ragStartExternal();
   } else if (sub && sub.view === "edit") {
     void ragStartEdit(sub.filename);
   }
@@ -314,22 +346,32 @@ function ragGoToRequiredSettings() {
 }
 
 async function ragEnsureDefaultModel() {
+  const gen = ragState.formGen;
+  const path = location.pathname;
   const res = await ragLoadModels();
-  if (!res) return;
-  if (!ragState.editingFilename && !ragState.defaultEmbedding) {
+  if (!res || gen !== ragState.formGen || location.pathname !== path) return;
+  if (!ragState.editingFilename && !ragState.externalFile && !ragState.defaultEmbedding) {
     toast(t("rag.default_required"), "error");
     ragGoToRequiredSettings();
     return;
   }
   if (!ragState.createPreferredModel) {
-    ragState.createPreferredModel = ragState.editingFilename ? "" : ragState.defaultEmbedding;
+    ragState.createPreferredModel = ragState.editingFilename || ragState.externalFile ? "" : ragState.defaultEmbedding;
   }
   ragRebuildModelSelect();
   ragRenderEntries();
 }
 
+function ragResetExternal() {
+  ragState.externalFile = null;
+  ragState.externalName = "";
+  ragState.externalLoading = false;
+}
+
 function ragStartCreate() {
-  const wasEditing = !!ragState.editingFilename;
+  ++ragState.formGen;
+  const wasEditing = !!(ragState.editingFilename || ragState.externalFile || ragState.externalLoading);
+  ragResetExternal();
   ragState.editingFilename = "";
   ragState.createPreferredModel = ragConfiguredDefault();
   const meta = document.getElementById("rag-edit-meta");
@@ -337,7 +379,13 @@ function ragStartCreate() {
     meta.textContent = "";
     meta.hidden = true;
   }
-  if (wasEditing) ragState.entries = [];
+  if (wasEditing) {
+    ragState.entries = [];
+    const nameIn = document.getElementById("rag-new-name");
+    const descIn = document.getElementById("rag-new-desc");
+    if (nameIn) nameIn.value = "";
+    if (descIn) descIn.value = "";
+  }
   if (!ragState.entries.length) ragState.entries = [ragNewEntry()];
   if (!ragState.entries.some((e) => e.key === ragState.activeEntry)) {
     ragState.activeEntry = ragState.entries[0].key;
@@ -345,13 +393,69 @@ function ragStartCreate() {
   ragRebuildModelSelect();
   ragRenderEntries();
   const btn = document.getElementById("rag-create-btn");
-  if (btn) btn.textContent = t("rag.create_btn");
+  if (btn) {
+    btn.dataset.i18n = "rag.create_btn";
+    btn.textContent = t("rag.create_btn");
+  }
   void ragEnsureDefaultModel();
 }
 
+function ragApplyDetail(detail, displayFilename) {
+  const meta = document.getElementById("rag-edit-meta");
+  const nameIn = document.getElementById("rag-new-name");
+  const descIn = document.getElementById("rag-new-desc");
+  if (nameIn) nameIn.value = detail.meta && detail.meta.name || "";
+  if (descIn) descIn.value = detail.meta && detail.meta.description || "";
+  if (meta) {
+    const created = Number(detail.meta && detail.meta.created_at) || 0;
+    const updated = Number(detail.meta && detail.meta.updated_at) || created;
+    meta.textContent = [
+      displayFilename,
+      fmtBytes(Number(detail.size_bytes) || 0),
+      t("rag.meta_created", { date: created ? ragFmtDate(created) : "—" }),
+      t("rag.meta_updated", { date: updated ? ragFmtDate(updated) : "—" }),
+    ].join(" · ");
+    meta.hidden = false;
+  }
+  ragState.createPreferredModel = detail.meta && detail.meta.embedding_model || "";
+  ragState.entries = (detail.entries || []).map((e) => {
+    const entry = {
+      key: ++ragState.entrySeq,
+      id: Number(e.id) || 0,
+      term: e.term || "",
+      content: e.content || "",
+      inputMode: e.input_mode || "combined",
+      createdAt: Number(e.created_at) || 0,
+      updatedAt: Number(e.updated_at) || 0,
+      media: {},
+      mediaPending: false,
+      mediaError: "",
+    };
+    for (const m of e.media || []) {
+      entry.media[m.type] = {
+        type: m.type,
+        name: m.name || m.type,
+        mime: m.mime || "",
+        size: m.size || 0,
+        existing: true,
+        entryID: e.id,
+        previewBase64: m.base64 || "",
+      };
+    }
+    return entry;
+  });
+  ragState.activeEntry = ragState.entries[0] ? ragState.entries[0].key : 0;
+}
+
 async function ragStartEdit(filename) {
+  const gen = ++ragState.formGen;
+  const originPath = window.location.pathname;
+  ragResetExternal();
   const btn = document.getElementById("rag-create-btn");
-  if (btn) btn.textContent = t("rag.save_btn");
+  if (btn) {
+    btn.dataset.i18n = "rag.save_btn";
+    btn.textContent = t("rag.save_btn");
+  }
   ragState.editingFilename = filename;
   ragState.createPreferredModel = "";
   ragState.entries = [];
@@ -365,56 +469,68 @@ async function ragStartEdit(filename) {
   }
   try {
     const detail = await api("/api/rags/" + encodeURIComponent(filename));
-    const nameIn = document.getElementById("rag-new-name");
-    const descIn = document.getElementById("rag-new-desc");
-    if (nameIn) nameIn.value = detail.meta && detail.meta.name || "";
-    if (descIn) descIn.value = detail.meta && detail.meta.description || "";
-    if (meta) {
-      const created = Number(detail.meta && detail.meta.created_at) || 0;
-      const updated = Number(detail.meta && detail.meta.updated_at) || created;
-      meta.textContent = [
-        filename,
-        fmtBytes(Number(detail.size_bytes) || 0),
-        t("rag.meta_created", { date: created ? ragFmtDate(created) : "—" }),
-        t("rag.meta_updated", { date: updated ? ragFmtDate(updated) : "—" }),
-      ].join(" · ");
-      meta.hidden = false;
-    }
-    ragState.createPreferredModel = detail.meta && detail.meta.embedding_model || "";
-    ragState.entries = (detail.entries || []).map((e) => {
-      const entry = {
-        key: ++ragState.entrySeq,
-        id: Number(e.id) || 0,
-        term: e.term || "",
-        content: e.content || "",
-        inputMode: e.input_mode || "combined",
-        createdAt: Number(e.created_at) || 0,
-        updatedAt: Number(e.updated_at) || 0,
-        media: {},
-        mediaPending: false,
-        mediaError: "",
-      };
-      for (const m of e.media || []) {
-        entry.media[m.type] = {
-          type: m.type,
-          name: m.name || m.type,
-          mime: m.mime || "",
-          size: m.size || 0,
-          existing: true,
-          entryID: e.id,
-        };
-      }
-      return entry;
-    });
-    ragState.activeEntry = ragState.entries[0] ? ragState.entries[0].key : 0;
+    if (gen !== ragState.formGen || window.location.pathname !== originPath) return;
+    ragApplyDetail(detail, filename);
     ragSetCreateError("");
     await ragLoadModels();
+    if (gen !== ragState.formGen || window.location.pathname !== originPath) return;
     ragRebuildModelSelect();
     ragRenderEntries();
   } catch (e) {
-    ragSetCreateError(String(e && e.message ? e.message : e));
+    if (gen === ragState.formGen && window.location.pathname === originPath) {
+      ragSetCreateError(String(e && e.message ? e.message : e));
+    }
   } finally {
-    ragSetCreateDisabled(false);
+    if (gen === ragState.formGen) ragSetCreateDisabled(false);
+  }
+}
+
+function ragStartExternal() {
+  ragState.editingFilename = "";
+  const btn = document.getElementById("rag-create-btn");
+  if (btn) {
+    btn.dataset.i18n = "rag.save_local";
+    btn.textContent = t("rag.save_local");
+  }
+  ragRebuildModelSelect();
+  ragRenderEntries();
+}
+
+async function ragOpenExternalFile(file) {
+  if (!file || ragBusy()) return;
+  if (!ragSafeFilename(file.name)) {
+    toast(t("rag.import_bad_file"), "error");
+    return;
+  }
+  const gen = ++ragState.formGen;
+  const originPath = window.location.pathname;
+  ragState.externalLoading = true;
+  ragSetCreateDisabled(true);
+  try {
+    const detail = await api("/api/rags/external/open?name=" + encodeURIComponent(file.name), {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+    if (gen !== ragState.formGen || window.location.pathname !== originPath) return;
+    ragState.externalFile = file;
+    ragState.externalName = file.name;
+    ragState.editingFilename = "";
+    ragApplyDetail(detail, file.name);
+    ragSetCreateError("");
+    await ragLoadModels();
+    if (gen !== ragState.formGen || window.location.pathname !== originPath) return;
+    ragRebuildModelSelect();
+    ragNav("/rags/external");
+  } catch (e) {
+    if (gen === ragState.formGen && window.location.pathname === originPath) {
+      toast(String(e && e.message ? e.message : e), "error");
+    }
+  } finally {
+    if (gen === ragState.formGen) {
+      ragState.externalLoading = false;
+      ragSetCreateDisabled(ragBusy());
+    }
   }
 }
 
@@ -451,7 +567,7 @@ function ragRebuildModelSelect() {
     if (!ragState.modelsLoading && !ragState.modelsError && !ragState.models.length) {
       hint.appendChild(ragEl("div", "form-hint", t("rag.no_embedding_models")));
     }
-    if (!ragState.editingFilename && ragState.defaultEmbedding) {
+    if (!ragState.editingFilename && !ragState.externalFile && ragState.defaultEmbedding) {
       hint.appendChild(ragEl("div", "form-hint", t("rag.default_model_hint", { model: ragState.defaultEmbedding })));
     }
   }
@@ -484,6 +600,9 @@ function ragSetActiveEntry(key) {
 }
 
 function ragMediaDataURL(media) {
+  if (media.previewBase64) {
+    return "data:" + (media.mime || "application/octet-stream") + ";base64," + media.previewBase64;
+  }
   if (media.base64) {
     return "data:" + (media.mime || "application/octet-stream") + ";base64," + media.base64;
   }
@@ -867,7 +986,7 @@ function ragSetCreateError(msg) {
   st.hidden = !msg;
 }
 
-async function ragSubmitCreate() {
+async function ragSubmitCreate(destination = "local") {
   if (ragBusy()) {
     if (ragMediaPending() || ragContentPending()) ragSetCreateError(t("rag.file_pending"));
     return;
@@ -920,32 +1039,65 @@ async function ragSubmitCreate() {
   ragSetCreateDisabled(true);
   const btn = document.getElementById("rag-create-btn");
   const editing = ragState.editingFilename;
-  if (btn) btn.textContent = editing ? t("rag.saving") : t("rag.generating");
+  const external = !!ragState.externalFile;
+  if (btn) btn.textContent = editing || external ? t("rag.saving") : t("rag.generating");
   try {
-    await api(editing ? "/api/rags/" + encodeURIComponent(editing) : "/api/rags", {
-      method: editing ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    if (external && destination === "download") {
+      const fd = new FormData();
+      fd.append("file", ragState.externalFile);
+      fd.append("changes", JSON.stringify(payload));
+      fd.append("destination", "download");
+      const blob = await api("/api/rags/external/save", { method: "POST", body: fd }, "blob");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = ragState.externalName || "rag.db";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      toast(t("rag.downloaded"), "success");
+      return;
+    }
+    let toastKey = editing ? "rag.updated" : "rag.created";
+    let toastName = name;
+    if (external) {
+      const fd = new FormData();
+      fd.append("file", ragState.externalFile);
+      fd.append("changes", JSON.stringify(payload));
+      fd.append("destination", "local");
+      const res = await api("/api/rags/external/save", { method: "POST", body: fd });
+      toastKey = "rag.saved_local";
+      toastName = (res && res.rag && res.rag.name) || name;
+    } else {
+      await api(editing ? "/api/rags/" + encodeURIComponent(editing) : "/api/rags", {
+        method: editing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
     ragState.entries = [];
     ragState.activeEntry = 0;
     ragState.editingFilename = "";
     ragState.createPreferredModel = "";
+    ragResetExternal();
     const nameIn = document.getElementById("rag-new-name");
     const descIn = document.getElementById("rag-new-desc");
     if (nameIn) nameIn.value = "";
     if (descIn) descIn.value = "";
-    toast(t(editing ? "rag.updated" : "rag.created", { name }), "success");
-    ragState.creating = false;
-    if (btn) btn.textContent = t("rag.create_btn");
+    toast(t(toastKey, { name: toastName }), "success");
     ragNav("/rags");
     return;
   } catch (e) {
     ragSetCreateError(String(e && e.message ? e.message : e));
   } finally {
     ragState.creating = false;
-    if (btn) btn.textContent = editing ? t("rag.save_btn") : t("rag.create_btn");
-    if (ragIsFormView(ragSubview())) ragSetCreateDisabled(ragBusy());
+    if (btn) {
+      const key = ragState.externalFile ? "rag.save_local" : ragState.editingFilename ? "rag.save_btn" : "rag.create_btn";
+      btn.dataset.i18n = key;
+      btn.textContent = t(key);
+    }
+    ragSetCreateDisabled(ragBusy());
   }
 }
 
@@ -1484,8 +1636,22 @@ document.getElementById("rags-back-btn")?.addEventListener("click", () => {
 });
 document.getElementById("rags-reload-btn")?.addEventListener("click", () => void ragRefreshList());
 document.getElementById("rags-new-btn")?.addEventListener("click", () => ragNav("/rags/new"));
+document.getElementById("rags-open-file-btn")?.addEventListener("click", () => {
+  if (ragBusy()) return;
+  document.getElementById("rags-external-file-input")?.click();
+});
+document.getElementById("rags-external-file-input")?.addEventListener("change", (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  ev.target.value = "";
+  void ragOpenExternalFile(f);
+});
+document.getElementById("rag-download-edited-btn")?.addEventListener("click", () => {
+  void ragSubmitCreate("download");
+});
 document.getElementById("rag-create-cancel-btn")?.addEventListener("click", () => {
   if (ragBusy()) return;
+  ++ragState.formGen;
+  ragResetExternal();
   ragState.entries = [];
   ragState.activeEntry = 0;
   ragState.editingFilename = "";

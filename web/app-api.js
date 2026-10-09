@@ -74,7 +74,7 @@ function promptInPlaceAuth() {
 }
 
 // ---------- API ----------
-async function api(path, opts = {}) {
+async function api(path, opts = {}, responseType = "json") {
   const reqOpts = { credentials: "same-origin", ...opts };
   if (reqOpts.body && typeof reqOpts.body === "object" && !(reqOpts.body instanceof FormData) && !(reqOpts.body instanceof Blob) && !(reqOpts.body instanceof ArrayBuffer)) {
     reqOpts.headers = { "Content-Type": "application/json", ...reqOpts.headers };
@@ -102,6 +102,6 @@ async function api(path, opts = {}) {
     // and therefore not a reliable thing to branch on.
     throw Object.assign(new Error(err), { status: res.status });
   }
-  return res.json();
+  return responseType === "blob" ? res.blob() : res.json();
 }
 

@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -952,6 +954,8 @@ func TestRAGRoutesRequireAuth(t *testing.T) {
 		{http.MethodGet, "/api/rags/x.db"},
 		{http.MethodGet, "/api/rags/x.db/download"},
 		{http.MethodGet, "/api/rags/x.db/media/1/image"},
+		{http.MethodPost, "/api/rags/external/open"},
+		{http.MethodPost, "/api/rags/external/save"},
 		{http.MethodPut, "/api/rags/x.db"},
 		{http.MethodDelete, "/api/rags/x.db"},
 	} {
@@ -992,6 +996,472 @@ func TestRAGPatchSaveFailureRollback(t *testing.T) {
 	srv.cfgMu.RUnlock()
 	if got != "embed-model:latest" {
 		t.Fatalf("in-memory default_embedding = %q, want rolled back", got)
+	}
+}
+
+var externalPNG = []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0x49, 0x48, 0x44, 0x52}
+
+func makeExternalDB(t *testing.T) []byte {
+	t.Helper()
+	return makeExternalDBWith(t, []ragpkg.Entry{
+		{Term: "alpha", Content: "first", InputMode: "combined",
+			CreatedAt: 1000, UpdatedAt: 1000, Embedding: []float64{1, 2, 3},
+			Media: []ragpkg.Media{{Type: "image", Name: "logo.png", MIME: "image/png", Data: externalPNG}}},
+		{Term: "beta", Content: "second", InputMode: "combined",
+			CreatedAt: 2000, UpdatedAt: 2000, Embedding: []float64{4, 5, 6}},
+	})
+}
+
+func makeExternalDBWith(t *testing.T, entries []ragpkg.Entry) []byte {
+	t.Helper()
+	dir := t.TempDir()
+	_, filename, err := ragpkg.Create(context.Background(), dir, ragpkg.Meta{
+		Name: "External Base", EmbeddingModel: "embed-multimodal:latest",
+		EmbeddingDigest: "sha256:ext", Dimensions: 3,
+	}, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func ragExternalOpenCall(t *testing.T, srv *Server, name string, raw []byte) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/rags/external/open?name="+url.QueryEscape(name), bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	var out map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &out)
+	return rr.Code, out
+}
+
+func ragExternalSaveRaw(t *testing.T, srv *Server, filename string, dbBytes []byte, changes string, destination string, extra func(w *multipart.Writer)) (int, http.Header, []byte) {
+	t.Helper()
+	var buf bytes.Buffer
+	wr := multipart.NewWriter(&buf)
+	if dbBytes != nil {
+		fw, err := wr.CreateFormFile("file", filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fw.Write(dbBytes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if changes != "" {
+		if err := wr.WriteField("changes", changes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if destination != "" {
+		if err := wr.WriteField("destination", destination); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if extra != nil {
+		extra(wr)
+	}
+	if err := wr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/rags/external/save", &buf)
+	req.Header.Set("Content-Type", wr.FormDataContentType())
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	return rr.Code, rr.Header(), rr.Body.Bytes()
+}
+
+func ragExternalSave(t *testing.T, srv *Server, filename string, dbBytes []byte, changes any, destination string) (int, http.Header, []byte) {
+	t.Helper()
+	raw, _ := json.Marshal(changes)
+	return ragExternalSaveRaw(t, srv, filename, dbBytes, string(raw), destination, nil)
+}
+
+func readRAGFromBytes(t *testing.T, raw []byte) *ragpkg.Detail {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "check.db")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := ragpkg.Get(dir, "check.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func TestRAGExternalOpen(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+
+	raw := makeExternalDB(t)
+	code, det := ragExternalOpenCall(t, srv, "external.db", raw)
+	if code != http.StatusOK {
+		t.Fatalf("open status = %d, body = %v", code, det)
+	}
+	meta, _ := det["meta"].(map[string]any)
+	if meta["name"] != "External Base" || meta["embedding_model"] != "embed-multimodal:latest" {
+		t.Fatalf("meta = %v", meta)
+	}
+	entries, _ := det["entries"].([]any)
+	if len(entries) != 2 {
+		t.Fatalf("entries = %v", det)
+	}
+	first := entries[0].(map[string]any)
+	media, _ := first["media"].([]any)
+	if len(media) != 1 {
+		t.Fatalf("media = %v", first)
+	}
+	m := media[0].(map[string]any)
+	if m["type"] != "image" || m["base64"] != base64.StdEncoding.EncodeToString(externalPNG) {
+		t.Fatalf("external media = %v", m)
+	}
+	if got := countDBFiles(t, dir); len(got) != 0 {
+		t.Fatalf("external open leaked files into managed dir: %v", got)
+	}
+
+	if code, _ := ragExternalOpenCall(t, srv, "x.txt", raw); code != http.StatusBadRequest {
+		t.Fatalf("bad name status = %d, want 400", code)
+	}
+	if code, _ := ragExternalOpenCall(t, srv, "broken.db", []byte("not sqlite")); code != http.StatusBadRequest {
+		t.Fatalf("broken status = %d, want 400", code)
+	}
+	if code, _ := ragExternalOpenCall(t, srv, "empty.db", nil); code != http.StatusBadRequest {
+		t.Fatalf("empty status = %d, want 400", code)
+	}
+	if got := countDBFiles(t, dir); len(got) != 0 {
+		t.Fatalf("failed opens leaked files: %v", got)
+	}
+}
+
+func TestRAGExternalSaveDownload(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+
+	raw := makeExternalDB(t)
+	origCopy := append([]byte(nil), raw...)
+	code, det := ragExternalOpenCall(t, srv, "external.db", raw)
+	if code != http.StatusOK {
+		t.Fatalf("open status = %d", code)
+	}
+	metaID := det["meta"].(map[string]any)["id"]
+	metaCreated := det["meta"].(map[string]any)["created_at"]
+	entries, _ := det["entries"].([]any)
+	e1 := entries[0].(map[string]any)
+	entryID := int64(e1["id"].(float64))
+	entry2ID := int64(entries[1].(map[string]any)["id"].(float64))
+
+	changes := map[string]any{
+		"name":            "External edited",
+		"embedding_model": "embed-multimodal:latest",
+		"entries": []any{
+			map[string]any{
+				"id": entryID, "term": "alpha2", "content": "edited content", "input_mode": "combined",
+				"media": []any{map[string]any{"type": "image", "entry_id": entryID, "existing": true}},
+			},
+			map[string]any{"id": entry2ID, "term": "beta", "content": "second", "input_mode": "combined"},
+			map[string]any{"term": "gamma", "content": "new entry"},
+		},
+	}
+	code, headers, body := ragExternalSave(t, srv, "external.db", raw, changes, "download")
+	if code != http.StatusOK {
+		t.Fatalf("download status = %d, body = %s", code, body)
+	}
+	if headers.Get("Content-Type") != "application/vnd.sqlite3" ||
+		!strings.Contains(headers.Get("Content-Disposition"), "external.db") {
+		t.Fatalf("download headers = %v", headers)
+	}
+	out := readRAGFromBytes(t, body)
+	if out.Meta.ID != metaID || out.Meta.CreatedAt != int64(metaCreated.(float64)) {
+		t.Fatalf("meta not preserved: %+v", out.Meta)
+	}
+	if len(out.Entries) != 3 {
+		t.Fatalf("entries = %+v", out.Entries)
+	}
+	got := out.Entries[0]
+	if got.Term != "alpha2" || got.Content != "edited content" || got.ID == 0 {
+		t.Fatalf("edited entry = %+v", got)
+	}
+	if got.CreatedAt != 1000 || got.UpdatedAt <= 2000 {
+		t.Fatalf("edited entry timestamps = %v/%v", got.CreatedAt, got.UpdatedAt)
+	}
+	if kept := out.Entries[1]; kept.Term != "beta" || kept.CreatedAt != 2000 || kept.UpdatedAt != 2000 {
+		t.Fatalf("unchanged entry timestamps mutated: %+v", kept)
+	}
+	if len(got.Media) != 1 || got.Media[0].Type != "image" {
+		t.Fatalf("media refs = %+v", got.Media)
+	}
+	stored, err := ragpkg.MediaAt(filepath.Dir(mustWriteTemp(t, body)), "x.db", got.ID, "image")
+	if err != nil || !bytes.Equal(stored.Data, externalPNG) {
+		t.Fatalf("media bytes = %v %v", stored, err)
+	}
+	if len(fake.recordedEmbeds()) != 3 {
+		t.Fatalf("embeds = %v", fake.recordedEmbeds())
+	}
+	if got := countDBFiles(t, dir); len(got) != 0 {
+		t.Fatalf("download leaked managed files: %v", got)
+	}
+	if !bytes.Equal(raw, origCopy) {
+		t.Fatal("source bytes mutated")
+	}
+}
+
+func TestRAGExternalSaveDownloadLargeChanges(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+
+	raw := makeExternalDB(t)
+	changes := `{"name":"big","embedding_model":"embed-multimodal:latest","entries":[{"term":"t","content":"c"}]}` +
+		strings.Repeat(" ", 19<<20)
+	code, _, body := ragExternalSaveRaw(t, srv, "external.db", raw, changes, "download", nil)
+	if code != http.StatusOK {
+		t.Fatalf("19MiB changes download status = %d, body = %.200s", code, body)
+	}
+	out := readRAGFromBytes(t, body)
+	if len(out.Entries) != 1 || out.Entries[0].Term != "t" {
+		t.Fatalf("entries = %+v", out.Entries)
+	}
+	if files := countDBFiles(t, dir); len(files) != 0 {
+		t.Fatalf("download leaked managed files %v", files)
+	}
+}
+
+func mustWriteTemp(t *testing.T, raw []byte) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.db")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRAGExternalSaveLocal(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+
+	raw := makeExternalDB(t)
+	origCopy := append([]byte(nil), raw...)
+	code, det := ragExternalOpenCall(t, srv, "external.db", raw)
+	if code != http.StatusOK {
+		t.Fatalf("open status = %d", code)
+	}
+	entryID := int64(det["entries"].([]any)[0].(map[string]any)["id"].(float64))
+	changes := map[string]any{
+		"name":            "External local",
+		"embedding_model": "embed-multimodal:latest",
+		"entries": []any{map[string]any{
+			"id": entryID, "term": "alpha2", "content": "edited", "input_mode": "combined",
+			"media": []any{map[string]any{"type": "image", "entry_id": entryID, "existing": true}},
+		}},
+	}
+	var firstFile string
+	for i := 0; i < 2; i++ {
+		code, headers, body := ragExternalSave(t, srv, "external.db", raw, changes, "local")
+		if code != http.StatusCreated {
+			t.Fatalf("save local %d status = %d, body = %s", i, code, body)
+		}
+		var out map[string]any
+		_ = json.Unmarshal(body, &out)
+		_ = headers
+		info, _ := out["rag"].(map[string]any)
+		fn, _ := info["filename"].(string)
+		if !ragpkg.ValidFilename(fn) || fn == "external.db" {
+			t.Fatalf("imported filename %q", fn)
+		}
+		if i == 0 {
+			firstFile = fn
+		} else if fn == firstFile {
+			t.Fatalf("second save overwrote %q", fn)
+		}
+	}
+	files := countDBFiles(t, dir)
+	if len(files) != 2 {
+		t.Fatalf("managed files = %v", files)
+	}
+	stored, err := ragpkg.Get(dir, firstFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Meta.Name != "External local" || len(stored.Entries) != 1 || stored.Entries[0].Term != "alpha2" {
+		t.Fatalf("stored = %+v", stored.Meta)
+	}
+	media, err := ragpkg.MediaAt(dir, firstFile, stored.Entries[0].ID, "image")
+	if err != nil || !bytes.Equal(media.Data, externalPNG) {
+		t.Fatalf("stored media = %v %v", media, err)
+	}
+	if !bytes.Equal(raw, origCopy) {
+		t.Fatal("source bytes mutated")
+	}
+}
+
+func TestRAGExternalSaveValidation(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+
+	raw := makeExternalDB(t)
+	code, det := ragExternalOpenCall(t, srv, "external.db", raw)
+	if code != http.StatusOK {
+		t.Fatalf("open status = %d", code)
+	}
+	entryID := int64(det["entries"].([]any)[0].(map[string]any)["id"].(float64))
+	valid := map[string]any{
+		"name":            "ok",
+		"embedding_model": "embed-multimodal:latest",
+		"entries":         []any{map[string]any{"id": entryID, "term": "t", "content": "c"}},
+	}
+	validJSON, _ := json.Marshal(valid)
+
+	cases := []struct {
+		name string
+		call func() (int, http.Header, []byte)
+	}{
+		{"bad destination", func() (int, http.Header, []byte) {
+			return ragExternalSave(t, srv, "external.db", raw, valid, "nowhere")
+		}},
+		{"missing file", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", nil, string(validJSON), "local", nil)
+		}},
+		{"missing changes", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", raw, "", "local", nil)
+		}},
+		{"missing destination", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", raw, string(validJSON), "", nil)
+		}},
+		{"duplicate destination", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", raw, string(validJSON), "local", func(w *multipart.Writer) {
+				_ = w.WriteField("destination", "download")
+			})
+		}},
+		{"extra field", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", raw, string(validJSON), "local", func(w *multipart.Writer) {
+				_ = w.WriteField("extra", "x")
+			})
+		}},
+		{"malformed changes", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", raw, "{not json", "local", nil)
+		}},
+		{"trailing json", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", raw, string(validJSON)+" {}", "local", nil)
+		}},
+		{"unknown entry id", func() (int, http.Header, []byte) {
+			bad := map[string]any{"name": "x", "embedding_model": "embed-multimodal:latest",
+				"entries": []any{map[string]any{"id": 9999, "term": "t", "content": "c"}}}
+			return ragExternalSave(t, srv, "external.db", raw, bad, "local")
+		}},
+		{"unknown media ref", func() (int, http.Header, []byte) {
+			bad := map[string]any{"name": "x", "embedding_model": "embed-multimodal:latest",
+				"entries": []any{map[string]any{"id": entryID, "term": "t", "content": "c",
+					"media": []any{map[string]any{"type": "image", "entry_id": 9999, "existing": true}}}}}
+			return ragExternalSave(t, srv, "external.db", raw, bad, "local")
+		}},
+		{"bad filename", func() (int, http.Header, []byte) {
+			return ragExternalSave(t, srv, "x.txt", raw, valid, "local")
+		}},
+		{"not a db", func() (int, http.Header, []byte) {
+			return ragExternalSave(t, srv, "external.db", []byte("junk"), valid, "local")
+		}},
+		{"changes too large", func() (int, http.Header, []byte) {
+			return ragExternalSaveRaw(t, srv, "external.db", raw, strings.Repeat(" ", ragMaxBody+1), "local", nil)
+		}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			before := len(fake.recordedEmbeds())
+			code, _, body := tt.call()
+			if code != http.StatusBadRequest && code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("status = %d, body = %s", code, body)
+			}
+			if len(fake.recordedEmbeds()) != before {
+				t.Fatalf("embed ran on invalid request")
+			}
+			if files := countDBFiles(t, dir); len(files) != 0 {
+				t.Fatalf("failure left managed files %v", files)
+			}
+		})
+	}
+}
+
+func TestRAGExternalOpenLimits(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+
+	many := make([]ragpkg.Entry, ragMaxEntries+1)
+	for i := range many {
+		many[i] = ragpkg.Entry{Term: "t", Content: "c", InputMode: "combined", Embedding: []float64{1, 2, 3}}
+	}
+	if code, out := ragExternalOpenCall(t, srv, "many.db", makeExternalDBWith(t, many)); code != http.StatusBadRequest {
+		t.Fatalf("101 entries status = %d, body = %v", code, out)
+	}
+
+	bigMedia := make([]byte, ragMaxMediaBytes+1)
+	copy(bigMedia, externalPNG)
+	code, out := ragExternalOpenCall(t, srv, "big.db", makeExternalDBWith(t, []ragpkg.Entry{
+		{Term: "t", Content: "c", InputMode: "combined", Embedding: []float64{1, 2, 3},
+			Media: []ragpkg.Media{{Type: "image", Name: "big.png", MIME: "image/png", Data: bigMedia}}},
+	}))
+	if code != http.StatusBadRequest {
+		t.Fatalf("oversized media status = %d, body = %v", code, out)
+	}
+
+	full := make([]byte, ragMaxMediaBytes)
+	copy(full, externalPNG)
+	code, out = ragExternalOpenCall(t, srv, "total.db", makeExternalDBWith(t, []ragpkg.Entry{
+		{Term: "a", Content: "c", InputMode: "combined", Embedding: []float64{1, 2, 3},
+			Media: []ragpkg.Media{{Type: "image", Name: "a.png", MIME: "image/png", Data: full}}},
+		{Term: "b", Content: "c", InputMode: "combined", Embedding: []float64{1, 2, 3},
+			Media: []ragpkg.Media{{Type: "image", Name: "b.png", MIME: "image/png", Data: full}}},
+		{Term: "c", Content: "c", InputMode: "combined", Embedding: []float64{1, 2, 3},
+			Media: []ragpkg.Media{{Type: "image", Name: "c.png", MIME: "image/png", Data: []byte{0}}}},
+	}))
+	if code != http.StatusBadRequest {
+		t.Fatalf("oversized total media status = %d, body = %v", code, out)
+	}
+	if errStr, _ := out["error"].(string); !strings.Contains(errStr, "in total") {
+		t.Fatalf("expected total-media error, got %v", out)
+	}
+	if files := countDBFiles(t, dir); len(files) != 0 {
+		t.Fatalf("limit rejections leaked files %v", files)
+	}
+}
+
+func TestRAGExternalSaveModelFailure(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+
+	raw := makeExternalDB(t)
+	fake.failAt = 1
+	changes := map[string]any{
+		"name":            "x",
+		"embedding_model": "embed-multimodal:latest",
+		"entries":         []any{map[string]any{"term": "t", "content": "c"}},
+	}
+	code, _, _ := ragExternalSave(t, srv, "external.db", raw, changes, "download")
+	if code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", code)
+	}
+	if files := countDBFiles(t, dir); len(files) != 0 {
+		t.Fatalf("failure left files %v", files)
 	}
 }
 

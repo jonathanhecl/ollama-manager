@@ -549,7 +549,10 @@
       </div>
       <div class="tests-head-actions">
         <button type="button" id="rag-create-cancel-btn" class="ghost" data-i18n="rag.back_to_list" hidden>Back to list</button>
+        <button type="button" id="rag-download-edited-btn" class="ghost" data-i18n="rag.download_edited" hidden>Download edited</button>
         <button type="button" id="rag-create-btn" class="primary" data-i18n="rag.create_btn" hidden>Create Base</button>
+        <button id="rags-open-file-btn" class="ghost" data-i18n="rag.open_external">Open external RAG…</button>
+        <input type="file" id="rags-external-file-input" accept=".db" hidden>
         <button id="rags-reload-btn" class="ghost" data-i18n="rag.reload">Reload</button>
         <button id="rags-new-btn" class="primary" data-i18n="rag.new">New Base</button>
       </div>
@@ -573,6 +576,7 @@
             <input type="text" id="rag-new-desc" autocomplete="off">
           </div>
           <div id="rag-edit-meta" class="rag-edit-meta mono" hidden></div>
+          <p id="rag-external-hint" class="form-hint" data-i18n="rag.external_hint" hidden></p>
           <div class="rag-divider">
             <h4><span data-i18n="rag.entries_title">Entries</span> <span id="rag-entry-count" class="muted"></span></h4>
             <button type="button" id="rag-add-entry-btn" class="ghost small" data-i18n="rag.add_entry">+ Entry</button>

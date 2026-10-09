@@ -70,10 +70,11 @@ type Info struct {
 }
 
 type MediaView struct {
-	Type string `json:"type"`
-	Name string `json:"name"`
-	MIME string `json:"mime"`
-	Size int64  `json:"size"`
+	Type   string `json:"type"`
+	Name   string `json:"name"`
+	MIME   string `json:"mime"`
+	Size   int64  `json:"size"`
+	Base64 string `json:"base64,omitempty"`
 }
 
 type EntryView struct {

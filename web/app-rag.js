@@ -1096,7 +1096,12 @@ function chatRagSetEnabled(enabled, saveModelOptions = true) {
   chatRagEnabled = next;
   if (!next) chatRagPaths = [];
   chatRagCommit(true, saveModelOptions);
-  if (next) void chatRagValidateSelection(false);
+  if (next) {
+    requestAnimationFrame(() => {
+      document.getElementById("chat-rag-panel")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    void chatRagValidateSelection(false);
+  }
 }
 
 function chatRagApplyOptions(opts) {

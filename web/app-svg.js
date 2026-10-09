@@ -3373,6 +3373,7 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isScreenshot = e.name === "take_artifact_screenshot";
   const isEval = e.name === "eval_artifact_js";
   const isComfy = e.name === "run_comfy_workflow";
+  const isRag = e.name === "rag_search";
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
@@ -3383,7 +3384,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
                 : isScreenshot ? t("chat.tool.take_artifact_screenshot")
                   : isEval ? t("chat.tool.eval_artifact_js")
                     : isComfy ? t("chat.tool.run_comfy_workflow")
-                      : escapeHtml(e.name);
+                      : isRag ? t("chat.tool.rag_search")
+                        : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -3406,6 +3408,11 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     if (timestamp) {
       d += ` <span class="chat-tool-runes mono" style="margin-left: 8px;">[folder: ${timestamp}]</span>`;
     }
+    detailHtml = `<div class="chat-tool-detail">${d}</div>`;
+  } else if (isRag && (e.query || e.path)) {
+    const ragName = (typeof chatRagInfo === "function" && chatRagInfo(e.path)?.name) || e.path;
+    let d = `<strong>${escapeHtml(ragName)}</strong>`;
+    if (e.query) d += `${d ? " · " : ""}<span class="muted">${escapeHtml(e.query)}</span>`;
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   } else if (isComfy && (e.workflow || e.prompt)) {
     // The workflow name leads because that is what tells the user which of their
@@ -5465,6 +5472,8 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
     assistantMsg._accRaw = ctx.raw;
     updateStreamBar();
     scheduleRenderChatMessages();
+  } else if (event === "warning") {
+    toast(t("rag.chat_warning", { msg: data?.message || "" }), "error");
   } else if (event === "error") {
     throw new Error(data?.error || "stream error");
   } else if (event === "done") {
@@ -5666,6 +5675,13 @@ async function runChatRequest(assistantMsg) {
           }
         }
       }
+    }
+  }
+  if (!isImageModel && typeof chatRagOptionPayload === "function") {
+    const ragOpts = chatRagOptionPayload();
+    if (ragOpts.rag_enabled) {
+      payload.rag_enabled = true;
+      payload.rag_paths = ragOpts.rag_paths;
     }
   }
 

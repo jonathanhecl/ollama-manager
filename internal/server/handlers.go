@@ -2415,8 +2415,10 @@ type chatRequestBody struct {
 	// Comfy turns on the ComfyUI tool, and ComfyWorkflow names the workflow a
 	// bare call should use. Both are independent of Artifacts and WebTools: a
 	// plain vision chat can generate images without an artifact workspace.
-	Comfy         *bool  `json:"comfy,omitempty"`
-	ComfyWorkflow string `json:"comfy_workflow,omitempty"`
+	Comfy         *bool    `json:"comfy,omitempty"`
+	ComfyWorkflow string   `json:"comfy_workflow,omitempty"`
+	RAGEnabled    bool     `json:"rag_enabled,omitempty"`
+	RAGPaths      []string `json:"rag_paths,omitempty"`
 	// SessionID is the persistent chat session this run belongs to, if any. It
 	// decides which folder the generated media lands in.
 	SessionID string `json:"session_id,omitempty"`
@@ -2864,9 +2866,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		body.Model, len(body.Messages), imageCount,
 		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, comfyOn, thinkVal)
 
+	writeSSEHeaders(w)
+	sink := newSSESink(w, flusher)
+	body = s.augmentChatWithRAG(r.Context(), sink, body)
+
 	if body.Artifacts != nil && *body.Artifacts {
-		writeSSEHeaders(w)
-		s.runArtifactAgentLoop(r.Context(), newSSESink(w, flusher), body)
+		s.runArtifactAgentLoop(r.Context(), sink, body)
 		return
 	}
 
@@ -2874,13 +2879,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// none of the artifact filesystem surface, which is exactly what ComfyUI-only
 	// chats want. Exposing ComfyUI without a tool loop would silently never run.
 	if (body.WebTools != nil && *body.WebTools) || comfyOn {
-		writeSSEHeaders(w)
-		s.runWebToolAgentLoop(r.Context(), newSSESink(w, flusher), body)
+		s.runWebToolAgentLoop(r.Context(), sink, body)
 		return
 	}
 
-	writeSSEHeaders(w)
-	s.runPlainChatLoop(r.Context(), newSSESink(w, flusher), body)
+	s.runPlainChatLoop(r.Context(), sink, body)
 }
 
 // ---------- pull (enqueue) ----------

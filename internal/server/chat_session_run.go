@@ -223,6 +223,8 @@ func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps s
 			"top_k":       st.TopK,
 			"top_p":       st.TopP,
 		}
+		body.RAGEnabled = st.RAGEnabled
+		body.RAGPaths = append([]string(nil), st.RAGPaths...)
 		if show, err := s.ollama.Show(ctx, sess.Model); err == nil && show != nil {
 			if toks := sessionNumCtxTokens(st.NumCtxPct, extractContextLength(show)); toks > 0 {
 				body.Options["num_ctx"] = toks
@@ -385,6 +387,8 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 			sink.Send("error", map[string]any{"error": fmt.Sprintf("internal error: %v", r)})
 		}
 	}()
+
+	body = s.augmentChatWithRAG(ctx, sink, body)
 
 	switch {
 	case body.Artifacts != nil && *body.Artifacts:

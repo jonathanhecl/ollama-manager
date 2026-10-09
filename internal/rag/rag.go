@@ -204,9 +204,13 @@ func openRO(path string) (*sql.DB, error) {
 }
 
 func readMeta(db *sql.DB) (Meta, int, error) {
+	return readMetaContext(context.Background(), db)
+}
+
+func readMetaContext(ctx context.Context, db *sql.DB) (Meta, int, error) {
 	var m Meta
 	var version int
-	err := db.QueryRow(`SELECT schema_version, id, name, description, created_at,
+	err := db.QueryRowContext(ctx, `SELECT schema_version, id, name, description, created_at,
 		embedding_provider, embedding_model, embedding_digest, dimensions, input_format
 		FROM metadata WHERE key = 1`).Scan(
 		&version, &m.ID, &m.Name, &m.Description, &m.CreatedAt,
@@ -215,7 +219,7 @@ func readMeta(db *sql.DB) (Meta, int, error) {
 		return Meta{}, 0, err
 	}
 	if version == SchemaVersion {
-		if err := db.QueryRow(`SELECT updated_at FROM metadata WHERE key = 1`).Scan(&m.UpdatedAt); err != nil {
+		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM metadata WHERE key = 1`).Scan(&m.UpdatedAt); err != nil {
 			return Meta{}, 0, err
 		}
 	}
@@ -226,6 +230,10 @@ func readMeta(db *sql.DB) (Meta, int, error) {
 }
 
 func validate(db *sql.DB, m Meta, version int) error {
+	return validateContext(context.Background(), db, m, version)
+}
+
+func validateContext(ctx context.Context, db *sql.DB, m Meta, version int) error {
 	switch version {
 	case 1:
 		if m.InputFormat != InputFormatV1 {
@@ -252,13 +260,16 @@ func validate(db *sql.DB, m Meta, version int) error {
 	if m.Dimensions <= 0 || m.Dimensions > maxDimensions {
 		return fmt.Errorf("invalid dimensions %d", m.Dimensions)
 	}
-	rows, err := db.Query(`SELECT embedding FROM entries`)
+	rows, err := db.QueryContext(ctx, `SELECT embedding FROM entries`)
 	if err != nil {
 		return fmt.Errorf("entries: %w", err)
 	}
 	defer rows.Close()
 	i := 0
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var blob []byte
 		if err := rows.Scan(&blob); err != nil {
 			return err
@@ -675,6 +686,10 @@ func readInfo(path string) (Info, error) {
 }
 
 func Get(dir, filename string) (*Detail, error) {
+	return GetContext(context.Background(), dir, filename)
+}
+
+func GetContext(ctx context.Context, dir, filename string) (*Detail, error) {
 	if !ValidFilename(filename) {
 		return nil, errors.New("invalid base name")
 	}
@@ -689,11 +704,11 @@ func Get(dir, filename string) (*Detail, error) {
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	m, version, err := readMeta(db)
+	m, version, err := readMetaContext(ctx, db)
 	if err != nil {
-		return nil, fmt.Errorf("not a RAG base (%v)", err)
+		return nil, fmt.Errorf("not a RAG base (%w)", err)
 	}
-	if err := validate(db, m, version); err != nil {
+	if err := validateContext(ctx, db, m, version); err != nil {
 		return nil, err
 	}
 	var query string
@@ -712,7 +727,7 @@ func Get(dir, filename string) (*Detail, error) {
 			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), created_at, updated_at
 			FROM entries ORDER BY id`
 	}
-	rows, err := db.Query(query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

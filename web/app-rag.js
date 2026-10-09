@@ -1047,7 +1047,7 @@ function updateChatRagAvailability() {
   const model = document.getElementById("chat-model")?.value || "";
   const caps = typeof modelCaps === "function" ? modelCaps(model) : new Set();
   const imageOnly = typeof isImageGenerationOnlyCaps === "function" && isImageGenerationOnlyCaps(caps);
-  wrap.hidden = imageOnly || !ragConfiguredDefault();
+  wrap.hidden = imageOnly;
   panel.hidden = wrap.hidden || !chatRagEnabled;
   const actions = document.getElementById("chat-rag-actions");
   if (actions) actions.hidden = panel.hidden;
@@ -1123,14 +1123,6 @@ function chatRagCommit(syncSession = true, saveModelOptions = true) {
 
 function chatRagSetEnabled(enabled, saveModelOptions = true) {
   const next = !!enabled;
-  if (next && !ragConfiguredDefault()) {
-    chatRagEnabled = false;
-    chatRagPaths = [];
-    chatRagEditable = [];
-    chatRagCommit(true, saveModelOptions);
-    toast(t("rag.default_required"), "error");
-    return;
-  }
   chatRagEnabled = next;
   if (!next) {
     chatRagPaths = [];
@@ -1185,12 +1177,6 @@ async function chatRagValidateSelection(syncSession) {
     const kept = chatRagPaths.filter((p) => valid.has(p));
     const changed = kept.length !== chatRagPaths.length;
     chatRagPaths = kept;
-    if (!ragConfiguredDefault() && chatRagEnabled) {
-      chatRagEnabled = false;
-      chatRagPaths = [];
-      chatRagCommit(syncSession);
-      return;
-    }
     if (changed) chatRagCommit(syncSession);
     else chatRagRenderSelection();
   } catch {

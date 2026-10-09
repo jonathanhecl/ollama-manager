@@ -543,7 +543,7 @@ function openChatSessionStream(id, from) {
   closeChatSessionStream();
   const es = new EventSource(`/api/chat/sessions/${encodeURIComponent(id)}/events?from=${Number(from) || 0}`);
   chatSessionStream = es;
-  for (const name of ["snapshot", "chunk", "tool", "artifact", "artifact_screenshot_request", "artifact_eval_request", "queued_user", "reset", "done", "error"]) {
+  for (const name of ["snapshot", "chunk", "tool", "artifact", "artifact_screenshot_request", "artifact_eval_request", "queued_user", "reset", "warning", "done", "error"]) {
     es.addEventListener(name, (ev) => handleChatSessionStreamEvent(name, ev));
   }
   es.onerror = () => {
@@ -625,6 +625,10 @@ function handleChatSessionStreamEvent(name, ev) {
   }
   if (chatSessionResetting) {
     // A reset is in flight: late chunks from the turn being cancelled are noise.
+    return;
+  }
+  if (name === "warning") {
+    toast(t("rag.chat_warning", { msg: parsed?.data?.message || "" }), "error");
     return;
   }
   if (name === "snapshot") {

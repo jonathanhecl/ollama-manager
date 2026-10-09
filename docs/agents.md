@@ -81,3 +81,8 @@ If the response ends with only `generating` entries (no real tool execution comp
 ## Other Guides
 
 - [comfyui-guide.md](comfyui-guide.md) — ComfyUI as a tool: bindings, polling, media storage, cross-turn image replay.
+
+## Verification Commands
+
+- `go test ./internal/rag ./internal/server -run 'RAG|Rag|Search|ChatSession'` — RAG package, chat retrieval, and session coverage.
+- `node --test testing/chat-rag.test.mjs` — frontend RAG chat behavior (warning events, selection gating, payload forwarding).

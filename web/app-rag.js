@@ -82,8 +82,12 @@ function ragMediaPending() {
   return ragState.entries.some((e) => e.mediaPending);
 }
 
+function ragContentPending() {
+  return ragState.entries.some((e) => e.contentPending);
+}
+
 function ragBusy() {
-  return ragState.creating || ragMediaPending();
+  return ragState.creating || ragMediaPending() || ragContentPending();
 }
 
 function ragSetCreateDisabled(disabled) {
@@ -708,12 +712,65 @@ function ragRenderEntries() {
   textBox.appendChild(modeField);
   textBox.appendChild(ragEl("div", "form-hint", t("rag.input_mode_hint")));
 
+  const contentHead = ragEl("div", "chat-system-head rag-content-head");
+  contentHead.appendChild(ragEl("label", "", t("rag.content_label")));
+  const contentBtn = ragEl("button", "ghost chat-system-file-btn rag-content-file-btn", "");
+  contentBtn.type = "button";
+  contentBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>';
+  contentBtn.title = t("rag.load_content");
+  contentBtn.setAttribute("aria-label", t("rag.load_content"));
+  const contentFile = ragEl("input", "rag-content-file-input");
+  contentFile.type = "file";
+  contentFile.accept = ".txt,.md,.markdown,.json,.yaml,.yml,.prompt,.py,.js,.ts,.html,.css,*/*";
+  contentFile.style.display = "none";
+  contentFile.addEventListener("change", () => {
+    const f = contentFile.files && contentFile.files[0];
+    contentFile.value = "";
+    ragLoadContentFile(entry, f);
+  });
+  contentBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    contentFile.click();
+  });
+  contentHead.appendChild(contentBtn);
+  textBox.appendChild(contentHead);
+  textBox.appendChild(contentFile);
+
   const content = ragEl("textarea", "rag-entry-content");
   content.placeholder = t("rag.content_placeholder");
   content.rows = 6;
   content.value = entry.content;
   content.addEventListener("input", () => {
     entry.content = content.value;
+  });
+  content.addEventListener("dragenter", (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.stopPropagation();
+      content.classList.add("drag-over");
+    }
+  });
+  content.addEventListener("dragover", (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  });
+  content.addEventListener("dragleave", (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.stopPropagation();
+      content.classList.remove("drag-over");
+    }
+  });
+  content.addEventListener("drop", (e) => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    content.classList.remove("drag-over");
+    ragLoadContentFile(entry, files[0]);
   });
   textBox.appendChild(content);
   grid.appendChild(textBox);
@@ -724,10 +781,38 @@ function ragRenderEntries() {
   grid.appendChild(mediaBox);
   card.appendChild(grid);
 
-  if (entry.mediaPending) card.appendChild(ragEl("div", "rag-entry-media muted small", t("rag.file_pending")));
+  if (entry.mediaPending || entry.contentPending) card.appendChild(ragEl("div", "rag-entry-media muted small", t("rag.file_pending")));
   if (entry.mediaError) card.appendChild(ragEl("div", "rag-entry-media form-hint", entry.mediaError));
   host.appendChild(card);
   host.appendChild(ragEl("p", "form-hint", t("rag.media_hint")));
+}
+
+function ragLoadContentFile(entry, file) {
+  if (!file || ragBusy()) return;
+  entry.contentPending = true;
+  ragSetCreateDisabled(true);
+  const fail = () => {
+    entry.contentPending = false;
+    toast(t("rag.file_read_error"), "error");
+    ragRenderEntries();
+    ragSetCreateDisabled(ragBusy());
+  };
+  const reader = new FileReader();
+  reader.onload = () => {
+    entry.contentPending = false;
+    if (typeof reader.result === "string" && ragState.entries.includes(entry)) {
+      entry.content = reader.result;
+    }
+    ragRenderEntries();
+    ragSetCreateDisabled(ragBusy());
+  };
+  reader.onerror = fail;
+  reader.onabort = fail;
+  try {
+    reader.readAsText(file);
+  } catch {
+    fail();
+  }
 }
 
 function ragOnFileChosen(entry, mediaType, file) {
@@ -756,7 +841,7 @@ function ragOnFileChosen(entry, mediaType, file) {
     entry.mediaPending = false;
     entry.mediaError = t("rag.file_read_error");
     ragRenderEntries();
-    ragSetCreateDisabled(ragState.creating || ragMediaPending());
+    ragSetCreateDisabled(ragBusy());
   };
   reader.onload = () => {
     entry.mediaPending = false;
@@ -770,7 +855,7 @@ function ragOnFileChosen(entry, mediaType, file) {
       base64: idx >= 0 ? result.substring(idx + 1) : "",
     };
     ragRenderEntries();
-    ragSetCreateDisabled(ragState.creating || ragMediaPending());
+    ragSetCreateDisabled(ragBusy());
   };
   reader.readAsDataURL(file);
 }
@@ -784,7 +869,7 @@ function ragSetCreateError(msg) {
 
 async function ragSubmitCreate() {
   if (ragBusy()) {
-    if (ragMediaPending()) ragSetCreateError(t("rag.file_pending"));
+    if (ragMediaPending() || ragContentPending()) ragSetCreateError(t("rag.file_pending"));
     return;
   }
   const model = document.getElementById("rag-new-model")?.value || "";
@@ -860,7 +945,7 @@ async function ragSubmitCreate() {
   } finally {
     ragState.creating = false;
     if (btn) btn.textContent = editing ? t("rag.save_btn") : t("rag.create_btn");
-    if (ragIsFormView(ragSubview())) ragSetCreateDisabled(ragMediaPending());
+    if (ragIsFormView(ragSubview())) ragSetCreateDisabled(ragBusy());
   }
 }
 

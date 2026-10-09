@@ -34,22 +34,111 @@ const extract = (src, name) => {
   return extractFunction(src, name);
 };
 
+class FakeEl {
+  constructor(tag) {
+    this.tagName = String(tag || "").toUpperCase();
+    this.children = [];
+    this.listeners = {};
+    this.dataset = {};
+    this.style = {};
+    this.attrs = {};
+    this._cls = "";
+    this._classes = new Set();
+    this._html = "";
+    this.value = "";
+    this.textContent = "";
+    this.title = "";
+    this.hidden = false;
+    this.checked = false;
+    this.disabled = false;
+    this.selectedOptions = [];
+    this.files = [];
+    const self = this;
+    this.classList = {
+      add: (c) => self._classes.add(c),
+      remove: (c) => self._classes.delete(c),
+      contains: (c) => self._classes.has(c),
+      toggle() {},
+    };
+  }
+  get className() { return this._cls; }
+  set className(v) {
+    this._cls = v;
+    this._classes = new Set(String(v).split(/\s+/).filter(Boolean));
+  }
+  get innerHTML() { return this._html; }
+  set innerHTML(v) {
+    this._html = v;
+    if (v === "") this.children = [];
+  }
+  appendChild(c) { this.children.push(c); return c; }
+  setAttribute(k, v) { this.attrs[k] = v; }
+  getAttribute(k) { return this.attrs[k]; }
+  addEventListener(name, fn) { (this.listeners[name] ||= []).push(fn); }
+  dispatch(name, ev = {}) {
+    if (!ev.preventDefault) ev.preventDefault = () => { ev.defaultPrevented = true; };
+    if (!ev.stopPropagation) ev.stopPropagation = () => { ev.propagationStopped = true; };
+    for (const fn of this.listeners[name] || []) fn(ev);
+  }
+  click() { this.dispatch("click"); }
+  _matches(sel) {
+    if (sel.startsWith(".")) return this._classes.has(sel.slice(1));
+    return this.tagName === sel.toUpperCase();
+  }
+  querySelectorAll(sel) {
+    const sels = String(sel).split(",").map((s) => s.trim()).filter(Boolean);
+    const out = [];
+    const walk = (el) => {
+      for (const c of el.children || []) {
+        if (c instanceof FakeEl) {
+          if (sels.some((s) => c._matches(s))) out.push(c);
+          walk(c);
+        }
+      }
+    };
+    walk(this);
+    return out;
+  }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  closest() { return null; }
+  focus() {}
+  select() {}
+  scrollIntoView() {}
+}
+
+const findDeep = (root, pred) => {
+  const out = [];
+  const walk = (el) => {
+    for (const c of el.children || []) {
+      if (c instanceof FakeEl) {
+        if (pred(c)) out.push(c);
+        walk(c);
+      }
+    }
+  };
+  walk(root);
+  return out;
+};
+
 const els = new Map();
 const fakeEl = (id) => {
   if (!els.has(id)) {
-    els.set(id, {
-      id, value: "", innerHTML: "", textContent: "", title: "", hidden: false,
-      checked: false, disabled: false,
-      selectedOptions: [],
-      addEventListener() {}, focus() {}, select() {}, scrollIntoView() {},
-      closest: () => null,
-      querySelectorAll: () => [],
-      classList: { toggle() {}, add() {}, remove() {} },
-      dataset: {},
-    });
+    const el = new FakeEl("div");
+    el.id = id;
+    els.set(id, el);
   }
   return els.get(id);
 };
+
+class FakeFileReader {
+  constructor() { FakeFileReader.instances.push(this); }
+  readAsText(file) {
+    if (file && file.__throwOnRead) throw new Error("readAsText failed");
+    this.file = file;
+  }
+  readAsDataURL() {}
+}
+FakeFileReader.instances = [];
 
 const toasts = [];
 const imageOnly = { value: false };
@@ -130,10 +219,29 @@ const sandbox = {
   document: {
     getElementById: (id) => els.get(id) || null,
     querySelectorAll: () => [],
+    querySelector: () => null,
+    createElement: (tag) => new FakeEl(tag),
+    createTextNode: (text) => ({ textContent: String(text) }),
     documentElement: {},
     readyState: "complete",
     addEventListener() {},
   },
+  FileReader: FakeFileReader,
+  api: async (url, opts) => (url === "/api/rags" && !(opts && opts.method)
+    ? { rags: [{ filename: "a.db" }, { filename: "b.db" }] }
+    : {}),
+  fmtDate: (s) => String(s),
+  fmtBytes: (n) => String(n),
+  escapeHtml: (s) => String(s),
+  currentConfig: {},
+  chatRagEnabled: false,
+  chatRagPaths: [],
+  chatRagEditable: [],
+  location: { pathname: "/" },
+  history: { pushState() {} },
+  hideAllMainViews() {},
+  showSettingsView: async () => {},
+  showModelsView() {},
   EventSource: class FakeEventSource {
     constructor(url) {
       this.url = url;
@@ -156,6 +264,16 @@ for (const name of ["updateChatRagAvailability", "chatRagSetEnabled", "chatRagVa
 for (const name of ["handleChatSessionStreamEvent", "openChatSessionStream"]) {
   vm.runInContext(extract(sessionsSrc, name), sandbox, { filename: `app-sessions.js:${name}` });
 }
+vm.runInContext(ragSrc, sandbox, { filename: "app-rag.js" });
+sandbox.chatRagFetchList = async () => {
+  sandbox._ragFetches = (sandbox._ragFetches || 0) + 1;
+  return [{ filename: "a.db" }, { filename: "b.db" }];
+};
+sandbox.ragRefreshList = async () => { sandbox._ragRefreshes = (sandbox._ragRefreshes || 0) + 1; };
+sandbox.chatRagRenderSelection = () => { sandbox._ragRenders = (sandbox._ragRenders || 0) + 1; };
+sandbox.chatRagSyncSession = async () => {};
+sandbox.chatRagPersistLocal = () => {};
+const ragEval = (expr) => vm.runInContext(expr, sandbox);
 
 const {
   applyChatStreamEvent, updateChatRagAvailability, chatRagSetEnabled,
@@ -254,6 +372,178 @@ const {
   await new Promise((r) => setImmediate(r));
   assert.equal(sandbox._ragFetches, 1, "session rag_updated must refresh the list");
   assert.equal(sandbox.chatMessages.length, 0, "rag_updated must not create an assistant message");
+}
+
+{
+  els.clear();
+  toasts.length = 0;
+  FakeFileReader.instances.length = 0;
+  const host = fakeEl("rag-entries");
+  fakeEl("rag-entry-list");
+  fakeEl("rag-entry-count");
+  fakeEl("rag-new-model").value = "";
+  const box = fakeEl("rag-create-box");
+  const boxBtn = new FakeEl("button");
+  box.appendChild(boxBtn);
+  const status = fakeEl("rag-create-status");
+
+  const ragState = ragEval("ragState");
+  ragState.entries = [];
+  ragState.creating = false;
+  const e1 = sandbox.ragNewEntry();
+  e1.term = "first";
+  e1.content = "old text";
+  e1.inputMode = "combined";
+  const e2 = sandbox.ragNewEntry();
+  e2.term = "second";
+  e2.content = "other";
+  ragState.entries.push(e1, e2);
+  ragState.activeEntry = e1.key;
+
+  const findTextarea = () => findDeep(host, (c) => c.tagName === "TEXTAREA" && c._classes.has("rag-entry-content"))[0];
+  const findFileBtn = () => findDeep(host, (c) => c._classes.has("rag-content-file-btn"))[0];
+  const findFileInput = () => findDeep(host, (c) => c.tagName === "INPUT" && c.type === "file" && String(c.accept || "").includes(".txt"))[0];
+
+  sandbox.ragRenderEntries();
+  let ta = findTextarea();
+  const btn = findFileBtn();
+  let fileIn = findFileInput();
+  assert.ok(ta, "content textarea must render");
+  assert.equal(ta.value, "old text");
+  assert.ok(btn, "content load button must render");
+  assert.match(btn.title, /rag\.load_content/);
+  assert.match(btn.getAttribute("aria-label"), /rag\.load_content/);
+  assert.ok(fileIn, "hidden file input must render");
+  assert.match(fileIn.accept, /\.txt.*\*\/\*/);
+
+  let chooserClicks = 0;
+  fileIn.click = () => { chooserClicks++; };
+  btn.dispatch("click", {});
+  assert.equal(chooserClicks, 1, "button must open the file chooser");
+
+  const f1 = { name: "a.txt", type: "text/plain" };
+  fileIn.value = "C:\\fake\\a.txt";
+  fileIn.files = [f1];
+  fileIn.dispatch("change", {});
+  assert.equal(fileIn.value, "", "picker must reset so the same file can reload");
+  assert.equal(e1.contentPending, true, "entry must be pending while FileReader runs");
+  assert.equal(ragEval("ragBusy()"), true, "ragBusy must cover contentPending");
+  assert.equal(boxBtn.disabled, true, "form controls must be disabled while reading");
+
+  sandbox.ragLoadContentFile(e1, { name: "b.txt" });
+  assert.equal(FakeFileReader.instances.length, 1, "no second reader while busy");
+  await sandbox.ragSubmitCreate();
+  assert.match(status.textContent, /rag\.file_pending/, "submit must be blocked while content is pending");
+
+  const reader = FakeFileReader.instances[0];
+  reader.result = "file text";
+  reader.onload();
+  assert.equal(e1.contentPending, false);
+  assert.equal(e1.content, "file text", "file replaces previous content");
+  assert.equal(boxBtn.disabled, false, "form must unlock after read");
+  ta = findTextarea();
+  assert.equal(ta.value, "file text", "rerendered textarea shows the file text");
+  assert.equal(e1.term, "first");
+  assert.equal(Object.keys(e1.media).length, 0, "media untouched");
+  assert.equal(e1.inputMode, "combined");
+  assert.equal(e2.content, "other", "captured entry only, not the active entry");
+
+  ta.value = "manual edit";
+  ta.dispatch("input", {});
+  assert.equal(e1.content, "manual edit", "native manual input still works");
+
+  const mkDrag = (dt) => ({
+    dataTransfer: dt,
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this.propagationStopped = true; },
+  });
+  const fA = { name: "a.txt" };
+  const fB = { name: "b.txt" };
+  let ev = mkDrag({ types: ["Files"], files: [] });
+  ta.dispatch("dragenter", ev);
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ev.propagationStopped, true);
+  assert.equal(ta.classList.contains("drag-over"), true, "file drag must highlight");
+  ev = mkDrag({ types: ["Files"], files: [] });
+  ta.dispatch("dragover", ev);
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ev.dataTransfer.dropEffect, "copy");
+  ev = mkDrag({ types: ["Files"], files: [fA, fB] });
+  ta.dispatch("drop", ev);
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ev.propagationStopped, true);
+  assert.equal(ta.classList.contains("drag-over"), false, "drop clears highlight");
+  assert.equal(FakeFileReader.instances.length, 2);
+  FakeFileReader.instances[1].result = "first file";
+  FakeFileReader.instances[1].onload();
+  assert.equal(e1.content, "first file", "drop imports only the first file");
+
+  ev = mkDrag({ types: ["Files"], files: [] });
+  ta = findTextarea();
+  ta.dispatch("dragenter", ev);
+  assert.equal(ta.classList.contains("drag-over"), true);
+  ev = mkDrag({ types: ["Files"], files: [] });
+  ta.dispatch("dragleave", ev);
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ta.classList.contains("drag-over"), false, "dragleave clears highlight");
+
+  ev = mkDrag({ types: ["text/plain"], files: [] });
+  ta.dispatch("dragenter", ev);
+  assert.equal(ev.defaultPrevented, undefined, "non-file drag must not be canceled");
+  assert.equal(ta.classList.contains("drag-over"), false);
+  ev = mkDrag({ types: ["text/plain"], files: [] });
+  ta.dispatch("dragover", ev);
+  assert.equal(ev.defaultPrevented, undefined);
+  ev = mkDrag({ types: ["text/plain"], files: [] });
+  ta.dispatch("drop", ev);
+  assert.equal(ev.defaultPrevented, undefined, "text drop keeps native behavior");
+  assert.equal(ev.propagationStopped, undefined);
+
+  const toastBase = toasts.length;
+  fileIn = findFileInput();
+  fileIn.files = [{ name: "err.txt" }];
+  fileIn.dispatch("change", {});
+  const errReader = FakeFileReader.instances[2];
+  errReader.onerror();
+  assert.equal(e1.contentPending, false);
+  assert.equal(e1.content, "first file", "failed read preserves previous content");
+  assert.equal(boxBtn.disabled, false);
+  assert.equal(toasts.length, toastBase + 1);
+  assert.equal(toasts[toasts.length - 1].type, "error");
+  assert.match(toasts[toasts.length - 1].msg, /rag\.file_read_error/);
+
+  fileIn = findFileInput();
+  fileIn.files = [{ name: "abort.txt" }];
+  fileIn.dispatch("change", {});
+  FakeFileReader.instances[3].onabort();
+  assert.equal(e1.contentPending, false, "abort must clear pending");
+  assert.equal(e1.content, "first file");
+  assert.equal(boxBtn.disabled, false);
+
+  fileIn = findFileInput();
+  fileIn.files = [{ name: "boom.txt", __throwOnRead: true }];
+  fileIn.dispatch("change", {});
+  assert.equal(e1.contentPending, false, "sync readAsText throw uses the failure path");
+  assert.equal(e1.content, "first file");
+  assert.equal(boxBtn.disabled, false);
+
+  sandbox.ragLoadContentFile(e1, { name: "stale.txt" });
+  assert.equal(e1.contentPending, true);
+  ragState.entries = ragState.entries.filter((x) => x !== e1);
+  ragState.activeEntry = e2.key;
+  const staleReader = FakeFileReader.instances[4];
+  staleReader.result = "stale";
+  staleReader.onload();
+  assert.equal(e2.content, "other", "stale entry cannot alter remaining state");
+  assert.equal(ragState.entries.length, 1);
+  assert.equal(boxBtn.disabled, false);
+
+  sandbox.ragLoadContentFile(e2, null);
+  assert.equal(FakeFileReader.instances.length, 6, "no file means no reader");
+
+  const i18nSrc = readFileSync(join(web, "i18n.js"), "utf8");
+  assert.equal((i18nSrc.match(/"rag\.load_content"/g) || []).length, 2, "EN+ES labels for load content");
+  assert.equal((i18nSrc.match(/"rag\.content_label"/g) || []).length, 2, "EN+ES labels for content label");
 }
 
 assert.match(svgSrc, /if \(!isImageModel && typeof chatRagOptionPayload === "function"\)/);

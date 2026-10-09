@@ -1086,6 +1086,7 @@ function chatRagRenderSelection() {
     edit.title = t("rag.chat_editable");
     edit.setAttribute("aria-label", t("rag.chat_editable"));
     edit.appendChild(cb);
+    edit.appendChild(ragEl("span", "chat-rag-edit-text", t("rag.chat_editable_short")));
     row.appendChild(main);
     row.appendChild(edit);
     row.appendChild(remove);

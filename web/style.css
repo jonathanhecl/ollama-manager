@@ -4974,8 +4974,17 @@ button.chat-send:disabled:hover {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   cursor: pointer;
   padding: 3px 2px;
+}
+.chat-rag-edit-text {
+  font-size: 0.64rem;
+  color: var(--text-dim);
+  user-select: none;
+}
+.chat-rag-edit:hover .chat-rag-edit-text {
+  color: var(--text);
 }
 
 .chat-rag-edit-input {

@@ -5572,6 +5572,7 @@ async function runChatRequest(assistantMsg) {
       assistantMsg.elapsedMs = Date.now() - started;
       assistantMsg.hasDebug = false;
       assistantMsg.content = formatEmbeddingResult(data.embedding || []);
+      refreshModels().catch(() => {});
     } catch (e) {
       assistantMsg.streaming = false;
       assistantMsg.isError = true;

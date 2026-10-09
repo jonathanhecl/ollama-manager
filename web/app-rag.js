@@ -1055,7 +1055,8 @@ function chatRagRenderSelection() {
     const row = ragEl("div", "chat-rag-item");
     const main = ragEl("div", "chat-rag-item-main");
     const title = ragEl("div", "chat-rag-item-title", info ? (info.name || filename) : filename);
-    title.title = filename;
+    const description = (info && info.description || "").trim();
+    row.title = description ? `${description}\n${filename}` : filename;
     const metaText = info
       ? `${info.embedding_model || "—"} · ${t("rag.entries_count", { count: info.entries || 0 })}`
       : t("rag.chat_pending");

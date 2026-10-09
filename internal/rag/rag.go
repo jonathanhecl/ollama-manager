@@ -52,14 +52,15 @@ type Entry struct {
 }
 
 type Info struct {
-	Filename   string `json:"filename"`
-	Name       string `json:"name"`
-	Model      string `json:"embedding_model"`
-	Digest     string `json:"embedding_digest"`
-	Dimensions int    `json:"dimensions"`
-	Entries    int    `json:"entries"`
-	CreatedAt  int64  `json:"created_at"`
-	SizeBytes  int64  `json:"size_bytes"`
+	Filename    string `json:"filename"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Model       string `json:"embedding_model"`
+	Digest      string `json:"embedding_digest"`
+	Dimensions  int    `json:"dimensions"`
+	Entries     int    `json:"entries"`
+	CreatedAt   int64  `json:"created_at"`
+	SizeBytes   int64  `json:"size_bytes"`
 }
 
 type MediaView struct {
@@ -78,9 +79,10 @@ type EntryView struct {
 }
 
 type Detail struct {
-	Filename string      `json:"filename"`
-	Meta     Meta        `json:"meta"`
-	Entries  []EntryView `json:"entries"`
+	Filename  string      `json:"filename"`
+	Meta      Meta        `json:"meta"`
+	Entries   []EntryView `json:"entries"`
+	SizeBytes int64       `json:"size_bytes"`
 }
 
 const schemaSQL = `
@@ -464,6 +466,26 @@ func Replace(ctx context.Context, dir, filename string, meta Meta, entries []Ent
 	return meta, nil
 }
 
+func Path(dir, filename string) (string, error) {
+	if !ValidFilename(filename) {
+		return "", errors.New("invalid base name")
+	}
+	path := filepath.Join(dir, filename)
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		return "", os.ErrNotExist
+	}
+	return path, nil
+}
+
+func Delete(dir, filename string) error {
+	path, err := Path(dir, filename)
+	if err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
 func ValidFilename(name string) bool {
 	if name == "" || name == "." || name == ".." {
 		return false
@@ -538,12 +560,13 @@ func readInfo(path string) (Info, error) {
 		return Info{}, err
 	}
 	return Info{
-		Name:       m.Name,
-		Model:      m.EmbeddingModel,
-		Digest:     m.EmbeddingDigest,
-		Dimensions: m.Dimensions,
-		Entries:    count,
-		CreatedAt:  m.CreatedAt,
+		Name:        m.Name,
+		Description: m.Description,
+		Model:       m.EmbeddingModel,
+		Digest:      m.EmbeddingDigest,
+		Dimensions:  m.Dimensions,
+		Entries:     count,
+		CreatedAt:   m.CreatedAt,
 	}, nil
 }
 
@@ -582,7 +605,7 @@ func Get(dir, filename string) (*Detail, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	d := &Detail{Filename: filename, Meta: m, Entries: []EntryView{}}
+	d := &Detail{Filename: filename, Meta: m, Entries: []EntryView{}, SizeBytes: st.Size()}
 	for rows.Next() {
 		var ev EntryView
 		var imageType, imageName, imageMIME string

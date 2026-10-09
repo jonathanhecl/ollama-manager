@@ -20,9 +20,6 @@ const ragState = {
   settingsLoading: false,
   settingsDirty: false,
   settingsMissingModel: "",
-  detail: null,
-  detailFilename: "",
-  detailError: "",
   entries: [],
   entrySeq: 0,
   activeEntry: 0,
@@ -67,9 +64,9 @@ function ragSubview() {
   const p = window.location.pathname;
   if (p === "/rags/new") return "create";
   if (p.startsWith("/rags/") && p.length > 6) {
-    const rest = decodeURIComponent(p.substring(6));
-    if (rest.endsWith("/edit")) return { view: "edit", filename: rest.slice(0, -5) };
-    return { view: "detail", filename: rest };
+    let filename = decodeURIComponent(p.substring(6));
+    if (filename.endsWith("/edit")) filename = filename.slice(0, -5);
+    return { view: "edit", filename };
   }
   return "list";
 }
@@ -92,10 +89,10 @@ function ragSetCreateDisabled(disabled) {
   box.querySelectorAll("input, select, textarea, button").forEach((el) => {
     el.disabled = disabled;
   });
-  const newBtn = document.getElementById("rags-new-btn");
-  if (newBtn) newBtn.disabled = disabled;
-  const reloadBtn = document.getElementById("rags-reload-btn");
-  if (reloadBtn) reloadBtn.disabled = disabled;
+  for (const id of ["rags-new-btn", "rags-reload-btn", "rag-create-btn", "rag-create-cancel-btn"]) {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = disabled;
+  }
 }
 
 async function ragLoadModels(source) {
@@ -152,37 +149,25 @@ async function showRagsView() {
   if (view) view.hidden = false;
   const sub = ragSubview();
   const createBox = document.getElementById("rag-create-box");
-  const detailBox = document.getElementById("rags-detail");
   const listWrap = document.getElementById("rags-list-wrap");
-  const headActions = document.querySelector("#rags-view .tests-head-actions");
   const isForm = ragIsFormView(sub);
   if (createBox) createBox.hidden = !isForm;
-  if (detailBox) detailBox.hidden = !(sub && sub.view === "detail");
   if (listWrap) listWrap.hidden = sub !== "list";
-  if (headActions) headActions.style.display = sub === "list" ? "" : "none";
+  for (const id of ["rags-reload-btn", "rags-new-btn"]) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = isForm;
+  }
+  for (const id of ["rag-create-cancel-btn", "rag-create-btn"]) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = !isForm;
+  }
   if (sub === "list") {
     void ragRefreshList();
   } else if (sub === "create") {
     ragStartCreate();
   } else if (sub && sub.view === "edit") {
     void ragStartEdit(sub.filename);
-  } else if (sub && sub.view === "detail") {
-    void ragLoadDetail(sub.filename);
   }
-}
-
-async function ragLoadDetail(filename) {
-  ragState.detail = null;
-  ragState.detailFilename = filename;
-  ragState.detailError = "";
-  ragRenderDetail();
-  try {
-    ragState.detail = await api("/api/rags/" + encodeURIComponent(filename));
-    ragState.detailError = "";
-  } catch (e) {
-    ragState.detailError = String(e && e.message ? e.message : e);
-  }
-  ragRenderDetail();
 }
 
 function ragRenderList() {
@@ -228,94 +213,65 @@ function ragRenderList() {
   }
   table.closest(".table-wrap").hidden = false;
   empty.hidden = true;
+  const exportTitle = t("rag.export_title");
+  const deleteTitle = t("rag.delete_title");
+  const editTitle = t("rag.edit_title");
   for (const r of ragState.list) {
-    const tr = ragEl("tr", "rag-row");
-    tr.addEventListener("click", () => ragNav("/rags/" + encodeURIComponent(r.filename)));
-    for (const v of [r.name, r.embedding_model || "", String(r.dimensions || ""), String(r.entries || 0), ragFmtDate(r.created_at), r.filename]) {
-      tr.appendChild(ragEl("td", "", v));
-    }
+    const filename = String(r.filename || "");
+    const name = String(r.name || filename);
+    const model = String(r.embedding_model || "—");
+    const desc = String(r.description || "").trim();
+    const created = Number(r.created_at) || 0;
+    const createdISO = created ? new Date(created * 1000).toISOString() : "";
+    const tr = ragEl("tr", "row rag-row");
+    tr.dataset.filename = filename;
+    tr.title = editTitle;
+    tr.innerHTML = `
+      <td class="col-state"><span class="state-dot loaded" title="${escapeHtml(t("rag.ready"))}"></span></td>
+      <td class="cell-name rag-name-cell">
+        <div class="model-name-wrap">
+          <div class="model-name-block">
+            <div class="model-name model-name-track"><span class="model-name-text"><span class="model-name-base">${escapeHtml(name)}</span></span></div>
+            ${desc ? `<div class="rag-desc-line">${escapeHtml(desc)}</div>` : ""}
+          </div>
+        </div>
+      </td>
+      <td><span class="badge badge-muted rag-model-pill" title="${escapeHtml(model)}">${escapeHtml(model)}</span></td>
+      <td class="cell-size">${r.dimensions || "—"}</td>
+      <td class="cell-size">${r.entries || 0}</td>
+      <td class="cell-size rag-size-cell" title="${escapeHtml(filename)}">${fmtBytes(Number(r.size_bytes) || 0)}</td>
+      <td class="cell-modified"><div class="cell-dates"><div class="date-primary" title="${escapeHtml(ragFmtDate(created))}">${escapeHtml(created ? fmtDate(createdISO) : "—")}</div></div></td>
+      <td class="rag-actions-cell">
+        <div class="rag-row-actions">
+          <a class="btn-icon rag-export-btn" href="/api/rags/${encodeURIComponent(filename)}/download" download="${escapeHtml(filename)}" title="${escapeHtml(exportTitle)}" aria-label="${escapeHtml(exportTitle)}">⬇</a>
+          <button type="button" class="btn-icon delete-btn" title="${escapeHtml(deleteTitle)}" aria-label="${escapeHtml(deleteTitle)}">×</button>
+        </div>
+      </td>`;
+    tr.addEventListener("click", (ev) => {
+      if (ev.target.closest(".rag-row-actions")) return;
+      ragNav("/rags/" + encodeURIComponent(filename) + "/edit");
+    });
+    const exportLink = tr.querySelector(".rag-export-btn");
+    exportLink.addEventListener("click", (ev) => ev.stopPropagation());
+    const deleteBtn = tr.querySelector(".delete-btn");
+    deleteBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      void ragDelete(r);
+    });
     tbody.appendChild(tr);
   }
 }
 
-function ragRenderDetail() {
-  const title = document.getElementById("rag-detail-title");
-  const meta = document.getElementById("rag-detail-meta");
-  const box = document.getElementById("rag-detail-entries");
-  if (!title || !meta || !box) return;
-  title.textContent = ragState.detailFilename;
-  meta.innerHTML = "";
-  box.innerHTML = "";
-  if (ragState.detailError) {
-    meta.appendChild(ragEl("div", "form-hint", ragState.detailError));
-    return;
-  }
-  const d = ragState.detail;
-  if (!d || d.filename !== ragState.detailFilename) {
-    meta.appendChild(ragEl("div", "form-hint", t("rag.loading_models")));
-    return;
-  }
-  const m = d.meta || {};
-  const ro = ragEl("span", "badge badge-muted", t("rag.read_only"));
-  meta.appendChild(ro);
-  meta.appendChild(document.createTextNode(
-    " " + (m.name || "") + " · " + (m.embedding_model || "") + " · " +
-    (m.dimensions || "") + " dims · " + ragFmtDate(m.created_at)));
-  if (m.description) meta.appendChild(ragEl("div", "", m.description));
-  const entries = d.entries || [];
-  if (!entries.length) {
-    box.appendChild(ragEl("div", "muted", t("rag.detail_empty")));
-    return;
-  }
-  for (const e of entries) {
-    const item = ragEl("div", "rag-entry-card");
-    const head = ragEl("div", "rag-entry-head");
-    head.appendChild(ragEl("div", "rag-entry-term", e.term));
-    item.appendChild(head);
-    if (e.content) item.appendChild(ragEl("div", "rag-entry-content", e.content));
-    const media = e.media || [];
-    if (media.length || e.input_mode === "media") {
-      const mediaBox = ragEl("div", "rag-entry-media");
-      if (e.input_mode === "media") mediaBox.appendChild(ragEl("span", "rag-mode-pill", t("rag.input_media")));
-      for (const m of media) {
-        const mediaURL = "/api/rags/" + encodeURIComponent(ragState.detailFilename) +
-          "/media/" + encodeURIComponent(String(e.id || 0)) + "/" + encodeURIComponent(m.type);
-        const tile = ragEl("div", "rag-media-slot rag-detail-media", "");
-        tile.appendChild(ragEl("div", "rag-media-slot-title", (m.type === "audio" ? "🔊 " : "🖼️ ") + (m.name || m.type)));
-        const preview = ragEl(m.type === "audio" ? "div" : "button", "rag-media-preview", "");
-        if (m.type === "image") {
-          preview.type = "button";
-          const img = ragEl("img", "rag-media-thumb");
-          img.src = mediaURL;
-          img.alt = m.name || m.type;
-          preview.appendChild(img);
-        } else {
-          preview.setAttribute("role", "button");
-          preview.tabIndex = 0;
-          preview.addEventListener("keydown", (ev) => {
-            if (ev.key === "Enter" || ev.key === " ") {
-              ev.preventDefault();
-              ragShowMediaPreview(m, m.type, mediaURL);
-            }
-          });
-          const audio = ragEl("audio", "rag-media-audio");
-          audio.controls = true;
-          audio.preload = "metadata";
-          audio.src = mediaURL;
-          audio.addEventListener("click", (ev) => ev.stopPropagation());
-          audio.addEventListener("keydown", (ev) => ev.stopPropagation());
-          preview.appendChild(audio);
-          preview.appendChild(ragEl("span", "rag-media-open", t("rag.preview")));
-        }
-        preview.addEventListener("click", () => ragShowMediaPreview(m, m.type, mediaURL));
-        tile.appendChild(preview);
-        tile.appendChild(ragEl("div", "rag-media-meta",
-          (m.mime || m.type) + " · " + ragFmtBytes(m.size || 0)));
-        mediaBox.appendChild(tile);
-      }
-      item.appendChild(mediaBox);
-    }
-    box.appendChild(item);
+async function ragDelete(r) {
+  const filename = String(r.filename || "");
+  const name = String(r.name || filename);
+  if (!filename || !window.confirm(t("rag.delete_confirm", { name }))) return;
+  try {
+    await api("/api/rags/" + encodeURIComponent(filename), { method: "DELETE" });
+    toast(t("rag.deleted", { name }), "success");
+    await ragRefreshList();
+  } catch (e) {
+    toast(String(e && e.message ? e.message : e), "error");
   }
 }
 
@@ -353,6 +309,11 @@ function ragStartCreate() {
   const wasEditing = !!ragState.editingFilename;
   ragState.editingFilename = "";
   ragState.createPreferredModel = ragConfiguredDefault();
+  const meta = document.getElementById("rag-edit-meta");
+  if (meta) {
+    meta.textContent = "";
+    meta.hidden = true;
+  }
   if (wasEditing) ragState.entries = [];
   if (!ragState.entries.length) ragState.entries = [ragNewEntry()];
   if (!ragState.entries.some((e) => e.key === ragState.activeEntry)) {
@@ -374,12 +335,21 @@ async function ragStartEdit(filename) {
   ragState.activeEntry = 0;
   ragSetCreateError(t("rag.loading"));
   ragSetCreateDisabled(true);
+  const meta = document.getElementById("rag-edit-meta");
+  if (meta) {
+    meta.textContent = "";
+    meta.hidden = true;
+  }
   try {
     const detail = await api("/api/rags/" + encodeURIComponent(filename));
     const nameIn = document.getElementById("rag-new-name");
     const descIn = document.getElementById("rag-new-desc");
     if (nameIn) nameIn.value = detail.meta && detail.meta.name || "";
     if (descIn) descIn.value = detail.meta && detail.meta.description || "";
+    if (meta) {
+      meta.textContent = filename + " · " + fmtBytes(Number(detail.size_bytes) || 0);
+      meta.hidden = false;
+    }
     ragState.createPreferredModel = detail.meta && detail.meta.embedding_model || "";
     ragState.entries = (detail.entries || []).map((e) => {
       const entry = {
@@ -828,7 +798,7 @@ async function ragSubmitCreate() {
   const editing = ragState.editingFilename;
   if (btn) btn.textContent = editing ? t("rag.saving") : t("rag.generating");
   try {
-    const res = await api(editing ? "/api/rags/" + encodeURIComponent(editing) : "/api/rags", {
+    await api(editing ? "/api/rags/" + encodeURIComponent(editing) : "/api/rags", {
       method: editing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -844,8 +814,7 @@ async function ragSubmitCreate() {
     toast(t(editing ? "rag.updated" : "rag.created", { name }), "success");
     ragState.creating = false;
     if (btn) btn.textContent = t("rag.create_btn");
-    const filename = res && res.rag && res.rag.filename;
-    ragNav(editing && filename ? "/rags/" + encodeURIComponent(filename) : "/rags");
+    ragNav("/rags");
     return;
   } catch (e) {
     ragSetCreateError(String(e && e.message ? e.message : e));
@@ -961,7 +930,6 @@ document.getElementById("rags-reload-btn")?.addEventListener("click", () => void
 document.getElementById("rags-new-btn")?.addEventListener("click", () => ragNav("/rags/new"));
 document.getElementById("rag-create-cancel-btn")?.addEventListener("click", () => {
   if (ragBusy()) return;
-  const editing = ragState.editingFilename;
   ragState.entries = [];
   ragState.activeEntry = 0;
   ragState.editingFilename = "";
@@ -970,10 +938,15 @@ document.getElementById("rag-create-cancel-btn")?.addEventListener("click", () =
   const nameIn = document.getElementById("rag-new-name");
   const descIn = document.getElementById("rag-new-desc");
   const modelSel = document.getElementById("rag-new-model");
+  const meta = document.getElementById("rag-edit-meta");
   if (nameIn) nameIn.value = "";
   if (descIn) descIn.value = "";
   if (modelSel) modelSel.value = "";
-  ragNav(editing ? "/rags/" + encodeURIComponent(editing) : "/rags");
+  if (meta) {
+    meta.textContent = "";
+    meta.hidden = true;
+  }
+  ragNav("/rags");
 });
 document.getElementById("rag-add-entry-btn")?.addEventListener("click", () => {
   if (ragBusy()) return;
@@ -993,10 +966,6 @@ document.getElementById("rag-entry-list")?.addEventListener("keydown", (ev) => {
     document.querySelector(`.rag-entry-nav[data-entry-key="${next.key}"]`)?.focus();
   });
 });
-document.getElementById("rag-detail-edit-btn")?.addEventListener("click", () => {
-  if (ragState.detailFilename) ragNav("/rags/" + encodeURIComponent(ragState.detailFilename) + "/edit");
-});
-document.getElementById("rag-detail-back-btn")?.addEventListener("click", () => ragNav("/rags"));
 document.getElementById("rag-new-model")?.addEventListener("change", (ev) => {
   ragState.createPreferredModel = ev.target.value;
   ragRenderEntries();

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ollama Manager</title>
   <link rel="stylesheet" href="/static/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20261008_02">
+  <link rel="stylesheet" href="/static/style.css?v=20261008_06">
 </head>
 <body>
   <header class="topbar">
@@ -519,6 +519,8 @@
         </h2>
       </div>
       <div class="tests-head-actions">
+        <button type="button" id="rag-create-cancel-btn" class="ghost" data-i18n="rag.back_to_list" hidden>Back to list</button>
+        <button type="button" id="rag-create-btn" class="primary" data-i18n="rag.create_btn" hidden>Create Base</button>
         <button id="rags-reload-btn" class="ghost" data-i18n="rag.reload">Reload</button>
         <button id="rags-new-btn" class="primary" data-i18n="rag.new">New Base</button>
       </div>
@@ -541,6 +543,7 @@
             <label for="rag-new-desc" data-i18n="rag.desc_label">Description</label>
             <input type="text" id="rag-new-desc" autocomplete="off">
           </div>
+          <div id="rag-edit-meta" class="rag-edit-meta mono" hidden></div>
           <div class="rag-divider">
             <h4><span data-i18n="rag.entries_title">Entries</span> <span id="rag-entry-count" class="muted"></span></h4>
             <button type="button" id="rag-add-entry-btn" class="ghost small" data-i18n="rag.add_entry">+ Entry</button>
@@ -550,35 +553,21 @@
             <div id="rag-entries" class="rag-entry-editor"></div>
           </div>
           <div id="rag-create-status" class="rag-status" role="status" hidden></div>
-          <div class="rag-actions">
-            <button type="button" id="rag-create-btn" class="primary" data-i18n="rag.create_btn">Create Base</button>
-            <button type="button" id="rag-create-cancel-btn" class="ghost" data-i18n="action.cancel">Cancel</button>
-          </div>
         </section>
 
-        <div id="rags-detail" hidden>
-          <div class="rag-detail-head">
-            <h4 id="rag-detail-title" class="rag-detail-title"></h4>
-            <div class="rag-detail-actions">
-              <button type="button" id="rag-detail-edit-btn" class="ghost small" data-i18n="rag.edit">Edit</button>
-              <button type="button" id="rag-detail-back-btn" class="ghost small" data-i18n="rag.back_to_list">Back to list</button>
-            </div>
-          </div>
-          <div id="rag-detail-meta" class="rag-detail-meta muted small"></div>
-          <div id="rag-detail-entries" class="rag-entries"></div>
-        </div>
-
         <div id="rags-list-wrap">
-          <section class="table-wrap">
+          <section class="table-wrap rag-table-wrap">
             <table id="rags-table">
               <thead>
                 <tr>
+                  <th class="col-state"></th>
                   <th data-i18n="rag.col_name">Name</th>
                   <th data-i18n="rag.col_model">Model</th>
                   <th data-i18n="rag.col_dims">Dims</th>
                   <th data-i18n="rag.col_entries">Entries</th>
+                  <th data-i18n="rag.col_size">Size</th>
                   <th data-i18n="rag.col_created">Created</th>
-                  <th data-i18n="rag.col_file">File</th>
+                  <th class="col-actions rag-col-actions"></th>
                 </tr>
               </thead>
               <tbody id="rags-tbody"></tbody>
@@ -3147,7 +3136,7 @@
   <div id="toast"></div>
 
   <script src="/static/katex/katex.min.js"></script>
-  <script src="/static/i18n.js?v=20261008_02"></script>
+  <script src="/static/i18n.js?v=20261008_06"></script>
   <script src="/static/app-helpers.js?v=20261008_01"></script>
   <script src="/static/app-state.js?v=20260820"></script>
   <script src="/static/app-api.js?v=20261004_01"></script>
@@ -3158,7 +3147,7 @@
   <script src="/static/app-decision.js?v=20261006_01"></script>
   <script src="/static/app-tests.js?v=20260908_02"></script>
   <script src="/static/app-analytics.js?v=20260820"></script>
-  <script src="/static/app-rag.js?v=20261008_03"></script>
+  <script src="/static/app-rag.js?v=20261008_06"></script>
   <script src="/static/app-svg.js?v=20261008_01"></script>
   <script src="/static/app-artifacts.js?v=20261004_01"></script>
   <script src="/static/app-comfy.js?v=20261004_01"></script>

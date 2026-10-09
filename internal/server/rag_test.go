@@ -222,7 +222,8 @@ func TestRAGCreateAndList(t *testing.T) {
 		t.Fatalf("rags = %v", list)
 	}
 	row := rags[0].(map[string]any)
-	if row["filename"] != filename || row["name"] != "Fruits" || row["entries"] != float64(2) {
+	if row["filename"] != filename || row["name"] != "Fruits" ||
+		row["description"] != "d" || row["entries"] != float64(2) {
 		t.Fatalf("list row = %v", row)
 	}
 	if list["directory"] != ragDirOf(t, srv) {
@@ -232,6 +233,9 @@ func TestRAGCreateAndList(t *testing.T) {
 	code, det := ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
 	if code != http.StatusOK {
 		t.Fatalf("detail status = %d, body = %v", code, det)
+	}
+	if det["size_bytes"].(float64) <= 0 {
+		t.Fatalf("detail size_bytes = %v", det["size_bytes"])
 	}
 	entries, _ := det["entries"].([]any)
 	if len(entries) != 2 {
@@ -243,6 +247,50 @@ func TestRAGCreateAndList(t *testing.T) {
 	}
 	if _, leaked := first["embedding"]; leaked {
 		t.Fatalf("vector leaked in detail: %v", first)
+	}
+}
+
+func TestRAGDownloadAndDelete(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+
+	code, out := ragCall(t, srv, http.MethodPost, "/api/rags", map[string]any{
+		"name": "Portable", "embedding_model": "embed-model", "entries": twoEntries,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %v", code, out)
+	}
+	filename := out["rag"].(map[string]any)["filename"].(string)
+
+	code, headers, raw := ragRawCall(t, srv, http.MethodGet, "/api/rags/"+filename+"/download", nil)
+	if code != http.StatusOK {
+		t.Fatalf("download status = %d", code)
+	}
+	stored, err := os.ReadFile(filepath.Join(ragDirOf(t, srv), filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, stored) {
+		t.Fatalf("download returned %d bytes, file has %d", len(raw), len(stored))
+	}
+	if headers.Get("Content-Type") != "application/vnd.sqlite3" ||
+		!strings.Contains(headers.Get("Content-Disposition"), "attachment") ||
+		!strings.Contains(headers.Get("Content-Disposition"), filename) {
+		t.Fatalf("download headers = %v", headers)
+	}
+
+	code, out = ragCall(t, srv, http.MethodDelete, "/api/rags/"+filename, nil)
+	if code != http.StatusOK || out["ok"] != true {
+		t.Fatalf("delete = %d %v", code, out)
+	}
+	code, _ = ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("deleted detail status = %d, want 404", code)
+	}
+	code, _ = ragCall(t, srv, http.MethodDelete, "/api/rags/"+filename, nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("second delete status = %d, want 404", code)
 	}
 }
 
@@ -591,14 +639,26 @@ func TestRAGDetailGuards(t *testing.T) {
 	srv := newTestServer(t, fake.srv.URL)
 
 	for _, bad := range []string{"..%2F..%2Fconfig.json", "a%2Fb.db", "a%5Cb.db", "x.txt", ".hidden.db"} {
-		code, _ := ragCall(t, srv, http.MethodGet, "/api/rags/"+bad, nil)
-		if code != http.StatusBadRequest {
-			t.Fatalf("GET %q status = %d, want 400", bad, code)
+		for _, tc := range []struct{ method, suffix string }{
+			{http.MethodGet, ""},
+			{http.MethodDelete, ""},
+			{http.MethodGet, "/download"},
+		} {
+			code, _ := ragCall(t, srv, tc.method, "/api/rags/"+bad+tc.suffix, nil)
+			if code != http.StatusBadRequest {
+				t.Fatalf("%s %q status = %d, want 400", tc.method, bad+tc.suffix, code)
+			}
 		}
 	}
-	code, _ := ragCall(t, srv, http.MethodGet, "/api/rags/missing.db", nil)
-	if code != http.StatusNotFound {
-		t.Fatalf("missing status = %d, want 404", code)
+	for _, tc := range []struct{ method, suffix string }{
+		{http.MethodGet, ""},
+		{http.MethodDelete, ""},
+		{http.MethodGet, "/download"},
+	} {
+		code, _ := ragCall(t, srv, tc.method, "/api/rags/missing.db"+tc.suffix, nil)
+		if code != http.StatusNotFound {
+			t.Fatalf("missing %s %q status = %d, want 404", tc.method, tc.suffix, code)
+		}
 	}
 }
 
@@ -784,8 +844,10 @@ func TestRAGRoutesRequireAuth(t *testing.T) {
 		{http.MethodPost, "/api/rags"},
 		{http.MethodGet, "/api/rags/models"},
 		{http.MethodGet, "/api/rags/x.db"},
+		{http.MethodGet, "/api/rags/x.db/download"},
 		{http.MethodGet, "/api/rags/x.db/media/1/image"},
 		{http.MethodPut, "/api/rags/x.db"},
+		{http.MethodDelete, "/api/rags/x.db"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		rr := httptest.NewRecorder()

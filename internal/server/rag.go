@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime"
 	"net/http"
 	"os"
 	"strconv"
@@ -179,6 +180,38 @@ func (s *Server) handleGetRAG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleDownloadRAG(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("id")
+	dir, _ := s.ragConfigSnapshot()
+	path, err := rag.Path(dir, filename)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(w, http.StatusNotFound, errors.New("rag base not found"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.sqlite3")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleDeleteRAG(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("id")
+	dir, _ := s.ragConfigSnapshot()
+	if err := rag.Delete(dir, filename); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(w, http.StatusNotFound, errors.New("rag base not found"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleGetRAGMedia(w http.ResponseWriter, r *http.Request) {

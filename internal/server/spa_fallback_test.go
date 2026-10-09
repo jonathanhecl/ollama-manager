@@ -19,7 +19,7 @@ func TestIsSPAClientPath(t *testing.T) {
 		"/opencode", "/opencode/", "/archived", "/archived/",
 		"/modelfile", "/modelfile/x",
 		"/hf", "/hf/", "/huggingface", "/huggingface/",
-		"/rags", "/rags/new", "/rags/base.db",
+		"/rags", "/rags/new", "/rags/base.db", "/rags/base.db/edit",
 	}
 	for _, p := range spa {
 		if !isSPAClientPath(p) {

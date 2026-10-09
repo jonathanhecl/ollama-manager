@@ -274,6 +274,33 @@ func TestRAGAgentScopeAndDefinitions(t *testing.T) {
 	if len(enum) != 1 || enum[0] != f1 {
 		t.Fatalf("create enum must list only writable bases: %v", enum)
 	}
+	assertContentLimit := func(d map[string]any, name string) {
+		t.Helper()
+		fn, _ := d["function"].(map[string]any)
+		params, _ := fn["parameters"].(map[string]any)
+		p, _ := params["properties"].(map[string]any)
+		cprop, _ := p["content"].(map[string]any)
+		if cprop["maxLength"] != ragMaxContentLen {
+			t.Fatalf("%s content maxLength = %v", name, cprop["maxLength"])
+		}
+		desc, _ := cprop["description"].(string)
+		if !strings.Contains(desc, fmt.Sprintf("%d", ragMaxContentLen)) || !strings.Contains(desc, "Unicode") {
+			t.Fatalf("%s content description = %q", name, desc)
+		}
+	}
+	assertContentLimit(create, "rag_create_entry")
+	var update map[string]any
+	for _, d := range defs {
+		m, _ := d.(map[string]any)
+		fn, _ := m["function"].(map[string]any)
+		if fn["name"] == "rag_update_entry" {
+			update = m
+		}
+	}
+	if update == nil {
+		t.Fatal("editable base must expose rag_update_entry")
+	}
+	assertContentLimit(update, "rag_update_entry")
 
 	var listDef map[string]any
 	for _, d := range defs {
@@ -398,6 +425,49 @@ func TestRAGAgentReadToolsAndForgedMutationDenied(t *testing.T) {
 	after, err := ragpkg.Get(dir, filename)
 	if err != nil || len(after.Entries) != 1 {
 		t.Fatalf("forged mutation changed the base: %+v %v", after.Entries, err)
+	}
+}
+
+func TestRAGAgentContentLengthBoundary(t *testing.T) {
+	fake := newFakeOllamaRAGAgent()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+	_, filename := createChatRAGBase(t, dir, "Bounds", "embed-model:latest", "sha256:embed1", 2, []ragpkg.Entry{
+		{Term: "a", Content: "c", Embedding: []float64{1, 0}},
+	})
+	sink := &recordSink{}
+	body := ragAgentBody(filename, true)
+	entryID := int64(1)
+	_, snap, err := ragpkg.ReadEntry(context.Background(), dir, filename, entryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	atLimit := strings.Repeat("x", ragMaxContentLen)
+	overLimit := atLimit + "x"
+
+	_, _, err = ragToolCall(t, srv, sink, body, "rag_create_entry",
+		map[string]any{"filename": filename, "term": "big", "content": overLimit})
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%d", ragMaxContentLen)) {
+		t.Fatalf("create over limit = %v", err)
+	}
+	if _, _, err = ragToolCall(t, srv, sink, body, "rag_update_entry",
+		map[string]any{"filename": filename, "entry_id": entryID, "expected_revision": snap.Revision, "content": overLimit}); err == nil {
+		t.Fatal("update over limit must be rejected")
+	}
+	stored, err := ragpkg.Get(dir, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Entries) != 1 || stored.Entries[0].Content != "c" {
+		t.Fatalf("rejected writes mutated base: %+v", stored.Entries)
+	}
+
+	_, _, err = ragToolCall(t, srv, sink, body, "rag_create_entry",
+		map[string]any{"filename": filename, "term": "ok", "content": atLimit})
+	if err != nil {
+		t.Fatalf("create at limit = %v", err)
 	}
 }
 

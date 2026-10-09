@@ -16382,9 +16382,19 @@ button.chat-send:disabled:hover {
 textarea.rag-entry-content {
   width: 100%;
   margin-top: 8px;
-  min-height: 76px;
+  min-height: 340px;
   resize: vertical;
 }
+.rag-content-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.rag-content-count.rag-limit-warn { color: var(--warn, #b45309); }
+.rag-content-count.rag-limit-over { color: var(--danger, #dc2626); font-weight: 600; }
+textarea.rag-entry-content.rag-limit-warn { border-color: var(--warn, #b45309); }
+textarea.rag-entry-content.rag-limit-over { border-color: var(--danger, #dc2626); }
+.rag-entry-nav.over-limit { border-color: var(--danger, #dc2626); }
 .rag-entry-media {
   display: flex;
   align-items: flex-start;

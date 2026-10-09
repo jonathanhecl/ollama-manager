@@ -1,6 +1,13 @@
 "use strict";
 
 const RAG_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const RAG_MAX_CONTENT_CHARS = 32000;
+const RAG_TRIM_WS = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+const ragTrimRe = new RegExp(`^[${RAG_TRIM_WS}]+|[${RAG_TRIM_WS}]+$`, "g");
+
+function ragContentLength(value) {
+  return Array.from(String(value || "").replace(ragTrimRe, "")).length;
+}
 
 const ragState = {
   list: [],
@@ -95,6 +102,18 @@ function ragBusy() {
   return ragState.creating || ragMediaPending() || ragContentPending() || ragState.externalLoading;
 }
 
+function ragContentOverLimit() {
+  return ragState.entries.some((e) => ragContentLength(e.content) > RAG_MAX_CONTENT_CHARS);
+}
+
+function ragSyncSaveAvailability() {
+  const disabled = ragBusy() || ragContentOverLimit();
+  for (const id of ["rag-create-btn", "rag-download-edited-btn"]) {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = disabled;
+  }
+}
+
 function ragSetCreateDisabled(disabled) {
   const box = document.getElementById("rag-create-box");
   if (!box) return;
@@ -105,6 +124,7 @@ function ragSetCreateDisabled(disabled) {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = disabled;
   }
+  if (!disabled) ragSyncSaveAvailability();
 }
 
 async function ragLoadModels(source) {
@@ -740,6 +760,15 @@ function ragRenderEntries() {
     const btn = ragEl("button", "rag-entry-nav" + (entry.key === ragState.activeEntry ? " active" : ""), "");
     btn.type = "button";
     btn.dataset.entryKey = String(entry.key);
+    const contentLen = ragContentLength(entry.content);
+    if (contentLen > RAG_MAX_CONTENT_CHARS) {
+      btn.classList.add("over-limit");
+      btn.title = ragEntryTitle(entry, idx) + " — " + t("rag.content_too_long", {
+        max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
+        excess: (contentLen - RAG_MAX_CONTENT_CHARS).toLocaleString(),
+      });
+      btn.setAttribute("aria-label", btn.title);
+    }
     btn.setAttribute("role", "option");
     btn.setAttribute("aria-selected", entry.key === ragState.activeEntry ? "true" : "false");
     const title = ragEl("span", "rag-entry-nav-title", ragEntryTitle(entry, idx));
@@ -832,7 +861,13 @@ function ragRenderEntries() {
   textBox.appendChild(ragEl("div", "form-hint", t("rag.input_mode_hint")));
 
   const contentHead = ragEl("div", "chat-system-head rag-content-head");
-  contentHead.appendChild(ragEl("label", "", t("rag.content_label")));
+  const contentLabel = ragEl("label", "", t("rag.content_label"));
+  contentLabel.setAttribute("for", "rag-content-" + entry.key);
+  contentHead.appendChild(contentLabel);
+  const contentCount = ragEl("span", "rag-content-count", "");
+  contentCount.setAttribute("aria-live", "polite");
+  contentCount.title = t("rag.content_count_hint");
+  contentHead.appendChild(contentCount);
   const contentBtn = ragEl("button", "ghost chat-system-file-btn rag-content-file-btn", "");
   contentBtn.type = "button";
   contentBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>';
@@ -856,12 +891,48 @@ function ragRenderEntries() {
   textBox.appendChild(contentFile);
 
   const content = ragEl("textarea", "rag-entry-content");
+  content.id = "rag-content-" + entry.key;
   content.placeholder = t("rag.content_placeholder");
-  content.rows = 6;
+  content.rows = 14;
   content.value = entry.content;
+  const contentWarn = ragEl("div", "form-hint rag-content-warn", "");
+  contentWarn.hidden = true;
+  const syncContentState = () => {
+    const len = ragContentLength(content.value);
+    const over = len > RAG_MAX_CONTENT_CHARS;
+    const near = !over && len >= RAG_MAX_CONTENT_CHARS * 0.9;
+    contentCount.textContent = t("rag.content_count", {
+      count: len.toLocaleString(),
+      max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
+    });
+    contentCount.classList.toggle("rag-limit-warn", near);
+    contentCount.classList.toggle("rag-limit-over", over);
+    content.classList.toggle("rag-limit-warn", near);
+    content.classList.toggle("rag-limit-over", over);
+    content.setAttribute("aria-invalid", over ? "true" : "false");
+    contentWarn.hidden = !over;
+    contentWarn.textContent = over ? t("rag.content_too_long", {
+      max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
+      excess: (len - RAG_MAX_CONTENT_CHARS).toLocaleString(),
+    }) : "";
+    const navList = document.getElementById("rag-entry-list");
+    const navBtn = navList ? Array.from(navList.querySelectorAll(".rag-entry-nav"))
+      .find((b) => b.dataset.entryKey === String(entry.key)) : null;
+    if (navBtn) {
+      navBtn.classList.toggle("over-limit", over);
+      const label = over
+        ? ragEntryTitle(entry, ragState.entries.indexOf(entry)) + " — " + contentWarn.textContent
+        : "";
+      navBtn.title = label;
+      navBtn.setAttribute("aria-label", label);
+    }
+    ragSyncSaveAvailability();
+  };
   content.addEventListener("input", () => {
     entry.content = content.value;
+    syncContentState();
   });
+  syncContentState();
   content.addEventListener("dragenter", (e) => {
     if (e.dataTransfer?.types?.includes("Files")) {
       e.preventDefault();
@@ -892,6 +963,7 @@ function ragRenderEntries() {
     ragLoadContentFile(entry, files[0]);
   });
   textBox.appendChild(content);
+  textBox.appendChild(contentWarn);
   grid.appendChild(textBox);
 
   const mediaBox = ragEl("div", "rag-entry-media-grid");
@@ -904,6 +976,7 @@ function ragRenderEntries() {
   if (entry.mediaError) card.appendChild(ragEl("div", "rag-entry-media form-hint", entry.mediaError));
   host.appendChild(card);
   host.appendChild(ragEl("p", "form-hint", t("rag.media_hint")));
+  ragSyncSaveAvailability();
 }
 
 function ragLoadContentFile(entry, file) {
@@ -1006,6 +1079,18 @@ async function ragSubmitCreate(destination = "local") {
     else if (media.some((m) => !ragMediaAllowed(m.type, caps))) err = t("rag.media_unsupported");
     else if (e.inputMode === "media" && !media.length) err = t("rag.media_required");
     else if (!media.length && !e.content.trim()) err = t("rag.content_required");
+  }
+  if (!err) {
+    const overIdx = ragState.entries.findIndex((e) => ragContentLength(e.content) > RAG_MAX_CONTENT_CHARS);
+    if (overIdx >= 0) {
+      const over = ragState.entries[overIdx];
+      err = t("rag.content_too_long_entry", {
+        entry: ragEntryTitle(over, overIdx),
+        max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
+      });
+      ragSetActiveEntry(over.key);
+      document.querySelector("textarea.rag-entry-content")?.focus();
+    }
   }
   if (err) {
     ragSetCreateError(err);

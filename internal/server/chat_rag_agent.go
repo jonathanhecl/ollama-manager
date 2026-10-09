@@ -233,12 +233,17 @@ func (s *Server) ragToolDefinitions(body chatRequestBody) []any {
 		return defs
 	}
 	revision := str("Exact current revision returned by the read tool.")
+	content := func() map[string]any {
+		m := str(fmt.Sprintf("Entry text. Maximum %d Unicode characters; leading and trailing whitespace is trimmed before storage. Split longer content into separate entries.", ragMaxContentLen))
+		m["maxLength"] = ragMaxContentLen
+		return m
+	}
 	defs = append(defs,
 		def("rag_create_entry", "Create one text entry in an editable RAG base. Its embedding is generated automatically with the base's embedding model.",
 			[]string{"filename", "term", "content"}, map[string]any{
 				"filename": filenameWr(),
 				"term":     str("Entry key or label."),
-				"content":  str("Entry text."),
+				"content":  content(),
 			}),
 		def("rag_update_entry", "Update an entry's key, content or input mode in an editable RAG base while preserving attached media. Requires the revision from rag_get_entry; embeddings are regenerated automatically.",
 			[]string{"filename", "entry_id", "expected_revision"}, map[string]any{
@@ -246,7 +251,7 @@ func (s *Server) ragToolDefinitions(body chatRequestBody) []any {
 				"entry_id":          integer("Numeric entry ID returned by the RAG tools.", 1, 0),
 				"expected_revision": revision,
 				"term":              str("Entry key or label."),
-				"content":           str("Entry text."),
+				"content":           content(),
 				"input_mode": map[string]any{
 					"type":        "string",
 					"description": "Whether embedding uses text and media together or only existing media.",

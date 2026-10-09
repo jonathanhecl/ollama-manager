@@ -58,7 +58,11 @@ class FakeEl {
       add: (c) => self._classes.add(c),
       remove: (c) => self._classes.delete(c),
       contains: (c) => self._classes.has(c),
-      toggle() {},
+      toggle(c, force) {
+        const on = force === undefined ? !self._classes.has(c) : !!force;
+        if (on) self._classes.add(c); else self._classes.delete(c);
+        return on;
+      },
     };
   }
   get className() { return this._cls; }
@@ -185,7 +189,7 @@ const subscribed = [];
 const sandbox = {
   console,
   URL,
-  t: (k, p) => `${k}:${p && p.msg ? p.msg : ""}`,
+  t: (k, p) => `${k}:${Object.entries(p || {}).map(([pk, pv]) => `${pk}=${pv}`).join(",")}`,
   toast: (msg, type) => toasts.push({ msg, type }),
   requestAnimationFrame: (fn) => fn(),
   setTimeout: (fn) => fn(),
@@ -809,6 +813,117 @@ const {
   for (const key of ["rag.open_external", "rag.save_local", "rag.download_edited", "rag.external_hint"]) {
     assert.equal((i18nSrc2.match(new RegExp(`"${key.replace(".", "\\.")}"`, "g")) || []).length, 2, `EN+ES label ${key}`);
   }
+}
+
+{
+  const ragState = ragEval("ragState");
+  const entryOf = (k) => ragState.entries.find((e) => e.key === k);
+  const len = (v) => sandbox.ragContentLength(v);
+  assert.equal(len(""), 0);
+  assert.equal(len("  padded  "), 6, "surrounding whitespace is not counted");
+  assert.equal(len("\u00a0x\u00a0"), 1, "NBSP belongs to the Go whitespace class");
+  assert.equal(len("\u0085x\u0085"), 1, "U+0085 belongs to the Go whitespace class");
+  assert.equal(len("\uFEFFx"), 2, "FEFF is kept, matching Go TrimSpace");
+  assert.equal(len("\u{1F600}"), 1, "non-BMP characters count as one codepoint");
+  assert.equal(len("e\u0301"), 2, "combining marks count per rune");
+  assert.equal(len("a".repeat(32000)), 32000);
+  assert.equal(len("a".repeat(32001)), 32001);
+
+  const goSrc = readFileSync(join(web, "..", "internal/server/rag.go"), "utf8");
+  const jsSrc = readFileSync(join(web, "app-rag.js"), "utf8");
+  assert.match(goSrc, /ragMaxContentLen\s*=\s*32000/, "backend limit stays 32000");
+  assert.match(jsSrc, /RAG_MAX_CONTENT_CHARS\s*=\s*32000/, "frontend constant matches backend");
+  const css = readFileSync(join(web, "style.css"), "utf8");
+  assert.match(css, /textarea\.rag-entry-content\s*\{[^}]*min-height:\s*340px/, "larger content area");
+  assert.match(jsSrc, /content\.rows\s*=\s*14/, "textarea rows increased");
+
+  const extFile2 = { name: "counter.db", size: 1 };
+  await sandbox.ragOpenExternalFile(extFile2);
+  assert.equal(ragState.externalFile, extFile2);
+  const host = els.get("rag-entries");
+  const findTa = () => findDeep(host, (c) => c.tagName === "TEXTAREA")[0];
+  const findCount = () => findDeep(host, (c) => c._classes && c._classes.has("rag-content-count"))[0];
+  const findWarn = () => findDeep(host, (c) => c._classes && c._classes.has("rag-content-warn"))[0];
+  const createBtn2 = els.get("rag-create-btn");
+  const dlBtn2 = els.get("rag-download-edited-btn");
+  const saveCalls = () => sandbox._apiCalls.filter((c) => c.url === "/api/rags/external/save").length;
+  const saveBase = saveCalls();
+
+  let ta = findTa();
+  let count = findCount();
+  assert.ok(ta && count, "counter rendered on external detail load");
+  const loc = (n) => ragEval(`(${n}).toLocaleString()`);
+  const expected = (n) => `rag.content_count:count=${loc(n)},max=${loc(32000)}`;
+  assert.equal(count.textContent, expected(len(ragState.entries[0].content)), "counter reflects loaded content");
+  assert.equal(count.attrs["aria-live"], "polite", "count announces politely");
+  assert.equal(ta.attrs["aria-invalid"], "false");
+
+  ta.value = "x".repeat(32000);
+  ta.dispatch("input", {});
+  assert.equal(createBtn2.disabled, false, "32000 exact stays saveable");
+  assert.equal(findTa().classList.contains("rag-limit-warn"), true, "near-limit warn at >=90%");
+  assert.equal(findWarn().hidden, true, "no inline warning while within limit");
+
+  ta.value = "x".repeat(32001);
+  ta.dispatch("input", {});
+  ta = findTa();
+  assert.equal(ta.classList.contains("rag-limit-over"), true, "over-limit styling");
+  assert.equal(ta.attrs["aria-invalid"], "true", "aria-invalid only over limit");
+  assert.equal(findWarn().hidden, false, "inline warning visible");
+  assert.match(findWarn().textContent, /rag\.content_too_long:max=/);
+  assert.equal(createBtn2.disabled, true, "over-limit disables save");
+  assert.equal(dlBtn2.disabled, true, "over-limit disables download");
+  ragEval("ragSetCreateDisabled(false)");
+  assert.equal(createBtn2.disabled, true, "unlock never bypasses the limit guard");
+  const navFor0 = () => els.get("rag-entry-list").querySelectorAll(".rag-entry-nav")
+    .find((b) => b.dataset.entryKey === String(ragState.entries[0].key));
+  assert.equal(navFor0().classList.contains("over-limit"), true, "input marks the nav entry without rerender");
+  assert.match(navFor0().title, /alpha.*rag\.content_too_long/, "nav title carries entry and warning");
+  assert.equal(navFor0().attrs["aria-label"], navFor0().title);
+
+  await sandbox.ragSubmitCreate();
+  assert.equal(saveCalls(), saveBase, "over-limit submit sends no request");
+  assert.match(els.get("rag-create-status").textContent, /rag\.content_too_long_entry/);
+
+  const bigEntry = ragState.entries[0];
+  ragState.entries.push(sandbox.ragNewEntry());
+  ragState.activeEntry = ragState.entries[ragState.entries.length - 1].key;
+  ragEval("ragRenderEntries()");
+  assert.equal(createBtn2.disabled, true, "inactive over-limit entry still disables save");
+  assert.equal(findCount().textContent, expected(0), "switching shows the active entry's count");
+  findTa().value = "ok";
+  findTa().dispatch("input", {});
+  const navBtns = els.get("rag-entry-list").querySelectorAll("button");
+  const overNav = navBtns.find((b) => b.classList.contains("over-limit"));
+  assert.ok(overNav, "nav marks the over-limit entry");
+  assert.match(overNav.title, /rag\.content_too_long/, "nav title carries the error");
+  sandbox.ragSetActiveEntry(bigEntry.key);
+  findDeep(host, (c) => c._classes && c._classes.has("rag-entry-remove"))[0].dispatch("click", {});
+  assert.equal(createBtn2.disabled, false, "removing the invalid entry re-enables save");
+
+  const fileIn = findDeep(host, (c) => c.tagName === "INPUT" && c.type === "file" && String(c.accept || "").includes(".txt"))[0];
+  const overText = "imp".repeat(12000);
+  fileIn.files = [{ name: "big.txt", size: overText.length }];
+  fileIn.dispatch("change", { target: fileIn });
+  FakeFileReader.instances.at(-1).result = overText;
+  FakeFileReader.instances.at(-1).onload();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ragState.entries[0].content, overText, "over-limit import keeps the full string");
+  assert.equal(ragEval("ragBusy()"), false, "editor unlocked after over-limit import");
+  assert.equal(createBtn2.disabled, true, "save stays disabled until corrected");
+  const fixTa = findDeep(host, (c) => c.tagName === "TEXTAREA")[0];
+  fixTa.value = "fixed";
+  fixTa.dispatch("input", {});
+  assert.equal(createBtn2.disabled, false, "correcting re-enables save");
+  assert.equal(navFor0().classList.contains("over-limit"), false, "correction clears nav marker");
+  assert.equal(navFor0().title, "", "stale nav error title cleared");
+  assert.equal(navFor0().attrs["aria-label"], "", "stale nav aria-label cleared");
+
+  ragState.externalFile = null;
+  ragState.entries = [sandbox.ragNewEntry()];
+  ragEval("ragRenderEntries()");
+  assert.equal(findDeep(host, (c) => c._classes && c._classes.has("rag-content-count"))[0].textContent, expected(0),
+    "empty draft counts zero");
 }
 
 {

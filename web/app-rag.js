@@ -1241,23 +1241,41 @@ function chatRagRenderPicker(filter = "") {
     const filename = String(r.filename || "");
     const already = selectedNow.has(filename);
     const item = ragEl("label", "prompts-modal-item rag-picker-item");
-    const head = ragEl("div", "prompts-modal-item-head");
-    const titleWrap = ragEl("div", "prompts-modal-item-title-wrap");
+    const row = ragEl("div", "rag-picker-row");
     const check = ragEl("input", "rag-picker-check");
     check.type = "checkbox";
     check.dataset.filename = filename;
     check.checked = already || ragState.pickerSelected.has(filename);
     check.disabled = already;
-    const title = ragEl("span", "prompts-modal-item-title", r.name || filename);
-    titleWrap.appendChild(check);
-    titleWrap.appendChild(title);
-    if (already) titleWrap.appendChild(ragEl("span", "prompt-token-pill", t("rag.picker_added")));
-    head.appendChild(titleWrap);
-    head.appendChild(ragEl("span", "mono muted small", `${r.entries || 0} · ${ragFmtBytes(r.size_bytes)}`));
-    item.appendChild(head);
-    const meta = `${r.embedding_model || "—"} · ${r.dimensions || 0} dims`;
-    item.appendChild(ragEl("div", "rag-picker-meta muted small", meta));
-    if (r.description) item.appendChild(ragEl("div", "prompts-modal-item-preview", r.description));
+    const body = ragEl("div", "rag-picker-body");
+    const titleLine = ragEl("div", "rag-picker-title-line");
+    titleLine.appendChild(ragEl("span", "rag-picker-title", r.name || filename));
+    if (already) titleLine.appendChild(ragEl("span", "prompt-token-pill", t("rag.picker_added")));
+    body.appendChild(titleLine);
+    const desc = String(r.description || "").trim();
+    if (desc) {
+      body.appendChild(ragEl("div", "rag-picker-desc", desc));
+    } else if (r.name && String(r.name).trim() && String(r.name) !== filename) {
+      body.appendChild(ragEl("div", "rag-picker-filename mono muted", filename));
+    }
+    const meta = ragEl("div", "rag-picker-meta");
+    const model = String(r.embedding_model || "—");
+    const modelPill = ragEl("span", "badge badge-muted rag-model-pill mono", model);
+    modelPill.title = model;
+    meta.appendChild(modelPill);
+    meta.appendChild(ragEl("span", "", `${r.dimensions || 0} dims`));
+    meta.appendChild(ragEl("span", "rag-picker-entries", t("rag.picker_entries", { count: r.entries || 0 })));
+    meta.appendChild(ragEl("span", "", ragFmtBytes(r.size_bytes) || "—"));
+    body.appendChild(meta);
+    row.appendChild(check);
+    row.appendChild(body);
+    const updated = Number(r.updated_at) || Number(r.created_at) || 0;
+    const updatedSpan = ragEl("span", "rag-picker-date", t("rag.picker_updated", {
+      date: updated ? fmtDate(new Date(updated * 1000).toISOString()) : "—",
+    }));
+    updatedSpan.title = ragFmtDate(updated);
+    row.appendChild(updatedSpan);
+    item.appendChild(row);
     listEl.appendChild(item);
   }
   if (count) {

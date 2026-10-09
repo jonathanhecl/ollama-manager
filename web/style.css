@@ -4969,12 +4969,11 @@ button.chat-send:disabled:hover {
   color: #ff6b6b;
   background: color-mix(in srgb, #ff6b6b 15%, transparent);
 }
-#chat-rag-wrap.switch-field {
-  grid-template-columns: 1fr auto auto;
-  gap: 10px;
+#chat-rag-wrap .chat-rag-actions {
+  margin-left: auto;
 }
 #chat-rag-wrap .chat-rag-actions[hidden] {
-  display: none;
+  display: none !important;
 }
 .rag-picker-item {
   cursor: pointer;

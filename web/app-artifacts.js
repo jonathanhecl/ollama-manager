@@ -857,7 +857,8 @@ function bindChatEvents() {
   });
   chatView.addEventListener("click", (e) => {
     if (!$("chat-view")?.classList.contains("chat-options-open")) return;
-    if (e.target.closest(".chat-side")) return;
+    // composedPath keeps working when the click handler re-rendered (detached) the target.
+    if (e.composedPath().some((n) => n instanceof Element && n.classList.contains("chat-side"))) return;
     if (e.target.closest("#chat-options-toggle")) return;
     if (e.target.closest("#chat-artifact-options")) return;
     if (e.target.closest("#chat-artifact-back")) return;

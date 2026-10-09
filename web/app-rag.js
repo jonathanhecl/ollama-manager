@@ -1044,6 +1044,8 @@ function chatRagRenderSelection() {
     return;
   }
   panel.hidden = !chatRagEnabled;
+  const actions = document.getElementById("chat-rag-actions");
+  if (actions) actions.hidden = panel.hidden;
   list.innerHTML = "";
   if (chatRagEnabled && !chatRagPaths.length) {
     list.appendChild(ragEl("div", "chat-rag-empty muted", t("rag.chat_empty")));

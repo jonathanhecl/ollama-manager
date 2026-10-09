@@ -4969,25 +4969,12 @@ button.chat-send:disabled:hover {
   color: #ff6b6b;
   background: color-mix(in srgb, #ff6b6b 15%, transparent);
 }
-.chat-rag-actions {
-  display: flex;
-  gap: 6px;
+#chat-rag-wrap.switch-field {
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
 }
-.chat-rag-action {
-  flex: 1;
-  min-width: 0;
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  font-size: 0.72rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.chat-rag-action:hover {
-  border-color: var(--accent);
-  color: var(--text);
+#chat-rag-wrap .chat-rag-actions[hidden] {
+  display: none;
 }
 .rag-picker-item {
   cursor: pointer;

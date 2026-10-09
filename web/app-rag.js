@@ -1030,6 +1030,8 @@ function updateChatRagAvailability() {
   const imageOnly = typeof isImageGenerationOnlyCaps === "function" && isImageGenerationOnlyCaps(caps);
   wrap.hidden = imageOnly || !ragConfiguredDefault();
   panel.hidden = wrap.hidden || !chatRagEnabled;
+  const actions = document.getElementById("chat-rag-actions");
+  if (actions) actions.hidden = panel.hidden;
 }
 
 function chatRagRenderSelection() {
@@ -1069,7 +1071,9 @@ function chatRagRenderSelection() {
   const importBtn = document.getElementById("chat-rag-file-btn");
   if (importBtn) {
     importBtn.disabled = ragState.chatImporting;
-    importBtn.textContent = ragState.chatImporting ? t("rag.importing") : t("rag.load_file");
+    const label = ragState.chatImporting ? t("rag.importing") : t("rag.load_file");
+    importBtn.title = label;
+    importBtn.setAttribute("aria-label", label);
   }
   updateChatRagAvailability();
 }
@@ -1098,7 +1102,10 @@ function chatRagSetEnabled(enabled, saveModelOptions = true) {
   chatRagCommit(true, saveModelOptions);
   if (next) {
     requestAnimationFrame(() => {
-      document.getElementById("chat-rag-panel")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      const panel = document.getElementById("chat-rag-panel");
+      const card = panel?.closest(".chat-side-card");
+      if (card) card.scrollTop = card.scrollHeight;
+      else panel?.scrollIntoView({ block: "end", inline: "nearest", behavior: "smooth" });
     });
     void chatRagValidateSelection(false);
   }

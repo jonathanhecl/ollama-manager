@@ -407,6 +407,23 @@
           <div class="switch-label">
             <span data-i18n="chat.rag">RAG</span>
           </div>
+          <div id="chat-rag-actions" class="chat-system-actions chat-rag-actions" hidden>
+            <button id="chat-rag-picker-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="rag.picker_open" title="Add base" aria-label="Add base">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+              </svg>
+            </button>
+            <button id="chat-rag-file-btn" type="button" class="ghost chat-system-file-btn" data-i18n-attr="title aria-label" data-i18n="rag.load_file" title="Load .db…" aria-label="Load .db…">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2v6h6"/>
+                <path d="M12 18v-6"/>
+                <path d="M9 15l3-3 3 3"/>
+              </svg>
+            </button>
+            <input id="chat-rag-file-input" type="file" accept=".db,application/vnd.sqlite3,application/x-sqlite3" hidden>
+          </div>
           <label class="switch">
             <input id="chat-rag" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.rag_hint" title="Attach knowledge bases to this chat.">
             <span class="switch-slider"></span>
@@ -414,11 +431,6 @@
         </div>
         <div id="chat-rag-panel" class="chat-rag-panel" hidden>
           <div id="chat-rag-list" class="chat-rag-list"></div>
-          <div class="chat-rag-actions">
-            <button id="chat-rag-picker-btn" type="button" class="ghost chat-rag-action" data-i18n="rag.picker_open">Add base</button>
-            <button id="chat-rag-file-btn" type="button" class="ghost chat-rag-action" data-i18n="rag.load_file">Load .db…</button>
-            <input id="chat-rag-file-input" type="file" accept=".db,application/vnd.sqlite3,application/x-sqlite3" hidden>
-          </div>
         </div>
         <div id="chat-comfy-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.comfy_hint" title="The server can send jobs to your ComfyUI instance and show the results here. The model sees the images and can iterate on them.">
           <div class="switch-label">

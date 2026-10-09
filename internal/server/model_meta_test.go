@@ -150,3 +150,21 @@ func TestFetchModelMetaKeepsModalitiesForEmbeddingModel(t *testing.T) {
 		t.Fatalf("caps = %v, want %v (embedding keeps modalities)", got, want)
 	}
 }
+
+func TestModelRepoBase(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"https://ollama.com/library/Foo:latest", "foo"},
+		{"http://ollama.com/Foo:Q4", "foo"},
+		{"foo:latest", "foo"},
+		{"hf.co/Org/Model:Q8", "huggingface.co/org/model"},
+		{"huggingface.co/Org/Model:Q8", "huggingface.co/org/model"},
+	}
+	for _, c := range cases {
+		if got := modelRepoBase(c.in); got != c.want {
+			t.Errorf("modelRepoBase(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

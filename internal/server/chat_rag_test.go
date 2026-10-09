@@ -202,8 +202,15 @@ func TestChatRAGInjectsContext(t *testing.T) {
 	if !strings.Contains(user, "apple") || !strings.Contains(user, `"filename":"`+filename+`"`) {
 		t.Fatalf("injected context lacks entry or citation id: %q", user)
 	}
-	if !strings.Contains(sys, "cite its source as [filename#entry_id]") {
+	if !strings.Contains(sys, "without mentioning RAG, retrieval, reference context, source filenames, entry IDs, or citations unless the user explicitly asks for sources or provenance") {
 		t.Fatalf("system instruction missing: %q", sys)
+	}
+	if strings.Contains(sys, "cite its source as [filename#entry_id]") {
+		t.Fatalf("old citation instruction still present: %q", sys)
+	}
+	if !strings.Contains(sys, "Start with the answer itself.") ||
+		!strings.Contains(sys, "'según la información disponible', 'según el contexto', or 'los datos indican'") {
+		t.Fatalf("preamble ban missing: %q", sys)
 	}
 	if strings.Contains(user, "a car is a vehicle") {
 		t.Fatalf("orthogonal entry should be below threshold: %q", user)
@@ -792,8 +799,15 @@ func TestAugmentPreservesSystemAndInput(t *testing.T) {
 		t.Fatalf("input body mutated: %+v", body.Messages)
 	}
 	if !strings.HasPrefix(out.Messages[0].Content, "be terse") ||
-		!strings.Contains(out.Messages[0].Content, "cite its source as [filename#entry_id]") {
+		!strings.Contains(out.Messages[0].Content, "without mentioning RAG, retrieval, reference context, source filenames, entry IDs, or citations unless the user explicitly asks for sources or provenance") {
 		t.Fatalf("system prompt not preserved/extended: %q", out.Messages[0].Content)
+	}
+	if strings.Contains(out.Messages[0].Content, "cite its source as [filename#entry_id]") {
+		t.Fatalf("old citation instruction still present: %q", out.Messages[0].Content)
+	}
+	if !strings.Contains(out.Messages[0].Content, "Start with the answer itself.") ||
+		!strings.Contains(out.Messages[0].Content, "'según la información disponible', 'según el contexto', or 'los datos indican'") {
+		t.Fatalf("preamble ban missing: %q", out.Messages[0].Content)
 	}
 	if !strings.Contains(out.Messages[1].Content, "apples\n\nRetrieved RAG context (JSON):") {
 		t.Fatalf("user message not augmented: %q", out.Messages[1].Content)

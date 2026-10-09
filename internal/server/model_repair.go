@@ -265,21 +265,21 @@ func buildLFM2RepairPreview(base string, show *ollama.ShowResponse, req modelRep
 		}
 
 		if !hasVision && hasRepairCap(caps, "tools") {
-			b.WriteString("RENDERER " + parser + "\n")
-			b.WriteString("PARSER " + parser + "\n\n")
+			fmt.Fprintf(&b, "RENDERER %s\n", parser)
+			fmt.Fprintf(&b, "PARSER %s\n\n", parser)
 		}
 
 		if templatePreset != "keep" {
 			tmpl := repairTemplate(templatePreset, hasRepairCap(caps, "tools"), hasRepairCap(caps, "thinking"))
 			if tmpl != "" {
-				b.WriteString("TEMPLATE \"\"\"" + tmpl + "\"\"\"\n\n")
+				fmt.Fprintf(&b, "TEMPLATE \"\"\"%s\"\"\"\n\n", tmpl)
 			} else {
-				b.WriteString("TEMPLATE \"\"\"" + repairTemplate("lfm2", false, false) + "\"\"\"\n\n")
+				fmt.Fprintf(&b, "TEMPLATE \"\"\"%s\"\"\"\n\n", repairTemplate("lfm2", false, false))
 			}
 		} else if !hasVision && hasRepairCap(caps, "tools") {
 			b.WriteString("TEMPLATE {{ .Prompt }}\n\n")
 		} else {
-			b.WriteString("TEMPLATE \"\"\"" + repairTemplate("lfm2", false, false) + "\"\"\"\n\n")
+			fmt.Fprintf(&b, "TEMPLATE \"\"\"%s\"\"\"\n\n", repairTemplate("lfm2", false, false))
 		}
 	} else {
 		// Preserve exact original Modelfile (critical for invisible token characters)

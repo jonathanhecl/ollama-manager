@@ -709,7 +709,7 @@ func (st *chatSessionStore) PromoteQueued(id, queueID string) bool {
 	sess.Queue = append([]SessionMessage{msg}, rest...)
 	st.paused[id] = false
 	cancel, running := st.running[id]
-	if running && sess != nil {
+	if running {
 		sess.Cancelled = true
 	}
 	st.touchLocked(sess)

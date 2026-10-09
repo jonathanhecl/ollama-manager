@@ -2922,9 +2922,7 @@ func modelRepoBase(name string) string {
 	s := strings.TrimSpace(name)
 	s = strings.ToLower(s)
 	for _, p := range []string{"https://", "http://"} {
-		if strings.HasPrefix(s, p) {
-			s = strings.TrimPrefix(s, p)
-		}
+		s = strings.TrimPrefix(s, p)
 	}
 	s = strings.TrimPrefix(s, "ollama.com/library/")
 	s = strings.TrimPrefix(s, "ollama.com/")

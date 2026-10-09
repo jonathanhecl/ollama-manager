@@ -259,32 +259,28 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = s.runnerStore.SaveRun(run)
-		if run != nil {
-			for _, testRes := range run.Results {
-				if testRes.Model != "" {
-					if testRes.TokensPerSec > 0 {
-						s.recordModelTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
-					} else {
-						s.recordModelTPS(testRes.Model, 0, run.Timestamp)
-					}
-					for _, sub := range testRes.SubResults {
-						if sub.TokensPerSec > 0 {
-							s.recordModelTPS(testRes.Model, sub.TokensPerSec, run.Timestamp)
-						}
+		for _, testRes := range run.Results {
+			if testRes.Model != "" {
+				if testRes.TokensPerSec > 0 {
+					s.recordModelTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
+				} else {
+					s.recordModelTPS(testRes.Model, 0, run.Timestamp)
+				}
+				for _, sub := range testRes.SubResults {
+					if sub.TokensPerSec > 0 {
+						s.recordModelTPS(testRes.Model, sub.TokensPerSec, run.Timestamp)
 					}
 				}
 			}
 		}
 		hasPendingReviews := false
-		if run != nil {
-			for _, r := range run.Results {
-				if r.Passed == nil && r.Error == "" && runner.HasReviewableOutput(r) {
-					hasPendingReviews = true
-					break
-				}
+		for _, r := range run.Results {
+			if r.Passed == nil && r.Error == "" && runner.HasReviewableOutput(r) {
+				hasPendingReviews = true
+				break
 			}
 		}
-		if !hasPendingReviews && run != nil {
+		if !hasPendingReviews {
 			go s.RegenerateLeaderboardCache()
 		}
 	})

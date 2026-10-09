@@ -928,3 +928,51 @@ func TestChatRAGTruncationAndContextBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestChatRAGExternalAttachment(t *testing.T) {
+	fake := newFakeOllamaChatRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	fake.embedVecs["embed-model:latest"] = []float64{1, 0}
+	dir := ragDirOf(t, srv)
+
+	seed := t.TempDir()
+	_, seedFile := createChatRAGBase(t, seed, "Attach", "embed-model:latest", "sha256:embed1", 2, []ragpkg.Entry{
+		{Term: "apple", Content: "an apple is a fruit", Embedding: []float64{1, 0}},
+		{Term: "car", Content: "a car is a vehicle", Embedding: []float64{0, 1}},
+	})
+	raw, err := os.ReadFile(filepath.Join(seed, seedFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := chatRAGUpload(t, srv, "attach.db", raw)
+	if code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %v", code, out)
+	}
+	ref := out["rag"].(map[string]any)["filename"].(string)
+	if got := countDBFiles(t, dir); len(got) != 0 {
+		t.Fatalf("managed dir must stay empty: %v", got)
+	}
+
+	code, sse := postChat(t, srv, map[string]any{
+		"model":       "chat-model:latest",
+		"messages":    []map[string]any{{"role": "user", "content": "tell me about apples"}},
+		"rag_enabled": true,
+		"rag_paths":   []string{ref},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("chat status = %d, body = %s", code, sse)
+	}
+	var user string
+	for _, m := range fake.lastChatRequest().Messages {
+		if m.Role == "user" {
+			user = m.Content
+		}
+	}
+	if !strings.Contains(user, "an apple is a fruit") || !strings.Contains(user, `"filename":"`+ref+`"`) {
+		t.Fatalf("external attachment context missing: %q", user)
+	}
+	if got := countDBFiles(t, dir); len(got) != 0 {
+		t.Fatalf("retrieval leaked into managed dir: %v", got)
+	}
+}

@@ -87,7 +87,6 @@ func (s *Server) augmentChatWithRAG(ctx context.Context, sink chatSink, body cha
 		return body
 	}
 
-	dir, _ := s.ragConfigSnapshot()
 	rctx, cancel := context.WithTimeout(ctx, ragSearchTimeout)
 	defer cancel()
 	if s.sessionModelCaps(rctx, body.Model).IsImage {
@@ -146,7 +145,8 @@ func (s *Server) augmentChatWithRAG(ctx context.Context, sink chatSink, body cha
 			}
 			break
 		}
-		detail, err := rag.GetContext(rctx, dir, filename)
+		baseDir := s.chatRAGDirectoryFor(filename)
+		detail, err := rag.GetContext(rctx, baseDir, filename)
 		if ctx.Err() != nil {
 			ragToolDone(sink, false, "", "cancelled")
 			return body
@@ -213,7 +213,7 @@ func (s *Server) augmentChatWithRAG(ctx context.Context, sink chatSink, body cha
 			failM(fmt.Sprintf("base %q needs %d dimensions but model %q returned %d; the chat continues without it", filename, meta.Dimensions, meta.EmbeddingModel, len(outcome.vec)))
 			continue
 		}
-		matches, err := rag.Search(rctx, dir, filename, meta, outcome.vec, ragPerBaseLimit, ragMinScore)
+		matches, err := rag.Search(rctx, baseDir, filename, meta, outcome.vec, ragPerBaseLimit, ragMinScore)
 		if ctx.Err() != nil {
 			ragToolDone(sink, false, "", "cancelled")
 			return body

@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -151,6 +154,106 @@ func (s *Server) ragConfigSnapshot() (dir string, defaultModel string) {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	return s.cfg.RAGDirectory(), strings.TrimSpace(s.cfg.RAG.DefaultEmbedding)
+}
+
+const chatExternalRAGPrefix = "chat-external-"
+
+func (s *Server) chatRAGDirectory() string {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return filepath.Join(filepath.Dir(s.cfg.Path()), "chat_sessions", "rag_files")
+}
+
+func isChatExternalRAG(filename string) bool {
+	if !strings.HasPrefix(filename, chatExternalRAGPrefix) || !strings.HasSuffix(filename, ".db") {
+		return false
+	}
+	id := filename[len(chatExternalRAGPrefix) : len(filename)-len(".db")]
+	if len(id) != 32 {
+		return false
+	}
+	for _, c := range id {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) chatRAGDirectoryFor(filename string) string {
+	if isChatExternalRAG(filename) {
+		return s.chatRAGDirectory()
+	}
+	dir, _ := s.ragConfigSnapshot()
+	return dir
+}
+
+func (s *Server) handleListChatRAGs(w http.ResponseWriter, r *http.Request) {
+	rags, warnings, err := rag.List(s.chatRAGDirectory())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("could not read chat rag directory: %w", err))
+		return
+	}
+	out := make([]rag.Info, 0, len(rags))
+	for _, info := range rags {
+		if isChatExternalRAG(info.Filename) {
+			out = append(out, info)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"rags":     out,
+		"warnings": warnings,
+	})
+}
+
+func (s *Server) handleUploadChatRAG(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, ragMaxImportBody)
+	dir := s.chatRAGDirectory()
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		name = strings.TrimSpace(r.Header.Get("X-RAG-Filename"))
+	}
+	info, err := rag.Import(dir, name, r.Body)
+	if err != nil {
+		var mbErr *http.MaxBytesError
+		if errors.As(err, &mbErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("rag file exceeds %d MiB", ragMaxImportBody>>20))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ref, err := renameChatRAGRef(dir, info.Filename)
+	if err != nil {
+		_ = rag.Delete(dir, info.Filename)
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("could not store chat attachment: %w", err))
+		return
+	}
+	info.Filename = ref
+	writeJSON(w, http.StatusCreated, map[string]any{"rag": info})
+}
+
+func renameChatRAGRef(dir, current string) (string, error) {
+	src := filepath.Join(dir, current)
+	for attempt := 0; attempt < 8; attempt++ {
+		var b [16]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return "", err
+		}
+		ref := chatExternalRAGPrefix + hex.EncodeToString(b[:]) + ".db"
+		if err := os.Link(src, filepath.Join(dir, ref)); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			return "", err
+		}
+		if err := os.Remove(src); err != nil {
+			_ = os.Remove(filepath.Join(dir, ref))
+			return "", err
+		}
+		return ref, nil
+	}
+	return "", errors.New("could not allocate a unique attachment name")
 }
 
 func (s *Server) handleListRAGs(w http.ResponseWriter, r *http.Request) {

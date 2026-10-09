@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1753,5 +1755,153 @@ func TestRAGAgentAliasesFlow(t *testing.T) {
 	}
 	if fake.embedCount() != embedsBefore {
 		t.Fatal("delimiter alias reached embedding")
+	}
+}
+
+func TestChatRAGExternalAgentTools(t *testing.T) {
+	fake := newFakeOllamaRAGAgent()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+	_, managed := createChatRAGBase(t, dir, "Managed", "embed-model:latest", "sha256:embed1", 2, []ragpkg.Entry{
+		{Term: "m", Content: "mc", Embedding: []float64{1, 0}},
+	})
+	managedBefore, err := os.ReadFile(filepath.Join(dir, managed))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seed := t.TempDir()
+	_, seedFile := createChatRAGBase(t, seed, "Attach", "embed-model:latest", "sha256:embed1", 2, []ragpkg.Entry{
+		{Term: "apple", Content: "ac", Embedding: []float64{1, 0}},
+	})
+	raw, err := os.ReadFile(filepath.Join(seed, seedFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := chatRAGUpload(t, srv, "attach.db", raw)
+	if code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %v", code, out)
+	}
+	ref := out["rag"].(map[string]any)["filename"].(string)
+	attachDir := srv.chatRAGDirectory()
+	ctx := context.Background()
+
+	sink := &recordSink{}
+	body := ragAgentBody(ref, true)
+	body.RAGPaths = append(body.RAGPaths, managed)
+
+	res, _, err := ragToolCall(t, srv, sink, body, "rag_list_bases", map[string]any{})
+	if err != nil {
+		t.Fatalf("list_bases: %v", err)
+	}
+	var listed struct {
+		Bases []struct {
+			Filename string `json:"filename"`
+			Name     string `json:"name"`
+			Editable bool   `json:"editable"`
+		} `json:"bases"`
+	}
+	if err := json.Unmarshal([]byte(res), &listed); err != nil {
+		t.Fatalf("list_bases json: %v", err)
+	}
+	seen := map[string]string{}
+	for _, b := range listed.Bases {
+		seen[b.Filename] = b.Name
+	}
+	if seen[ref] != "Attach" || seen[managed] != "Managed" {
+		t.Fatalf("list_bases = %s", res)
+	}
+
+	det, err := ragpkg.GetContext(ctx, attachDir, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entryID := det.Entries[0].ID
+
+	res, _, err = ragToolCall(t, srv, sink, body, "rag_get_entry",
+		map[string]any{"filename": ref, "entry_id": entryID})
+	if err != nil || !strings.Contains(res, `"term":"apple"`) {
+		t.Fatalf("get_entry = %s err=%v", res, err)
+	}
+
+	res, _, err = ragToolCall(t, srv, sink, body, "rag_search",
+		map[string]any{"filename": ref, "query": "apple"})
+	if err != nil || !strings.Contains(res, `"apple"`) {
+		t.Fatalf("search = %s err=%v", res, err)
+	}
+
+	res, mutated, err := ragToolCall(t, srv, sink, body, "rag_create_entry",
+		map[string]any{"filename": ref, "term": "new", "content": "nc"})
+	if err != nil || mutated != ref || !strings.Contains(res, `"created"`) {
+		t.Fatalf("create = %s mutated=%q err=%v", res, mutated, err)
+	}
+	if d, gerr := ragpkg.Get(attachDir, ref); gerr != nil || len(d.Entries) != 2 {
+		t.Fatalf("attachment after create = %v %v", d, gerr)
+	}
+	if d, gerr := ragpkg.Get(dir, managed); gerr != nil || len(d.Entries) != 1 {
+		t.Fatalf("managed base changed by external create: %v %v", d, gerr)
+	}
+
+	_, snap, err := ragpkg.ReadEntry(ctx, attachDir, ref, entryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, _, err = ragToolCall(t, srv, sink, body, "rag_update_entry",
+		map[string]any{"filename": ref, "entry_id": entryID, "expected_revision": snap.Revision, "term": "renamed"})
+	if err != nil || !strings.Contains(res, `"updated"`) {
+		t.Fatalf("update_entry = %s err=%v", res, err)
+	}
+
+	det2, err := ragpkg.GetContext(ctx, attachDir, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, _, err = ragToolCall(t, srv, sink, body, "rag_update_base",
+		map[string]any{"filename": ref, "expected_revision": ragpkg.MetaRevision(det2.Meta), "name": "Attach2"})
+	if err != nil || !strings.Contains(res, `"Attach2"`) {
+		t.Fatalf("update_base = %s err=%v", res, err)
+	}
+	if d, _ := ragpkg.Get(attachDir, ref); d == nil || d.Meta.Name != "Attach2" {
+		t.Fatalf("attachment name not updated")
+	}
+
+	var newID int64
+	if d, _ := ragpkg.Get(attachDir, ref); d != nil {
+		for _, e := range d.Entries {
+			if e.Term == "new" {
+				newID = e.ID
+			}
+		}
+	}
+	_, snap2, err := ragpkg.ReadEntry(ctx, attachDir, ref, newID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, _, err = ragToolCall(t, srv, sink, body, "rag_delete_entry",
+		map[string]any{"filename": ref, "entry_id": newID, "expected_revision": snap2.Revision})
+	if err != nil || !strings.Contains(res, `"deleted"`) {
+		t.Fatalf("delete_entry = %s err=%v", res, err)
+	}
+	if d, _ := ragpkg.Get(attachDir, ref); d == nil || len(d.Entries) != 1 {
+		t.Fatalf("attachment after delete = %+v", d)
+	}
+
+	ro := ragAgentBody(ref, false)
+	if _, _, err := ragToolCall(t, srv, sink, ro, "rag_create_entry",
+		map[string]any{"filename": ref, "term": "x", "content": "y"}); err == nil {
+		t.Fatal("non-editable external create must be denied")
+	}
+	if _, _, err := ragToolCall(t, srv, sink, ro, "rag_delete_entry",
+		map[string]any{"filename": ref, "entry_id": entryID, "expected_revision": "x"}); err == nil {
+		t.Fatal("non-editable external delete must be denied")
+	}
+
+	managedAfter, err := os.ReadFile(filepath.Join(dir, managed))
+	if err != nil || !bytes.Equal(managedBefore, managedAfter) {
+		t.Fatalf("managed file changed: %v", err)
+	}
+	if got := countDBFiles(t, dir); len(got) != 1 || got[0] != managed {
+		t.Fatalf("managed dir = %v", got)
 	}
 }

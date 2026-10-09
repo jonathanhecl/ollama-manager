@@ -349,6 +349,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/rags/import", s.requireAuth(s.handleImportRAG))
 	mux.Handle("POST /api/rags/external/open", s.requireAuth(s.handleOpenExternalRAG))
 	mux.Handle("POST /api/rags/external/save", s.requireAuth(s.handleSaveExternalRAG))
+	mux.Handle("GET /api/chat/rags", s.requireAuth(s.handleListChatRAGs))
+	mux.Handle("POST /api/chat/rags", s.requireAuth(s.handleUploadChatRAG))
 	mux.Handle("GET /api/rags/models", s.requireAuth(s.handleRAGModels))
 	mux.Handle("GET /api/rags/{id}/media/{entry}/{type}", s.requireAuth(s.handleGetRAGMedia))
 	mux.Handle("GET /api/rags/{id}/download", s.requireAuth(s.handleDownloadRAG))

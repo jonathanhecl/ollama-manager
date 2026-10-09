@@ -61,6 +61,7 @@ ollama-manager.exe
 dist/
 prompts/
 rags/
+chat_sessions/rag_files/
 download_history.json
 uninstall_history.json
 model_usage.json

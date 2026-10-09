@@ -577,7 +577,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 			}
 			limit = *args.Limit
 		}
-		return s.ragToolListEntries(tctx, dir, args.Filename, offset, limit)
+		return s.ragToolListEntries(tctx, s.chatRAGDirectoryFor(args.Filename), args.Filename, offset, limit)
 	case "rag_get_entry":
 		var args ragGetEntryArgs
 		if err := decodeRAGArgs(raw, &args); err != nil {
@@ -603,7 +603,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 			}
 			limit = *args.ContentLimit
 		}
-		return s.ragToolGetEntry(tctx, dir, args.Filename, args.EntryID, offset, limit)
+		return s.ragToolGetEntry(tctx, s.chatRAGDirectoryFor(args.Filename), args.Filename, args.EntryID, offset, limit)
 	case "rag_search":
 		var args ragSearchArgs
 		if err := decodeRAGArgs(raw, &args); err != nil {
@@ -626,7 +626,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 			}
 			limit = *args.Limit
 		}
-		return s.ragToolSearch(tctx, sink, dir, args.Filename, query, int(limit))
+		return s.ragToolSearch(tctx, sink, s.chatRAGDirectoryFor(args.Filename), args.Filename, query, int(limit))
 	case "rag_create_entry":
 		var args ragCreateArgs
 		if err := decodeRAGArgs(raw, &args); err != nil {
@@ -635,7 +635,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 		if !writable[args.Filename] {
 			return "", "", fmt.Errorf("base %q is not editable in this chat", args.Filename)
 		}
-		return s.ragToolCreate(tctx, sink, body, dir, args.Filename, args.Term, args.Content, args.Aliases...)
+		return s.ragToolCreate(tctx, sink, body, s.chatRAGDirectoryFor(args.Filename), args.Filename, args.Term, args.Content, args.Aliases...)
 	case "rag_update_entry":
 		var args ragUpdateArgs
 		if err := decodeRAGArgs(raw, &args); err != nil {
@@ -644,7 +644,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 		if !writable[args.Filename] {
 			return "", "", fmt.Errorf("base %q is not editable in this chat", args.Filename)
 		}
-		return s.ragToolUpdate(tctx, sink, body, dir, args)
+		return s.ragToolUpdate(tctx, sink, body, s.chatRAGDirectoryFor(args.Filename), args)
 	case "rag_delete_entry":
 		var args ragDeleteArgs
 		if err := decodeRAGArgs(raw, &args); err != nil {
@@ -653,7 +653,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 		if !writable[args.Filename] {
 			return "", "", fmt.Errorf("base %q is not editable in this chat", args.Filename)
 		}
-		return s.ragToolDelete(tctx, body, dir, args)
+		return s.ragToolDelete(tctx, body, s.chatRAGDirectoryFor(args.Filename), args)
 	case "rag_update_base":
 		var args ragUpdateBaseArgs
 		if err := decodeRAGArgs(raw, &args); err != nil {
@@ -662,7 +662,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 		if !writable[args.Filename] {
 			return "", "", fmt.Errorf("base %q is not editable in this chat", args.Filename)
 		}
-		return s.ragToolUpdateBase(tctx, body, dir, args)
+		return s.ragToolUpdateBase(tctx, body, s.chatRAGDirectoryFor(args.Filename), args)
 	default:
 		return "", "", fmt.Errorf("tool %q is not implemented on this server", name)
 	}
@@ -696,7 +696,11 @@ func (s *Server) ragToolListBases(ctx context.Context, dir string, sel []string,
 	var truncFlags []map[string]bool
 	for _, filename := range page {
 		info := baseInfo{Filename: filename, Editable: writable[filename]}
-		detail, err := rag.GetContext(ctx, dir, filename)
+		baseDir := dir
+		if isChatExternalRAG(filename) {
+			baseDir = s.chatRAGDirectory()
+		}
+		detail, err := rag.GetContext(ctx, baseDir, filename)
 		if err != nil {
 			info.Error, _ = cutRunesFlag(err.Error(), 512)
 			truncFlags = append(truncFlags, nil)

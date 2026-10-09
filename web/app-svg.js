@@ -4624,6 +4624,7 @@ function getCurrentChatOptions() {
     artifacts: $("chat-artifacts")?.checked ?? false,
     rag_enabled: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_enabled : !!chatRagEnabled,
     rag_paths: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_paths : (chatRagEnabled ? [...chatRagPaths] : []),
+    rag_editable: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_editable : (chatRagEnabled ? [...chatRagEditable] : []),
     image_width: $("chat-image-width")?.value ?? "512",
     image_height: $("chat-image-height")?.value ?? "512",
     image_steps: $("chat-image-steps")?.value ?? "4",
@@ -4743,6 +4744,7 @@ function saveChatOptionsForCurrentModel() {
   // keep the loaded bases until the user turns RAG off or removes them.
   delete currentOpts.rag_enabled;
   delete currentOpts.rag_paths;
+  delete currentOpts.rag_editable;
   const all = getAllModelChatOptions();
 
   if (areChatOptionsDefault(modelName, currentOpts)) {
@@ -4829,7 +4831,7 @@ function setChatOptionsValues(opts) {
   if (opts.artifacts !== undefined && $("chat-artifacts")) {
     $("chat-artifacts").checked = !!opts.artifacts;
   }
-  if ((opts.rag_enabled !== undefined || opts.rag_paths !== undefined) && typeof chatRagApplyOptions === "function") {
+  if ((opts.rag_enabled !== undefined || opts.rag_paths !== undefined || opts.rag_editable !== undefined) && typeof chatRagApplyOptions === "function") {
     chatRagApplyOptions(opts);
   }
   if (opts.image_width !== undefined && $("chat-image-width")) {
@@ -4893,6 +4895,7 @@ async function applyChatDefaultsForModel(name, force = false) {
     const opts = { ...modelSavedOpts };
     delete opts.rag_enabled;
     delete opts.rag_paths;
+    delete opts.rag_editable;
     setChatOptionsValues(opts);
     updateChatCustomOptionsBadge();
     return;
@@ -4904,6 +4907,7 @@ async function applyChatDefaultsForModel(name, force = false) {
   const effectiveDefaults = { ...getEffectiveChatDefaults(model) };
   delete effectiveDefaults.rag_enabled;
   delete effectiveDefaults.rag_paths;
+  delete effectiveDefaults.rag_editable;
   setChatOptionsValues(effectiveDefaults);
   updateChatCustomOptionsBadge();
 }

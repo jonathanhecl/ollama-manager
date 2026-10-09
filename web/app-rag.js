@@ -977,22 +977,32 @@ function normalizeChatRagPaths(list) {
   return out;
 }
 
+function normalizeChatRagEditable(list, paths) {
+  return normalizeChatRagPaths(list).filter((p) => paths.includes(p));
+}
+
 function chatRagLoadLocal() {
   try {
     const parsed = JSON.parse(localStorage.getItem(CHAT_RAG_STATE_KEY) || "null");
     chatRagEnabled = !!(parsed && parsed.enabled);
     chatRagPaths = normalizeChatRagPaths(parsed && parsed.paths);
+    chatRagEditable = normalizeChatRagEditable(parsed && parsed.editable, chatRagPaths);
   } catch {
     chatRagEnabled = false;
     chatRagPaths = [];
+    chatRagEditable = [];
   }
-  if (!chatRagEnabled) chatRagPaths = [];
+  if (!chatRagEnabled) {
+    chatRagPaths = [];
+    chatRagEditable = [];
+  }
 }
 
 function chatRagOptionPayload() {
   return {
     rag_enabled: !!chatRagEnabled,
     rag_paths: chatRagEnabled ? [...chatRagPaths] : [],
+    rag_editable: chatRagEnabled ? [...chatRagEditable] : [],
   };
 }
 
@@ -1001,6 +1011,7 @@ function chatRagPersistLocal() {
     localStorage.setItem(CHAT_RAG_STATE_KEY, JSON.stringify({
       enabled: !!chatRagEnabled,
       paths: chatRagEnabled ? [...chatRagPaths] : [],
+      editable: chatRagEnabled ? [...chatRagEditable] : [],
     }));
   } catch { }
 }
@@ -1067,7 +1078,17 @@ function chatRagRenderSelection() {
     remove.dataset.filename = filename;
     remove.title = t("rag.chat_remove");
     remove.setAttribute("aria-label", t("rag.chat_remove"));
+    const edit = ragEl("label", "chat-rag-edit");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "chat-rag-edit-input";
+    cb.checked = chatRagEditable.includes(filename);
+    cb.dataset.filename = filename;
+    edit.title = t("rag.chat_editable");
+    edit.setAttribute("aria-label", t("rag.chat_editable"));
+    edit.appendChild(cb);
     row.appendChild(main);
+    row.appendChild(edit);
     row.appendChild(remove);
     list.appendChild(row);
   }
@@ -1084,6 +1105,7 @@ function chatRagRenderSelection() {
 function chatRagCommit(syncSession = true, saveModelOptions = true) {
   if (!chatRagEnabled) chatRagPaths = [];
   chatRagPaths = normalizeChatRagPaths(chatRagPaths);
+  chatRagEditable = chatRagEnabled ? normalizeChatRagEditable(chatRagEditable, chatRagPaths) : [];
   chatRagPersistLocal();
   chatRagRenderSelection();
   if (saveModelOptions && typeof saveChatOptionsForCurrentModel === "function") saveChatOptionsForCurrentModel();
@@ -1096,12 +1118,16 @@ function chatRagSetEnabled(enabled, saveModelOptions = true) {
   if (next && !ragConfiguredDefault()) {
     chatRagEnabled = false;
     chatRagPaths = [];
+    chatRagEditable = [];
     chatRagCommit(true, saveModelOptions);
     toast(t("rag.default_required"), "error");
     return;
   }
   chatRagEnabled = next;
-  if (!next) chatRagPaths = [];
+  if (!next) {
+    chatRagPaths = [];
+    chatRagEditable = [];
+  }
   chatRagCommit(true, saveModelOptions);
   if (next) {
     requestAnimationFrame(() => {
@@ -1122,6 +1148,12 @@ function chatRagApplyOptions(opts) {
   }
   if (opts.rag_paths !== undefined) chatRagPaths = normalizeChatRagPaths(opts.rag_paths);
   if (!chatRagEnabled) chatRagPaths = [];
+  if (opts.rag_editable !== undefined) {
+    chatRagEditable = normalizeChatRagEditable(opts.rag_editable, chatRagPaths);
+  } else if (opts.rag_enabled !== undefined && opts.rag_paths === undefined) {
+    chatRagEditable = [];
+  }
+  chatRagEditable = normalizeChatRagEditable(chatRagEditable, chatRagPaths);
   chatRagPersistLocal();
   chatRagRenderSelection();
   if (chatRagEnabled || opts.rag_paths !== undefined) void chatRagValidateSelection(true);
@@ -1168,6 +1200,17 @@ function chatRagAddPaths(paths) {
 
 function chatRagRemovePath(filename) {
   chatRagPaths = chatRagPaths.filter((p) => p !== filename);
+  chatRagCommit();
+}
+
+function chatRagSetEditable(filename, editable) {
+  const name = String(filename || "").trim();
+  if (!name || !chatRagPaths.includes(name)) return;
+  if (editable) {
+    if (!chatRagEditable.includes(name)) chatRagEditable.push(name);
+  } else {
+    chatRagEditable = chatRagEditable.filter((p) => p !== name);
+  }
   chatRagCommit();
 }
 
@@ -1294,6 +1337,11 @@ document.getElementById("chat-rag-list")?.addEventListener("click", (ev) => {
   const btn = ev.target.closest(".chat-rag-remove");
   if (!btn) return;
   chatRagRemovePath(btn.dataset.filename || "");
+});
+document.getElementById("chat-rag-list")?.addEventListener("change", (ev) => {
+  const check = ev.target.closest(".chat-rag-edit-input");
+  if (!check) return;
+  chatRagSetEditable(check.dataset.filename || "", check.checked);
 });
 document.getElementById("rag-picker-close")?.addEventListener("click", closeChatRagPicker);
 document.getElementById("rag-picker-modal")?.addEventListener("click", (ev) => {

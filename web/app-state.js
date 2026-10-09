@@ -44,6 +44,7 @@ let chatEditingDraft = "";
 let chatEditingAttachments = [];
 let chatRagEnabled = false;
 let chatRagPaths = [];
+let chatRagEditable = [];
 const CHAT_RAG_STATE_KEY = "ollama_manager_chat_rag_state";
 const CHAT_OPTION_FALLBACKS = {
   system: "",
@@ -56,6 +57,7 @@ const CHAT_OPTION_FALLBACKS = {
   artifacts: false,
   rag_enabled: false,
   rag_paths: [],
+  rag_editable: [],
   image_width: 512,
   image_height: 512,
   image_steps: 4,

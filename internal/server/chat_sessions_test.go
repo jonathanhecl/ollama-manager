@@ -563,12 +563,32 @@ func TestSessionSettingsMergeKeepsUnsentOptions(t *testing.T) {
 		t.Errorf("rag paths = %v, want [other.db]", got.RAGPaths)
 	}
 
+	// Editable entries are filtered to the current path set on every merge.
+	st.MergeSettings(sess.ID, sessionSettingsInput{
+		RAGEnabled:  true,
+		RAGPaths:    []any{"a.db", "b.db"},
+		RAGEditable: []any{"b.db", "zzz.db", "../x.db"},
+	})
+	got = st.Get(sess.ID).Settings
+	if len(got.RAGEditable) != 1 || got.RAGEditable[0] != "b.db" {
+		t.Errorf("rag editable = %v, want [b.db]", got.RAGEditable)
+	}
+
+	// Shrinking the path set drops editable entries that no longer match.
+	st.MergeSettings(sess.ID, sessionSettingsInput{
+		RAGPaths: []any{"a.db"},
+	})
+	got = st.Get(sess.ID).Settings
+	if len(got.RAGEditable) != 0 {
+		t.Errorf("rag editable = %v, want empty after paths shrank", got.RAGEditable)
+	}
+
 	// An explicit false must still switch a toggle off and unload its RAG refs.
 	st.MergeSettings(sess.ID, sessionSettingsInput{WebTools: false, RAGEnabled: false})
 	if st.Get(sess.ID).Settings.WebTools {
 		t.Error("explicit web_tools=false should turn the toggle off")
 	}
-	if got := st.Get(sess.ID).Settings; got.RAGEnabled || len(got.RAGPaths) != 0 {
+	if got := st.Get(sess.ID).Settings; got.RAGEnabled || len(got.RAGPaths) != 0 || len(got.RAGEditable) != 0 {
 		t.Errorf("rag settings should be empty after rag_enabled=false: %+v", got)
 	}
 }
@@ -579,7 +599,8 @@ func TestChatSessionSettingsPatchUpdatesRAGRefs(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/"+sess.ID+"/settings", bytes.NewReader([]byte(`{
 		"rag_enabled": true,
-		"rag_paths": ["new.db", "../bad.db"]
+		"rag_paths": ["new.db", "../bad.db"],
+		"rag_editable": ["new.db", "missing.db"]
 	}`)))
 	rr := httptest.NewRecorder()
 	srv.Routes().ServeHTTP(rr, req)
@@ -589,6 +610,9 @@ func TestChatSessionSettingsPatchUpdatesRAGRefs(t *testing.T) {
 	got := srv.chatSessions.Get(sess.ID).Settings
 	if !got.RAGEnabled || len(got.RAGPaths) != 1 || got.RAGPaths[0] != "new.db" {
 		t.Fatalf("rag settings = %+v, want enabled [new.db]", got)
+	}
+	if len(got.RAGEditable) != 1 || got.RAGEditable[0] != "new.db" {
+		t.Fatalf("rag editable = %v, want [new.db]", got.RAGEditable)
 	}
 }
 

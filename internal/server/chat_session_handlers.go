@@ -25,6 +25,7 @@ type sessionSettingsInput struct {
 	Artifacts   any `json:"artifacts"`
 	RAGEnabled  any `json:"rag_enabled"`
 	RAGPaths    any `json:"rag_paths"`
+	RAGEditable any `json:"rag_editable"`
 	ImageWidth  any `json:"image_width"`
 	ImageHeight any `json:"image_height"`
 	ImageSteps  any `json:"image_steps"`
@@ -89,9 +90,14 @@ func (in sessionSettingsInput) mergeInto(dst SessionSettings) SessionSettings {
 	if in.RAGPaths != nil {
 		dst.RAGPaths = sessionOptRAGPaths(in.RAGPaths)
 	}
+	if in.RAGEditable != nil {
+		dst.RAGEditable = sessionOptRAGPaths(in.RAGEditable)
+	}
 	if !dst.RAGEnabled {
 		dst.RAGPaths = nil
+		dst.RAGEditable = nil
 	}
+	dst.RAGEditable = filterRAGEditable(dst.RAGEditable, dst.RAGPaths)
 	if in.ImageWidth != nil {
 		dst.ImageWidth = sessionOptInt(in.ImageWidth, dst.ImageWidth)
 	}
@@ -236,6 +242,26 @@ func sessionOptRAGPaths(v any) []string {
 		if len(out) >= maxSessionRAGPaths {
 			break
 		}
+	}
+	return out
+}
+
+func filterRAGEditable(editable, paths []string) []string {
+	if len(editable) == 0 || len(paths) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		allowed[p] = true
+	}
+	out := make([]string, 0, len(editable))
+	for _, e := range editable {
+		if allowed[e] {
+			out = append(out, e)
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -4969,6 +4969,22 @@ button.chat-send:disabled:hover {
   color: #ff6b6b;
   background: color-mix(in srgb, #ff6b6b 15%, transparent);
 }
+
+.chat-rag-edit {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 3px 2px;
+}
+
+.chat-rag-edit-input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 #chat-rag-wrap .chat-rag-actions {
   margin-left: auto;
 }

@@ -1,8 +1,6 @@
 "use strict";
 
 // ---------- settings ----------
-let currentConfig = null;
-
 async function showSettingsView() {
   hideAllMainViews();
   if (typeof stopSpeechPlayback === "function") {

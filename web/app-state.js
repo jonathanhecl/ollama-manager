@@ -12,6 +12,7 @@ let jobsBackoffMs = 1000;
 let jobsHydrated = false; // true once the first jobs snapshot has arrived
 let queuePaused = false;
 let currentView = "models";
+let currentConfig = null;
 let showArchivedOnly = false;
 let modelSearchQuery = "";
 let chatMessages = [];

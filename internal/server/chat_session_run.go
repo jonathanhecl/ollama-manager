@@ -304,8 +304,14 @@ func (s *Server) sessionModelCaps(ctx context.Context, model string) sessionMode
 	}
 	show, err := s.ollama.Show(ctx, model)
 	if err != nil || show == nil {
+		reason := "empty_response"
+		if err != nil {
+			reason = "request_failed"
+		}
+		log.Printf("[chat-sessions] model=%q capability_lookup=failed reason=%s error_type=%T", model, reason, err)
 		return sessionModelInfo{}
 	}
+	log.Printf("[chat-sessions] model=%q capability_lookup=ok capabilities=%q", model, show.Capabilities)
 	var hasImage, hasVision, hasCompletion, hasThinking bool
 	for _, c := range show.Capabilities {
 		switch c {
@@ -375,7 +381,11 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 		s.failSession(id, "session has no model")
 		return
 	}
-	body := s.buildSessionBody(ctx, sess, s.sessionModelCaps(ctx, model), s.chatSessions.sessionWatcherCheck(sess.ID))
+	log.Printf("[chat-sessions] session=%q model=%q turn_start requested_artifacts=%t requested_web_tools=%t requested_comfy=%t requested_rag=%t external_model=%t",
+		id, model, sess.Settings.Artifacts, sess.Settings.WebTools, sess.Settings.Comfy, sess.Settings.RAGEnabled,
+		s.externalModels != nil && s.externalModels.IsExternal(model))
+	caps := s.sessionModelCaps(ctx, model)
+	body := s.buildSessionBody(ctx, sess, caps, s.chatSessions.sessionWatcherCheck(sess.ID))
 	startedAt := time.Now()
 	sink := &sessionSink{srv: s, id: id, started: startedAt}
 
@@ -391,14 +401,22 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 
 	body = s.augmentChatWithRAG(ctx, sink, body)
 
+	log.Printf("[chat-sessions] session=%q model=%q turn_config can_tools=%t can_think=%t has_vision=%t is_image=%t effective_artifacts=%t effective_web_tools=%t effective_comfy=%t effective_rag=%t browser_tools_available=%t",
+		id, model, caps.CanTools, caps.CanThink, caps.HasVision, caps.IsImage,
+		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools,
+		body.Comfy != nil && *body.Comfy, body.RAGEnabled, body.browserToolsAllowed())
+
 	switch {
 	case body.Artifacts != nil && *body.Artifacts:
+		log.Printf("[chat-sessions] session=%q model=%q runner=artifact", id, model)
 		s.runArtifactAgentLoop(ctx, sink, body)
 	case (body.WebTools != nil && *body.WebTools) || (body.Comfy != nil && *body.Comfy) || s.ragAgentEnabled(ctx, body):
 		// ComfyUI alone still needs the tool-call loop, and the web loop is the
 		// one without the artifact filesystem surface.
+		log.Printf("[chat-sessions] session=%q model=%q runner=web_tools", id, model)
 		s.runWebToolAgentLoop(ctx, sink, body)
 	default:
+		log.Printf("[chat-sessions] session=%q model=%q runner=plain", id, model)
 		s.runPlainChatLoop(ctx, sink, body)
 	}
 	s.finishSession(id, startedAt)

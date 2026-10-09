@@ -13,8 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2043,13 +2045,70 @@ func (b *syncLogBuffer) String() string {
 	return b.buf.String()
 }
 
+type wireRecorder struct {
+	mu   sync.Mutex
+	reqs map[string][]map[string]any
+}
+
+func newWireRecorder() *wireRecorder {
+	return &wireRecorder{reqs: map[string][]map[string]any{}}
+}
+
+func (w *wireRecorder) record(r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		decoded = map[string]any{"_raw": string(body)}
+	}
+	w.mu.Lock()
+	w.reqs[r.URL.Path] = append(w.reqs[r.URL.Path], decoded)
+	w.mu.Unlock()
+}
+
+func (w *wireRecorder) get(path string) []map[string]any {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]map[string]any(nil), w.reqs[path]...)
+}
+
+func wireToolNames(req map[string]any) []string {
+	var names []string
+	tools, _ := req["tools"].([]any)
+	for _, t := range tools {
+		m, _ := t.(map[string]any)
+		fn, _ := m["function"].(map[string]any)
+		if n, ok := fn["name"].(string); ok {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func wireRolesAndArtifactSystem(req map[string]any) (roles []string, artifactSys bool) {
+	msgs, _ := req["messages"].([]any)
+	for _, m := range msgs {
+		mm, _ := m.(map[string]any)
+		role, _ := mm["role"].(string)
+		roles = append(roles, role)
+		if role == "system" {
+			if c, ok := mm["content"].(string); ok && strings.Contains(c, "WHEN TO CREATE AN ARTIFACT") {
+				artifactSys = true
+			}
+		}
+	}
+	return roles, artifactSys
+}
+
 func TestSessionTurnDiagnosticLogs(t *testing.T) {
 	logBuf := &syncLogBuffer{}
 	prev := log.Writer()
 	log.SetOutput(logBuf)
 	t.Cleanup(func() { log.SetOutput(prev) })
 
-	newMock := func(t *testing.T, showStatus int, caps []string) *httptest.Server {
+	newMock := func(t *testing.T, showStatus int, caps []string) (*httptest.Server, *atomic.Int64) {
+		var chatCount atomic.Int64
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case r.Method == http.MethodPost && r.URL.Path == "/api/show":
@@ -2063,10 +2122,14 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 					"details":      map[string]any{"format": "gguf"},
 					"model_info":   map[string]any{},
 				})
+			case r.Method == http.MethodGet && r.URL.Path == "/api/tags":
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"models":[]}`))
 			case r.Method == http.MethodGet && r.URL.Path == "/api/ps":
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"models":[]}`))
 			case r.Method == http.MethodPost && r.URL.Path == "/api/chat":
+				chatCount.Add(1)
 				_, _ = io.ReadAll(r.Body)
 				w.Header().Set("Content-Type", "application/x-ndjson")
 				fmt.Fprintln(w, `{"model":"m","created_at":"2026-10-09T00:00:00Z","message":{"role":"assistant","content":"private-reply-sentinel"},"done":false}`)
@@ -2076,7 +2139,7 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			}
 		}))
 		t.Cleanup(ts.Close)
-		return ts
+		return ts, &chatCount
 	}
 
 	newExternalMock := func(t *testing.T) *httptest.Server {
@@ -2102,7 +2165,11 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 		showCaps   []string
 		external   bool
 		model      string
+		wantStatus string
+		wantErr    string
+		wantNoChat bool
 		want       []string
+		wantAbsent []string
 	}{
 		{
 			name:       "artifacts enabled show ok runs artifact loop",
@@ -2110,9 +2177,11 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			showStatus: http.StatusOK,
 			showCaps:   []string{"completion", "tools"},
 			model:      "diag-model",
+			wantStatus: chatSessionIdle,
 			want: []string{
 				`capability_lookup=ok`,
 				`capabilities=["completion" "tools"]`,
+				`source=ollama`,
 				`turn_start requested_artifacts=true`,
 				`turn_config can_tools=true`,
 				`effective_artifacts=true`,
@@ -2120,17 +2189,36 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			},
 		},
 		{
-			name:       "artifacts enabled show fails drops to plain loop",
+			name:       "artifacts enabled show fails blocks the turn",
 			settings:   func(s SessionSettings) SessionSettings { s.Artifacts = true; return s },
 			showStatus: http.StatusNotFound,
 			model:      "diag-model",
+			wantStatus: chatSessionError,
+			wantErr:    "could not determine model capabilities",
+			wantNoChat: true,
 			want: []string{
 				`capability_lookup=failed reason=request_failed`,
 				`turn_start requested_artifacts=true`,
-				`turn_config can_tools=false`,
-				`effective_artifacts=false`,
-				`runner=plain`,
+				`runner=blocked reason=capability_lookup_failed`,
 			},
+			wantAbsent: []string{`runner=plain`, `runner=artifact`, `runner=web_tools`},
+		},
+		{
+			name:       "artifacts enabled completion-only model blocks the turn",
+			settings:   func(s SessionSettings) SessionSettings { s.Artifacts = true; return s },
+			showStatus: http.StatusOK,
+			showCaps:   []string{"completion"},
+			model:      "diag-model",
+			wantStatus: chatSessionError,
+			wantErr:    "does not support tools",
+			wantNoChat: true,
+			want: []string{
+				`capability_lookup=ok`,
+				`source=ollama`,
+				`turn_start requested_artifacts=true`,
+				`runner=blocked reason=tools_unsupported`,
+			},
+			wantAbsent: []string{`runner=plain`, `runner=artifact`, `runner=web_tools`},
 		},
 		{
 			name:       "web tools enabled show ok runs web loop",
@@ -2138,6 +2226,7 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			showStatus: http.StatusOK,
 			showCaps:   []string{"completion", "tools"},
 			model:      "diag-model",
+			wantStatus: chatSessionIdle,
 			want: []string{
 				`capability_lookup=ok`,
 				`requested_web_tools=true`,
@@ -2151,6 +2240,7 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			showStatus: http.StatusOK,
 			showCaps:   []string{"completion", "tools"},
 			model:      "diag-model",
+			wantStatus: chatSessionIdle,
 			want: []string{
 				`turn_start requested_artifacts=false requested_web_tools=false requested_comfy=false`,
 				`effective_artifacts=false effective_web_tools=false effective_comfy=false`,
@@ -2158,24 +2248,27 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			},
 		},
 		{
-			name:       "external model show fails locally drops to plain loop",
+			name:       "external model uses registered capabilities and runs artifact loop",
 			settings:   func(s SessionSettings) SessionSettings { s.Artifacts = true; return s },
 			showStatus: http.StatusNotFound,
 			external:   true,
 			model:      "diag-ext",
+			wantStatus: chatSessionIdle,
 			want: []string{
 				`external_model=true`,
-				`capability_lookup=failed reason=request_failed`,
+				`capability_lookup=ok`,
+				`source=external`,
 				`turn_start requested_artifacts=true`,
-				`effective_artifacts=false`,
-				`runner=plain`,
+				`effective_artifacts=true`,
+				`runner=artifact`,
 			},
+			wantAbsent: []string{`capability_lookup=failed`, `runner=plain`, `runner=blocked`},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ollamaMock := newMock(t, tc.showStatus, tc.showCaps)
+			ollamaMock, chatCount := newMock(t, tc.showStatus, tc.showCaps)
 			ext := newExternalModelsStore("")
 			model := tc.model
 			if tc.external {
@@ -2206,12 +2299,21 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			srv.runSessionTurn(ctx, sess.ID)
 
 			got := st.Get(sess.ID)
-			if got.Status != chatSessionIdle {
-				t.Fatalf("session status = %q (error=%q), want idle", got.Status, got.Error)
+			if got.Status != tc.wantStatus {
+				t.Fatalf("session status = %q (error=%q), want %q", got.Status, got.Error, tc.wantStatus)
 			}
-			last := got.Messages[len(got.Messages)-1]
-			if last.Role != "assistant" || !strings.Contains(last.Content, "private-reply-sentinel") {
-				t.Errorf("assistant reply = %+v, want the mock reply text", last)
+			if tc.wantErr != "" {
+				if !strings.Contains(got.Error, tc.wantErr) {
+					t.Errorf("session error = %q, want it to contain %q", got.Error, tc.wantErr)
+				}
+			} else {
+				last := got.Messages[len(got.Messages)-1]
+				if last.Role != "assistant" || !strings.Contains(last.Content, "private-reply-sentinel") {
+					t.Errorf("assistant reply = %+v, want the mock reply text", last)
+				}
+			}
+			if tc.wantNoChat && chatCount.Load() != 0 {
+				t.Errorf("/api/chat was called %d times; a blocked turn must not reach the model", chatCount.Load())
 			}
 
 			segment := logBuf.String()[mark:]
@@ -2220,9 +2322,13 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 					t.Errorf("log missing %q\ngot:\n%s", want, segment)
 				}
 			}
+			for _, absent := range tc.wantAbsent {
+				if strings.Contains(segment, absent) {
+					t.Errorf("log should not contain %q\ngot:\n%s", absent, segment)
+				}
+			}
 			for _, prefix := range []string{
 				fmt.Sprintf(`[chat-sessions] session=%q model=%q turn_start`, sess.ID, model),
-				fmt.Sprintf(`[chat-sessions] session=%q model=%q turn_config`, sess.ID, model),
 				fmt.Sprintf(`[chat-sessions] session=%q model=%q runner=`, sess.ID, model),
 			} {
 				if !strings.Contains(segment, prefix) {
@@ -2232,6 +2338,343 @@ func TestSessionTurnDiagnosticLogs(t *testing.T) {
 			for _, sentinel := range []string{"private-system-sentinel", "private-user-sentinel", "private-reply-sentinel", "private-backend-sentinel"} {
 				if strings.Contains(segment, sentinel) {
 					t.Errorf("log leaked %q\ngot:\n%s", sentinel, segment)
+				}
+			}
+		})
+	}
+}
+
+func TestSessionModelCapsMatchesToolCapability(t *testing.T) {
+	newShowMock := func(t *testing.T, showStatus int, caps []string) (*httptest.Server, *atomic.Int64) {
+		var showCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost && r.URL.Path == "/api/show" {
+				showCount.Add(1)
+				if showStatus != http.StatusOK {
+					http.Error(w, `{"error":"model not found"}`, showStatus)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"capabilities": caps,
+					"details":      map[string]any{"format": "gguf"},
+					"model_info":   map[string]any{},
+				})
+				return
+			}
+			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+		}))
+		t.Cleanup(ts.Close)
+		return ts, &showCount
+	}
+
+	t.Run("local capabilities", func(t *testing.T) {
+		cases := []struct {
+			name string
+			caps []string
+			want sessionModelInfo
+		}{
+			{"completion and tools", []string{"completion", "tools"}, sessionModelInfo{CanTools: true}},
+			{"completion only", []string{"completion"}, sessionModelInfo{}},
+			{"tools only", []string{"tools"}, sessionModelInfo{CanTools: true}},
+			{"image only", []string{"image"}, sessionModelInfo{IsImage: true}},
+			{"uppercase capabilities", []string{"COMPLETION", "TOOLS", "THINKING"}, sessionModelInfo{CanTools: true, CanThink: true}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				mock, _ := newShowMock(t, http.StatusOK, tc.caps)
+				srv := &Server{ollama: ollama.New(mock.URL), externalModels: newExternalModelsStore("")}
+				got := srv.sessionModelCaps(context.Background(), "m")
+				if got != tc.want {
+					t.Errorf("sessionModelCaps(%v) = %+v, want %+v", tc.caps, got, tc.want)
+				}
+			})
+		}
+		t.Run("lookup failure reports LookupFailed", func(t *testing.T) {
+			mock, _ := newShowMock(t, http.StatusNotFound, nil)
+			srv := &Server{ollama: ollama.New(mock.URL), externalModels: newExternalModelsStore("")}
+			got := srv.sessionModelCaps(context.Background(), "m")
+			if !got.LookupFailed {
+				t.Errorf("sessionModelCaps on Show failure = %+v, want LookupFailed", got)
+			}
+		})
+	})
+
+	t.Run("external uses registered capabilities without local Show", func(t *testing.T) {
+		mock, showCount := newShowMock(t, http.StatusNotFound, nil)
+		ext := newExternalModelsStore("")
+		if err := ext.Register("diag-ext", "http://127.0.0.1:9/v1/chat/completions", "", []string{"completion", "tools", "thinking", "vision"}, false); err != nil {
+			t.Fatalf("register external: %v", err)
+		}
+		srv := &Server{ollama: ollama.New(mock.URL), externalModels: ext}
+		got := srv.sessionModelCaps(context.Background(), "diag-ext")
+		want := sessionModelInfo{CanTools: true, CanThink: true, HasVision: true}
+		if got != want {
+			t.Errorf("sessionModelCaps(external) = %+v, want %+v", got, want)
+		}
+		if n := showCount.Load(); n != 0 {
+			t.Errorf("local /api/show was called %d times for an external model, want 0", n)
+		}
+	})
+
+	t.Run("external completion-only has no tools", func(t *testing.T) {
+		mock, showCount := newShowMock(t, http.StatusNotFound, nil)
+		ext := newExternalModelsStore("")
+		if err := ext.Register("diag-ext2", "http://127.0.0.1:9/v1/chat/completions", "", []string{"completion"}, false); err != nil {
+			t.Fatalf("register external: %v", err)
+		}
+		srv := &Server{ollama: ollama.New(mock.URL), externalModels: ext}
+		got := srv.sessionModelCaps(context.Background(), "diag-ext2")
+		if got.CanTools {
+			t.Errorf("sessionModelCaps(external completion-only) = %+v, want CanTools=false", got)
+		}
+		if got.LookupFailed {
+			t.Errorf("registered external caps must not report LookupFailed: %+v", got)
+		}
+		if n := showCount.Load(); n != 0 {
+			t.Errorf("local /api/show was called %d times for an external model, want 0", n)
+		}
+	})
+}
+
+func TestSessionArtifactToolsSurviveRestoreAndBackground(t *testing.T) {
+	const pageHTML = "<html><body><svg></svg></body></html>"
+
+	localScript := func(round int) []string {
+		switch round {
+		case 0:
+			return []string{
+				`{"model":"m","created_at":"2026-10-09T00:00:00Z","message":{"role":"assistant","tool_calls":[{"function":{"name":"create_artifact","arguments":{"name":"Background SVG"}}}]},"done":false}`,
+				`{"model":"m","created_at":"2026-10-09T00:00:00Z","message":{"role":"assistant"},"done":true,"done_reason":"stop","prompt_eval_count":5,"eval_count":3}`,
+			}
+		case 1:
+			return []string{
+				fmt.Sprintf(`{"model":"m","created_at":"2026-10-09T00:00:00Z","message":{"role":"assistant","tool_calls":[{"function":{"name":"write_file","arguments":{"path":"index.html","content":%q}}}]},"done":false}`, pageHTML),
+				`{"model":"m","created_at":"2026-10-09T00:00:00Z","message":{"role":"assistant"},"done":true,"done_reason":"stop","prompt_eval_count":5,"eval_count":3}`,
+			}
+		default:
+			return []string{
+				`{"model":"m","created_at":"2026-10-09T00:00:00Z","message":{"role":"assistant","content":"Created"},"done":false}`,
+				`{"model":"m","created_at":"2026-10-09T00:00:00Z","message":{"role":"assistant"},"done":true,"done_reason":"stop","prompt_eval_count":5,"eval_count":3}`,
+			}
+		}
+	}
+	externalScript := func(round int) []string {
+		var toolCalls string
+		switch round {
+		case 0:
+			toolCalls = `"tool_calls":[{"index":0,"id":"c0","type":"function","function":{"name":"create_artifact","arguments":"{\"name\":\"Background SVG\"}"}}]`
+		case 1:
+			args, _ := json.Marshal(map[string]string{"path": "index.html", "content": pageHTML})
+			toolCalls = fmt.Sprintf(`"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"write_file","arguments":%q}}]`, string(args))
+		default:
+			return []string{
+				`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Created"}}]}`,
+				`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3}}`,
+				`data: [DONE]`,
+			}
+		}
+		return []string{
+			fmt.Sprintf(`data: {"choices":[{"index":0,"delta":{"role":"assistant",%s}}]}`, toolCalls),
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3}}`,
+			`data: [DONE]`,
+		}
+	}
+
+	cases := []struct {
+		name     string
+		showCaps []string
+		external bool
+		extCaps  []string
+	}{
+		{"local completion tools", []string{"completion", "tools"}, false, nil},
+		{"local tools only", []string{"tools"}, false, nil},
+		{"external completion tools", nil, true, []string{"completion", "tools"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			t.Chdir(workDir)
+
+			rec := newWireRecorder()
+			var round atomic.Int64
+			ollamaMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == "/api/show":
+					rec.record(r)
+					if tc.external {
+						http.Error(w, `{"error":"model not found"}`, http.StatusNotFound)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"capabilities": tc.showCaps,
+						"details":      map[string]any{"format": "gguf"},
+						"model_info":   map[string]any{},
+					})
+				case r.Method == http.MethodGet && r.URL.Path == "/api/tags",
+					r.Method == http.MethodGet && r.URL.Path == "/api/ps":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"models":[]}`))
+				case r.Method == http.MethodPost && r.URL.Path == "/api/chat":
+					rec.record(r)
+					w.Header().Set("Content-Type", "application/x-ndjson")
+					for _, line := range localScript(int(round.Add(1)) - 1) {
+						fmt.Fprintln(w, line)
+					}
+				default:
+					http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(ollamaMock.Close)
+
+			ext := newExternalModelsStore("")
+			model := "diag-local"
+			chatPath := "/api/chat"
+			if tc.external {
+				extMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/chat/completions") {
+						rec.record(r)
+						w.Header().Set("Content-Type", "text/event-stream")
+						for _, line := range externalScript(int(round.Add(1)) - 1) {
+							fmt.Fprintln(w, line)
+						}
+						return
+					}
+					http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+				}))
+				t.Cleanup(extMock.Close)
+				if err := ext.Register("diag-ext", extMock.URL+"/v1/chat/completions", "", tc.extCaps, false); err != nil {
+					t.Fatalf("register external: %v", err)
+				}
+				rec2, ok := ext.Get("diag-ext")
+				if !ok {
+					t.Fatal("external model not found")
+				}
+				model = rec2.ID
+				chatPath = "/v1/chat/completions"
+			}
+
+			storeDir := t.TempDir()
+			st := newChatSessionStore(storeDir)
+			st.Load()
+			srv := &Server{chatSessions: st, ollama: ollama.New(ollamaMock.URL), externalModels: ext}
+
+			sess := st.Create(model, defaultSessionSettings())
+			st.MergeSettings(sess.ID, sessionSettingsInput{Artifacts: true})
+			if !st.AppendUser(sess.ID, "create an animated SVG", nil) {
+				t.Fatal("AppendUser returned false")
+			}
+			st2 := newChatSessionStore(storeDir)
+			st2.Load()
+			srv.chatSessions = st2
+			if st2.Get(sess.ID) == nil {
+				t.Fatal("session missing after reload")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			srv.runSessionTurn(ctx, sess.ID)
+
+			got := st2.Get(sess.ID)
+			if got.Status != chatSessionIdle {
+				t.Fatalf("session status = %q (error=%q), want idle", got.Status, got.Error)
+			}
+			if !got.Settings.Artifacts {
+				t.Error("stored artifacts flag changed during the turn")
+			}
+			last := got.Messages[len(got.Messages)-1]
+			if last.Role != "assistant" || last.Pending {
+				t.Fatalf("final message = %+v, want a settled assistant turn", last)
+			}
+			if last.Content != "Created" {
+				t.Errorf("assistant content = %q, want %q", last.Content, "Created")
+			}
+			if last.ArtifactNm != "Background SVG" || last.ArtifactTS == "" || last.ArtifactURL == "" {
+				t.Errorf("artifact fields not stored: %+v", last)
+			}
+			var toolNames []string
+			for _, e := range last.ToolLog {
+				toolNames = append(toolNames, e.Name)
+			}
+			for _, want := range []string{"create_artifact", "write_file"} {
+				found := false
+				for _, n := range toolNames {
+					if n == want {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("tool log %v missing %q", toolNames, want)
+				}
+			}
+			if last.ArtifactGenerating {
+				t.Error("artifact should not still be marked generating after a finished turn")
+			}
+			for _, e := range last.ToolLog {
+				if e.Error != "" || e.Status == "error" {
+					t.Errorf("tool %q recorded error: %q (status=%q)", e.Name, e.Error, e.Status)
+				}
+			}
+			for _, want := range []string{"create_artifact", "write_file"} {
+				ok := false
+				for _, e := range last.ToolLog {
+					if e.Name == want && e.Status == "ok" {
+						ok = true
+					}
+				}
+				if !ok {
+					t.Errorf("tool log %v has no ok entry for %q", last.ToolLog, want)
+				}
+			}
+
+			indexFile := filepath.Join(workDir, "artifacts", filepath.FromSlash(last.ArtifactTS), "index.html")
+			data, err := os.ReadFile(indexFile)
+			if err != nil {
+				t.Fatalf("expected artifact file %s: %v", indexFile, err)
+			}
+			if string(data) != pageHTML {
+				t.Errorf("index.html = %q, want %q", data, pageHTML)
+			}
+
+			reqs := rec.get(chatPath)
+			if len(reqs) != 3 {
+				t.Fatalf("%s requests = %d, want 3 (three agent rounds)", chatPath, len(reqs))
+			}
+			roles0, sys0 := wireRolesAndArtifactSystem(reqs[0])
+			tools0 := wireToolNames(reqs[0])
+			t.Logf("round 1 request: roles=%v tools=%v artifact_system=%v", roles0, tools0, sys0)
+			if !sys0 {
+				t.Error("round 1 request missing the artifact system prompt")
+			}
+			hasCreate := false
+			for _, n := range tools0 {
+				if n == "create_artifact" {
+					hasCreate = true
+				}
+			}
+			if !hasCreate {
+				t.Errorf("round 1 tools = %v, want create_artifact", tools0)
+			}
+			tools1 := wireToolNames(reqs[1])
+			t.Logf("round 2 request: tools=%v", tools1)
+			for _, want := range []string{"write_file", "read_file", "replace_in_file", "list_dir", "exec"} {
+				found := false
+				for _, n := range tools1 {
+					if n == want {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("round 2 tools = %v, missing %q", tools1, want)
+				}
+			}
+			for _, banned := range []string{"eval_artifact_js", "take_artifact_screenshot"} {
+				for _, n := range tools1 {
+					if n == banned {
+						t.Errorf("round 2 tools expose browser-only %q with no watcher attached", banned)
+					}
 				}
 			}
 		})

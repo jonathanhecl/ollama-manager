@@ -226,9 +226,11 @@ func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps s
 		body.RAGEnabled = st.RAGEnabled
 		body.RAGPaths = append([]string(nil), st.RAGPaths...)
 		body.RAGEditable = append([]string(nil), filterRAGEditable(st.RAGEditable, st.RAGPaths)...)
-		if show, err := s.ollama.Show(ctx, sess.Model); err == nil && show != nil {
-			if toks := sessionNumCtxTokens(st.NumCtxPct, extractContextLength(show)); toks > 0 {
-				body.Options["num_ctx"] = toks
+		if s.externalModels == nil || !s.externalModels.IsExternal(sess.Model) {
+			if show, err := s.ollama.Show(ctx, sess.Model); err == nil && show != nil {
+				if toks := sessionNumCtxTokens(st.NumCtxPct, extractContextLength(show)); toks > 0 {
+					body.Options["num_ctx"] = toks
+				}
 			}
 		}
 		// "auto" means "let the model decide", but on the wire it is a hard
@@ -291,7 +293,8 @@ type sessionModelInfo struct {
 	CanThink bool
 	// HasVision means generated images can be replayed into the transcript, which
 	// is what lets a restored session iterate on a picture it can actually see.
-	HasVision bool
+	HasVision    bool
+	LookupFailed bool
 }
 
 // sessionModelCaps reads the capabilities a session turn has to respect. A
@@ -299,8 +302,18 @@ type sessionModelInfo struct {
 // controls the current model cannot honour, so these are re-checked on every
 // turn instead of trusting the stored options.
 func (s *Server) sessionModelCaps(ctx context.Context, model string) sessionModelInfo {
+	model = strings.TrimSpace(model)
 	if model == "" {
 		return sessionModelInfo{}
+	}
+	if s.externalModels != nil && s.externalModels.IsExternal(model) {
+		rec, _ := s.externalModels.Get(model)
+		caps := rec.Capabilities
+		if len(caps) == 0 {
+			caps = []string{"completion", "tools", "thinking"}
+		}
+		log.Printf("[chat-sessions] model=%q capability_lookup=ok capabilities=%q source=external", model, caps)
+		return sessionInfoFromCapabilities(caps)
 	}
 	show, err := s.ollama.Show(ctx, model)
 	if err != nil || show == nil {
@@ -309,27 +322,20 @@ func (s *Server) sessionModelCaps(ctx context.Context, model string) sessionMode
 			reason = "request_failed"
 		}
 		log.Printf("[chat-sessions] model=%q capability_lookup=failed reason=%s error_type=%T", model, reason, err)
-		return sessionModelInfo{}
+		return sessionModelInfo{LookupFailed: true}
 	}
-	log.Printf("[chat-sessions] model=%q capability_lookup=ok capabilities=%q", model, show.Capabilities)
-	var hasImage, hasVision, hasCompletion, hasThinking bool
-	for _, c := range show.Capabilities {
-		switch c {
-		case "image":
-			hasImage = true
-		case "vision":
-			hasVision = true
-		case "completion":
-			hasCompletion = true
-		case "thinking":
-			hasThinking = true
-		}
-	}
+	caps := withoutProjectorCaps(show.Capabilities, len(show.ProjectorInfo) > 0, show.Details.Format)
+	log.Printf("[chat-sessions] model=%q capability_lookup=ok capabilities=%q source=ollama", model, caps)
+	return sessionInfoFromCapabilities(caps)
+}
+
+func sessionInfoFromCapabilities(caps []string) sessionModelInfo {
+	isImage := hasCapability(caps, "image") && !hasCapability(caps, "vision") && !hasCapability(caps, "completion")
 	return sessionModelInfo{
-		IsImage:   hasImage && !hasVision && !hasCompletion,
-		CanTools:  hasCompletion,
-		CanThink:  hasThinking,
-		HasVision: hasVision,
+		IsImage:   isImage,
+		CanTools:  hasCapability(caps, "tools") && !isImage,
+		CanThink:  hasCapability(caps, "thinking"),
+		HasVision: hasCapability(caps, "vision"),
 	}
 }
 
@@ -385,6 +391,18 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 		id, model, sess.Settings.Artifacts, sess.Settings.WebTools, sess.Settings.Comfy, sess.Settings.RAGEnabled,
 		s.externalModels != nil && s.externalModels.IsExternal(model))
 	caps := s.sessionModelCaps(ctx, model)
+	if sess.Settings.Artifacts || sess.Settings.WebTools || sess.Settings.Comfy {
+		if caps.LookupFailed {
+			log.Printf("[chat-sessions] session=%q model=%q runner=blocked reason=capability_lookup_failed", id, model)
+			s.failSession(id, "could not determine model capabilities; tools were not run")
+			return
+		}
+		if !caps.CanTools && !caps.IsImage {
+			log.Printf("[chat-sessions] session=%q model=%q runner=blocked reason=tools_unsupported", id, model)
+			s.failSession(id, "the selected model does not support tools required by this session")
+			return
+		}
+	}
 	body := s.buildSessionBody(ctx, sess, caps, s.chatSessions.sessionWatcherCheck(sess.ID))
 	startedAt := time.Now()
 	sink := &sessionSink{srv: s, id: id, started: startedAt}

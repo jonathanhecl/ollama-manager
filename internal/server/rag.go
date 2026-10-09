@@ -229,6 +229,12 @@ func (s *Server) handleDownloadRAG(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteRAG(w http.ResponseWriter, r *http.Request) {
 	filename := r.PathValue("id")
 	dir, _ := s.ragConfigSnapshot()
+	unlock, lockErr := s.lockRAGWrite(r.Context())
+	if lockErr != nil {
+		writeError(w, http.StatusRequestTimeout, errors.New("rag write is busy"))
+		return
+	}
+	defer unlock()
 	if err := rag.Delete(dir, filename); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			writeError(w, http.StatusNotFound, errors.New("rag base not found"))
@@ -332,6 +338,15 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), ragCreateTimeout)
+	defer cancel()
+	unlock, lockErr := s.lockRAGWrite(ctx)
+	if lockErr != nil {
+		writeError(w, http.StatusRequestTimeout, errors.New("rag write is busy"))
+		return
+	}
+	defer unlock()
+
 	dir, defaultModel := s.ragConfigSnapshot()
 	var existing *rag.Detail
 	existingEntries := map[int64]rag.EntryView{}
@@ -387,9 +402,6 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 		writeError(w, http.StatusBadRequest, errors.New("no embedding model selected; set a default in Settings"))
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), ragCreateTimeout)
-	defer cancel()
 
 	models, err := s.ollama.List(ctx)
 	if err != nil {

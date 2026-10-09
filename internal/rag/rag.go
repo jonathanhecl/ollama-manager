@@ -207,7 +207,7 @@ func readMeta(db *sql.DB) (Meta, int, error) {
 	return readMetaContext(context.Background(), db)
 }
 
-func readMetaContext(ctx context.Context, db *sql.DB) (Meta, int, error) {
+func readMetaContext(ctx context.Context, db queryer) (Meta, int, error) {
 	var m Meta
 	var version int
 	err := db.QueryRowContext(ctx, `SELECT schema_version, id, name, description, created_at,
@@ -233,7 +233,7 @@ func validate(db *sql.DB, m Meta, version int) error {
 	return validateContext(context.Background(), db, m, version)
 }
 
-func validateContext(ctx context.Context, db *sql.DB, m Meta, version int) error {
+func validateContext(ctx context.Context, db queryer, m Meta, version int) error {
 	switch version {
 	case 1:
 		if m.InputFormat != InputFormatV1 {
@@ -281,9 +281,6 @@ func validateContext(ctx context.Context, db *sql.DB, m Meta, version int) error
 	}
 	if err := rows.Err(); err != nil {
 		return err
-	}
-	if i == 0 {
-		return errors.New("base has no entries")
 	}
 	return nil
 }

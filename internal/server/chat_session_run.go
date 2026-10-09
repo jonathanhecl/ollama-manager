@@ -225,6 +225,7 @@ func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps s
 		}
 		body.RAGEnabled = st.RAGEnabled
 		body.RAGPaths = append([]string(nil), st.RAGPaths...)
+		body.RAGEditable = append([]string(nil), filterRAGEditable(st.RAGEditable, st.RAGPaths)...)
 		if show, err := s.ollama.Show(ctx, sess.Model); err == nil && show != nil {
 			if toks := sessionNumCtxTokens(st.NumCtxPct, extractContextLength(show)); toks > 0 {
 				body.Options["num_ctx"] = toks
@@ -393,7 +394,7 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 	switch {
 	case body.Artifacts != nil && *body.Artifacts:
 		s.runArtifactAgentLoop(ctx, sink, body)
-	case (body.WebTools != nil && *body.WebTools) || (body.Comfy != nil && *body.Comfy):
+	case (body.WebTools != nil && *body.WebTools) || (body.Comfy != nil && *body.Comfy) || s.ragAgentEnabled(ctx, body):
 		// ComfyUI alone still needs the tool-call loop, and the web loop is the
 		// one without the artifact filesystem surface.
 		s.runWebToolAgentLoop(ctx, sink, body)

@@ -655,6 +655,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 
 	sysPrompt := buildArtifactSystemPrompt(artifactDir, hasVision)
 	comfyOn := s.comfyToolEnabled(body)
+	ragOn := s.ragAgentEnabled(ctx, body)
+	if ragOn {
+		sysPrompt += "\n\n" + ragAgentSystemInstruction
+	}
 	if comfyOn {
 		sysPrompt += "\n\n" + comfySystemPromptSection(s.comfyWorkflows.ListEnabled(), hasVision, body.ComfyWorkflow)
 	}
@@ -728,6 +732,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 		}
 		if body.WebTools != nil && *body.WebTools {
 			tools = append(tools, webToolDefinitions()...)
+		}
+		if ragOn {
+			tools = append(tools, s.ragToolDefinitions(body)...)
 		}
 		if comfyOn {
 			// Re-read every round: the user can register or disable a workflow
@@ -859,7 +866,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 
 			// Use artifact-aware payload for artifact tools, web payload for web tools.
 			startPayload := artifactToolStartPayload(n, tc.Function.Arguments)
-			if isWebTool(n) {
+			if isWebTool(n) || isRAGTool(n) {
 				startPayload = toolStartPayload(n, tc.Function.Arguments)
 			}
 			if n == comfyToolName {
@@ -956,8 +963,18 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						toolErr = ctx.Err()
 					}
 				}
+			} else if isRAGTool(n) {
+				var ragFile string
+				out, ragFile, toolErr = s.runRAGTool(ctx, sink, body, n, tc.Function.Arguments)
+				if toolErr == nil && ragFile != "" {
+					send("rag_updated", map[string]any{"filename": ragFile})
+				}
 			} else if isWebTool(n) {
-				out, toolErr = s.runWebTool(ctx, n, tc.Function.Arguments)
+				if body.WebTools == nil || !*body.WebTools {
+					toolErr = errors.New("web tools are not enabled for this chat")
+				} else {
+					out, toolErr = s.runWebTool(ctx, n, tc.Function.Arguments)
+				}
 			} else {
 				// Only create the artifacts directory when the agent is actually
 				// about to write or run a command in the project.
@@ -978,7 +995,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 					out += guide
 				}
 			}
-			out = truncateRunes(out, maxToolResultRunes)
+			if !(isRAGTool(n) && toolErr == nil) {
+				out = truncateRunes(out, maxToolResultRunes)
+			}
 
 			// Handle create_artifact: reveal the artifact panel.
 			// If index.html is already present we can load the preview immediately;

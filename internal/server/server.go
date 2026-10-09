@@ -63,6 +63,8 @@ type Server struct {
 	// Serializes read-modify-write cycles against the opencode config file.
 	opencodeMu sync.Mutex
 
+	ragWriteMu sync.Mutex
+
 	// Cache of context_length keyed by model digest. Model info doesn't
 	// change unless the model is reinstalled (digest changes), so we never
 	// need to invalidate by name.

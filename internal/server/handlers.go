@@ -2419,6 +2419,7 @@ type chatRequestBody struct {
 	ComfyWorkflow string   `json:"comfy_workflow,omitempty"`
 	RAGEnabled    bool     `json:"rag_enabled,omitempty"`
 	RAGPaths      []string `json:"rag_paths,omitempty"`
+	RAGEditable   []string `json:"rag_editable,omitempty"`
 	// SessionID is the persistent chat session this run belongs to, if any. It
 	// decides which folder the generated media lands in.
 	SessionID string `json:"session_id,omitempty"`
@@ -2878,7 +2879,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// The web loop is the lightweight tool runner: it has the tool-call loop but
 	// none of the artifact filesystem surface, which is exactly what ComfyUI-only
 	// chats want. Exposing ComfyUI without a tool loop would silently never run.
-	if (body.WebTools != nil && *body.WebTools) || comfyOn {
+	if (body.WebTools != nil && *body.WebTools) || comfyOn || s.ragAgentEnabled(r.Context(), body) {
 		s.runWebToolAgentLoop(r.Context(), sink, body)
 		return
 	}

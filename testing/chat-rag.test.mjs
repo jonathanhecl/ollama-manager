@@ -92,7 +92,10 @@ const sandbox = {
   saveChatOptionsForCurrentModel() {},
   adjustChatSystemPromptHeight() {},
   chatRagPersistLocal() {},
-  chatRagRenderSelection() {},
+  chatRagRenderSelection() { sandbox._ragRenders = (sandbox._ragRenders || 0) + 1; },
+  ragRefreshList: async () => { sandbox._ragRefreshes = (sandbox._ragRefreshes || 0) + 1; },
+  ragSubview: () => "list",
+  currentView: "chat",
   chatRagSyncSession: async () => {},
   chatRagCommit(syncSession) {
     if (!sandbox.chatRagEnabled) sandbox.chatRagPaths = [];
@@ -101,7 +104,10 @@ const sandbox = {
   },
   normalizeChatRagPaths: (list) => [...new Set((list || []).map((p) => String(p || "").trim()).filter((p) => p && p.endsWith(".db") && !p.includes("/")))],
   normalizeChatRagEditable: (list, paths) => sandbox.normalizeChatRagPaths(list).filter((p) => paths.includes(p)),
-  chatRagFetchList: async () => [{ filename: "a.db" }, { filename: "b.db" }],
+  chatRagFetchList: async () => {
+    sandbox._ragFetches = (sandbox._ragFetches || 0) + 1;
+    return [{ filename: "a.db" }, { filename: "b.db" }];
+  },
   ragConfiguredDefault: () => "",
   splitThink: () => ({ think: "", answer: "", inThink: false }),
   modelCaps: () => new Set(),
@@ -216,12 +222,43 @@ const {
   sandbox.chatSessionStream = null;
   openChatSessionStream("sess-1", 0);
   assert.ok(subscribed.includes("warning"), "session stream must subscribe to warning events");
+  assert.ok(subscribed.includes("rag_updated"), "session stream must subscribe to rag_updated events");
   sandbox.chatSessionStream.close();
   sandbox.chatSessionStream = null;
+}
+
+{
+  sandbox._ragFetches = 0;
+  sandbox._ragRenders = 0;
+  sandbox._ragRefreshes = 0;
+  sandbox.currentView = "chat";
+  const msg = { role: "assistant", content: "answer" };
+  assert.doesNotThrow(() => applyChatStreamEvent(msg, "rag_updated", { filename: "a.db" }, { raw: "" }));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(sandbox._ragFetches, 1, "rag_updated must refresh the rag list");
+  assert.equal(sandbox._ragRenders, 1, "rag_updated must re-render the chat selection");
+  assert.equal(sandbox._ragRefreshes, 0, "no list refresh while not on the rags view");
+  assert.equal(msg.content, "answer");
+  sandbox.currentView = "rags";
+  applyChatStreamEvent(msg, "rag_updated", { filename: "a.db" }, { raw: "" });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(sandbox._ragRefreshes, 1, "rags list view must refresh on rag_updated");
+  sandbox.currentView = "chat";
+}
+
+{
+  sandbox._ragFetches = 0;
+  sandbox._ragRenders = 0;
+  sandbox.chatMessages.length = 0;
+  handleChatSessionStreamEvent("rag_updated", { data: JSON.stringify({ data: { filename: "a.db" } }) });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(sandbox._ragFetches, 1, "session rag_updated must refresh the list");
+  assert.equal(sandbox.chatMessages.length, 0, "rag_updated must not create an assistant message");
 }
 
 assert.match(svgSrc, /if \(!isImageModel && typeof chatRagOptionPayload === "function"\)/);
 assert.match(svgSrc, /payload\.rag_enabled = true;/);
 assert.match(svgSrc, /payload\.rag_paths = ragOpts\.rag_paths;/);
+assert.match(svgSrc, /payload\.rag_editable = ragOpts\.rag_editable;/);
 
 console.log("chat-rag.test.mjs: all assertions passed");

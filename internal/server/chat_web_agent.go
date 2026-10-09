@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -116,6 +117,17 @@ func toolStartPayload(name string, args json.RawMessage) map[string]any {
 			p["url"] = u
 		}
 	}
+	if isRAGTool(name) {
+		if f, _ := m["filename"].(string); strings.TrimSpace(f) != "" {
+			p["path"] = f
+		}
+		if q, _ := m["query"].(string); strings.TrimSpace(q) != "" {
+			p["query"] = q
+		}
+		if eid := int64(numFromAny(m["entry_id"])); eid > 0 {
+			p["description"] = fmt.Sprintf("Entry #%d", eid)
+		}
+	}
 	return p
 }
 
@@ -151,14 +163,29 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 	send := sink.Send
 
 	startedAt := time.Now()
-	tools := webToolDefinitions()
 	comfyOn := s.comfyToolEnabled(body)
-	if comfyOn {
-		tools = append(tools, s.comfyToolDefinitions(body.ComfyWorkflow)...)
-	}
+	ragOn := s.ragAgentEnabled(ctx, body)
 
 	msgs := make([]ollama.ChatMessage, len(body.Messages))
 	copy(msgs, body.Messages)
+
+	if ragOn {
+		sysIdx := -1
+		for i, m := range msgs {
+			if m.Role == "system" {
+				sysIdx = i
+				break
+			}
+		}
+		if sysIdx >= 0 {
+			msgs[sysIdx].Content = strings.TrimSpace(msgs[sysIdx].Content + "\n\n" + ragAgentSystemInstruction)
+		} else {
+			msgs = append([]ollama.ChatMessage{{
+				Role:    "system",
+				Content: ragAgentSystemInstruction,
+			}}, msgs...)
+		}
+	}
 
 	// A vision model is what makes image iteration work: without it the run
 	// produces a picture the model cannot see, so it has to be told so up front.
@@ -182,6 +209,16 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 	for round := 0; round < maxWebAgentRounds; round++ {
 		if ctx.Err() != nil {
 			return
+		}
+		var tools []any
+		if body.WebTools != nil && *body.WebTools {
+			tools = append(tools, webToolDefinitions()...)
+		}
+		if comfyOn {
+			tools = append(tools, s.comfyToolDefinitions(body.ComfyWorkflow)...)
+		}
+		if ragOn {
+			tools = append(tools, s.ragToolDefinitions(body)...)
 		}
 		req := ollama.ChatRequest{
 			Model:    body.Model,
@@ -267,6 +304,18 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 				})
 				out, err, toolImages, toolMedia = res.Text, runErr, res.Images, res.Media
 				toolWorkflow = res.WorkflowName
+			} else if isRAGTool(n) {
+				var ragFile string
+				out, ragFile, err = s.runRAGTool(ctx, sink, body, n, tc.Function.Arguments)
+				if err == nil && ragFile != "" {
+					send("rag_updated", map[string]any{"filename": ragFile})
+				}
+			} else if isWebTool(n) {
+				if body.WebTools == nil || !*body.WebTools {
+					err = errors.New("web tools are not enabled for this chat")
+				} else {
+					out, err = s.runWebTool(ctx, n, tc.Function.Arguments)
+				}
 			} else {
 				out, err = s.runWebTool(ctx, n, tc.Function.Arguments)
 			}
@@ -278,7 +327,9 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 					out += guide
 				}
 			}
-			out = truncateRunes(out, maxToolResultRunes)
+			if !(isRAGTool(n) && err == nil) {
+				out = truncateRunes(out, maxToolResultRunes)
+			}
 			toolMsg := ollama.ChatMessage{
 				Role:     "tool",
 				ToolName: n,

@@ -3373,7 +3373,17 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isScreenshot = e.name === "take_artifact_screenshot";
   const isEval = e.name === "eval_artifact_js";
   const isComfy = e.name === "run_comfy_workflow";
-  const isRag = e.name === "rag_search";
+  const ragToolKeys = {
+    rag_search: "chat.tool.rag_search",
+    rag_list_bases: "chat.tool.rag_list_bases",
+    rag_list_entries: "chat.tool.rag_list_entries",
+    rag_get_entry: "chat.tool.rag_get_entry",
+    rag_create_entry: "chat.tool.rag_create_entry",
+    rag_update_entry: "chat.tool.rag_update_entry",
+    rag_delete_entry: "chat.tool.rag_delete_entry",
+    rag_update_base: "chat.tool.rag_update_base",
+  };
+  const isRag = Object.prototype.hasOwnProperty.call(ragToolKeys, e.name);
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
@@ -3384,7 +3394,7 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
                 : isScreenshot ? t("chat.tool.take_artifact_screenshot")
                   : isEval ? t("chat.tool.eval_artifact_js")
                     : isComfy ? t("chat.tool.run_comfy_workflow")
-                      : isRag ? t("chat.tool.rag_search")
+                      : isRag ? t(ragToolKeys[e.name])
                         : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
@@ -3409,9 +3419,10 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
       d += ` <span class="chat-tool-runes mono" style="margin-left: 8px;">[folder: ${timestamp}]</span>`;
     }
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
-  } else if (isRag && (e.query || e.path)) {
+  } else if (isRag && (e.query || e.path || e.description)) {
     const ragName = (typeof chatRagInfo === "function" && chatRagInfo(e.path)?.name) || e.path;
     let d = `<strong>${escapeHtml(ragName)}</strong>`;
+    if (e.description) d += `${d ? " · " : ""}<span class="muted">${escapeHtml(e.description)}</span>`;
     if (e.query) d += `${d ? " · " : ""}<span class="muted">${escapeHtml(e.query)}</span>`;
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   } else if (isComfy && (e.workflow || e.prompt)) {
@@ -5474,6 +5485,15 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
     scheduleRenderChatMessages();
   } else if (event === "warning") {
     toast(t("rag.chat_warning", { msg: data?.message || "" }), "error");
+  } else if (event === "rag_updated") {
+    if (typeof chatRagFetchList === "function") {
+      void chatRagFetchList().then(() => {
+        if (typeof chatRagRenderSelection === "function") chatRagRenderSelection();
+      }).catch(() => { });
+    }
+    if (currentView === "rags" && typeof ragSubview === "function" && ragSubview() === "list" && typeof ragRefreshList === "function") {
+      void ragRefreshList();
+    }
   } else if (event === "error") {
     throw new Error(data?.error || "stream error");
   } else if (event === "done") {
@@ -5682,6 +5702,7 @@ async function runChatRequest(assistantMsg) {
     if (ragOpts.rag_enabled) {
       payload.rag_enabled = true;
       payload.rag_paths = ragOpts.rag_paths;
+      payload.rag_editable = ragOpts.rag_editable;
     }
   }
 

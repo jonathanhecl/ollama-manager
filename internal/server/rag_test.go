@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -485,12 +486,27 @@ func TestRAGUpdateKeepsFileAndExistingMedia(t *testing.T) {
 	}
 	filename := out["rag"].(map[string]any)["filename"].(string)
 	_, det := ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
-	entryID := int64(det["entries"].([]any)[0].(map[string]any)["id"].(float64))
+	oldEntry := det["entries"].([]any)[0].(map[string]any)
+	entryID := int64(oldEntry["id"].(float64))
+
+	db, err := sql.Open("sqlite", filepath.Join(ragDirOf(t, srv), filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE entries SET created_at = 1000, updated_at = 1000 WHERE id = ?`, entryID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE metadata SET updated_at = 1000 WHERE key = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	code, out = ragCall(t, srv, http.MethodPut, "/api/rags/"+filename, map[string]any{
 		"name": "Pics renamed", "embedding_model": "embed-vision:latest",
 		"entries": []any{map[string]any{
-			"term": "logo2", "content": "updated", "media": []any{
+			"id": entryID, "term": "logo2", "content": "updated", "media": []any{
 				map[string]any{"type": "image", "entry_id": entryID, "existing": true},
 			},
 		}},
@@ -509,8 +525,43 @@ func TestRAGUpdateKeepsFileAndExistingMedia(t *testing.T) {
 	if entry["term"] != "logo2" || len(entry["media"].([]any)) != 1 {
 		t.Fatalf("updated entry = %v", entry)
 	}
+	if entry["created_at"] != float64(1000) || entry["updated_at"].(float64) <= 1000 {
+		t.Fatalf("entry timestamps = %v", entry)
+	}
+	meta := det["meta"].(map[string]any)
+	if meta["updated_at"].(float64) <= 1000 {
+		t.Fatalf("base updated_at = %v", meta)
+	}
+
+	db, err = sql.Open("sqlite", filepath.Join(ragDirOf(t, srv), filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE entries SET updated_at = 1000 WHERE id = ?`, entryID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code, out = ragCall(t, srv, http.MethodPut, "/api/rags/"+filename, map[string]any{
+		"name": "Pics renamed", "embedding_model": "embed-vision:latest",
+		"entries": []any{map[string]any{
+			"id": entryID, "term": "logo2", "content": "updated", "media": []any{
+				map[string]any{"type": "image", "entry_id": entryID, "existing": true},
+			},
+		}},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("unchanged update status = %d, body = %v", code, out)
+	}
+	_, det = ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	entry = det["entries"].([]any)[0].(map[string]any)
+	if entry["updated_at"] != float64(1000) {
+		t.Fatalf("unchanged entry updated_at = %v", entry)
+	}
+
 	embeds := fake.recordedEmbeds()
-	if len(embeds) != 2 {
+	if len(embeds) != 3 {
 		t.Fatalf("embed calls = %d", len(embeds))
 	}
 	item := embeds[1]["input"].([]any)[0].(map[string]any)

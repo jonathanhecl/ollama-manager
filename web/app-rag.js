@@ -222,7 +222,9 @@ function ragRenderList() {
     const model = String(r.embedding_model || "—");
     const desc = String(r.description || "").trim();
     const created = Number(r.created_at) || 0;
+    const updated = Number(r.updated_at) || created;
     const createdISO = created ? new Date(created * 1000).toISOString() : "";
+    const updatedISO = updated ? new Date(updated * 1000).toISOString() : "";
     const tr = ragEl("tr", "row rag-row");
     tr.dataset.filename = filename;
     tr.title = editTitle;
@@ -241,6 +243,7 @@ function ragRenderList() {
       <td class="cell-size">${r.entries || 0}</td>
       <td class="cell-size rag-size-cell" title="${escapeHtml(filename)}">${fmtBytes(Number(r.size_bytes) || 0)}</td>
       <td class="cell-modified"><div class="cell-dates"><div class="date-primary" title="${escapeHtml(ragFmtDate(created))}">${escapeHtml(created ? fmtDate(createdISO) : "—")}</div></div></td>
+      <td class="cell-modified"><div class="cell-dates"><div class="date-primary" title="${escapeHtml(ragFmtDate(updated))}">${escapeHtml(updated ? fmtDate(updatedISO) : "—")}</div></div></td>
       <td class="rag-actions-cell">
         <div class="rag-row-actions">
           <a class="btn-icon rag-export-btn" href="/api/rags/${encodeURIComponent(filename)}/download" download="${escapeHtml(filename)}" title="${escapeHtml(exportTitle)}" aria-label="${escapeHtml(exportTitle)}">⬇</a>
@@ -278,7 +281,7 @@ async function ragDelete(r) {
 function ragNewEntry() {
   const key = ++ragState.entrySeq;
   ragState.activeEntry = key;
-  return { key, term: "", content: "", inputMode: "combined", media: {}, mediaPending: false, mediaError: "" };
+  return { key, id: 0, term: "", content: "", inputMode: "combined", createdAt: 0, updatedAt: 0, media: {}, mediaPending: false, mediaError: "" };
 }
 
 function ragConfiguredDefault() {
@@ -347,16 +350,26 @@ async function ragStartEdit(filename) {
     if (nameIn) nameIn.value = detail.meta && detail.meta.name || "";
     if (descIn) descIn.value = detail.meta && detail.meta.description || "";
     if (meta) {
-      meta.textContent = filename + " · " + fmtBytes(Number(detail.size_bytes) || 0);
+      const created = Number(detail.meta && detail.meta.created_at) || 0;
+      const updated = Number(detail.meta && detail.meta.updated_at) || created;
+      meta.textContent = [
+        filename,
+        fmtBytes(Number(detail.size_bytes) || 0),
+        t("rag.meta_created", { date: created ? ragFmtDate(created) : "—" }),
+        t("rag.meta_updated", { date: updated ? ragFmtDate(updated) : "—" }),
+      ].join(" · ");
       meta.hidden = false;
     }
     ragState.createPreferredModel = detail.meta && detail.meta.embedding_model || "";
     ragState.entries = (detail.entries || []).map((e) => {
       const entry = {
         key: ++ragState.entrySeq,
+        id: Number(e.id) || 0,
         term: e.term || "",
         content: e.content || "",
         inputMode: e.input_mode || "combined",
+        createdAt: Number(e.created_at) || 0,
+        updatedAt: Number(e.updated_at) || 0,
         media: {},
         mediaPending: false,
         mediaError: "",
@@ -620,6 +633,15 @@ function ragRenderEntries() {
     ragUpdateEntryNav(entry);
   });
   top.appendChild(term);
+  if (entry.updatedAt) {
+    const updatedISO = new Date(entry.updatedAt * 1000).toISOString();
+    const stamp = ragEl("span", "rag-entry-updated", t("rag.entry_updated", { date: fmtDate(updatedISO) }));
+    stamp.title = [
+      t("rag.entry_created", { date: ragFmtDate(entry.createdAt || entry.updatedAt) }),
+      t("rag.entry_updated", { date: ragFmtDate(entry.updatedAt) }),
+    ].join(" · ");
+    top.appendChild(stamp);
+  }
   const rm = ragEl("button", "ghost small rag-entry-remove", "");
   rm.type = "button";
   rm.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
@@ -775,6 +797,7 @@ async function ragSubmitCreate() {
     description,
     embedding_model: model,
     entries: ragState.entries.map((e) => ({
+      id: e.id || 0,
       term: e.term,
       content: e.content,
       input_mode: e.inputMode,

@@ -18,9 +18,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 const InputFormatV1 = "term-content-v1"
-const InputFormat = "entry-inputs-v2"
+const InputFormatV2 = "entry-inputs-v2"
+const InputFormat = "entry-inputs-v3"
 const EmbeddingProvider = "ollama"
 const maxDimensions = 65536
 
@@ -29,6 +30,7 @@ type Meta struct {
 	Name              string `json:"name"`
 	Description       string `json:"description"`
 	CreatedAt         int64  `json:"created_at"`
+	UpdatedAt         int64  `json:"updated_at"`
 	EmbeddingProvider string `json:"embedding_provider"`
 	EmbeddingModel    string `json:"embedding_model"`
 	EmbeddingDigest   string `json:"embedding_digest"`
@@ -47,6 +49,8 @@ type Entry struct {
 	Term      string
 	Content   string
 	InputMode string
+	CreatedAt int64
+	UpdatedAt int64
 	Media     []Media
 	Embedding []float64
 }
@@ -60,6 +64,7 @@ type Info struct {
 	Dimensions  int    `json:"dimensions"`
 	Entries     int    `json:"entries"`
 	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
 	SizeBytes   int64  `json:"size_bytes"`
 }
 
@@ -75,6 +80,8 @@ type EntryView struct {
 	Term      string      `json:"term"`
 	Content   string      `json:"content"`
 	InputMode string      `json:"input_mode"`
+	CreatedAt int64       `json:"created_at"`
+	UpdatedAt int64       `json:"updated_at"`
 	Media     []MediaView `json:"media"`
 }
 
@@ -93,6 +100,7 @@ CREATE TABLE metadata (
 	name TEXT NOT NULL,
 	description TEXT NOT NULL,
 	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
 	embedding_provider TEXT NOT NULL,
 	embedding_model TEXT NOT NULL,
 	embedding_digest TEXT NOT NULL,
@@ -104,6 +112,8 @@ CREATE TABLE entries (
 	term TEXT NOT NULL,
 	content TEXT NOT NULL,
 	input_mode TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
 	image_name TEXT NOT NULL,
 	image_mime TEXT NOT NULL,
 	image BLOB,
@@ -203,6 +213,14 @@ func readMeta(db *sql.DB) (Meta, int, error) {
 	if err != nil {
 		return Meta{}, 0, err
 	}
+	if version == SchemaVersion {
+		if err := db.QueryRow(`SELECT updated_at FROM metadata WHERE key = 1`).Scan(&m.UpdatedAt); err != nil {
+			return Meta{}, 0, err
+		}
+	}
+	if m.UpdatedAt == 0 {
+		m.UpdatedAt = m.CreatedAt
+	}
 	return m, version, nil
 }
 
@@ -210,6 +228,10 @@ func validate(db *sql.DB, m Meta, version int) error {
 	switch version {
 	case 1:
 		if m.InputFormat != InputFormatV1 {
+			return fmt.Errorf("unsupported input format %q", m.InputFormat)
+		}
+	case 2:
+		if m.InputFormat != InputFormatV2 {
 			return fmt.Errorf("unsupported input format %q", m.InputFormat)
 		}
 	case SchemaVersion:
@@ -261,7 +283,15 @@ func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Me
 	if meta.Dimensions <= 0 || meta.Dimensions > maxDimensions {
 		return Meta{}, "", fmt.Errorf("invalid dimensions %d", meta.Dimensions)
 	}
+	now := time.Now().Unix()
 	for i, e := range entries {
+		if e.CreatedAt == 0 {
+			e.CreatedAt = now
+		}
+		if e.UpdatedAt == 0 {
+			e.UpdatedAt = e.CreatedAt
+		}
+		entries[i] = e
 		if !validVector(e.Embedding, meta.Dimensions) {
 			return Meta{}, "", fmt.Errorf("entry %d has an invalid embedding", i)
 		}
@@ -300,7 +330,10 @@ func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Me
 		meta.ID = id
 	}
 	if meta.CreatedAt == 0 {
-		meta.CreatedAt = time.Now().Unix()
+		meta.CreatedAt = now
+	}
+	if meta.UpdatedAt == 0 {
+		meta.UpdatedAt = meta.CreatedAt
 	}
 	if meta.EmbeddingProvider == "" {
 		meta.EmbeddingProvider = EmbeddingProvider
@@ -357,10 +390,10 @@ func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Me
 		return failDB(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO metadata
-		(key, schema_version, id, name, description, created_at,
+		(key, schema_version, id, name, description, created_at, updated_at,
 		 embedding_provider, embedding_model, embedding_digest, dimensions, input_format)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		SchemaVersion, meta.ID, meta.Name, meta.Description, meta.CreatedAt,
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		SchemaVersion, meta.ID, meta.Name, meta.Description, meta.CreatedAt, meta.UpdatedAt,
 		meta.EmbeddingProvider, meta.EmbeddingModel, meta.EmbeddingDigest,
 		meta.Dimensions, meta.InputFormat); err != nil {
 		_ = tx.Rollback()
@@ -380,10 +413,11 @@ func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Me
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO entries
-			(term, content, input_mode, image_name, image_mime, image,
-			 audio_name, audio_mime, audio, embedding)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			e.Term, e.Content, mode, image.Name, image.MIME, image.Data,
+			(term, content, input_mode, created_at, updated_at,
+			 image_name, image_mime, image, audio_name, audio_mime, audio, embedding)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.Term, e.Content, mode, e.CreatedAt, e.UpdatedAt,
+			image.Name, image.MIME, image.Data,
 			audio.Name, audio.MIME, audio.Data, packVector(e.Embedding)); err != nil {
 			_ = tx.Rollback()
 			return failDB(err)
@@ -442,6 +476,7 @@ func Replace(ctx context.Context, dir, filename string, meta Meta, entries []Ent
 	if err != nil || !st.Mode().IsRegular() {
 		return Meta{}, os.ErrNotExist
 	}
+	meta.UpdatedAt = time.Now().Unix()
 	meta, tmp, err := createTemp(ctx, dir, meta, entries)
 	if err != nil {
 		return Meta{}, err
@@ -567,6 +602,7 @@ func readInfo(path string) (Info, error) {
 		Dimensions:  m.Dimensions,
 		Entries:     count,
 		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
 	}, nil
 }
 
@@ -592,12 +628,20 @@ func Get(dir, filename string) (*Detail, error) {
 	if err := validate(db, m, version); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, term, content, 'combined' AS input_mode, media_type, media_name, media_mime,
-		COALESCE(LENGTH(media), 0), '', '', '', 0 FROM entries ORDER BY id`
-	if version == SchemaVersion {
+	var query string
+	switch version {
+	case 1:
+		query = `SELECT id, term, content, 'combined' AS input_mode, media_type, media_name, media_mime,
+			COALESCE(LENGTH(media), 0), '', '', '', 0, 0, 0 FROM entries ORDER BY id`
+	case 2:
 		query = `SELECT id, term, content, input_mode,
 			'image', image_name, image_mime, COALESCE(LENGTH(image), 0),
-			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0)
+			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), 0, 0
+			FROM entries ORDER BY id`
+	case SchemaVersion:
+		query = `SELECT id, term, content, input_mode,
+			'image', image_name, image_mime, COALESCE(LENGTH(image), 0),
+			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), created_at, updated_at
 			FROM entries ORDER BY id`
 	}
 	rows, err := db.Query(query)
@@ -614,8 +658,15 @@ func Get(dir, filename string) (*Detail, error) {
 		var audioSize int64
 		if err := rows.Scan(&ev.ID, &ev.Term, &ev.Content, &ev.InputMode,
 			&imageType, &imageName, &imageMIME, &imageSize,
-			&audioType, &audioName, &audioMIME, &audioSize); err != nil {
+			&audioType, &audioName, &audioMIME, &audioSize,
+			&ev.CreatedAt, &ev.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if ev.CreatedAt == 0 {
+			ev.CreatedAt = m.CreatedAt
+		}
+		if ev.UpdatedAt == 0 {
+			ev.UpdatedAt = ev.CreatedAt
 		}
 		ev.Media = []MediaView{}
 		if imageType != "" && imageType != "text" && (imageName != "" || imageMIME != "" || imageSize > 0) {

@@ -44,6 +44,7 @@ type ragMediaBody struct {
 }
 
 type ragEntryBody struct {
+	ID          int64          `json:"id"`
 	Term        string         `json:"term"`
 	Content     string         `json:"content"`
 	InputMode   string         `json:"input_mode"`
@@ -308,6 +309,7 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 
 	dir, defaultModel := s.ragConfigSnapshot()
 	var existing *rag.Detail
+	existingEntries := map[int64]rag.EntryView{}
 	if updateFilename != "" {
 		if !rag.ValidFilename(updateFilename) {
 			writeError(w, http.StatusBadRequest, errors.New("invalid base name"))
@@ -324,6 +326,9 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 			return
 		}
 		defaultModel = existing.Meta.EmbeddingModel
+		for _, entry := range existing.Entries {
+			existingEntries[entry.ID] = entry
+		}
 	}
 
 	name := strings.TrimSpace(body.Name)
@@ -394,11 +399,50 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 		content   string
 		text      string
 		inputMode string
+		createdAt int64
+		updatedAt int64
 		media     []preparedMedia
+		previous  *rag.EntryView
+	}
+	entryChanged := func(old *rag.EntryView, pe preparedEntry) bool {
+		if old == nil || old.Term != pe.term || old.Content != pe.content || old.InputMode != pe.inputMode || len(old.Media) != len(pe.media) {
+			return true
+		}
+		oldMedia := map[string]rag.MediaView{}
+		for _, m := range old.Media {
+			oldMedia[m.Type] = m
+		}
+		for _, m := range pe.media {
+			old, ok := oldMedia[m.mediaType]
+			if !ok || old.Name != m.name || old.MIME != m.mime || old.Size != int64(len(m.raw)) {
+				return true
+			}
+		}
+		return false
 	}
 	prepared := make([]preparedEntry, 0, len(body.Entries))
 	var totalMedia int
+	now := time.Now().Unix()
+	seenEntryIDs := map[int64]bool{}
 	for i, e := range body.Entries {
+		var previous *rag.EntryView
+		if e.ID != 0 {
+			if existing == nil {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: id is only valid when updating a base", i+1))
+				return
+			}
+			if seenEntryIDs[e.ID] {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: duplicate existing id %d", i+1, e.ID))
+				return
+			}
+			seenEntryIDs[e.ID] = true
+			old, ok := existingEntries[e.ID]
+			if !ok {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: unknown existing id %d", i+1, e.ID))
+				return
+			}
+			previous = &old
+		}
 		term := strings.TrimSpace(e.Term)
 		if utf8.RuneCountInString(term) > ragMaxTermLen {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: term must be at most %d characters", i+1, ragMaxTermLen))
@@ -439,7 +483,14 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 			}
 			text += content
 		}
-		pe := preparedEntry{term: term, content: content, text: text, inputMode: mode}
+		pe := preparedEntry{term: term, content: content, text: text, inputMode: mode, previous: previous}
+		if previous != nil {
+			pe.createdAt = previous.CreatedAt
+			pe.updatedAt = previous.UpdatedAt
+		} else {
+			pe.createdAt = now
+			pe.updatedAt = now
+		}
 		seenMedia := map[string]bool{}
 		for _, m := range mediaList {
 			mediaType := strings.ToLower(strings.TrimSpace(m.Type))
@@ -547,6 +598,9 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: media input mode requires an attachment", i+1))
 			return
 		}
+		if entryChanged(pe.previous, pe) {
+			pe.updatedAt = now
+		}
 		prepared = append(prepared, pe)
 	}
 
@@ -600,6 +654,8 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 			Term:      pe.term,
 			Content:   pe.content,
 			InputMode: pe.inputMode,
+			CreatedAt: pe.createdAt,
+			UpdatedAt: pe.updatedAt,
 			Media:     storeMedia,
 			Embedding: vec,
 		})
@@ -648,6 +704,7 @@ func (s *Server) handleSaveRAG(w http.ResponseWriter, r *http.Request, updateFil
 			"dimensions":       meta.Dimensions,
 			"entries":          len(storeEntries),
 			"created_at":       meta.CreatedAt,
+			"updated_at":       meta.UpdatedAt,
 		},
 	})
 }

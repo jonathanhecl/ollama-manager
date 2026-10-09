@@ -15897,9 +15897,7 @@ button.chat-send:disabled:hover {
   margin: -4px 0 14px;
   color: var(--muted);
   font-size: 11.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.5;
 }
 
 .rag-panel input:disabled,
@@ -16157,6 +16155,16 @@ button.chat-send:disabled:hover {
   color: var(--text);
   word-break: break-word;
 }
+.rag-entry-updated {
+  flex-shrink: 0;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
 .rag-entry-remove { flex-shrink: 0; }
 
 textarea.rag-entry-content {
@@ -16183,7 +16191,7 @@ textarea.rag-entry-content {
 }
 
 #rags-table {
-  min-width: 900px;
+  min-width: 1000px;
 }
 #rags-table th:last-child,
 #rags-table td:last-child {
@@ -16280,7 +16288,7 @@ textarea.rag-entry-content {
   }
   .rag-entry-nav { flex: 0 0 min(220px, 78vw); }
   .rag-entry-media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #rags-table { min-width: 760px; }
+  #rags-table { min-width: 820px; }
   #rags-table th:nth-child(4),
   #rags-table td:nth-child(4),
   #rags-table th:nth-child(7),

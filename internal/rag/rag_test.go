@@ -36,7 +36,7 @@ func TestCreateRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Name != "My Base" || got.EmbeddingProvider != EmbeddingProvider ||
-		got.InputFormat != InputFormat || got.ID == "" || got.CreatedAt == 0 {
+		got.InputFormat != InputFormat || got.ID == "" || got.CreatedAt == 0 || got.UpdatedAt != got.CreatedAt {
 		t.Fatalf("unexpected meta: %+v", got)
 	}
 	fis, err := os.ReadDir(dir)
@@ -67,6 +67,7 @@ func TestCreateRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected detail meta: %+v", d.Meta)
 	}
 	if len(d.Entries) != 3 || d.Entries[0].Term != "term" || d.Entries[0].InputMode != "combined" ||
+		d.Entries[0].CreatedAt == 0 || d.Entries[0].UpdatedAt != d.Entries[0].CreatedAt ||
 		len(d.Entries[0].Media) != 0 {
 		t.Fatalf("unexpected entries: %+v", d.Entries)
 	}
@@ -150,7 +151,7 @@ func TestReplaceKeepsFilenameAndID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != meta.ID || got.CreatedAt != meta.CreatedAt {
+	if got.ID != meta.ID || got.CreatedAt != meta.CreatedAt || got.UpdatedAt < got.CreatedAt {
 		t.Fatalf("replace changed identity: %+v", got)
 	}
 	fis, err := os.ReadDir(dir)
@@ -416,6 +417,45 @@ func TestGetReadsV1Base(t *testing.T) {
 	m, err := MediaAt(dir, "legacy.db", d.Entries[0].ID, "image")
 	if err != nil || string(m.Data) != string(media) || m.MIME != "image/png" {
 		t.Fatalf("legacy media = %+v err=%v", m, err)
+	}
+}
+
+func TestGetReadsV2BaseWithFallbackTimestamps(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "v2.db")
+	db, err := sql.Open("sqlite", fileURI(path, "rwc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	emb := packVector([]float64{1, 2, 3})
+	if _, err := db.Exec(`CREATE TABLE metadata (key INTEGER PRIMARY KEY CHECK (key = 1),
+		schema_version INTEGER NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+		created_at INTEGER NOT NULL, embedding_provider TEXT NOT NULL, embedding_model TEXT NOT NULL,
+		embedding_digest TEXT NOT NULL, dimensions INTEGER NOT NULL, input_format TEXT NOT NULL);
+		CREATE TABLE entries (id INTEGER PRIMARY KEY, term TEXT NOT NULL, content TEXT NOT NULL,
+		input_mode TEXT NOT NULL, image_name TEXT NOT NULL, image_mime TEXT NOT NULL, image BLOB,
+		audio_name TEXT NOT NULL, audio_mime TEXT NOT NULL, audio BLOB, embedding BLOB NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO metadata VALUES
+		(1, 2, 'legacy-v2', 'V2', '', 10, 'ollama', 'm', 'd', 3, ?)`, InputFormatV2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO entries
+		(term, content, input_mode, image_name, image_mime, image,
+		 audio_name, audio_mime, audio, embedding)
+		VALUES ('pic', '', 'media', 'p.png', 'image/png', NULL, '', '', NULL, ?)`, emb); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d, err := Get(dir, "v2.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Meta.UpdatedAt != 10 || d.Entries[0].CreatedAt != 10 || d.Entries[0].UpdatedAt != 10 {
+		t.Fatalf("v2 timestamps = %+v", d)
 	}
 }
 

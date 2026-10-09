@@ -4488,7 +4488,7 @@ button.chat-send:disabled:hover {
   min-height: 100%;
   box-sizing: border-box;
 }
-.chat-side-card > *:not(#chat-system-field) {
+.chat-side-card > * {
   flex-shrink: 0;
 }
 .chat-side-card .field {

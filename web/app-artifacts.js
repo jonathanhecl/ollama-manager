@@ -51,9 +51,14 @@ function updateArtifactResourceBtn() {
   }
 }
 
-function unloadSessionArtifact() {
-  const confirmed = window.confirm(t("chat.artifact.unload_confirm"));
-  if (!confirmed) return;
+async function unloadSessionArtifact() {
+  const { ok } = await askConfirm({
+    title: t("confirm.title"),
+    text: t("chat.artifact.unload_confirm"),
+    okText: t("confirm.title"),
+    okClass: "danger",
+  });
+  if (!ok) return;
   activeArtifactTimestamp = null;
   activeArtifactName = null;
   activeArtifactUrl = null;
@@ -133,8 +138,14 @@ function openLoadArtifactModal() {
 }
 
 async function deleteExistingArtifact(id, name) {
-  const confirmed = window.confirm(t("chat.delete_artifact_confirm", { name: name || id }));
-  if (!confirmed) return;
+  const { ok } = await askConfirm({
+    title: t("chat.delete_artifact"),
+    text: t("chat.delete_artifact_confirm", { name: name || id }),
+    okText: t("action.delete"),
+    okClass: "danger",
+    mono: name || id,
+  });
+  if (!ok) return;
   try {
     await api("/api/artifacts/" + id, { method: "DELETE" });
     toast(t("chat.delete_artifact_success", { name: name || id }), "success");

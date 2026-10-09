@@ -695,7 +695,14 @@ function bindRepairEntry(d) {
     resetBtn.addEventListener("click", async () => {
       const name = resetBtn.dataset.name || d.name;
       if (!name) return;
-      if (!confirm(t("detail.reset_analytics_confirm", { name }))) return;
+      const { ok } = await askConfirm({
+        title: t("detail.reset_analytics_btn"),
+        text: t("detail.reset_analytics_confirm", { name }),
+        okText: t("detail.reset_analytics_btn"),
+        okClass: "danger",
+        mono: name,
+      });
+      if (!ok) return;
       resetBtn.disabled = true;
       try {
         const res = await api("/api/models/analytics/reset", {

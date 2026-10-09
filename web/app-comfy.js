@@ -833,7 +833,14 @@ async function editComfyWorkflow(id) {
 }
 
 async function deleteComfyWorkflow(id, name) {
-  if (!window.confirm(t("settings.comfyui_wf_delete_confirm", { name }) || `Delete the workflow "${name}"?`)) return;
+  const { ok } = await askConfirm({
+    title: t("action.delete"),
+    text: t("settings.comfyui_wf_delete_confirm", { name }) || `Delete the workflow "${name}"?`,
+    okText: t("action.delete"),
+    okClass: "danger",
+    mono: name,
+  });
+  if (!ok) return;
   try {
     await comfyApi(`/workflows/${encodeURIComponent(id)}`, { method: "DELETE" });
     invalidateComfyCaches();

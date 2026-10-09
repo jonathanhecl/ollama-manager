@@ -272,7 +272,15 @@ function ragRenderList() {
 async function ragDelete(r) {
   const filename = String(r.filename || "");
   const name = String(r.name || filename);
-  if (!filename || !window.confirm(t("rag.delete_confirm", { name }))) return;
+  if (!filename) return;
+  const { ok } = await askConfirm({
+    title: t("rag.delete_title"),
+    text: t("rag.delete_confirm", { name }),
+    okText: t("action.delete"),
+    okClass: "danger",
+    mono: name,
+  });
+  if (!ok) return;
   try {
     await api("/api/rags/" + encodeURIComponent(filename), { method: "DELETE" });
     toast(t("rag.deleted", { name }), "success");

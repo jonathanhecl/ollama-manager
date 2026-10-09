@@ -16318,8 +16318,10 @@ textarea.rag-entry-content {
   color: var(--warn);
 }
 
+#rags-view .tests-main-container { max-width: 1600px; }
 #rags-table {
-  min-width: 1000px;
+  width: 100%;
+  min-width: 900px;
 }
 #rags-table th:last-child,
 #rags-table td:last-child {

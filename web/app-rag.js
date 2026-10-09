@@ -23,6 +23,9 @@ const ragState = {
   entries: [],
   entrySeq: 0,
   activeEntry: 0,
+  chatListLoaded: false,
+  chatImporting: false,
+  pickerSelected: new Set(),
 };
 
 function ragEl(tag, cls, text) {
@@ -133,6 +136,7 @@ async function ragRefreshList() {
     ragState.loading = false;
   }
   ragRenderList();
+  if (typeof chatRagRenderSelection === "function") chatRagRenderSelection();
 }
 
 function ragNav(path) {
@@ -272,6 +276,10 @@ async function ragDelete(r) {
   try {
     await api("/api/rags/" + encodeURIComponent(filename), { method: "DELETE" });
     toast(t("rag.deleted", { name }), "success");
+    if (chatRagPaths.includes(filename)) {
+      chatRagPaths = chatRagPaths.filter((p) => p !== filename);
+      chatRagCommit();
+    }
     await ragRefreshList();
   } catch (e) {
     toast(String(e && e.message ? e.message : e), "error");
@@ -868,6 +876,7 @@ function applyRagConfigResponse(res) {
     ragState.defaultEmbedding = res.rag.default_embedding;
     ragState.settingsMissingModel = "";
     ragState.settingsDirty = false;
+    if (typeof updateChatRagAvailability === "function") updateChatRagAvailability();
   }
 }
 
@@ -942,6 +951,370 @@ function ragSettingsInit() {
     }
   });
 }
+
+// ---------- chat-side RAG selection ----------
+
+const CHAT_RAG_MAX_SELECTED = 32;
+
+function ragSafeFilename(name) {
+  const s = String(name || "").trim();
+  return !!s && s !== "." && s !== ".." &&
+    !/[\\/]/.test(s) && !s.includes("\0") &&
+    !s.startsWith(".") && !s.startsWith("~") &&
+    /\.db$/i.test(s);
+}
+
+function normalizeChatRagPaths(list) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(list) ? list : []) {
+    const name = String(item || "").trim();
+    if (!ragSafeFilename(name) || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+    if (out.length >= CHAT_RAG_MAX_SELECTED) break;
+  }
+  return out;
+}
+
+function chatRagLoadLocal() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CHAT_RAG_STATE_KEY) || "null");
+    chatRagEnabled = !!(parsed && parsed.enabled);
+    chatRagPaths = normalizeChatRagPaths(parsed && parsed.paths);
+  } catch {
+    chatRagEnabled = false;
+    chatRagPaths = [];
+  }
+  if (!chatRagEnabled) chatRagPaths = [];
+}
+
+function chatRagOptionPayload() {
+  return {
+    rag_enabled: !!chatRagEnabled,
+    rag_paths: chatRagEnabled ? [...chatRagPaths] : [],
+  };
+}
+
+function chatRagPersistLocal() {
+  try {
+    localStorage.setItem(CHAT_RAG_STATE_KEY, JSON.stringify({
+      enabled: !!chatRagEnabled,
+      paths: chatRagEnabled ? [...chatRagPaths] : [],
+    }));
+  } catch { }
+}
+
+async function chatRagSyncSession() {
+  if (typeof chatSessionId === "undefined" || !chatSessionId) return;
+  try {
+    await api(`/api/chat/sessions/${encodeURIComponent(chatSessionId)}/settings`, {
+      method: "PATCH",
+      body: chatRagOptionPayload(),
+    });
+  } catch (e) {
+    toast(String(e && e.message ? e.message : e), "error");
+  }
+}
+
+function chatRagInfo(filename) {
+  return (ragState.list || []).find((r) => r.filename === filename) || null;
+}
+
+function updateChatRagAvailability() {
+  const wrap = document.getElementById("chat-rag-wrap");
+  const panel = document.getElementById("chat-rag-panel");
+  if (!wrap || !panel) return;
+  const model = document.getElementById("chat-model")?.value || "";
+  const caps = typeof modelCaps === "function" ? modelCaps(model) : new Set();
+  const imageOnly = typeof isImageGenerationOnlyCaps === "function" && isImageGenerationOnlyCaps(caps);
+  wrap.hidden = imageOnly || !ragConfiguredDefault();
+  panel.hidden = wrap.hidden || !chatRagEnabled;
+}
+
+function chatRagRenderSelection() {
+  const input = document.getElementById("chat-rag");
+  const panel = document.getElementById("chat-rag-panel");
+  const list = document.getElementById("chat-rag-list");
+  if (input) input.checked = !!chatRagEnabled;
+  if (!panel || !list) {
+    updateChatRagAvailability();
+    return;
+  }
+  panel.hidden = !chatRagEnabled;
+  list.innerHTML = "";
+  if (chatRagEnabled && !chatRagPaths.length) {
+    list.appendChild(ragEl("div", "chat-rag-empty muted", t("rag.chat_empty")));
+  }
+  for (const filename of chatRagPaths) {
+    const info = chatRagInfo(filename);
+    const row = ragEl("div", "chat-rag-item");
+    const main = ragEl("div", "chat-rag-item-main");
+    const title = ragEl("div", "chat-rag-item-title", info ? (info.name || filename) : filename);
+    title.title = filename;
+    const metaText = info
+      ? `${info.embedding_model || "—"} · ${t("rag.entries_count", { count: info.entries || 0 })}`
+      : t("rag.chat_pending");
+    main.appendChild(title);
+    main.appendChild(ragEl("div", "chat-rag-item-meta", metaText));
+    const remove = ragEl("button", "chat-rag-remove", "×");
+    remove.type = "button";
+    remove.dataset.filename = filename;
+    remove.title = t("rag.chat_remove");
+    remove.setAttribute("aria-label", t("rag.chat_remove"));
+    row.appendChild(main);
+    row.appendChild(remove);
+    list.appendChild(row);
+  }
+  const importBtn = document.getElementById("chat-rag-file-btn");
+  if (importBtn) {
+    importBtn.disabled = ragState.chatImporting;
+    importBtn.textContent = ragState.chatImporting ? t("rag.importing") : t("rag.load_file");
+  }
+  updateChatRagAvailability();
+}
+
+function chatRagCommit(syncSession = true, saveModelOptions = true) {
+  if (!chatRagEnabled) chatRagPaths = [];
+  chatRagPaths = normalizeChatRagPaths(chatRagPaths);
+  chatRagPersistLocal();
+  chatRagRenderSelection();
+  if (saveModelOptions && typeof saveChatOptionsForCurrentModel === "function") saveChatOptionsForCurrentModel();
+  if (syncSession) void chatRagSyncSession();
+  if (typeof adjustChatSystemPromptHeight === "function") adjustChatSystemPromptHeight();
+}
+
+function chatRagSetEnabled(enabled, saveModelOptions = true) {
+  const next = !!enabled;
+  if (next && !ragConfiguredDefault()) {
+    chatRagEnabled = false;
+    chatRagPaths = [];
+    chatRagCommit(true, saveModelOptions);
+    toast(t("rag.default_required"), "error");
+    return;
+  }
+  chatRagEnabled = next;
+  if (!next) chatRagPaths = [];
+  chatRagCommit(true, saveModelOptions);
+  if (next) void chatRagValidateSelection(false);
+}
+
+function chatRagApplyOptions(opts) {
+  if (!opts) return;
+  if (opts.rag_enabled !== undefined) {
+    chatRagEnabled = !!opts.rag_enabled;
+    if (opts.rag_paths === undefined) chatRagPaths = [];
+  }
+  if (opts.rag_paths !== undefined) chatRagPaths = normalizeChatRagPaths(opts.rag_paths);
+  if (!chatRagEnabled) chatRagPaths = [];
+  chatRagPersistLocal();
+  chatRagRenderSelection();
+  if (chatRagEnabled || opts.rag_paths !== undefined) void chatRagValidateSelection(true);
+}
+
+async function chatRagFetchList() {
+  const res = await api("/api/rags");
+  ragState.list = res.rags || [];
+  ragState.warnings = res.warnings || [];
+  if (Object.prototype.hasOwnProperty.call(res, "default_embedding")) {
+    ragState.defaultEmbedding = res.default_embedding || "";
+  }
+  ragState.chatListLoaded = true;
+  return ragState.list;
+}
+
+async function chatRagValidateSelection(syncSession) {
+  try {
+    const list = await chatRagFetchList();
+    const valid = new Set(list.map((r) => r.filename));
+    const kept = chatRagPaths.filter((p) => valid.has(p));
+    const changed = kept.length !== chatRagPaths.length;
+    chatRagPaths = kept;
+    if (!ragConfiguredDefault() && chatRagEnabled) {
+      chatRagEnabled = false;
+      chatRagPaths = [];
+      chatRagCommit(syncSession);
+      return;
+    }
+    if (changed) chatRagCommit(syncSession);
+    else chatRagRenderSelection();
+  } catch {
+    // Keep the saved names visible when the list cannot be checked; the next
+    // successful refresh will drop missing files.
+    chatRagRenderSelection();
+  }
+}
+
+function chatRagAddPaths(paths) {
+  if (!chatRagEnabled) chatRagEnabled = true;
+  chatRagPaths = normalizeChatRagPaths([...chatRagPaths, ...paths]);
+  chatRagCommit();
+}
+
+function chatRagRemovePath(filename) {
+  chatRagPaths = chatRagPaths.filter((p) => p !== filename);
+  chatRagCommit();
+}
+
+function chatRagRenderPicker(filter = "") {
+  const listEl = document.getElementById("rag-picker-list");
+  const addBtn = document.getElementById("rag-picker-add");
+  const count = document.getElementById("rag-picker-count");
+  if (!listEl) return;
+  const q = String(filter || "").toLowerCase();
+  const selectedNow = new Set(chatRagPaths);
+  const filtered = (ragState.list || []).filter((r) => {
+    const hay = `${r.filename || ""} ${r.name || ""} ${r.description || ""} ${r.embedding_model || ""}`.toLowerCase();
+    return hay.includes(q);
+  });
+  listEl.innerHTML = "";
+  if (!filtered.length) {
+    listEl.appendChild(ragEl("div", "muted small", t("rag.picker_empty")));
+  }
+  for (const r of filtered) {
+    const filename = String(r.filename || "");
+    const already = selectedNow.has(filename);
+    const item = ragEl("label", "prompts-modal-item rag-picker-item");
+    const head = ragEl("div", "prompts-modal-item-head");
+    const titleWrap = ragEl("div", "prompts-modal-item-title-wrap");
+    const check = ragEl("input", "rag-picker-check");
+    check.type = "checkbox";
+    check.dataset.filename = filename;
+    check.checked = already || ragState.pickerSelected.has(filename);
+    check.disabled = already;
+    const title = ragEl("span", "prompts-modal-item-title", r.name || filename);
+    titleWrap.appendChild(check);
+    titleWrap.appendChild(title);
+    if (already) titleWrap.appendChild(ragEl("span", "prompt-token-pill", t("rag.picker_added")));
+    head.appendChild(titleWrap);
+    head.appendChild(ragEl("span", "mono muted small", `${r.entries || 0} · ${ragFmtBytes(r.size_bytes)}`));
+    item.appendChild(head);
+    const meta = `${r.embedding_model || "—"} · ${r.dimensions || 0} dims`;
+    item.appendChild(ragEl("div", "rag-picker-meta muted small", meta));
+    if (r.description) item.appendChild(ragEl("div", "prompts-modal-item-preview", r.description));
+    listEl.appendChild(item);
+  }
+  if (count) {
+    const n = ragState.pickerSelected.size;
+    count.textContent = n ? t("rag.picker_selected", { count: n }) : "";
+  }
+  if (addBtn) addBtn.disabled = !ragState.pickerSelected.size;
+}
+
+async function openChatRagPicker() {
+  const modal = document.getElementById("rag-picker-modal");
+  if (!modal) return;
+  ragState.pickerSelected = new Set();
+  const search = document.getElementById("rag-picker-search");
+  if (search) search.value = "";
+  modal.hidden = false;
+  chatRagRenderPicker();
+  await chatRagValidateSelection(true);
+  if (!ragState.chatListLoaded) {
+    const listEl = document.getElementById("rag-picker-list");
+    if (listEl) listEl.innerHTML = `<div class="muted small">${escapeHtml(t("rag.models_load_failed"))}</div>`;
+  } else {
+    chatRagRenderPicker();
+  }
+  if (search) search.focus();
+}
+
+function closeChatRagPicker() {
+  const modal = document.getElementById("rag-picker-modal");
+  if (modal) modal.hidden = true;
+  ragState.pickerSelected = new Set();
+}
+
+async function chatRagImportFile(file) {
+  if (!file) return;
+  if (!ragSafeFilename(file.name)) {
+    toast(t("rag.import_bad_file"), "error");
+    return;
+  }
+  ragState.chatImporting = true;
+  chatRagRenderSelection();
+  try {
+    const res = await api(`/api/rags/import?name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-RAG-Filename": file.name,
+      },
+      body: file,
+    });
+    const filename = res && res.rag && res.rag.filename;
+    if (!ragSafeFilename(filename)) throw new Error(t("rag.import_bad_response"));
+    try {
+      await chatRagFetchList();
+    } catch { }
+    chatRagAddPaths([filename]);
+    toast(t("rag.imported", { name: (res.rag && res.rag.name) || filename }), "success");
+  } catch (e) {
+    toast(String(e && e.message ? e.message : e), "error");
+  } finally {
+    ragState.chatImporting = false;
+    chatRagRenderSelection();
+  }
+}
+
+chatRagLoadLocal();
+chatRagRenderSelection();
+void chatRagValidateSelection(false);
+
+document.getElementById("chat-rag")?.addEventListener("change", (ev) => {
+  chatRagSetEnabled(ev.target.checked);
+});
+document.getElementById("chat-rag-picker-btn")?.addEventListener("click", () => {
+  void openChatRagPicker();
+});
+document.getElementById("chat-rag-file-btn")?.addEventListener("click", () => {
+  document.getElementById("chat-rag-file-input")?.click();
+});
+document.getElementById("chat-rag-file-input")?.addEventListener("change", async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = "";
+  await chatRagImportFile(file);
+});
+document.getElementById("chat-rag-list")?.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".chat-rag-remove");
+  if (!btn) return;
+  chatRagRemovePath(btn.dataset.filename || "");
+});
+document.getElementById("rag-picker-close")?.addEventListener("click", closeChatRagPicker);
+document.getElementById("rag-picker-modal")?.addEventListener("click", (ev) => {
+  if (ev.target && ev.target.id === "rag-picker-modal") closeChatRagPicker();
+});
+document.getElementById("rag-picker-search")?.addEventListener("input", (ev) => {
+  const clear = document.getElementById("rag-picker-search-clear");
+  if (clear) clear.hidden = !ev.target.value;
+  chatRagRenderPicker(ev.target.value);
+});
+document.getElementById("rag-picker-search-clear")?.addEventListener("click", () => {
+  const search = document.getElementById("rag-picker-search");
+  if (search) search.value = "";
+  document.getElementById("rag-picker-search-clear").hidden = true;
+  chatRagRenderPicker();
+  search?.focus();
+});
+document.getElementById("rag-picker-list")?.addEventListener("change", (ev) => {
+  const check = ev.target.closest(".rag-picker-check");
+  if (!check) return;
+  const filename = check.dataset.filename || "";
+  if (check.checked) ragState.pickerSelected.add(filename);
+  else ragState.pickerSelected.delete(filename);
+  chatRagRenderPicker(document.getElementById("rag-picker-search")?.value || "");
+});
+document.getElementById("rag-picker-add")?.addEventListener("click", () => {
+  const paths = [...ragState.pickerSelected];
+  if (!paths.length) return;
+  chatRagAddPaths(paths);
+  closeChatRagPicker();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  const modal = document.getElementById("rag-picker-modal");
+  if (modal && !modal.hidden) closeChatRagPicker();
+});
 
 document.getElementById("rags-btn")?.addEventListener("click", () => ragNav("/rags"));
 document.getElementById("rags-back-btn")?.addEventListener("click", () => {

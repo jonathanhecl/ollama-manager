@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -526,6 +528,8 @@ func TestSessionSettingsMergeKeepsUnsentOptions(t *testing.T) {
 		ImageHeight: 512,
 		ImageSteps:  4,
 		ImageSeed:   0,
+		RAGEnabled:  true,
+		RAGPaths:    []string{"manual.db"},
 	})
 
 	// The browser sends every option it knows about, so a field it omits must
@@ -545,11 +549,46 @@ func TestSessionSettingsMergeKeepsUnsentOptions(t *testing.T) {
 	if got.TopK != 40 || got.TopP != 0.9 || got.NumCtxPct != 100 {
 		t.Errorf("numeric options lost: %+v", got)
 	}
+	if !got.RAGEnabled || len(got.RAGPaths) != 1 || got.RAGPaths[0] != "manual.db" {
+		t.Errorf("rag selection lost by partial payload: %+v", got)
+	}
 
-	// An explicit false must still switch a toggle off.
-	st.MergeSettings(sess.ID, sessionSettingsInput{WebTools: false})
+	// Explicit lists replace the previous paths and unsafe/non-file references
+	// are rejected before they reach the session JSON.
+	st.MergeSettings(sess.ID, sessionSettingsInput{
+		RAGPaths: []any{"other.db", "other.db", "../escape.db", "not-a-db.txt"},
+	})
+	got = st.Get(sess.ID).Settings
+	if len(got.RAGPaths) != 1 || got.RAGPaths[0] != "other.db" {
+		t.Errorf("rag paths = %v, want [other.db]", got.RAGPaths)
+	}
+
+	// An explicit false must still switch a toggle off and unload its RAG refs.
+	st.MergeSettings(sess.ID, sessionSettingsInput{WebTools: false, RAGEnabled: false})
 	if st.Get(sess.ID).Settings.WebTools {
 		t.Error("explicit web_tools=false should turn the toggle off")
+	}
+	if got := st.Get(sess.ID).Settings; got.RAGEnabled || len(got.RAGPaths) != 0 {
+		t.Errorf("rag settings should be empty after rag_enabled=false: %+v", got)
+	}
+}
+
+func TestChatSessionSettingsPatchUpdatesRAGRefs(t *testing.T) {
+	srv := newTestServer(t, "http://127.0.0.1:1")
+	sess := srv.chatSessions.Create("m", SessionSettings{RAGEnabled: true, RAGPaths: []string{"old.db"}})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/"+sess.ID+"/settings", bytes.NewReader([]byte(`{
+		"rag_enabled": true,
+		"rag_paths": ["new.db", "../bad.db"]
+	}`)))
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings patch status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	got := srv.chatSessions.Get(sess.ID).Settings
+	if !got.RAGEnabled || len(got.RAGPaths) != 1 || got.RAGPaths[0] != "new.db" {
+		t.Fatalf("rag settings = %+v, want enabled [new.db]", got)
 	}
 }
 
@@ -568,6 +607,8 @@ func TestSessionAdoptsLastInputConfig(t *testing.T) {
 		NumCtxPct:   25,
 		ThinkLevel:  "low",
 		Artifacts:   true,
+		RAGEnabled:  true,
+		RAGPaths:    []any{"facts.db", "media.db"},
 	})
 	if !st.SetModel(sess.ID, "model-b") {
 		t.Fatal("SetModel on an existing session should succeed")
@@ -591,8 +632,10 @@ func TestSessionAdoptsLastInputConfig(t *testing.T) {
 		NumCtxPct:   25,
 		ThinkLevel:  "low",
 		Artifacts:   true,
+		RAGEnabled:  true,
+		RAGPaths:    []string{"facts.db", "media.db"},
 	}
-	if got.Settings != want {
+	if !reflect.DeepEqual(got.Settings, want) {
 		t.Errorf("settings = %+v, want %+v", got.Settings, want)
 	}
 

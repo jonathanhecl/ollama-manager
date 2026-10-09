@@ -162,6 +162,7 @@ function updateChatCapabilityUI() {
   $("chat-think-wrap").hidden = !canThink;
   $("chat-web-tools-wrap").hidden = !canTools;
   $("chat-artifacts-wrap").hidden = !canTools;
+  if (typeof updateChatRagAvailability === "function") updateChatRagAvailability();
   // The workflow list is fetched once and cached; this only re-applies the gate
   // and the selector contents against it.
   if (typeof updateComfyChatUI === "function") {
@@ -451,6 +452,9 @@ function showChatView() {
   }
   syncChatModelOptions();
   updateChatCapabilityUI();
+  if (typeof chatRagValidateSelection === "function") {
+    void chatRagValidateSelection(typeof chatSessionId !== "undefined" && !!chatSessionId);
+  }
   updateChatContextMeter();
   updateChatSendEnabled();
   void applyChatDefaultsForModel($("chat-model").value);

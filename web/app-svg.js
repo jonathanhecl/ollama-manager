@@ -4622,6 +4622,8 @@ function getCurrentChatOptions() {
     think_level: $("chat-think-level")?.value ?? "auto",
     web_tools: $("chat-web-tools")?.checked ?? false,
     artifacts: $("chat-artifacts")?.checked ?? false,
+    rag_enabled: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_enabled : !!chatRagEnabled,
+    rag_paths: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_paths : (chatRagEnabled ? [...chatRagPaths] : []),
     image_width: $("chat-image-width")?.value ?? "512",
     image_height: $("chat-image-height")?.value ?? "512",
     image_steps: $("chat-image-steps")?.value ?? "4",
@@ -4736,7 +4738,11 @@ function saveChatOptionsForCurrentModel() {
   const modelName = $("chat-model")?.value;
   if (!modelName) return;
 
-  const currentOpts = getCurrentChatOptions();
+  const currentOpts = { ...getCurrentChatOptions() };
+  // RAG selection is global to the chat, not per-model: switching models must
+  // keep the loaded bases until the user turns RAG off or removes them.
+  delete currentOpts.rag_enabled;
+  delete currentOpts.rag_paths;
   const all = getAllModelChatOptions();
 
   if (areChatOptionsDefault(modelName, currentOpts)) {
@@ -4773,6 +4779,7 @@ function resetModelChatOptionsToDefaults() {
     }
   }
 
+  if (typeof chatRagSetEnabled === "function") chatRagSetEnabled(false, false);
   void applyChatDefaultsForModel(modelName, true);
   updateChatCustomOptionsBadge();
   toast(t("chat.reset_to_defaults_done"), "success");
@@ -4786,6 +4793,7 @@ function resetAllModelChatOptionsToDefaults() {
   }
 
   const activeChatModel = $("chat-model")?.value;
+  if (typeof chatRagSetEnabled === "function") chatRagSetEnabled(false, false);
   if (activeChatModel) {
     void applyChatDefaultsForModel(activeChatModel, true);
   }
@@ -4820,6 +4828,9 @@ function setChatOptionsValues(opts) {
   }
   if (opts.artifacts !== undefined && $("chat-artifacts")) {
     $("chat-artifacts").checked = !!opts.artifacts;
+  }
+  if ((opts.rag_enabled !== undefined || opts.rag_paths !== undefined) && typeof chatRagApplyOptions === "function") {
+    chatRagApplyOptions(opts);
   }
   if (opts.image_width !== undefined && $("chat-image-width")) {
     $("chat-image-width").value = opts.image_width;
@@ -4879,13 +4890,20 @@ async function applyChatDefaultsForModel(name, force = false) {
   // Check if this model has custom saved options in localStorage:
   const modelSavedOpts = getModelChatOptions(model);
   if (modelSavedOpts) {
-    setChatOptionsValues(modelSavedOpts);
+    const opts = { ...modelSavedOpts };
+    delete opts.rag_enabled;
+    delete opts.rag_paths;
+    setChatOptionsValues(opts);
     updateChatCustomOptionsBadge();
     return;
   }
 
-  // Model does not have custom options -> use effective defaults
-  const effectiveDefaults = getEffectiveChatDefaults(model);
+  // Model does not have custom options -> use effective defaults. RAG state is
+  // deliberately not part of per-model defaults so a model switch keeps the
+  // loaded bases until the user explicitly removes them.
+  const effectiveDefaults = { ...getEffectiveChatDefaults(model) };
+  delete effectiveDefaults.rag_enabled;
+  delete effectiveDefaults.rag_paths;
   setChatOptionsValues(effectiveDefaults);
   updateChatCustomOptionsBadge();
 }

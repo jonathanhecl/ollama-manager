@@ -156,6 +156,12 @@ type SessionSettings struct {
 	ThinkLevel  string  `json:"think_level,omitempty"`
 	WebTools    bool    `json:"web_tools"`
 	Artifacts   bool    `json:"artifacts"`
+	// RAGEnabled is the chat-side switch. RAGPaths stores only the safe .db
+	// filenames inside the configured RAG directory, so reopening a session can
+	// validate and reload the same bases without embedding database contents in
+	// the session JSON.
+	RAGEnabled bool     `json:"rag_enabled"`
+	RAGPaths   []string `json:"rag_paths,omitempty"`
 	// Comfy turns on the ComfyUI tool for this session and ComfyWorkflow names
 	// the workflow a bare call uses. Stored with the rest of the snapshot so a
 	// restored session regenerates images with the same settings.

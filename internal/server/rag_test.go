@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/gense/ollama-manager/internal/config"
+	ragpkg "github.com/gense/ollama-manager/internal/rag"
 )
 
 type fakeOllamaRAG struct {
@@ -292,6 +293,59 @@ func TestRAGDownloadAndDelete(t *testing.T) {
 	code, _ = ragCall(t, srv, http.MethodDelete, "/api/rags/"+filename, nil)
 	if code != http.StatusNotFound {
 		t.Fatalf("second delete status = %d, want 404", code)
+	}
+}
+
+func ragImportCall(t *testing.T, srv *Server, filename string, raw []byte) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/rags/import?name="+filename, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	var out map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &out)
+	return rr.Code, out
+}
+
+func TestRAGImportUpload(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+
+	code, out := ragCall(t, srv, http.MethodPost, "/api/rags", map[string]any{
+		"name": "Portable", "embedding_model": "embed-model", "entries": twoEntries,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %v", code, out)
+	}
+	filename := out["rag"].(map[string]any)["filename"].(string)
+	raw, err := os.ReadFile(filepath.Join(ragDirOf(t, srv), filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, out = ragImportCall(t, srv, "external.db", raw)
+	if code != http.StatusCreated {
+		t.Fatalf("import status = %d, body = %v", code, out)
+	}
+	imported, _ := out["rag"].(map[string]any)
+	if imported["name"] != "Portable" || imported["entries"] != float64(2) {
+		t.Fatalf("imported rag = %v", imported)
+	}
+	importedFile, _ := imported["filename"].(string)
+	if !ragpkg.ValidFilename(importedFile) {
+		t.Fatalf("import returned unsafe filename %q", importedFile)
+	}
+	if got := countDBFiles(t, ragDirOf(t, srv)); len(got) != 2 {
+		t.Fatalf("files after import = %v", got)
+	}
+
+	code, _ = ragImportCall(t, srv, "broken.db", []byte("not sqlite"))
+	if code != http.StatusBadRequest {
+		t.Fatalf("invalid import status = %d, want 400", code)
+	}
+	if got := countDBFiles(t, ragDirOf(t, srv)); len(got) != 2 {
+		t.Fatalf("invalid import left files = %v", got)
 	}
 }
 
@@ -893,6 +947,7 @@ func TestRAGRoutesRequireAuth(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodGet, "/api/rags"},
 		{http.MethodPost, "/api/rags"},
+		{http.MethodPost, "/api/rags/import"},
 		{http.MethodGet, "/api/rags/models"},
 		{http.MethodGet, "/api/rags/x.db"},
 		{http.MethodGet, "/api/rags/x.db/download"},

@@ -1,6 +1,7 @@
 package rag
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/binary"
@@ -244,6 +245,55 @@ func TestCreateInSpecialDir(t *testing.T) {
 	if err != nil || len(warnings) != 0 || len(infos) != 1 {
 		t.Fatalf("List = %v warnings=%v err=%v", infos, warnings, err)
 	}
+}
+
+func TestImportValidatesAndCopiesDB(t *testing.T) {
+	src := t.TempDir()
+	m := testMeta()
+	m.Name = "Imported Base"
+	_, filename, err := Create(context.Background(), src, m, testEntries(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(src, filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dst := t.TempDir()
+	info, err := Import(dst, "source.db", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if info.Filename == "" || info.Filename == filename || !ValidFilename(info.Filename) {
+		t.Fatalf("unexpected imported filename %q", info.Filename)
+	}
+	if info.Name != "Imported Base" || info.Entries != 2 || info.Dimensions != 3 {
+		t.Fatalf("unexpected imported info: %+v", info)
+	}
+	if _, err := Get(dst, info.Filename); err != nil {
+		t.Fatalf("imported base is not readable: %v", err)
+	}
+
+	before := countFiles(t, dst)
+	if _, err := Import(dst, "../unsafe/source.db", bytes.NewReader(raw)); err == nil {
+		t.Fatal("unsafe upload filename succeeded")
+	}
+	if _, err := Import(dst, "bad.db", strings.NewReader("not sqlite")); err == nil {
+		t.Fatal("invalid upload succeeded")
+	}
+	if got := countFiles(t, dst); got != before {
+		t.Fatalf("invalid import left %d files, want %d", got, before)
+	}
+}
+
+func countFiles(t *testing.T, dir string) int {
+	t.Helper()
+	fis, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(fis)
 }
 
 func TestListSeesCopiedDB(t *testing.T) {

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gense/ollama-manager/internal/rag"
 )
 
 // sessionSettingsInput accepts the chat options panel exactly as the browser
@@ -21,6 +23,8 @@ type sessionSettingsInput struct {
 	ThinkLevel  any `json:"think_level"`
 	WebTools    any `json:"web_tools"`
 	Artifacts   any `json:"artifacts"`
+	RAGEnabled  any `json:"rag_enabled"`
+	RAGPaths    any `json:"rag_paths"`
 	ImageWidth  any `json:"image_width"`
 	ImageHeight any `json:"image_height"`
 	ImageSteps  any `json:"image_steps"`
@@ -78,6 +82,15 @@ func (in sessionSettingsInput) mergeInto(dst SessionSettings) SessionSettings {
 	}
 	if in.Artifacts != nil {
 		dst.Artifacts = sessionOptBool(in.Artifacts)
+	}
+	if in.RAGEnabled != nil {
+		dst.RAGEnabled = sessionOptBool(in.RAGEnabled)
+	}
+	if in.RAGPaths != nil {
+		dst.RAGPaths = sessionOptRAGPaths(in.RAGPaths)
+	}
+	if !dst.RAGEnabled {
+		dst.RAGPaths = nil
 	}
 	if in.ImageWidth != nil {
 		dst.ImageWidth = sessionOptInt(in.ImageWidth, dst.ImageWidth)
@@ -187,6 +200,44 @@ func sessionOptBool(v any) bool {
 		return t != 0
 	}
 	return false
+}
+
+const maxSessionRAGPaths = 32
+
+// sessionOptRAGPaths accepts the loose JSON list the browser sends and keeps
+// only unique, path-safe .db names inside the configured RAG directory.
+func sessionOptRAGPaths(v any) []string {
+	var raw []any
+	switch t := v.(type) {
+	case []any:
+		raw = t
+	case []string:
+		raw = make([]any, len(t))
+		for i, s := range t {
+			raw[i] = s
+		}
+	case string:
+		if strings.TrimSpace(t) == "" {
+			return nil
+		}
+		raw = []any{t}
+	default:
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, item := range raw {
+		name := sessionOptString(item)
+		if !rag.ValidFilename(name) || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+		if len(out) >= maxSessionRAGPaths {
+			break
+		}
+	}
+	return out
 }
 
 type createSessionRequest struct {
@@ -327,6 +378,27 @@ func (s *Server) sessionDetail(sess *ChatSession) map[string]any {
 		"watching":       s.chatSessions.watchers[sess.ID] > 0,
 	}
 	return detail
+}
+
+// handleChatSessionSettingsPatch lets the open session update option references
+// without sending a chat turn. The browser uses this when a stored RAG file no
+// longer exists and the restored selection has to be cleaned immediately.
+func (s *Server) handleChatSessionSettingsPatch(w http.ResponseWriter, r *http.Request) {
+	if !s.requireChatSessions(w) {
+		return
+	}
+	id := r.PathValue("id")
+	if s.chatSessions.Get(id) == nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	var in sessionSettingsInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
+		return
+	}
+	s.chatSessions.MergeSettings(id, in)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // handleChatSessionPatch renames a session.

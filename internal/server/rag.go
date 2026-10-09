@@ -24,6 +24,7 @@ import (
 const (
 	ragCreateTimeout = 10 * time.Minute
 	ragMaxBody       = 24 << 20
+	ragMaxImportBody = 256 << 20
 	ragMaxEntries    = 100
 	ragMaxTermLen    = 256
 	ragMaxNameLen    = 256
@@ -151,17 +152,41 @@ func (s *Server) ragConfigSnapshot() (dir string, defaultModel string) {
 }
 
 func (s *Server) handleListRAGs(w http.ResponseWriter, r *http.Request) {
-	dir, _ := s.ragConfigSnapshot()
+	dir, defaultModel := s.ragConfigSnapshot()
 	rags, warnings, err := rag.List(dir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("could not read rag directory: %w", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"rags":      rags,
-		"directory": dir,
-		"warnings":  warnings,
+		"rags":              rags,
+		"directory":         dir,
+		"default_embedding": defaultModel,
+		"warnings":          warnings,
 	})
+}
+
+// handleImportRAG accepts the raw .db body chosen in the browser file picker.
+// The upload lands in a hidden temp file first and is only linked into the RAG
+// directory after rag.Import validates the SQLite schema and embeddings.
+func (s *Server) handleImportRAG(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, ragMaxImportBody)
+	dir, _ := s.ragConfigSnapshot()
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		name = strings.TrimSpace(r.Header.Get("X-RAG-Filename"))
+	}
+	info, err := rag.Import(dir, name, r.Body)
+	if err != nil {
+		var mbErr *http.MaxBytesError
+		if errors.As(err, &mbErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("rag file exceeds %d MiB", ragMaxImportBody>>20))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"rag": info})
 }
 
 func (s *Server) handleGetRAG(w http.ResponseWriter, r *http.Request) {

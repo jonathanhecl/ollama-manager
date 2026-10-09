@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/url"
 	"os"
@@ -511,6 +512,73 @@ func Path(dir, filename string) (string, error) {
 		return "", os.ErrNotExist
 	}
 	return path, nil
+}
+
+// Import copies an uploaded .db into the managed directory only after the
+// temporary copy proves it is a readable, compatible RAG database. The original
+// filename is never trusted as a path; the final name is generated in dir.
+func Import(dir, sourceName string, r io.Reader) (Info, error) {
+	if r == nil {
+		return Info{}, errors.New("empty upload")
+	}
+	sourceName = strings.TrimSpace(sourceName)
+	if sourceName != "" && !ValidFilename(sourceName) {
+		return Info{}, errors.New("invalid upload filename")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return Info{}, err
+	}
+	tmpFile, err := os.CreateTemp(dir, ".import-*.db")
+	if err != nil {
+		return Info{}, err
+	}
+	tmp := tmpFile.Name()
+	cleanup := func(err error) (Info, error) {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmp)
+		return Info{}, err
+	}
+	written, err := io.Copy(tmpFile, r)
+	if err != nil {
+		return cleanup(err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return cleanup(err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return cleanup(err)
+	}
+	if written == 0 {
+		return cleanup(errors.New("empty upload"))
+	}
+	info, err := readInfo(tmp)
+	if err != nil {
+		return cleanup(err)
+	}
+
+	baseName := strings.TrimSuffix(sourceName, filepath.Ext(sourceName))
+	if strings.TrimSpace(info.Name) != "" {
+		baseName = info.Name
+	}
+	base := sanitizeFileName(baseName)
+	for attempt := 0; attempt < 8; attempt++ {
+		suffix, err := randHex(6)
+		if err != nil {
+			return cleanup(err)
+		}
+		final := filepath.Join(dir, base+"-"+suffix+".db")
+		if err := os.Link(tmp, final); err == nil {
+			_ = os.Remove(tmp)
+			info.Filename = filepath.Base(final)
+			if st, statErr := os.Stat(final); statErr == nil {
+				info.SizeBytes = st.Size()
+			}
+			return info, nil
+		} else if !errors.Is(err, os.ErrExist) {
+			return cleanup(err)
+		}
+	}
+	return cleanup(errors.New("could not allocate a unique base file name"))
 }
 
 func Delete(dir, filename string) error {

@@ -403,6 +403,23 @@
             <span class="switch-slider"></span>
           </label>
         </div>
+        <div id="chat-rag-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.rag_hint" title="Attach knowledge bases to this chat.">
+          <div class="switch-label">
+            <span data-i18n="chat.rag">RAG</span>
+          </div>
+          <label class="switch">
+            <input id="chat-rag" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.rag_hint" title="Attach knowledge bases to this chat.">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div id="chat-rag-panel" class="chat-rag-panel" hidden>
+          <div id="chat-rag-list" class="chat-rag-list"></div>
+          <div class="chat-rag-actions">
+            <button id="chat-rag-picker-btn" type="button" class="ghost chat-rag-action" data-i18n="rag.picker_open">Add base</button>
+            <button id="chat-rag-file-btn" type="button" class="ghost chat-rag-action" data-i18n="rag.load_file">Load .db…</button>
+            <input id="chat-rag-file-input" type="file" accept=".db,application/vnd.sqlite3,application/x-sqlite3" hidden>
+          </div>
+        </div>
         <div id="chat-comfy-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.comfy_hint" title="The server can send jobs to your ComfyUI instance and show the results here. The model sees the images and can iterate on them.">
           <div class="switch-label">
             <div class="switch-title-row">
@@ -2438,6 +2455,31 @@
         </div>
       </div>
       <div id="prompts-modal-list" class="prompts-modal-list"></div>
+    </div>
+  </div>
+
+  <!-- Chat RAG picker -->
+  <div id="rag-picker-modal" class="modal" hidden role="dialog" aria-modal="true">
+    <div class="modal-card prompts-modal-card rag-picker-card">
+      <div class="prompts-modal-header">
+        <h3 data-i18n="rag.picker_title">Knowledge Bases</h3>
+        <button type="button" id="rag-picker-close" class="btn-icon" data-i18n-attr="aria-label" data-i18n="action.close" aria-label="Close">×</button>
+      </div>
+      <div class="prompts-modal-search">
+        <div class="prompt-search-box">
+          <svg class="models-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="search" id="rag-picker-search" class="prompt-search-input" data-i18n-attr="placeholder" data-i18n="rag.picker_search" placeholder="Search bases…" autocomplete="off">
+          <button type="button" id="rag-picker-search-clear" class="btn-icon models-search-clear prompt-search-clear" data-i18n-attr="title aria-label" data-i18n="models.search_clear" title="Clear search" aria-label="Clear search" hidden>×</button>
+        </div>
+      </div>
+      <div id="rag-picker-list" class="prompts-modal-list rag-picker-list"></div>
+      <div class="rag-picker-footer">
+        <span id="rag-picker-count" class="muted small"></span>
+        <button type="button" id="rag-picker-add" class="primary" data-i18n="rag.picker_add">Add selected</button>
+      </div>
     </div>
   </div>
 

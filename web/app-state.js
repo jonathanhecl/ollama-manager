@@ -41,6 +41,9 @@ let activeArtifactUrl = null;
 let chatEditingMessageId = "";
 let chatEditingDraft = "";
 let chatEditingAttachments = [];
+let chatRagEnabled = false;
+let chatRagPaths = [];
+const CHAT_RAG_STATE_KEY = "ollama_manager_chat_rag_state";
 const CHAT_OPTION_FALLBACKS = {
   system: "",
   temperature: 0.7,
@@ -50,6 +53,8 @@ const CHAT_OPTION_FALLBACKS = {
   think_level: "auto",
   web_tools: false,
   artifacts: false,
+  rag_enabled: false,
+  rag_paths: [],
   image_width: 512,
   image_height: 512,
   image_steps: 4,

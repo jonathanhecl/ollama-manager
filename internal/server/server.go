@@ -302,6 +302,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/chat/events", s.requireAuth(s.handleChatEvents))
 	mux.Handle("GET /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionGet))
 	mux.Handle("PATCH /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionPatch))
+	mux.Handle("PATCH /api/chat/sessions/{id}/settings", s.requireAuth(s.handleChatSessionSettingsPatch))
 	mux.Handle("DELETE /api/chat/sessions", s.requireAuth(s.handleChatSessionsDeleteAll))
 	mux.Handle("DELETE /api/chat/sessions/{id}", s.requireAuth(s.handleChatSessionDelete))
 	mux.Handle("GET /api/chat/sessions/{id}/events", s.requireAuth(s.handleChatSessionEvents))
@@ -343,6 +344,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("GET /api/rags", s.requireAuth(s.handleListRAGs))
 	mux.Handle("POST /api/rags", s.requireAuth(s.handleCreateRAG))
+	mux.Handle("POST /api/rags/import", s.requireAuth(s.handleImportRAG))
 	mux.Handle("GET /api/rags/models", s.requireAuth(s.handleRAGModels))
 	mux.Handle("GET /api/rags/{id}/media/{entry}/{type}", s.requireAuth(s.handleGetRAGMedia))
 	mux.Handle("GET /api/rags/{id}/download", s.requireAuth(s.handleDownloadRAG))

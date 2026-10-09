@@ -92,8 +92,14 @@ class FakeEl {
   }
   click() { this.dispatch("click"); }
   _matches(sel) {
-    if (sel.startsWith(".")) return this._classes.has(sel.slice(1));
-    return this.tagName === sel.toUpperCase();
+    const m = String(sel).match(/^([a-zA-Z]+)?(\.[\w-]+)?(\[([\w-]+)="([^"]+)"\])?$/);
+    if (!m) return false;
+    const [, tag, cls, , attr, val] = m;
+    if (!tag && !cls && !attr) return false;
+    if (tag && this.tagName !== tag.toUpperCase()) return false;
+    if (cls && !this._classes.has(cls.slice(1))) return false;
+    if (attr && String((this.dataset && this.dataset[attr]) ?? this.attrs[attr] ?? "") !== val) return false;
+    return true;
   }
   querySelectorAll(sel) {
     const sels = String(sel).split(",").map((s) => s.trim()).filter(Boolean);
@@ -111,7 +117,7 @@ class FakeEl {
   }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   closest() { return null; }
-  focus() {}
+  focus() { this._focused = true; }
   select() {}
   scrollIntoView() {}
 }
@@ -260,8 +266,20 @@ const sandbox = {
   $: (id) => els.get(id) || null,
   document: {
     getElementById: (id) => fakeEl(id),
-    querySelectorAll: () => [],
-    querySelector: () => null,
+    querySelectorAll: (sel) => {
+      const out = [];
+      for (const el of els.values()) {
+        for (const m of el.querySelectorAll(sel)) if (!out.includes(m)) out.push(m);
+      }
+      return out;
+    },
+    querySelector: (sel) => {
+      for (const el of els.values()) {
+        const m = el.querySelectorAll(sel);
+        if (m.length) return m[0];
+      }
+      return null;
+    },
     createElement: (tag) => new FakeEl(tag),
     createTextNode: (text) => ({ textContent: String(text) }),
     body: new FakeEl("body"),
@@ -841,9 +859,12 @@ const {
   await sandbox.ragOpenExternalFile(extFile2);
   assert.equal(ragState.externalFile, extFile2);
   const host = els.get("rag-entries");
-  const findTa = () => findDeep(host, (c) => c.tagName === "TEXTAREA")[0];
-  const findCount = () => findDeep(host, (c) => c._classes && c._classes.has("rag-content-count"))[0];
-  const findWarn = () => findDeep(host, (c) => c._classes && c._classes.has("rag-content-warn"))[0];
+  const findTa = () => findDeep(host, (c) => c.tagName === "TEXTAREA" && c._classes.has("rag-entry-content"))[0];
+  const findAliases = () => findDeep(host, (c) => c.tagName === "TEXTAREA" && c._classes.has("rag-entry-aliases"))[0];
+  const findAliasCount = () => findDeep(host, (c) => c._classes && c._classes.has("rag-alias-count"))[0];
+  const findAliasWarn = () => findDeep(host, (c) => c._classes && c._classes.has("rag-content-warn") && String(c.id || "").endsWith("-err") && String(c.id || "").startsWith("rag-aliases"))[0];
+  const findCount = () => findDeep(host, (c) => c._classes && c._classes.has("rag-content-count") && !c._classes.has("rag-alias-count"))[0];
+  const findWarn = () => findDeep(host, (c) => c._classes && c._classes.has("rag-content-warn") && !String(c.id || "").startsWith("rag-aliases"))[0];
   const createBtn2 = els.get("rag-create-btn");
   const dlBtn2 = els.get("rag-download-edited-btn");
   const saveCalls = () => sandbox._apiCalls.filter((c) => c.url === "/api/rags/external/save").length;
@@ -911,7 +932,7 @@ const {
   assert.equal(ragState.entries[0].content, overText, "over-limit import keeps the full string");
   assert.equal(ragEval("ragBusy()"), false, "editor unlocked after over-limit import");
   assert.equal(createBtn2.disabled, true, "save stays disabled until corrected");
-  const fixTa = findDeep(host, (c) => c.tagName === "TEXTAREA")[0];
+  const fixTa = findDeep(host, (c) => c.tagName === "TEXTAREA" && c._classes.has("rag-entry-content"))[0];
   fixTa.value = "fixed";
   fixTa.dispatch("input", {});
   assert.equal(createBtn2.disabled, false, "correcting re-enables save");
@@ -922,8 +943,115 @@ const {
   ragState.externalFile = null;
   ragState.entries = [sandbox.ragNewEntry()];
   ragEval("ragRenderEntries()");
-  assert.equal(findDeep(host, (c) => c._classes && c._classes.has("rag-content-count"))[0].textContent, expected(0),
+  assert.equal(findCount().textContent, expected(0),
     "empty draft counts zero");
+}
+
+{
+  const ragState = ragEval("ragState");
+  const host = els.get("rag-entries");
+  const createBtn = els.get("rag-create-btn");
+  const dlBtn = els.get("rag-download-edited-btn");
+  const findAliases = () => findDeep(host, (c) => c.tagName === "TEXTAREA" && c._classes.has("rag-entry-aliases"))[0];
+  const findAliasCount = () => findDeep(host, (c) => c._classes && c._classes.has("rag-alias-count"))[0];
+  const findAliasWarn = () => findDeep(host, (c) => c._classes && String(c.id || "").startsWith("rag-aliases-") && String(c.id || "").endsWith("-err"))[0];
+  const findAliasHint = () => findDeep(host, (c) => String(c.id || "").startsWith("rag-aliases-") && String(c.id || "").endsWith("-hint"))[0];
+  const saveCalls = () => sandbox._apiCalls.filter((c) => c.url === "/api/rags/external/save").length;
+
+  const parse = (v) => JSON.parse(ragEval(`JSON.stringify(ragParseAliases(${JSON.stringify(v)}))`));
+  assert.deepEqual(parse("alpha, beta\nalpha , gamma").aliases, ["alpha", "beta", "gamma"],
+    "comma/newline split with case-insensitive dedup");
+  assert.deepEqual(parse("  , , x  ").aliases, ["x"], "empties dropped, whitespace trimmed");
+  assert.deepEqual(parse("É, é").aliases, ["É"], "case-insensitive dedup keeps first spelling");
+  assert.equal(parse("x".repeat(64)).error, "", "64-char alias accepted");
+  assert.equal(parse("x".repeat(65)).error, "rag.aliases_too_long", "65-char alias rejected");
+  assert.equal(parse(Array(21).fill(0).map((_, i) => "a" + i).join(",")).error,
+    "rag.aliases_too_many", "21 distinct aliases rejected");
+  assert.equal(parse(Array(20).fill(0).map((_, i) => "a" + i).join(",")).error, "",
+    "20 distinct aliases accepted");
+
+  const extFile = { name: "aliases.db", size: 1 };
+  sandbox._externalDetail = {
+    filename: "staged-alias.db",
+    size_bytes: 1,
+    meta: { id: "m2", name: "Ext", description: "", created_at: 1, updated_at: 2, embedding_model: "embed-multimodal:latest" },
+    entries: [{ id: 9, term: "seed", content: "body", input_mode: "combined",
+      aliases: ["one", "two"], created_at: 1, updated_at: 2 }],
+  };
+  await sandbox.ragOpenExternalFile(extFile);
+  assert.equal(ragState.entries[0].aliasesText, "one, two", "hydration joins canonical aliases");
+
+  const termInput = findDeep(host, (c) => c.id === "rag-term-" + ragState.entries[0].key)[0];
+  assert.ok(termInput, "term input has entry-scoped id");
+  const termLabel = findDeep(host, (c) => c.tagName === "LABEL" &&
+    c.attrs.for === "rag-term-" + ragState.entries[0].key)[0];
+  assert.ok(termLabel, "visible term label rendered");
+  assert.equal(termLabel.textContent, "rag.term_label:", "term label uses term_label copy");
+
+  const aliasTa = findAliases();
+  assert.ok(aliasTa, "alias textarea rendered");
+  assert.equal(aliasTa.id, "rag-aliases-" + ragState.entries[0].key, "alias id is entry-scoped");
+  assert.equal(aliasTa.rows, 2, "alias field stays compact");
+  assert.equal(findAliasCount().textContent, "rag.aliases_count:count=2", "hydrated alias count");
+  assert.match(String(findAliasHint().textContent), /rag\.aliases_hint/, "hint rendered");
+  assert.ok(!/media_hint/.test(String(findAliasHint().textContent)), "no media hint in combined mode");
+  assert.equal(createBtn.disabled, false, "valid aliases leave save enabled");
+
+  const raw21 = Array(21).fill(0).map((_, i) => "k" + i).join(", ");
+  aliasTa.value = raw21;
+  aliasTa.dispatch("input", {});
+  assert.equal(findAliasWarn().hidden, false, "too-many warning shown");
+  assert.match(findAliasWarn().textContent, /rag\.aliases_too_many/, "too-many error localized");
+  assert.equal(createBtn.disabled, true, "invalid aliases disable save");
+  assert.equal(dlBtn.disabled, true, "invalid aliases disable download");
+  assert.equal(ragState.entries[0].aliasesText, raw21, "raw alias text preserved");
+  const saveBase = saveCalls();
+  await sandbox.ragSubmitCreate();
+  assert.equal(saveCalls(), saveBase, "invalid alias submit sends no request");
+  assert.match(els.get("rag-create-status").textContent, /aliases_too_many/, "submit error names aliases");
+  assert.equal(findAliases()._focused, true, "alias field focused on alias submit error");
+
+  let aliasTa2 = findAliases();
+  aliasTa2.value = "k" + "x".repeat(70);
+  aliasTa2.dispatch("input", {});
+  assert.match(findAliasWarn().textContent, /rag\.aliases_too_long/, "long alias error");
+
+  aliasTa2 = findAliases();
+  aliasTa2.value = "fresh, Fresh, clean";
+  aliasTa2.dispatch("input", {});
+  assert.equal(findAliasWarn().hidden, true, "correction hides warning");
+  assert.equal(createBtn.disabled, false, "correction re-enables save");
+  assert.equal(ragState.entries[0].aliasesText, "fresh, Fresh, clean", "raw casing kept for editing");
+
+  ragState.entries[0].media = { image: { type: "image", name: "i.png", mime: "image/png", existing: true, entryID: 9, previewBase64: "QUJD" } };
+  ragState.entries[0].inputMode = "media";
+  ragEval("ragRenderEntries()");
+  assert.match(String(findAliasHint().textContent), /rag\.aliases_media_hint/, "media-only hint appears");
+  assert.equal(findAliases().value, "fresh, Fresh, clean", "aliases survive mode switch");
+
+  const saveBase2 = saveCalls();
+  await sandbox.ragSubmitCreate("download");
+  assert.equal(saveCalls(), saveBase2 + 1, "external save sent");
+  const fd = sandbox._apiCalls.filter((c) => c.url === "/api/rags/external/save").pop().opts.body;
+  const changes = JSON.parse(fd.get("changes"));
+  assert.deepEqual(changes.entries[0].aliases, ["fresh", "clean"], "payload sends normalized dedup aliases");
+  assert.equal(changes.entries[0].term, "seed");
+  assert.equal(changes.entries[0].input_mode, "media");
+
+  const fileIn = findDeep(host, (c) => c.tagName === "INPUT" && c.type === "file" && String(c.accept || "").includes(".txt"))[0];
+  fileIn.files = [{ name: "note.txt", size: 3 }];
+  fileIn.dispatch("change", { target: fileIn });
+  FakeFileReader.instances.at(-1).result = "abc";
+  FakeFileReader.instances.at(-1).onload();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ragState.entries[0].content, "abc", "text import updates content");
+  assert.equal(ragState.entries[0].aliasesText, "fresh, Fresh, clean", "text import preserves aliases");
+  assert.equal(ragState.entries[0].term, "seed", "text import preserves title");
+  assert.equal(ragState.entries[0].media.image.existing, true, "text import preserves media");
+
+  ragState.externalFile = null;
+  ragState.entries = [sandbox.ragNewEntry()];
+  ragEval("ragRenderEntries()");
 }
 
 {

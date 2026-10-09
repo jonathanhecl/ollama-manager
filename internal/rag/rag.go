@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,16 +16,20 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 )
 
-const SchemaVersion = 3
+const SchemaVersion = 4
 const InputFormatV1 = "term-content-v1"
 const InputFormatV2 = "entry-inputs-v2"
-const InputFormat = "entry-inputs-v3"
+const InputFormatV3 = "entry-inputs-v3"
+const InputFormat = "entry-inputs-v4"
 const EmbeddingProvider = "ollama"
 const maxDimensions = 65536
+const MaxAliases = 20
+const MaxAliasLen = 64
 
 type Meta struct {
 	ID                string `json:"id"`
@@ -50,6 +55,7 @@ type Entry struct {
 	Term      string
 	Content   string
 	InputMode string
+	Aliases   []string
 	CreatedAt int64
 	UpdatedAt int64
 	Media     []Media
@@ -82,6 +88,7 @@ type EntryView struct {
 	Term      string      `json:"term"`
 	Content   string      `json:"content"`
 	InputMode string      `json:"input_mode"`
+	Aliases   []string    `json:"aliases"`
 	CreatedAt int64       `json:"created_at"`
 	UpdatedAt int64       `json:"updated_at"`
 	Media     []MediaView `json:"media"`
@@ -122,6 +129,7 @@ CREATE TABLE entries (
 	audio_name TEXT NOT NULL,
 	audio_mime TEXT NOT NULL,
 	audio BLOB,
+	aliases TEXT NOT NULL DEFAULT '[]',
 	embedding BLOB NOT NULL
 );`
 
@@ -159,6 +167,64 @@ func checkVectorBlob(b []byte, dims int) error {
 		}
 	}
 	return nil
+}
+
+func NormalizeAliases(in []string) ([]string, error) {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, a := range in {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		if strings.ContainsAny(a, ",\r\n") {
+			return nil, errors.New("aliases must not contain commas or new lines; pass separate aliases instead")
+		}
+		if utf8.RuneCountInString(a) > MaxAliasLen {
+			return nil, fmt.Errorf("alias %q exceeds %d characters", cutRunes(a, 32), MaxAliasLen)
+		}
+		key := strings.ToLower(a)
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, a)
+		}
+	}
+	if len(out) > MaxAliases {
+		return nil, fmt.Errorf("at most %d distinct aliases are allowed", MaxAliases)
+	}
+	return out, nil
+}
+
+func cutRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}
+
+func decodeAliases(raw string) ([]string, error) {
+	var parsed []any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil || parsed == nil {
+		return nil, fmt.Errorf("invalid aliases: expected a JSON array of strings")
+	}
+	strs := make([]string, len(parsed))
+	for i, v := range parsed {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid aliases: expected a JSON array of strings")
+		}
+		strs[i] = s
+	}
+	return NormalizeAliases(strs)
+}
+
+func encodeAliases(in []string) string {
+	raw, err := json.Marshal(in)
+	if err != nil || len(raw) == 0 {
+		return "[]"
+	}
+	return string(raw)
 }
 
 func randHex(n int) (string, error) {
@@ -219,7 +285,7 @@ func readMetaContext(ctx context.Context, db queryer) (Meta, int, error) {
 	if err != nil {
 		return Meta{}, 0, err
 	}
-	if version == SchemaVersion {
+	if version >= 3 {
 		if err := db.QueryRowContext(ctx, `SELECT updated_at FROM metadata WHERE key = 1`).Scan(&m.UpdatedAt); err != nil {
 			return Meta{}, 0, err
 		}
@@ -244,6 +310,10 @@ func validateContext(ctx context.Context, db queryer, m Meta, version int) error
 		if m.InputFormat != InputFormatV2 {
 			return fmt.Errorf("unsupported input format %q", m.InputFormat)
 		}
+	case 3:
+		if m.InputFormat != InputFormatV3 {
+			return fmt.Errorf("unsupported input format %q", m.InputFormat)
+		}
 	case SchemaVersion:
 		if m.InputFormat != InputFormat {
 			return fmt.Errorf("unsupported input format %q", m.InputFormat)
@@ -261,7 +331,11 @@ func validateContext(ctx context.Context, db queryer, m Meta, version int) error
 	if m.Dimensions <= 0 || m.Dimensions > maxDimensions {
 		return fmt.Errorf("invalid dimensions %d", m.Dimensions)
 	}
-	rows, err := db.QueryContext(ctx, `SELECT embedding FROM entries`)
+	embedQuery := `SELECT embedding FROM entries`
+	if version >= 4 {
+		embedQuery = `SELECT embedding, aliases FROM entries`
+	}
+	rows, err := db.QueryContext(ctx, embedQuery)
 	if err != nil {
 		return fmt.Errorf("entries: %w", err)
 	}
@@ -272,11 +346,21 @@ func validateContext(ctx context.Context, db queryer, m Meta, version int) error
 			return err
 		}
 		var blob []byte
-		if err := rows.Scan(&blob); err != nil {
+		var aliasRaw string
+		if version >= 4 {
+			if err := rows.Scan(&blob, &aliasRaw); err != nil {
+				return err
+			}
+		} else if err := rows.Scan(&blob); err != nil {
 			return err
 		}
 		if err := checkVectorBlob(blob, m.Dimensions); err != nil {
 			return fmt.Errorf("entry %d: %w", i, err)
+		}
+		if version >= 4 {
+			if _, err := decodeAliases(aliasRaw); err != nil {
+				return fmt.Errorf("entry %d: %w", i, err)
+			}
 		}
 		i++
 	}
@@ -328,6 +412,11 @@ func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Me
 		if mode == "media" && len(e.Media) == 0 {
 			return Meta{}, "", fmt.Errorf("entry %d uses media input without media", i)
 		}
+		normAliases, err := NormalizeAliases(e.Aliases)
+		if err != nil {
+			return Meta{}, "", fmt.Errorf("entry %d: %w", i, err)
+		}
+		entries[i].Aliases = normAliases
 	}
 	if err := ctx.Err(); err != nil {
 		return Meta{}, "", err
@@ -348,9 +437,7 @@ func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Me
 	if meta.EmbeddingProvider == "" {
 		meta.EmbeddingProvider = EmbeddingProvider
 	}
-	if meta.InputFormat == "" {
-		meta.InputFormat = InputFormat
-	}
+	meta.InputFormat = InputFormat
 	if meta.Name == "" {
 		return Meta{}, "", errors.New("name is required")
 	}
@@ -424,11 +511,11 @@ func createTemp(ctx context.Context, dir string, meta Meta, entries []Entry) (Me
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO entries
 			(term, content, input_mode, created_at, updated_at,
-			 image_name, image_mime, image, audio_name, audio_mime, audio, embedding)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 image_name, image_mime, image, audio_name, audio_mime, audio, aliases, embedding)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.Term, e.Content, mode, e.CreatedAt, e.UpdatedAt,
 			image.Name, image.MIME, image.Data,
-			audio.Name, audio.MIME, audio.Data, packVector(e.Embedding)); err != nil {
+			audio.Name, audio.MIME, audio.Data, encodeAliases(e.Aliases), packVector(e.Embedding)); err != nil {
 			_ = tx.Rollback()
 			return failDB(err)
 		}
@@ -713,16 +800,21 @@ func GetContext(ctx context.Context, dir, filename string) (*Detail, error) {
 	switch version {
 	case 1:
 		query = `SELECT id, term, content, 'combined' AS input_mode, media_type, media_name, media_mime,
-			COALESCE(LENGTH(media), 0), '', '', '', 0, 0, 0 FROM entries ORDER BY id`
+			COALESCE(LENGTH(media), 0), '', '', '', 0, 0, 0, '[]' FROM entries ORDER BY id`
 	case 2:
 		query = `SELECT id, term, content, input_mode,
 			'image', image_name, image_mime, COALESCE(LENGTH(image), 0),
-			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), 0, 0
+			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), 0, 0, '[]'
+			FROM entries ORDER BY id`
+	case 3:
+		query = `SELECT id, term, content, input_mode,
+			'image', image_name, image_mime, COALESCE(LENGTH(image), 0),
+			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), created_at, updated_at, '[]'
 			FROM entries ORDER BY id`
 	case SchemaVersion:
 		query = `SELECT id, term, content, input_mode,
 			'image', image_name, image_mime, COALESCE(LENGTH(image), 0),
-			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), created_at, updated_at
+			'audio', audio_name, audio_mime, COALESCE(LENGTH(audio), 0), created_at, updated_at, aliases
 			FROM entries ORDER BY id`
 	}
 	rows, err := db.QueryContext(ctx, query)
@@ -737,11 +829,16 @@ func GetContext(ctx context.Context, dir, filename string) (*Detail, error) {
 		var imageSize int64
 		var audioType, audioName, audioMIME string
 		var audioSize int64
+		var aliasRaw string
 		if err := rows.Scan(&ev.ID, &ev.Term, &ev.Content, &ev.InputMode,
 			&imageType, &imageName, &imageMIME, &imageSize,
 			&audioType, &audioName, &audioMIME, &audioSize,
-			&ev.CreatedAt, &ev.UpdatedAt); err != nil {
+			&ev.CreatedAt, &ev.UpdatedAt, &aliasRaw); err != nil {
 			return nil, err
+		}
+		ev.Aliases, err = decodeAliases(aliasRaw)
+		if err != nil {
+			return nil, fmt.Errorf("entry %d: %w", ev.ID, err)
 		}
 		if ev.CreatedAt == 0 {
 			ev.CreatedAt = m.CreatedAt

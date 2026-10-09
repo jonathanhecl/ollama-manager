@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -238,20 +239,35 @@ func (s *Server) ragToolDefinitions(body chatRequestBody) []any {
 		m["maxLength"] = ragMaxContentLen
 		return m
 	}
+	term := func() map[string]any {
+		m := str("Short descriptive entry title or topic, not a unique key. Maximum 256 Unicode characters. Included with aliases and content in the semantic embedding unless input_mode is media; commas in this title do not define independent aliases.")
+		m["maxLength"] = ragMaxTermLen
+		return m
+	}
+	aliases := func() map[string]any {
+		return map[string]any{
+			"type":        "array",
+			"description": "Optional synonyms, alternate names, abbreviations or keywords for this entry's topic. Maximum 20 distinct aliases, each at most 64 Unicode characters. Whitespace is trimmed and duplicates are removed case-insensitively. Each alias must not contain commas or new lines; use separate array items instead. Included in the same semantic embedding as the title and content, not exact-match activation rules. Ignored by embeddings in media-only mode. On update, omit to preserve existing aliases or pass [] to clear them.",
+			"maxItems":    rag.MaxAliases,
+			"items":       map[string]any{"type": "string", "maxLength": rag.MaxAliasLen},
+		}
+	}
 	defs = append(defs,
-		def("rag_create_entry", "Create one text entry in an editable RAG base. Its embedding is generated automatically with the base's embedding model.",
+		def("rag_create_entry", "Create one text entry with a descriptive title, optional aliases and content in an editable RAG base. Its embedding is generated automatically with the base's embedding model.",
 			[]string{"filename", "term", "content"}, map[string]any{
 				"filename": filenameWr(),
-				"term":     str("Entry key or label."),
+				"term":     term(),
 				"content":  content(),
+				"aliases":  aliases(),
 			}),
-		def("rag_update_entry", "Update an entry's key, content or input mode in an editable RAG base while preserving attached media. Requires the revision from rag_get_entry; embeddings are regenerated automatically.",
+		def("rag_update_entry", "Update an entry's title, aliases, content or input mode in an editable RAG base while preserving attached media. Requires the revision from rag_get_entry; embeddings are regenerated automatically.",
 			[]string{"filename", "entry_id", "expected_revision"}, map[string]any{
 				"filename":          filenameWr(),
 				"entry_id":          integer("Numeric entry ID returned by the RAG tools.", 1, 0),
 				"expected_revision": revision,
-				"term":              str("Entry key or label."),
+				"term":              term(),
 				"content":           content(),
+				"aliases":           aliases(),
 				"input_mode": map[string]any{
 					"type":        "string",
 					"description": "Whether embedding uses text and media together or only existing media.",
@@ -303,20 +319,22 @@ func decodeRAGArgs(raw json.RawMessage, dst any) error {
 	return nil
 }
 
-func ragEmbedText(term, content string) string {
-	text := strings.TrimSpace(term)
-	content = strings.TrimSpace(content)
-	if content != "" {
-		if text != "" {
-			text += "\n\n"
-		}
-		text += content
+func ragEmbedText(term, content string, aliases ...string) string {
+	parts := []string{}
+	if text := strings.TrimSpace(term); text != "" {
+		parts = append(parts, text)
 	}
-	return text
+	if len(aliases) > 0 {
+		parts = append(parts, "Keywords: "+strings.Join(aliases, ", "))
+	}
+	if text := strings.TrimSpace(content); text != "" {
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func ragEmbedInput(e rag.Entry, mode string) any {
-	text := ragEmbedText(e.Term, e.Content)
+	text := ragEmbedText(e.Term, e.Content, e.Aliases...)
 	if len(e.Media) == 0 {
 		return text
 	}
@@ -436,18 +454,20 @@ type ragSearchArgs struct {
 }
 
 type ragCreateArgs struct {
-	Filename string `json:"filename"`
-	Term     string `json:"term"`
-	Content  string `json:"content"`
+	Filename string   `json:"filename"`
+	Term     string   `json:"term"`
+	Content  string   `json:"content"`
+	Aliases  []string `json:"aliases"`
 }
 
 type ragUpdateArgs struct {
-	Filename         string  `json:"filename"`
-	EntryID          int64   `json:"entry_id"`
-	ExpectedRevision string  `json:"expected_revision"`
-	Term             *string `json:"term"`
-	Content          *string `json:"content"`
-	InputMode        *string `json:"input_mode"`
+	Filename         string    `json:"filename"`
+	EntryID          int64     `json:"entry_id"`
+	ExpectedRevision string    `json:"expected_revision"`
+	Term             *string   `json:"term"`
+	Content          *string   `json:"content"`
+	InputMode        *string   `json:"input_mode"`
+	Aliases          *[]string `json:"aliases"`
 }
 
 type ragDeleteArgs struct {
@@ -615,7 +635,7 @@ func (s *Server) runRAGTool(ctx context.Context, sink chatSink, body chatRequest
 		if !writable[args.Filename] {
 			return "", "", fmt.Errorf("base %q is not editable in this chat", args.Filename)
 		}
-		return s.ragToolCreate(tctx, sink, body, dir, args.Filename, args.Term, args.Content)
+		return s.ragToolCreate(tctx, sink, body, dir, args.Filename, args.Term, args.Content, args.Aliases...)
 	case "rag_update_entry":
 		var args ragUpdateArgs
 		if err := decodeRAGArgs(raw, &args); err != nil {
@@ -790,6 +810,7 @@ func (s *Server) ragToolListEntries(ctx context.Context, dir, filename string, o
 				"term":            term,
 				"content_preview": preview,
 				"input_mode":      ev.InputMode,
+				"aliases":         ev.Aliases,
 				"created_at":      ev.CreatedAt,
 				"updated_at":      ev.UpdatedAt,
 				"media":           media,
@@ -856,6 +877,7 @@ func (s *Server) ragToolGetEntry(ctx context.Context, dir, filename string, id i
 			"term":                term,
 			"content":             string(runes[offset:end]),
 			"input_mode":          snap.Entry.InputMode,
+			"aliases":             snap.Entry.Aliases,
 			"created_at":          snap.Entry.CreatedAt,
 			"updated_at":          snap.Entry.UpdatedAt,
 			"media":               media,
@@ -938,7 +960,7 @@ func (s *Server) ragWritableStill(body chatRequestBody, filename string) bool {
 	return writable[filename]
 }
 
-func (s *Server) ragToolCreate(ctx context.Context, sink chatSink, body chatRequestBody, dir, filename, term, content string) (string, string, error) {
+func (s *Server) ragToolCreate(ctx context.Context, sink chatSink, body chatRequestBody, dir, filename, term, content string, aliases ...string) (string, string, error) {
 	term = strings.TrimSpace(term)
 	if term == "" {
 		return "", "", errors.New("term must not be empty")
@@ -952,6 +974,10 @@ func (s *Server) ragToolCreate(ctx context.Context, sink chatSink, body chatRequ
 	}
 	if utf8.RuneCountInString(content) > ragMaxContentLen {
 		return "", "", fmt.Errorf("content must be at most %d characters", ragMaxContentLen)
+	}
+	normAliases, err := rag.NormalizeAliases(aliases)
+	if err != nil {
+		return "", "", err
 	}
 	unlock, err := s.lockRAGWrite(ctx)
 	if err != nil {
@@ -969,7 +995,7 @@ func (s *Server) ragToolCreate(ctx context.Context, sink chatSink, body chatRequ
 	if len(detail.Entries) >= ragMaxEntries {
 		return "", "", fmt.Errorf("base %q already has the maximum of %d entries", filename, ragMaxEntries)
 	}
-	vec, err := s.ragEmbedForMeta(ctx, meta, ragEmbedText(term, content))
+	vec, err := s.ragEmbedForMeta(ctx, meta, ragEmbedText(term, content, normAliases...))
 	if err != nil {
 		msg := fmt.Sprintf("base %q could not embed the new entry (%v); no change was written", filename, err)
 		ragWarn(sink, filename, meta.EmbeddingModel, msg)
@@ -987,6 +1013,7 @@ func (s *Server) ragToolCreate(ctx context.Context, sink chatSink, body chatRequ
 			Term:      term,
 			Content:   content,
 			InputMode: "combined",
+			Aliases:   normAliases,
 			Embedding: vec,
 		})
 		return cerr
@@ -1019,8 +1046,8 @@ func (s *Server) ragToolUpdate(ctx context.Context, sink chatSink, body chatRequ
 	if strings.TrimSpace(args.ExpectedRevision) == "" {
 		return "", "", errors.New("expected_revision is required")
 	}
-	if args.Term == nil && args.Content == nil && args.InputMode == nil {
-		return "", "", errors.New("at least one of term, content or input_mode is required")
+	if args.Term == nil && args.Content == nil && args.InputMode == nil && args.Aliases == nil {
+		return "", "", errors.New("at least one of term, aliases, content or input_mode is required")
 	}
 	unlock, err := s.lockRAGWrite(ctx)
 	if err != nil {
@@ -1075,7 +1102,16 @@ func (s *Server) ragToolUpdate(ctx context.Context, sink chatSink, body chatRequ
 		}
 		newMode = mode
 	}
-	if newTerm == snap.Entry.Term && newContent == snap.Entry.Content && newMode == snap.Entry.InputMode {
+	newAliases := snap.Entry.Aliases
+	if args.Aliases != nil {
+		norm, err := rag.NormalizeAliases(*args.Aliases)
+		if err != nil {
+			return "", "", err
+		}
+		newAliases = norm
+	}
+	if newTerm == snap.Entry.Term && newContent == snap.Entry.Content && newMode == snap.Entry.InputMode &&
+		slices.Equal(newAliases, snap.Entry.Aliases) {
 		raw, err := json.Marshal(map[string]any{
 			"status":   "unchanged",
 			"changed":  false,
@@ -1091,6 +1127,7 @@ func (s *Server) ragToolUpdate(ctx context.Context, sink chatSink, body chatRequ
 	embedInput := ragEmbedInput(rag.Entry{
 		Term:    newTerm,
 		Content: newContent,
+		Aliases: newAliases,
 		Media:   snap.Entry.Media,
 	}, newMode)
 	vec, err := s.ragEmbedForMeta(ctx, meta, embedInput)
@@ -1111,6 +1148,7 @@ func (s *Server) ragToolUpdate(ctx context.Context, sink chatSink, body chatRequ
 			Term:      newTerm,
 			Content:   newContent,
 			InputMode: newMode,
+			Aliases:   newAliases,
 			Embedding: vec,
 		})
 		return uerr

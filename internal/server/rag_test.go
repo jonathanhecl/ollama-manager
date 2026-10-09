@@ -6,12 +6,14 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1006,7 +1008,8 @@ func makeExternalDB(t *testing.T) []byte {
 	return makeExternalDBWith(t, []ragpkg.Entry{
 		{Term: "alpha", Content: "first", InputMode: "combined",
 			CreatedAt: 1000, UpdatedAt: 1000, Embedding: []float64{1, 2, 3},
-			Media: []ragpkg.Media{{Type: "image", Name: "logo.png", MIME: "image/png", Data: externalPNG}}},
+			Aliases: []string{"alpha-alias", "shared"},
+			Media:   []ragpkg.Media{{Type: "image", Name: "logo.png", MIME: "image/png", Data: externalPNG}}},
 		{Term: "beta", Content: "second", InputMode: "combined",
 			CreatedAt: 2000, UpdatedAt: 2000, Embedding: []float64{4, 5, 6}},
 	})
@@ -1160,6 +1163,10 @@ func TestRAGExternalSaveDownload(t *testing.T) {
 	e1 := entries[0].(map[string]any)
 	entryID := int64(e1["id"].(float64))
 	entry2ID := int64(entries[1].(map[string]any)["id"].(float64))
+	openAliases, _ := e1["aliases"].([]any)
+	if len(openAliases) != 2 || openAliases[0] != "alpha-alias" || openAliases[1] != "shared" {
+		t.Fatalf("opened entry aliases = %v", e1["aliases"])
+	}
 
 	changes := map[string]any{
 		"name":            "External edited",
@@ -1167,7 +1174,8 @@ func TestRAGExternalSaveDownload(t *testing.T) {
 		"entries": []any{
 			map[string]any{
 				"id": entryID, "term": "alpha2", "content": "edited content", "input_mode": "combined",
-				"media": []any{map[string]any{"type": "image", "entry_id": entryID, "existing": true}},
+				"aliases": []any{"edited-alias"},
+				"media":   []any{map[string]any{"type": "image", "entry_id": entryID, "existing": true}},
 			},
 			map[string]any{"id": entry2ID, "term": "beta", "content": "second", "input_mode": "combined"},
 			map[string]any{"term": "gamma", "content": "new entry"},
@@ -1197,6 +1205,12 @@ func TestRAGExternalSaveDownload(t *testing.T) {
 	}
 	if kept := out.Entries[1]; kept.Term != "beta" || kept.CreatedAt != 2000 || kept.UpdatedAt != 2000 {
 		t.Fatalf("unchanged entry timestamps mutated: %+v", kept)
+	}
+	if !slices.Equal(got.Aliases, []string{"edited-alias"}) {
+		t.Fatalf("edited aliases = %v", got.Aliases)
+	}
+	if len(out.Entries[1].Aliases) != 0 || len(out.Entries[2].Aliases) != 0 {
+		t.Fatalf("aliases = %v / %v", out.Entries[1].Aliases, out.Entries[2].Aliases)
 	}
 	if len(got.Media) != 1 || got.Media[0].Type != "image" {
 		t.Fatalf("media refs = %+v", got.Media)
@@ -1299,6 +1313,9 @@ func TestRAGExternalSaveLocal(t *testing.T) {
 	}
 	if stored.Meta.Name != "External local" || len(stored.Entries) != 1 || stored.Entries[0].Term != "alpha2" {
 		t.Fatalf("stored = %+v", stored.Meta)
+	}
+	if !slices.Equal(stored.Entries[0].Aliases, []string{"alpha-alias", "shared"}) {
+		t.Fatalf("stored aliases = %v", stored.Entries[0].Aliases)
 	}
 	media, err := ragpkg.MediaAt(dir, firstFile, stored.Entries[0].ID, "image")
 	if err != nil || !bytes.Equal(media.Data, externalPNG) {
@@ -1482,5 +1499,128 @@ func TestRAGConfigSurvivesReload(t *testing.T) {
 	}
 	if reloaded.RAG.DefaultEmbedding != "embed-model:latest" || reloaded.RAG.Directory != "my-bases" {
 		t.Fatalf("reloaded rag = %+v", reloaded.RAG)
+	}
+}
+
+func TestRAGSaveAliases(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+
+	code, out := ragCall(t, srv, http.MethodPost, "/api/rags", map[string]any{
+		"name": "Fruits", "embedding_model": "embed-model",
+		"entries": []any{map[string]any{
+			"term": "Title", "content": "Content",
+			"aliases": []any{" alias1 ", "Alias2", "ALIAS1"},
+		}},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %v", code, out)
+	}
+	embeds := fake.recordedEmbeds()
+	if len(embeds) != 1 || embeds[0]["input"] != "Title\n\nKeywords: alias1, Alias2\n\nContent" {
+		t.Fatalf("embed inputs = %v", embeds)
+	}
+	filename := out["rag"].(map[string]any)["filename"].(string)
+	_, det := ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	entry := det["entries"].([]any)[0].(map[string]any)
+	aliases, _ := entry["aliases"].([]any)
+	if len(aliases) != 2 || aliases[0] != "alias1" || aliases[1] != "Alias2" {
+		t.Fatalf("entry aliases = %v", entry["aliases"])
+	}
+	entryID := int64(entry["id"].(float64))
+
+	code, out = ragCall(t, srv, http.MethodPut, "/api/rags/"+filename, map[string]any{
+		"name": "Fruits", "embedding_model": "embed-model",
+		"entries": []any{map[string]any{
+			"id": entryID, "term": "Title2", "content": "C2",
+		}},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("update status = %d, body = %v", code, out)
+	}
+	_, det = ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	entry = det["entries"].([]any)[0].(map[string]any)
+	aliases, _ = entry["aliases"].([]any)
+	if len(aliases) != 2 {
+		t.Fatalf("omitted aliases must preserve: %v", entry["aliases"])
+	}
+
+	code, out = ragCall(t, srv, http.MethodPut, "/api/rags/"+filename, map[string]any{
+		"name": "Fruits", "embedding_model": "embed-model",
+		"entries": []any{map[string]any{
+			"id": entryID, "term": "Title2", "content": "C2", "aliases": []any{},
+		}},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("clear status = %d, body = %v", code, out)
+	}
+	_, det = ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	entry = det["entries"].([]any)[0].(map[string]any)
+	if got, _ := entry["aliases"].([]any); len(got) != 0 {
+		t.Fatalf("cleared aliases = %v", entry["aliases"])
+	}
+
+	tooMany := make([]any, ragpkg.MaxAliases+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("a%d", i)
+	}
+	code, out = ragCall(t, srv, http.MethodPut, "/api/rags/"+filename, map[string]any{
+		"name": "Fruits", "embedding_model": "embed-model",
+		"entries": []any{map[string]any{
+			"id": entryID, "term": "Title2", "content": "C2", "aliases": tooMany,
+		}},
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("oversized aliases status = %d, body = %v", code, out)
+	}
+	_, det = ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	if len(det["entries"].([]any)) != 1 || det["entries"].([]any)[0].(map[string]any)["term"] != "Title2" {
+		t.Fatalf("rejected save changed entries: %v", det["entries"])
+	}
+
+	embedCount := len(fake.recordedEmbeds())
+	code, out = ragCall(t, srv, http.MethodPut, "/api/rags/"+filename, map[string]any{
+		"name": "Fruits", "embedding_model": "embed-model",
+		"entries": []any{map[string]any{
+			"id": entryID, "term": "Title2", "content": "C2", "aliases": []any{"ACME, Inc."},
+		}},
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("delimiter alias status = %d, body = %v", code, out)
+	}
+	if len(fake.recordedEmbeds()) != embedCount {
+		t.Fatal("delimiter alias reached embedding")
+	}
+	_, det = ragCall(t, srv, http.MethodGet, "/api/rags/"+filename, nil)
+	if det["entries"].([]any)[0].(map[string]any)["term"] != "Title2" {
+		t.Fatalf("rejected delimiter save changed entries: %v", det["entries"])
+	}
+
+	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0x49, 0x48, 0x44, 0x52}
+	b64 := base64.StdEncoding.EncodeToString(png)
+	code, out = ragCall(t, srv, http.MethodPost, "/api/rags", map[string]any{
+		"name": "Pics", "embedding_model": "embed-vision:latest",
+		"entries": []any{map[string]any{
+			"term": "pic", "content": "ignored text", "input_mode": "media",
+			"aliases": []any{"kw"},
+			"media":   []any{map[string]any{"type": "image", "name": "a.png", "base64": b64}},
+		}},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("media create status = %d, body = %v", code, out)
+	}
+	embeds = fake.recordedEmbeds()
+	last := embeds[len(embeds)-1]
+	input, _ := last["input"].([]any)
+	item, _ := input[0].(map[string]any)
+	if _, hasText := item["text"]; hasText {
+		t.Fatalf("media-only embed must exclude text/aliases: %v", item)
+	}
+	mfile := out["rag"].(map[string]any)["filename"].(string)
+	_, det = ragCall(t, srv, http.MethodGet, "/api/rags/"+mfile, nil)
+	entry = det["entries"].([]any)[0].(map[string]any)
+	if got, _ := entry["aliases"].([]any); len(got) != 1 || got[0] != "kw" {
+		t.Fatalf("media entry aliases not persisted: %v", entry["aliases"])
 	}
 }

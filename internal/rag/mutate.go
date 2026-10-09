@@ -82,14 +82,29 @@ func readEntry(ctx context.Context, q queryer, m Meta, version int, id int64) (E
 		if len(audio) > 0 {
 			e.Media = append(e.Media, Media{Type: "audio", Name: audioName, MIME: audioMIME, Data: audio})
 		}
-	case SchemaVersion:
-		var imageName, imageMIME, audioName, audioMIME string
+	case 3, SchemaVersion:
+		var imageName, imageMIME, audioName, audioMIME, aliasRaw string
 		var image, audio []byte
-		err := q.QueryRowContext(ctx, `SELECT id, term, content, input_mode, created_at, updated_at, image_name, image_mime, image, audio_name, audio_mime, audio, embedding FROM entries WHERE id = ?`, id).
-			Scan(&rowID, &e.Term, &e.Content, &e.InputMode, &e.CreatedAt, &e.UpdatedAt,
-				&imageName, &imageMIME, &image, &audioName, &audioMIME, &audio, &blob)
-		if err != nil {
-			return EntrySnapshot{}, err
+		if version == 3 {
+			aliasRaw = "[]"
+			err := q.QueryRowContext(ctx, `SELECT id, term, content, input_mode, created_at, updated_at, image_name, image_mime, image, audio_name, audio_mime, audio, embedding FROM entries WHERE id = ?`, id).
+				Scan(&rowID, &e.Term, &e.Content, &e.InputMode, &e.CreatedAt, &e.UpdatedAt,
+					&imageName, &imageMIME, &image, &audioName, &audioMIME, &audio, &blob)
+			if err != nil {
+				return EntrySnapshot{}, err
+			}
+		} else {
+			err := q.QueryRowContext(ctx, `SELECT id, term, content, input_mode, created_at, updated_at, image_name, image_mime, image, audio_name, audio_mime, audio, aliases, embedding FROM entries WHERE id = ?`, id).
+				Scan(&rowID, &e.Term, &e.Content, &e.InputMode, &e.CreatedAt, &e.UpdatedAt,
+					&imageName, &imageMIME, &image, &audioName, &audioMIME, &audio, &aliasRaw, &blob)
+			if err != nil {
+				return EntrySnapshot{}, err
+			}
+		}
+		var aerr error
+		e.Aliases, aerr = decodeAliases(aliasRaw)
+		if aerr != nil {
+			return EntrySnapshot{}, fmt.Errorf("entry %d: %w", id, aerr)
 		}
 		if len(image) > 0 {
 			e.Media = append(e.Media, Media{Type: "image", Name: imageName, MIME: imageMIME, Data: image})
@@ -105,6 +120,9 @@ func readEntry(ctx context.Context, q queryer, m Meta, version int, id int64) (E
 	}
 	if e.UpdatedAt == 0 {
 		e.UpdatedAt = e.CreatedAt
+	}
+	if e.Aliases == nil {
+		e.Aliases = []string{}
 	}
 	if err := checkVectorBlob(blob, m.Dimensions); err != nil {
 		return EntrySnapshot{}, fmt.Errorf("entry %d: %w", rowID, err)
@@ -183,7 +201,7 @@ func beginMutation(ctx context.Context, dir, filename string, expected Meta) (*s
 	return db, tx, m, version, nil
 }
 
-func validWriteEntry(m Meta, version int, e Entry) error {
+func validWriteEntry(m Meta, version int, e *Entry) error {
 	mode := e.InputMode
 	if mode == "" {
 		mode = "combined"
@@ -217,7 +235,70 @@ func validWriteEntry(m Meta, version int, e Entry) error {
 			return fmt.Errorf("empty %s media", mm.Type)
 		}
 	}
+	normAliases, err := NormalizeAliases(e.Aliases)
+	if err != nil {
+		return err
+	}
+	e.Aliases = normAliases
 	return nil
+}
+
+func migrateToV4(ctx context.Context, tx *sql.Tx, m *Meta, version int) (int, error) {
+	if version >= SchemaVersion {
+		return version, nil
+	}
+	if version < 1 || version > 3 {
+		return version, fmt.Errorf("unsupported schema version %d", version)
+	}
+	run := func(q string, args ...any) error {
+		_, err := tx.ExecContext(ctx, q, args...)
+		return err
+	}
+	if version == 1 {
+		for _, q := range []string{
+			`ALTER TABLE entries ADD COLUMN input_mode TEXT NOT NULL DEFAULT 'combined'`,
+			`ALTER TABLE entries ADD COLUMN image_name TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE entries ADD COLUMN image_mime TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE entries ADD COLUMN image BLOB`,
+			`ALTER TABLE entries ADD COLUMN audio_name TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE entries ADD COLUMN audio_mime TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE entries ADD COLUMN audio BLOB`,
+			`UPDATE entries SET image_name = media_name, image_mime = media_mime, image = media WHERE media_type = 'image'`,
+			`UPDATE entries SET audio_name = media_name, audio_mime = media_mime, audio = media WHERE media_type = 'audio'`,
+		} {
+			if err := run(q); err != nil {
+				return version, err
+			}
+		}
+	}
+	if version < 3 {
+		for _, q := range []string{
+			`ALTER TABLE entries ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE entries ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+		} {
+			if err := run(q); err != nil {
+				return version, err
+			}
+		}
+		if err := run(`UPDATE entries SET created_at = ?, updated_at = ?`, m.CreatedAt, m.CreatedAt); err != nil {
+			return version, err
+		}
+		if err := run(`ALTER TABLE metadata ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return version, err
+		}
+		if err := run(`UPDATE metadata SET updated_at = created_at WHERE key = 1`); err != nil {
+			return version, err
+		}
+	}
+	if err := run(`ALTER TABLE entries ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return version, err
+	}
+	if err := run(`UPDATE metadata SET schema_version = ?, input_format = ? WHERE key = 1`, SchemaVersion, InputFormat); err != nil {
+		return version, err
+	}
+	m.InputFormat = InputFormat
+	m.UpdatedAt = time.Now().Unix()
+	return SchemaVersion, nil
 }
 
 func entryMedia(e Entry) (image, audio Media) {
@@ -232,7 +313,7 @@ func entryMedia(e Entry) (image, audio Media) {
 }
 
 func touchMeta(ctx context.Context, tx *sql.Tx, version int, now int64) error {
-	if version != SchemaVersion {
+	if version < 3 {
 		return nil
 	}
 	_, err := tx.ExecContext(ctx, `UPDATE metadata SET updated_at = ? WHERE key = 1`, now)
@@ -252,8 +333,14 @@ func CreateEntry(ctx context.Context, dir, filename string, expected Meta, e Ent
 	if version == 1 && len(e.Media) > 0 {
 		return fail(errors.New("schema v1 entries cannot carry media through this API"))
 	}
-	if err := validWriteEntry(m, version, e); err != nil {
+	if err := validWriteEntry(m, version, &e); err != nil {
 		return fail(err)
+	}
+	if version < SchemaVersion && len(e.Aliases) > 0 {
+		version, err = migrateToV4(ctx, tx, &m, version)
+		if err != nil {
+			return fail(fmt.Errorf("could not migrate base for aliases: %w", err))
+		}
 	}
 	mode := e.InputMode
 	if mode == "" {
@@ -276,10 +363,26 @@ func CreateEntry(ctx context.Context, dir, filename string, expected Meta, e Ent
 		res, err = tx.ExecContext(ctx, `INSERT INTO entries (term, content, input_mode, image_name, image_mime, image, audio_name, audio_mime, audio, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.Term, e.Content, mode,
 			image.Name, image.MIME, image.Data, audio.Name, audio.MIME, audio.Data, packVector(e.Embedding))
-	case SchemaVersion:
+	case 3:
 		res, err = tx.ExecContext(ctx, `INSERT INTO entries (term, content, input_mode, created_at, updated_at, image_name, image_mime, image, audio_name, audio_mime, audio, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.Term, e.Content, mode, e.CreatedAt, e.UpdatedAt,
 			image.Name, image.MIME, image.Data, audio.Name, audio.MIME, audio.Data, packVector(e.Embedding))
+	case SchemaVersion:
+		legacyV1 := false
+		var probe string
+		if perr := tx.QueryRowContext(ctx, `SELECT media_type FROM entries LIMIT 1`).Scan(&probe); perr == nil ||
+			errors.Is(perr, sql.ErrNoRows) {
+			legacyV1 = true
+		}
+		if legacyV1 {
+			res, err = tx.ExecContext(ctx, `INSERT INTO entries (term, content, input_mode, created_at, updated_at, image_name, image_mime, image, audio_name, audio_mime, audio, aliases, embedding, media_type, media_name, media_mime, media) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'text', '', '', NULL)`,
+				e.Term, e.Content, mode, e.CreatedAt, e.UpdatedAt,
+				image.Name, image.MIME, image.Data, audio.Name, audio.MIME, audio.Data, encodeAliases(e.Aliases), packVector(e.Embedding))
+		} else {
+			res, err = tx.ExecContext(ctx, `INSERT INTO entries (term, content, input_mode, created_at, updated_at, image_name, image_mime, image, audio_name, audio_mime, audio, aliases, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				e.Term, e.Content, mode, e.CreatedAt, e.UpdatedAt,
+				image.Name, image.MIME, image.Data, audio.Name, audio.MIME, audio.Data, encodeAliases(e.Aliases), packVector(e.Embedding))
+		}
 	default:
 		return fail(fmt.Errorf("unsupported schema version %d", version))
 	}
@@ -332,11 +435,17 @@ func UpdateEntry(ctx context.Context, dir, filename string, expected Meta, id in
 	}
 	e.InputMode = mode
 	e.Media = snap.Entry.Media
-	if err := validWriteEntry(m, version, e); err != nil {
+	if err := validWriteEntry(m, version, &e); err != nil {
 		return fail(err)
 	}
 	if mode == "media" && len(snap.Entry.Media) == 0 {
 		return fail(errors.New("media input mode requires an existing attachment"))
+	}
+	if version < SchemaVersion && len(e.Aliases) > 0 {
+		version, err = migrateToV4(ctx, tx, &m, version)
+		if err != nil {
+			return fail(fmt.Errorf("could not migrate base for aliases: %w", err))
+		}
 	}
 	now := time.Now().Unix()
 	switch version {
@@ -346,9 +455,12 @@ func UpdateEntry(ctx context.Context, dir, filename string, expected Meta, id in
 	case 2:
 		_, err = tx.ExecContext(ctx, `UPDATE entries SET term = ?, content = ?, input_mode = ?, embedding = ? WHERE id = ?`,
 			e.Term, e.Content, mode, packVector(e.Embedding), id)
-	case SchemaVersion:
+	case 3:
 		_, err = tx.ExecContext(ctx, `UPDATE entries SET term = ?, content = ?, input_mode = ?, updated_at = ?, embedding = ? WHERE id = ?`,
 			e.Term, e.Content, mode, now, packVector(e.Embedding), id)
+	case SchemaVersion:
+		_, err = tx.ExecContext(ctx, `UPDATE entries SET term = ?, content = ?, input_mode = ?, aliases = ?, updated_at = ?, embedding = ? WHERE id = ?`,
+			e.Term, e.Content, mode, encodeAliases(e.Aliases), now, packVector(e.Embedding), id)
 	default:
 		return fail(fmt.Errorf("unsupported schema version %d", version))
 	}
@@ -438,7 +550,7 @@ func UpdateMetadata(ctx context.Context, dir, filename string, expectedRevision 
 		newDesc = *description
 	}
 	now := time.Now().Unix()
-	if version == SchemaVersion {
+	if version >= 3 {
 		_, err = tx.ExecContext(ctx, `UPDATE metadata SET name = ?, description = ?, updated_at = ? WHERE key = 1`, newName, newDesc, now)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE metadata SET name = ?, description = ? WHERE key = 1`, newName, newDesc)

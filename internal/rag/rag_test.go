@@ -5,9 +5,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -573,5 +578,187 @@ func TestMediaStoredAndListed(t *testing.T) {
 	}
 	if string(image) != string(imagePayload) || string(audio) != string(audioPayload) {
 		t.Fatalf("media payloads changed: image=%x audio=%x", image, audio)
+	}
+}
+
+func TestNormalizeAliases(t *testing.T) {
+	got, err := NormalizeAliases([]string{"  Beta ", "", "beta", "ALPHA", "alpha ", "  ", "Éxample", "éXAMPLE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Beta", "ALPHA", "Éxample"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("aliases = %v, want %v", got, want)
+	}
+	empty, err := NormalizeAliases(nil)
+	if err != nil || len(empty) != 0 || empty == nil {
+		t.Fatalf("empty normalize = %v %v", empty, err)
+	}
+	ok := make([]string, MaxAliases)
+	for i := range ok {
+		ok[i] = fmt.Sprintf("a%d", i)
+	}
+	if _, err := NormalizeAliases(ok); err != nil {
+		t.Fatalf("%d aliases rejected: %v", MaxAliases, err)
+	}
+	if _, err := NormalizeAliases(append(ok, "extra")); err == nil {
+		t.Fatalf("%d aliases accepted", MaxAliases+1)
+	}
+	full := strings.Repeat("\U0001F600", MaxAliasLen)
+	if _, err := NormalizeAliases([]string{full}); err != nil {
+		t.Fatalf("%d-rune alias rejected: %v", MaxAliasLen, err)
+	}
+	if _, err := NormalizeAliases([]string{full + "x"}); err == nil {
+		t.Fatal("overlong alias accepted")
+	}
+	dups := make([]string, MaxAliases+5)
+	for i := range dups {
+		dups[i] = "Same"
+	}
+	got, err = NormalizeAliases(dups)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("dup normalize = %v %v", got, err)
+	}
+	for _, bad := range []string{"ACME, Inc.", "one\ntwo", "a\rb"} {
+		if _, err := NormalizeAliases([]string{bad}); err == nil {
+			t.Fatalf("alias containing delimiter accepted: %q", bad)
+		}
+	}
+	if _, err := NormalizeAliases([]string{"ok", "a,b"}); err == nil {
+		t.Fatal("delimiter alias accepted in mixed list")
+	}
+}
+
+func TestCreateAliasesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	m := testMeta()
+	entries := testEntries(1)
+	entries[0].Aliases = []string{" first ", "SECOND", "First", ""}
+	meta, filename, err := Create(context.Background(), dir, m, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.InputFormat != InputFormat {
+		t.Fatalf("input_format = %q", meta.InputFormat)
+	}
+	d, err := Get(dir, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"first", "SECOND"}
+	if !reflect.DeepEqual(d.Entries[0].Aliases, want) {
+		t.Fatalf("get aliases = %v", d.Entries[0].Aliases)
+	}
+	_, snap, err := ReadEntry(context.Background(), dir, filename, d.Entries[0].ID)
+	if err != nil || !reflect.DeepEqual(snap.Entry.Aliases, want) {
+		t.Fatalf("read aliases = %v %v", snap.Entry.Aliases, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := Import(dir, "copy.db", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp, err := Get(dir, info.Filename)
+	if err != nil || !reflect.DeepEqual(cp.Entries[0].Aliases, want) {
+		t.Fatalf("imported aliases = %v %v", cp.Entries[0].Aliases, err)
+	}
+	infos, warnings, err := List(dir)
+	if err != nil || len(warnings) != 0 || len(infos) != 2 {
+		t.Fatalf("list = %v %v %v", infos, warnings, err)
+	}
+	if _, err := MediaAt(dir, filename, d.Entries[0].ID, "image"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("media unaffected check = %v", err)
+	}
+}
+
+func TestMalformedAliasesRejected(t *testing.T) {
+	many := make([]string, MaxAliases+1)
+	for i := range many {
+		many[i] = fmt.Sprintf(`"a%d"`, i)
+	}
+	for _, bad := range []string{
+		"not json", "", "null", "{}", `"scalar"`, "[null]", `["ok",null]`,
+		`["x,y"]`, `["` + strings.Repeat("a", MaxAliasLen+1) + `"]`,
+		`[` + strings.Join(many, ",") + `]`,
+	} {
+		t.Run(strconv.Itoa(len(bad))+bad[:min(8, len(bad))], func(t *testing.T) {
+			dir := t.TempDir()
+			_, filename, err := Create(context.Background(), dir, testMeta(), testEntries(1))
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, filename)
+			db, err := sql.Open("sqlite", fileURI(path, "rw"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE entries SET aliases = ? WHERE id = 1`, bad); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Get(dir, filename); err == nil {
+				t.Fatalf("Get accepted malformed aliases %q", bad)
+			}
+			if _, _, err := ReadEntry(context.Background(), dir, filename, 1); err == nil {
+				t.Fatalf("ReadEntry accepted malformed aliases %q", bad)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Import(dir, "bad.db", bytes.NewReader(raw)); err == nil {
+				t.Fatalf("Import accepted malformed aliases %q", bad)
+			}
+			if infos, warnings, err := List(dir); err != nil || len(infos) != 0 || len(warnings) != 1 {
+				t.Fatalf("list = %v %v %v", infos, warnings, err)
+			}
+			db2, err := sql.Open("sqlite", fileURI(path, "ro"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var still string
+			if err := db2.QueryRow(`SELECT aliases FROM entries WHERE id = 1`).Scan(&still); err != nil || still != bad {
+				t.Fatalf("rejected file mutated: %q %v", still, err)
+			}
+			_ = db2.Close()
+			rawAfter, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(raw, rawAfter) {
+				t.Fatal("rejected reads mutated the file")
+			}
+		})
+	}
+}
+
+func TestOversizedStoredAliasesRejected(t *testing.T) {
+	dir := t.TempDir()
+	_, filename, err := Create(context.Background(), dir, testMeta(), testEntries(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", fileURI(filepath.Join(dir, filename), "rw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	many := make([]string, MaxAliases+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("a%d", i)
+	}
+	raw, _ := json.Marshal(many)
+	if _, err := db.Exec(`UPDATE entries SET aliases = ? WHERE id = 1`, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Get(dir, filename); err == nil {
+		t.Fatal("oversized stored aliases accepted")
 	}
 }

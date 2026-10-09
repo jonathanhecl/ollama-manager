@@ -1,12 +1,16 @@
 package rag
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,5 +411,351 @@ func TestMutateDoesNotWriteOnEmbedlessPath(t *testing.T) {
 	d, err := Get(dir, filename)
 	if err != nil || len(d.Entries) != 1 {
 		t.Fatalf("entries = %+v, %v", d.Entries, err)
+	}
+}
+
+func mkAliasLegacyBase(t *testing.T, dir, name string, version int) string {
+	t.Helper()
+	emb := packVector([]float64{1, 0})
+	png := []byte{9, 9, 9}
+	path := filepath.Join(dir, name)
+	db, err := sql.Open("sqlite", fileURI(path, "rwc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sqlText string
+	rows := [][]any{}
+	switch version {
+	case 1:
+		sqlText = `CREATE TABLE metadata (key INTEGER PRIMARY KEY CHECK (key = 1),
+			schema_version INTEGER NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+			created_at INTEGER NOT NULL, embedding_provider TEXT NOT NULL, embedding_model TEXT NOT NULL,
+			embedding_digest TEXT NOT NULL, dimensions INTEGER NOT NULL, input_format TEXT NOT NULL);
+			CREATE TABLE entries (id INTEGER PRIMARY KEY, term TEXT NOT NULL, content TEXT NOT NULL,
+			media_type TEXT NOT NULL, media_name TEXT NOT NULL, media_mime TEXT NOT NULL, media BLOB,
+			embedding BLOB NOT NULL);
+			INSERT INTO metadata VALUES (1, 1, 'idv1', 'V1', '', 500, 'ollama', 'm', 'd', 2, 'term-content-v1')`
+		rows = [][]any{
+			{`INSERT INTO entries (term, content, media_type, media_name, media_mime, embedding)
+				VALUES ('hit', 'v1 entry', 'text', '', '', ?)`, []any{emb}},
+			{`INSERT INTO entries (term, content, media_type, media_name, media_mime, media, embedding)
+				VALUES ('pic', 'v1 image', 'image', 'i.png', 'image/png', ?, ?)`, []any{png, emb}},
+		}
+	case 2:
+		sqlText = `CREATE TABLE metadata (key INTEGER PRIMARY KEY CHECK (key = 1),
+			schema_version INTEGER NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+			created_at INTEGER NOT NULL, embedding_provider TEXT NOT NULL, embedding_model TEXT NOT NULL,
+			embedding_digest TEXT NOT NULL, dimensions INTEGER NOT NULL, input_format TEXT NOT NULL);
+			CREATE TABLE entries (id INTEGER PRIMARY KEY, term TEXT NOT NULL, content TEXT NOT NULL,
+			input_mode TEXT NOT NULL, image_name TEXT NOT NULL, image_mime TEXT NOT NULL, image BLOB,
+			audio_name TEXT NOT NULL, audio_mime TEXT NOT NULL, audio BLOB, embedding BLOB NOT NULL);
+			INSERT INTO metadata VALUES (1, 2, 'idv2', 'V2', '', 600, 'ollama', 'm', 'd', 2, 'entry-inputs-v2')`
+		rows = [][]any{
+			{`INSERT INTO entries (term, content, input_mode, image_name, image_mime, image,
+				audio_name, audio_mime, audio, embedding)
+				VALUES ('hit', 'v2 entry', 'combined', '', '', NULL, '', '', NULL, ?)`, []any{emb}},
+			{`INSERT INTO entries (term, content, input_mode, image_name, image_mime, image,
+				audio_name, audio_mime, audio, embedding)
+				VALUES ('pic', 'v2 media', 'media', 'i.png', 'image/png', ?, 'a.mp3', 'audio/mp3', ?, ?)`, []any{png, png, emb}},
+		}
+	case 3:
+		sqlText = `CREATE TABLE metadata (key INTEGER PRIMARY KEY CHECK (key = 1),
+			schema_version INTEGER NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, embedding_provider TEXT NOT NULL,
+			embedding_model TEXT NOT NULL, embedding_digest TEXT NOT NULL, dimensions INTEGER NOT NULL,
+			input_format TEXT NOT NULL);
+			CREATE TABLE entries (id INTEGER PRIMARY KEY, term TEXT NOT NULL, content TEXT NOT NULL,
+			input_mode TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+			image_name TEXT NOT NULL, image_mime TEXT NOT NULL, image BLOB,
+			audio_name TEXT NOT NULL, audio_mime TEXT NOT NULL, audio BLOB, embedding BLOB NOT NULL);
+			INSERT INTO metadata VALUES (1, 3, 'idv3', 'V3', '', 700, 800, 'ollama', 'm', 'd', 2, 'entry-inputs-v3')`
+		rows = [][]any{
+			{`INSERT INTO entries (term, content, input_mode, created_at, updated_at, image_name, image_mime,
+				image, audio_name, audio_mime, audio, embedding)
+				VALUES ('hit', 'v3 entry', 'combined', 1000, 1100, '', '', NULL, '', '', NULL, ?)`, []any{emb}},
+			{`INSERT INTO entries (term, content, input_mode, created_at, updated_at, image_name, image_mime,
+				image, audio_name, audio_mime, audio, embedding)
+				VALUES ('pic', 'v3 media', 'combined', 2000, 2100, 'i.png', 'image/png', ?, '', '', NULL, ?)`, []any{png, emb}},
+		}
+	default:
+		t.Fatalf("bad version %d", version)
+	}
+	if _, err := db.Exec(sqlText); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if _, err := db.Exec(row[0].(string), row[1].([]any)...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return name
+}
+
+func schemaVersionOf(t *testing.T, path string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", fileURI(path, "ro"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var v int
+	if err := db.QueryRow(`SELECT schema_version FROM metadata WHERE key = 1`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestLegacyReadsAliasesEmpty(t *testing.T) {
+	dir := t.TempDir()
+	for _, version := range []int{1, 2, 3} {
+		name := mkAliasLegacyBase(t, dir, "legacy"+string(rune('0'+version))+".db", version)
+		d, err := Get(dir, name)
+		if err != nil {
+			t.Fatalf("Get v%d: %v", version, err)
+		}
+		for _, e := range d.Entries {
+			if e.Aliases == nil || len(e.Aliases) != 0 {
+				t.Fatalf("v%d read aliases = %#v", version, e.Aliases)
+			}
+		}
+		_, snap, err := ReadEntry(context.Background(), dir, name, d.Entries[0].ID)
+		if err != nil || snap.Entry.Aliases == nil || len(snap.Entry.Aliases) != 0 {
+			t.Fatalf("v%d snapshot aliases = %#v %v", version, snap.Entry.Aliases, err)
+		}
+		if got := schemaVersionOf(t, filepath.Join(dir, name)); got != version {
+			t.Fatalf("read migrated schema to %d", got)
+		}
+	}
+}
+
+func TestLegacyAliasWriteMigrates(t *testing.T) {
+	for _, version := range []int{1, 2, 3} {
+		t.Run(string(rune('a'+version-1)), func(t *testing.T) {
+			dir := t.TempDir()
+			name := mkAliasLegacyBase(t, dir, "legacy.db", version)
+			meta, err := func() (Meta, error) {
+				d, err := Get(dir, name)
+				if err != nil {
+					return Meta{}, err
+				}
+				return d.Meta, nil
+			}()
+			if err != nil {
+				t.Fatal(err)
+			}
+			d, _ := Get(dir, name)
+			firstID := d.Entries[0].ID
+			secondID := d.Entries[1].ID
+			_, snap1, err := ReadEntry(context.Background(), dir, name, firstID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, snap2, err := ReadEntry(context.Background(), dir, name, secondID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fresh, err := UpdateEntry(context.Background(), dir, name, meta, firstID, snap1.Revision, Entry{
+				Term: "hit", Content: snap1.Entry.Content, Aliases: []string{" one ", "TWO", "One"},
+				Embedding: []float64{0, 1},
+			})
+			if err != nil {
+				t.Fatalf("alias write on v%d: %v", version, err)
+			}
+			if got := schemaVersionOf(t, filepath.Join(dir, name)); got != SchemaVersion {
+				t.Fatalf("schema after alias write = %d", got)
+			}
+			m2, snapA, err := ReadEntry(context.Background(), dir, name, firstID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m2.InputFormat != InputFormat || m2.ID != meta.ID || m2.EmbeddingDigest != meta.EmbeddingDigest {
+				t.Fatalf("meta after migration = %+v", m2)
+			}
+			if want := []string{"one", "TWO"}; !reflect.DeepEqual(snapA.Entry.Aliases, want) {
+				t.Fatalf("aliases = %v", snapA.Entry.Aliases)
+			}
+			if snapA.Revision == snap1.Revision {
+				t.Fatal("alias edit did not change revision")
+			}
+			if fresh.Revision != snapA.Revision {
+				t.Fatal("returned revision mismatch")
+			}
+			_, snapB, err := ReadEntry(context.Background(), dir, name, secondID)
+			if err != nil || snapB.Revision != snap2.Revision {
+				t.Fatalf("untouched entry changed: %v %v", snapB.Entry, err)
+			}
+			if len(snapB.Entry.Media) == 0 {
+				t.Fatal("legacy media lost in migration")
+			}
+			media, err := MediaAt(dir, name, secondID, "image")
+			if err != nil || len(media.Data) == 0 {
+				t.Fatalf("MediaAt after migration = %v %v", media, err)
+			}
+			switch version {
+			case 3:
+				if snapB.Entry.CreatedAt != 2000 || snapB.Entry.UpdatedAt != 2100 {
+					t.Fatalf("v3 timestamps mutated: %+v", snapB.Entry)
+				}
+			default:
+				if snapB.Entry.CreatedAt != meta.CreatedAt {
+					t.Fatalf("legacy timestamp fill = %v, want %v", snapB.Entry.CreatedAt, meta.CreatedAt)
+				}
+			}
+			created, err := CreateEntry(context.Background(), dir, name, m2, Entry{
+				Term: "new", Content: "post-migration", Aliases: []string{"n1"}, Embedding: []float64{1, 0},
+			})
+			if err != nil {
+				t.Fatalf("create after migration: %v", err)
+			}
+			if !reflect.DeepEqual(created.Entry.Aliases, []string{"n1"}) {
+				t.Fatalf("created aliases = %v", created.Entry.Aliases)
+			}
+		})
+	}
+}
+
+func TestLegacyAliasWriteFailuresLeaveBase(t *testing.T) {
+	dir := t.TempDir()
+	name := mkAliasLegacyBase(t, dir, "legacy.db", 3)
+	d, err := Get(dir, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := d.Meta
+	id := d.Entries[0].ID
+	_, snap, err := ReadEntry(context.Background(), dir, name, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawBefore, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tooMany := make([]string, MaxAliases+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("a%d", i)
+	}
+	if _, err := UpdateEntry(context.Background(), dir, name, meta, id, snap.Revision, Entry{
+		Term: "hit", Content: "c", Aliases: tooMany, Embedding: []float64{0, 1},
+	}); err == nil {
+		t.Fatal("oversized aliases accepted")
+	}
+	if _, err := UpdateEntry(context.Background(), dir, name, meta, id, "stale", Entry{
+		Term: "hit", Content: "c", Aliases: []string{"x"}, Embedding: []float64{0, 1},
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale revision = %v", err)
+	}
+	if _, err := UpdateEntry(context.Background(), dir, name, meta, id, snap.Revision, Entry{
+		Term: "hit", Content: "c", Aliases: []string{"x"}, Embedding: []float64{0, 0},
+	}); err == nil {
+		t.Fatal("invalid vector accepted")
+	}
+	rawAfter, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rawBefore, rawAfter) {
+		t.Fatal("failed alias writes modified the base")
+	}
+	if got := schemaVersionOf(t, filepath.Join(dir, name)); got != 3 {
+		t.Fatalf("failed writes migrated schema to %d", got)
+	}
+	if _, err := CreateEntry(context.Background(), dir, name, meta, Entry{
+		Term: "added", Content: "no aliases", Embedding: []float64{1, 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := schemaVersionOf(t, filepath.Join(dir, name)); got != 3 {
+		t.Fatalf("no-alias write migrated schema to %d", got)
+	}
+}
+
+func TestLegacyAliasCreateMigrates(t *testing.T) {
+	for _, version := range []int{1, 2, 3} {
+		t.Run(string(rune('a'+version-1)), func(t *testing.T) {
+			dir := t.TempDir()
+			name := mkAliasLegacyBase(t, dir, "legacy.db", version)
+			d, err := Get(dir, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondID := d.Entries[1].ID
+			_, snap2, err := ReadEntry(context.Background(), dir, name, secondID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := CreateEntry(context.Background(), dir, name, d.Meta, Entry{
+				Term: "new", Content: "via create", Aliases: []string{" n1 ", "N2"}, Embedding: []float64{1, 0},
+			})
+			if err != nil {
+				t.Fatalf("alias create on v%d: %v", version, err)
+			}
+			if got := schemaVersionOf(t, filepath.Join(dir, name)); got != SchemaVersion {
+				t.Fatalf("schema after alias create = %d", got)
+			}
+			if want := []string{"n1", "N2"}; !reflect.DeepEqual(created.Entry.Aliases, want) {
+				t.Fatalf("created aliases = %v", created.Entry.Aliases)
+			}
+			m2, snapB, err := ReadEntry(context.Background(), dir, name, secondID)
+			if err != nil || m2.InputFormat != InputFormat {
+				t.Fatalf("after create-migration: %v %v", m2.InputFormat, err)
+			}
+			if snapB.Revision != snap2.Revision || len(snapB.Entry.Media) == 0 {
+				t.Fatalf("untouched entry changed: %+v", snapB.Entry)
+			}
+		})
+	}
+}
+
+func TestLegacyAliasWritePostMigrationRollback(t *testing.T) {
+	dir := t.TempDir()
+	name := mkAliasLegacyBase(t, dir, "legacy.db", 3)
+	path := filepath.Join(dir, name)
+	db, err := sql.Open("sqlite", fileURI(path, "rw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_term BEFORE UPDATE OF term ON entries
+		BEGIN SELECT RAISE(ABORT, 'forced write failure'); END;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rawBefore, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := Get(dir, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := d.Entries[0].ID
+	_, snap, err := ReadEntry(context.Background(), dir, name, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = UpdateEntry(context.Background(), dir, name, d.Meta, id, snap.Revision, Entry{
+		Term: "changed", Content: snap.Entry.Content, Aliases: []string{"x"}, Embedding: []float64{0, 1},
+	})
+	if err == nil || !strings.Contains(err.Error(), "forced write failure") {
+		t.Fatalf("update = %v, want trigger abort", err)
+	}
+	if got := schemaVersionOf(t, path); got != 3 {
+		t.Fatalf("failed write left schema %d, migration must roll back", got)
+	}
+	rawAfter, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rawBefore, rawAfter) {
+		t.Fatal("failed write left data modifications")
+	}
+	d2, err := Get(dir, name)
+	if err != nil || len(d2.Entries) != 2 || d2.Entries[0].Term != "hit" {
+		t.Fatalf("base unreadable after rollback: %v", err)
 	}
 }

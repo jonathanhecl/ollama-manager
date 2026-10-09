@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +50,7 @@ type ragEntryBody struct {
 	Term        string         `json:"term"`
 	Content     string         `json:"content"`
 	InputMode   string         `json:"input_mode"`
+	Aliases     *[]string      `json:"aliases"`
 	Media       []ragMediaBody `json:"media"`
 	MediaType   string         `json:"media_type"`
 	MediaName   string         `json:"media_name"`
@@ -440,13 +442,15 @@ func (s *Server) handleSaveRAGInDirectory(w http.ResponseWriter, r *http.Request
 		content   string
 		text      string
 		inputMode string
+		aliases   []string
 		createdAt int64
 		updatedAt int64
 		media     []preparedMedia
 		previous  *rag.EntryView
 	}
 	entryChanged := func(old *rag.EntryView, pe preparedEntry) bool {
-		if old == nil || old.Term != pe.term || old.Content != pe.content || old.InputMode != pe.inputMode || len(old.Media) != len(pe.media) {
+		if old == nil || old.Term != pe.term || old.Content != pe.content || old.InputMode != pe.inputMode ||
+			!slices.Equal(old.Aliases, pe.aliases) || len(old.Media) != len(pe.media) {
 			return true
 		}
 		oldMedia := map[string]rag.MediaView{}
@@ -517,14 +521,21 @@ func (s *Server) handleSaveRAGInDirectory(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: at most one image and one audio attachment are supported", i+1))
 			return
 		}
-		text := term
-		if content != "" {
-			if text != "" {
-				text += "\n\n"
+		var aliases []string
+		if e.Aliases != nil {
+			norm, err := rag.NormalizeAliases(*e.Aliases)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("entry %d: %w", i+1, err))
+				return
 			}
-			text += content
+			aliases = norm
+		} else if previous != nil {
+			aliases = previous.Aliases
+		} else {
+			aliases = []string{}
 		}
-		pe := preparedEntry{term: term, content: content, text: text, inputMode: mode, previous: previous}
+		text := ragEmbedText(term, content, aliases...)
+		pe := preparedEntry{term: term, content: content, text: text, inputMode: mode, aliases: aliases, previous: previous}
 		if previous != nil {
 			pe.createdAt = previous.CreatedAt
 			pe.updatedAt = previous.UpdatedAt
@@ -695,6 +706,7 @@ func (s *Server) handleSaveRAGInDirectory(w http.ResponseWriter, r *http.Request
 			Term:      pe.term,
 			Content:   pe.content,
 			InputMode: pe.inputMode,
+			Aliases:   pe.aliases,
 			CreatedAt: pe.createdAt,
 			UpdatedAt: pe.updatedAt,
 			Media:     storeMedia,

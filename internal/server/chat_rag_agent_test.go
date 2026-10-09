@@ -302,6 +302,38 @@ func TestRAGAgentScopeAndDefinitions(t *testing.T) {
 	}
 	assertContentLimit(update, "rag_update_entry")
 
+	assertEntrySchema := func(d map[string]any, name string) {
+		t.Helper()
+		fn, _ := d["function"].(map[string]any)
+		params, _ := fn["parameters"].(map[string]any)
+		p, _ := params["properties"].(map[string]any)
+		term, _ := p["term"].(map[string]any)
+		if term["maxLength"] != ragMaxTermLen ||
+			term["description"] != "Short descriptive entry title or topic, not a unique key. Maximum 256 Unicode characters. Included with aliases and content in the semantic embedding unless input_mode is media; commas in this title do not define independent aliases." {
+			t.Fatalf("%s term schema = %v", name, term)
+		}
+		aliases, _ := p["aliases"].(map[string]any)
+		if aliases["type"] != "array" || aliases["maxItems"] != ragpkg.MaxAliases ||
+			aliases["description"] != "Optional synonyms, alternate names, abbreviations or keywords for this entry's topic. Maximum 20 distinct aliases, each at most 64 Unicode characters. Whitespace is trimmed and duplicates are removed case-insensitively. Each alias must not contain commas or new lines; use separate array items instead. Included in the same semantic embedding as the title and content, not exact-match activation rules. Ignored by embeddings in media-only mode. On update, omit to preserve existing aliases or pass [] to clear them." {
+			t.Fatalf("%s aliases schema = %v", name, aliases)
+		}
+		items, _ := aliases["items"].(map[string]any)
+		if items["type"] != "string" || items["maxLength"] != ragpkg.MaxAliasLen {
+			t.Fatalf("%s aliases items = %v", name, items)
+		}
+	}
+	assertEntrySchema(create, "rag_create_entry")
+	assertEntrySchema(update, "rag_update_entry")
+
+	cfn, _ := create["function"].(map[string]any)
+	if cfn["description"] != "Create one text entry with a descriptive title, optional aliases and content in an editable RAG base. Its embedding is generated automatically with the base's embedding model." {
+		t.Fatalf("create description = %v", cfn["description"])
+	}
+	ufn, _ := update["function"].(map[string]any)
+	if ufn["description"] != "Update an entry's title, aliases, content or input mode in an editable RAG base while preserving attached media. Requires the revision from rag_get_entry; embeddings are regenerated automatically." {
+		t.Fatalf("update description = %v", ufn["description"])
+	}
+
 	var listDef map[string]any
 	for _, d := range defs {
 		m, _ := d.(map[string]any)
@@ -1606,5 +1638,120 @@ func TestRAGAgentForgedWebCallDenied(t *testing.T) {
 	}
 	if !strings.Contains(sse, "web tools are not enabled for this chat") {
 		t.Fatalf("denied reason missing: %s", sse)
+	}
+}
+
+func TestRAGAgentAliasesFlow(t *testing.T) {
+	fake := newFakeOllamaRAGAgent()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+	_, filename := createChatRAGBase(t, dir, "Fruits", "embed-model:latest", "sha256:embed1", 2, []ragpkg.Entry{
+		{Term: "apple", Content: "an apple is a fruit", Aliases: []string{"pomme"}, Embedding: []float64{1, 0}},
+	})
+	sink := &recordSink{}
+	body := ragAgentBody(filename, true)
+
+	out, _, err := ragToolCall(t, srv, sink, body, "rag_create_entry",
+		map[string]any{"filename": filename, "term": "Title", "content": "Content",
+			"aliases": []any{"alias1", "alias2"}})
+	if err != nil {
+		t.Fatalf("create = %q %v", out, err)
+	}
+	var created map[string]any
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatal(err)
+	}
+	newID := int64(created["id"].(float64))
+	last := fake.lastEmbed()
+	if last == nil || last["input"] != "Title\n\nKeywords: alias1, alias2\n\nContent" {
+		t.Fatalf("embed input = %v", last)
+	}
+
+	out, _, err = ragToolCall(t, srv, sink, body, "rag_get_entry",
+		map[string]any{"filename": filename, "entry_id": newID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	entryOut, _ := got["entry"].(map[string]any)
+	if entryOut == nil {
+		entryOut = got
+	}
+	rev, _ := got["revision"].(string)
+	aliasOut, _ := entryOut["aliases"].([]any)
+	if len(aliasOut) != 2 || aliasOut[0] != "alias1" || aliasOut[1] != "alias2" {
+		t.Fatalf("get_entry aliases = %q", out)
+	}
+
+	out, _, err = ragToolCall(t, srv, sink, body, "rag_list_entries",
+		map[string]any{"filename": filename})
+	if err != nil || !strings.Contains(out, `"aliases"`) || !strings.Contains(out, "alias1") {
+		t.Fatalf("list_entries = %q %v", out, err)
+	}
+
+	embedsBefore := fake.embedCount()
+	out, _, err = ragToolCall(t, srv, sink, body, "rag_update_entry",
+		map[string]any{"filename": filename, "entry_id": newID, "expected_revision": rev,
+			"aliases": []any{"newalias"}})
+	if err != nil || !strings.Contains(out, `"changed":true`) {
+		t.Fatalf("alias-only update = %q %v", out, err)
+	}
+	last = fake.lastEmbed()
+	if last == nil || last["input"] != "Title\n\nKeywords: newalias\n\nContent" {
+		t.Fatalf("alias-only embed input = %v", last)
+	}
+	_, snap, err := ragpkg.ReadEntry(context.Background(), dir, filename, newID)
+	if err != nil || len(snap.Entry.Aliases) != 1 || snap.Entry.Aliases[0] != "newalias" {
+		t.Fatalf("persisted aliases = %+v %v", snap.Entry.Aliases, err)
+	}
+
+	out, _, err = ragToolCall(t, srv, sink, body, "rag_update_entry",
+		map[string]any{"filename": filename, "entry_id": newID, "expected_revision": snap.Revision,
+			"term": "Title2"})
+	if err != nil || !strings.Contains(out, `"changed":true`) {
+		t.Fatalf("omitted-alias update = %q %v", out, err)
+	}
+	_, snap, err = ragpkg.ReadEntry(context.Background(), dir, filename, newID)
+	if err != nil || len(snap.Entry.Aliases) != 1 || snap.Entry.Aliases[0] != "newalias" {
+		t.Fatalf("omitted aliases must preserve: %+v %v", snap.Entry.Aliases, err)
+	}
+
+	out, _, err = ragToolCall(t, srv, sink, body, "rag_update_entry",
+		map[string]any{"filename": filename, "entry_id": newID, "expected_revision": snap.Revision,
+			"aliases": []any{}})
+	if err != nil || !strings.Contains(out, `"changed":true`) {
+		t.Fatalf("clear aliases = %q %v", out, err)
+	}
+	_, snap, err = ragpkg.ReadEntry(context.Background(), dir, filename, newID)
+	if err != nil || len(snap.Entry.Aliases) != 0 {
+		t.Fatalf("cleared aliases = %+v %v", snap.Entry.Aliases, err)
+	}
+
+	embedsBefore = fake.embedCount()
+	tooMany := make([]any, ragpkg.MaxAliases+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("a%d", i)
+	}
+	_, _, err = ragToolCall(t, srv, sink, body, "rag_update_entry",
+		map[string]any{"filename": filename, "entry_id": newID, "expected_revision": snap.Revision,
+			"aliases": tooMany})
+	if err == nil {
+		t.Fatal("oversized aliases accepted")
+	}
+	if fake.embedCount() != embedsBefore {
+		t.Fatal("invalid aliases reached embedding")
+	}
+	_, _, err = ragToolCall(t, srv, sink, body, "rag_update_entry",
+		map[string]any{"filename": filename, "entry_id": newID, "expected_revision": snap.Revision,
+			"aliases": []any{"ACME, Inc."}})
+	if err == nil || !strings.Contains(err.Error(), "must not contain commas") {
+		t.Fatalf("delimiter alias = %v", err)
+	}
+	if fake.embedCount() != embedsBefore {
+		t.Fatal("delimiter alias reached embedding")
 	}
 }

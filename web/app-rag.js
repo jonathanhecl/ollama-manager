@@ -2,11 +2,32 @@
 
 const RAG_MAX_FILE_BYTES = 8 * 1024 * 1024;
 const RAG_MAX_CONTENT_CHARS = 32000;
+const RAG_MAX_ALIASES = 20;
+const RAG_MAX_ALIAS_CHARS = 64;
 const RAG_TRIM_WS = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const ragTrimRe = new RegExp(`^[${RAG_TRIM_WS}]+|[${RAG_TRIM_WS}]+$`, "g");
 
 function ragContentLength(value) {
   return Array.from(String(value || "").replace(ragTrimRe, "")).length;
+}
+
+function ragParseAliases(text) {
+  const seen = new Set();
+  const out = [];
+  let tooLong = false;
+  for (const part of String(text || "").split(/[,\r\n]+/)) {
+    const a = part.replace(ragTrimRe, "");
+    if (!a) continue;
+    if (Array.from(a).length > RAG_MAX_ALIAS_CHARS) tooLong = true;
+    const key = a.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  let error = "";
+  if (out.length > RAG_MAX_ALIASES) error = "rag.aliases_too_many";
+  else if (tooLong) error = "rag.aliases_too_long";
+  return { aliases: out, error };
 }
 
 const ragState = {
@@ -102,16 +123,44 @@ function ragBusy() {
   return ragState.creating || ragMediaPending() || ragContentPending() || ragState.externalLoading;
 }
 
-function ragContentOverLimit() {
-  return ragState.entries.some((e) => ragContentLength(e.content) > RAG_MAX_CONTENT_CHARS);
+function ragEntryError(entry) {
+  const len = ragContentLength(entry.content);
+  if (len > RAG_MAX_CONTENT_CHARS) {
+    return {
+      key: "rag.content_too_long",
+      params: {
+        max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
+        excess: (len - RAG_MAX_CONTENT_CHARS).toLocaleString(),
+      },
+    };
+  }
+  const parsed = ragParseAliases(entry.aliasesText);
+  if (parsed.error) return { key: parsed.error, params: {} };
+  return null;
+}
+
+function ragFormInvalid() {
+  return ragState.entries.some((e) => ragEntryError(e) !== null);
 }
 
 function ragSyncSaveAvailability() {
-  const disabled = ragBusy() || ragContentOverLimit();
+  const disabled = ragBusy() || ragFormInvalid();
   for (const id of ["rag-create-btn", "rag-download-edited-btn"]) {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = disabled;
   }
+}
+
+function ragUpdateEntryInvalidNav(entry) {
+  const navList = document.getElementById("rag-entry-list");
+  const navBtn = navList ? Array.from(navList.querySelectorAll(".rag-entry-nav"))
+    .find((b) => b.dataset.entryKey === String(entry.key)) : null;
+  if (!navBtn) return;
+  const err = ragEntryError(entry);
+  navBtn.classList.toggle("over-limit", !!err);
+  const label = err ? ragEntryTitle(entry, ragState.entries.indexOf(entry)) + " — " + t(err.key, err.params) : "";
+  navBtn.title = label;
+  navBtn.setAttribute("aria-label", label);
 }
 
 function ragSetCreateDisabled(disabled) {
@@ -353,7 +402,7 @@ async function ragDelete(r) {
 function ragNewEntry() {
   const key = ++ragState.entrySeq;
   ragState.activeEntry = key;
-  return { key, id: 0, term: "", content: "", inputMode: "combined", createdAt: 0, updatedAt: 0, media: {}, mediaPending: false, mediaError: "" };
+  return { key, id: 0, term: "", content: "", inputMode: "combined", aliasesText: "", createdAt: 0, updatedAt: 0, media: {}, mediaPending: false, mediaError: "" };
 }
 
 function ragConfiguredDefault() {
@@ -445,6 +494,7 @@ function ragApplyDetail(detail, displayFilename) {
       term: e.term || "",
       content: e.content || "",
       inputMode: e.input_mode || "combined",
+      aliasesText: (e.aliases || []).join(", "),
       createdAt: Number(e.created_at) || 0,
       updatedAt: Number(e.updated_at) || 0,
       media: {},
@@ -760,13 +810,10 @@ function ragRenderEntries() {
     const btn = ragEl("button", "rag-entry-nav" + (entry.key === ragState.activeEntry ? " active" : ""), "");
     btn.type = "button";
     btn.dataset.entryKey = String(entry.key);
-    const contentLen = ragContentLength(entry.content);
-    if (contentLen > RAG_MAX_CONTENT_CHARS) {
+    const entryErr = ragEntryError(entry);
+    if (entryErr) {
       btn.classList.add("over-limit");
-      btn.title = ragEntryTitle(entry, idx) + " — " + t("rag.content_too_long", {
-        max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
-        excess: (contentLen - RAG_MAX_CONTENT_CHARS).toLocaleString(),
-      });
+      btn.title = ragEntryTitle(entry, idx) + " — " + t(entryErr.key, entryErr.params);
       btn.setAttribute("aria-label", btn.title);
     }
     btn.setAttribute("role", "option");
@@ -791,16 +838,23 @@ function ragRenderEntries() {
 
   const card = ragEl("div", "rag-entry-card");
   const top = ragEl("div", "rag-entry-head");
+  const titleField = ragEl("div", "rag-entry-title-field");
+  const termLabel = ragEl("label", "", t("rag.term_label"));
+  termLabel.setAttribute("for", "rag-term-" + entry.key);
   const term = ragEl("input", "rag-entry-term");
+  term.id = "rag-term-" + entry.key;
   term.type = "text";
   term.placeholder = t("rag.term_placeholder");
   term.maxLength = 256;
   term.value = entry.term;
+  term.setAttribute("aria-describedby", "rag-term-hint-" + entry.key);
   term.addEventListener("input", () => {
     entry.term = term.value;
     ragUpdateEntryNav(entry);
   });
-  top.appendChild(term);
+  titleField.appendChild(termLabel);
+  titleField.appendChild(term);
+  top.appendChild(titleField);
   if (entry.updatedAt) {
     const updatedISO = new Date(entry.updatedAt * 1000).toISOString();
     const stamp = ragEl("span", "rag-entry-updated", t("rag.entry_updated", { date: fmtDate(updatedISO) }));
@@ -840,6 +894,9 @@ function ragRenderEntries() {
 
   const grid = ragEl("div", "rag-entry-grid");
   const textBox = ragEl("div", "rag-entry-text");
+  const termHint = ragEl("div", "form-hint", t("rag.term_hint"));
+  termHint.id = "rag-term-hint-" + entry.key;
+  textBox.appendChild(termHint);
   const modeField = ragEl("label", "rag-input-mode", "");
   modeField.appendChild(ragEl("span", "", t("rag.input_mode_label")));
   const modeSel = ragEl("select", "", "");
@@ -859,6 +916,49 @@ function ragRenderEntries() {
   modeField.appendChild(modeSel);
   textBox.appendChild(modeField);
   textBox.appendChild(ragEl("div", "form-hint", t("rag.input_mode_hint")));
+
+  const aliasId = "rag-aliases-" + entry.key;
+  const aliasHead = ragEl("div", "chat-system-head rag-aliases-head");
+  const aliasLabel = ragEl("label", "", t("rag.aliases_label"));
+  aliasLabel.setAttribute("for", aliasId);
+  aliasHead.appendChild(aliasLabel);
+  const aliasCount = ragEl("span", "rag-content-count rag-alias-count", "");
+  aliasCount.setAttribute("aria-live", "polite");
+  aliasHead.appendChild(aliasCount);
+  textBox.appendChild(aliasHead);
+  const aliasTa = ragEl("textarea", "rag-entry-aliases");
+  aliasTa.id = aliasId;
+  aliasTa.rows = 2;
+  aliasTa.placeholder = t("rag.aliases_placeholder");
+  aliasTa.value = entry.aliasesText || "";
+  aliasTa.setAttribute("aria-describedby", aliasId + "-hint " + aliasId + "-err");
+  const aliasWarn = ragEl("div", "form-hint rag-content-warn", "");
+  aliasWarn.id = aliasId + "-err";
+  aliasWarn.hidden = true;
+  const aliasHint = ragEl("div", "form-hint", "");
+  aliasHint.id = aliasId + "-hint";
+  const syncAliasState = () => {
+    const parsed = ragParseAliases(aliasTa.value);
+    aliasCount.textContent = t("rag.aliases_count", { count: parsed.aliases.length });
+    const over = !!parsed.error;
+    aliasCount.classList.toggle("rag-limit-over", over);
+    aliasTa.classList.toggle("rag-limit-over", over);
+    aliasTa.setAttribute("aria-invalid", over ? "true" : "false");
+    aliasWarn.hidden = !over;
+    aliasWarn.textContent = over ? t(parsed.error) : "";
+    aliasHint.textContent = t("rag.aliases_hint") +
+      (entry.inputMode === "media" ? " " + t("rag.aliases_media_hint") : "");
+    ragUpdateEntryInvalidNav(entry);
+    ragSyncSaveAvailability();
+  };
+  aliasTa.addEventListener("input", () => {
+    entry.aliasesText = aliasTa.value;
+    syncAliasState();
+  });
+  textBox.appendChild(aliasTa);
+  textBox.appendChild(aliasWarn);
+  textBox.appendChild(aliasHint);
+  syncAliasState();
 
   const contentHead = ragEl("div", "chat-system-head rag-content-head");
   const contentLabel = ragEl("label", "", t("rag.content_label"));
@@ -915,17 +1015,7 @@ function ragRenderEntries() {
       max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
       excess: (len - RAG_MAX_CONTENT_CHARS).toLocaleString(),
     }) : "";
-    const navList = document.getElementById("rag-entry-list");
-    const navBtn = navList ? Array.from(navList.querySelectorAll(".rag-entry-nav"))
-      .find((b) => b.dataset.entryKey === String(entry.key)) : null;
-    if (navBtn) {
-      navBtn.classList.toggle("over-limit", over);
-      const label = over
-        ? ragEntryTitle(entry, ragState.entries.indexOf(entry)) + " — " + contentWarn.textContent
-        : "";
-      navBtn.title = label;
-      navBtn.setAttribute("aria-label", label);
-    }
+    ragUpdateEntryInvalidNav(entry);
     ragSyncSaveAvailability();
   };
   content.addEventListener("input", () => {
@@ -1081,15 +1171,22 @@ async function ragSubmitCreate(destination = "local") {
     else if (!media.length && !e.content.trim()) err = t("rag.content_required");
   }
   if (!err) {
-    const overIdx = ragState.entries.findIndex((e) => ragContentLength(e.content) > RAG_MAX_CONTENT_CHARS);
-    if (overIdx >= 0) {
-      const over = ragState.entries[overIdx];
-      err = t("rag.content_too_long_entry", {
-        entry: ragEntryTitle(over, overIdx),
-        max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
-      });
-      ragSetActiveEntry(over.key);
-      document.querySelector("textarea.rag-entry-content")?.focus();
+    const badIdx = ragState.entries.findIndex((e) => ragEntryError(e) !== null);
+    if (badIdx >= 0) {
+      const bad = ragState.entries[badIdx];
+      const badErr = ragEntryError(bad);
+      if (badErr.key === "rag.content_too_long") {
+        err = t("rag.content_too_long_entry", {
+          entry: ragEntryTitle(bad, badIdx),
+          max: RAG_MAX_CONTENT_CHARS.toLocaleString(),
+        });
+      } else {
+        err = ragEntryTitle(bad, badIdx) + ": " + t(badErr.key, badErr.params);
+      }
+      ragSetActiveEntry(bad.key);
+      const focusSel = badErr.key === "rag.aliases_too_many" || badErr.key === "rag.aliases_too_long"
+        ? "textarea.rag-entry-aliases" : "textarea.rag-entry-content";
+      document.querySelector(focusSel)?.focus();
     }
   }
   if (err) {
@@ -1106,6 +1203,7 @@ async function ragSubmitCreate(destination = "local") {
       term: e.term,
       content: e.content,
       input_mode: e.inputMode,
+      aliases: ragParseAliases(e.aliasesText).aliases,
       media: ragEntryMediaList(e).map((m) => (m.existing ? {
         type: m.type,
         name: m.name,

@@ -1067,10 +1067,9 @@ function chatRagRenderSelection() {
     const main = ragEl("div", "chat-rag-item-main");
     const title = ragEl("div", "chat-rag-item-title", info ? (info.name || filename) : filename);
     const description = (info && info.description || "").trim();
-    row.title = description ? `${description}\n${filename}` : filename;
-    const metaText = info
-      ? `${info.embedding_model || "—"} · ${t("rag.entries_count", { count: info.entries || 0 })}`
-      : t("rag.chat_pending");
+    row.title = [description, filename, info && info.embedding_model].filter(Boolean).join("\n");
+    const entries = info ? t("rag.entries_count", { count: info.entries || 0 }) : "";
+    const metaText = !info ? t("rag.chat_pending") : (description ? `${description} · ${entries}` : entries);
     main.appendChild(title);
     main.appendChild(ragEl("div", "chat-rag-item-meta", metaText));
     const remove = ragEl("button", "chat-rag-remove", "×");

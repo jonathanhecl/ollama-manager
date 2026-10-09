@@ -299,6 +299,42 @@ func TestRAGAgentScopeAndDefinitions(t *testing.T) {
 	}
 }
 
+func TestRAGAgentListBasesWithUnreadableBase(t *testing.T) {
+	fake := newFakeOllamaRAGAgent()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+	_, filename := createChatRAGBase(t, dir, "Fruits", "embed-model:latest", "sha256:embed1", 2, []ragpkg.Entry{
+		{Term: "a", Content: "c", Embedding: []float64{1, 0}},
+	})
+	body := ragAgentBody(filename, false)
+	body.RAGPaths = []string{filename, "missing.db"}
+
+	out, _, err := ragToolCall(t, srv, &recordSink{}, body, "rag_list_bases", map[string]any{})
+	if err != nil {
+		t.Fatalf("list_bases with a broken base must not fail: %v", err)
+	}
+	var res struct {
+		Bases []struct {
+			Filename string `json:"filename"`
+			Error    string `json:"error"`
+		} `json:"bases"`
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if res.Total != 2 || len(res.Bases) != 2 {
+		t.Fatalf("bases = %+v", res)
+	}
+	if res.Bases[0].Filename != filename || res.Bases[0].Error != "" {
+		t.Fatalf("valid base = %+v", res.Bases[0])
+	}
+	if res.Bases[1].Filename != "missing.db" || res.Bases[1].Error == "" {
+		t.Fatalf("broken base must report its error: %+v", res.Bases[1])
+	}
+}
+
 func TestRAGAgentReadToolsAndForgedMutationDenied(t *testing.T) {
 	fake := newFakeOllamaRAGAgent()
 	defer fake.Close()

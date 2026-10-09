@@ -28,14 +28,6 @@ func isRAGTool(name string) bool {
 	return false
 }
 
-func isRAGMutation(name string) bool {
-	switch name {
-	case "rag_create_entry", "rag_update_entry", "rag_delete_entry", "rag_update_base":
-		return true
-	}
-	return false
-}
-
 func (s *Server) chatModelCanTools(ctx context.Context, model string) bool {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -682,6 +674,7 @@ func (s *Server) ragToolListBases(ctx context.Context, dir string, sel []string,
 		detail, err := rag.GetContext(ctx, dir, filename)
 		if err != nil {
 			info.Error, _ = cutRunesFlag(err.Error(), 512)
+			truncFlags = append(truncFlags, nil)
 		} else {
 			m := detail.Meta
 			var nameTrunc, descTrunc bool

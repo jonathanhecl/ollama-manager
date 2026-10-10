@@ -662,6 +662,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 	if comfyOn {
 		sysPrompt += "\n\n" + comfySystemPromptSection(s.comfyWorkflows.ListEnabled(), hasVision, body.ComfyWorkflow)
 	}
+	if body.WebTools != nil && *body.WebTools {
+		sysPrompt += "\n\n" + webToolSystemInstruction
+	}
 	if customSystem != "" {
 		sysPrompt += "\n\nAdditional User System Instructions:\n" + customSystem
 	}

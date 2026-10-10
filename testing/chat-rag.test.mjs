@@ -297,6 +297,17 @@ const sandbox = {
     if (url === "/api/rags" && !(opts && opts.method)) {
       return { rags: [{ filename: "a.db" }, { filename: "b.db" }] };
     }
+    if (url === "/api/chat/rags" && !(opts && opts.method)) {
+      return { rags: sandbox._chatRags || [], warnings: [] };
+    }
+    if (String(url).startsWith("/api/chat/rags")) {
+      if (sandbox._failChatUpload) throw new Error("chat upload boom");
+      const n = (sandbox._chatUploads = (sandbox._chatUploads || 0) + 1);
+      const ref = "chat-external-" + n.toString(16).padStart(32, "0") + ".db";
+      const info = { filename: ref, name: "Attach " + n, entries: 1, embedding_model: "embed-model:latest" };
+      (sandbox._chatRags ||= []).push(info);
+      return { rag: info };
+    }
     if (String(url).startsWith("/api/rags/external/open")) {
       if (sandbox._failOpen) throw new Error("open boom");
       return sandbox._externalDetail;
@@ -1114,5 +1125,212 @@ assert.match(svgSrc, /if \(!isImageModel && typeof chatRagOptionPayload === "fun
 assert.match(svgSrc, /payload\.rag_enabled = true;/);
 assert.match(svgSrc, /payload\.rag_paths = ragOpts\.rag_paths;/);
 assert.match(svgSrc, /payload\.rag_editable = ragOpts\.rag_editable;/);
+
+{
+  const ragState = ragEval("ragState");
+  const flush = async () => {
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+  };
+  const mutationCalls = (list) => list.filter((c) => c.opts && c.opts.method &&
+    String(c.opts.method).toUpperCase() !== "GET");
+
+  vm.runInContext(extract(ragSrc, "chatRagFetchList"), sandbox, { filename: "app-rag.js:chatRagFetchList" });
+  vm.runInContext(extract(ragSrc, "chatRagRenderSelection"), sandbox, { filename: "app-rag.js:chatRagRenderSelection" });
+
+  els.clear();
+  toasts.length = 0;
+  createdURLs.length = 0;
+  sandbox._apiCalls = [];
+  sandbox._chatRags = [];
+  sandbox._chatUploads = 0;
+  sandbox._failChatUpload = false;
+  sandbox._failOpen = false;
+  sandbox._failSave = false;
+  for (const id of ["chat-rag-wrap", "chat-rag-panel", "chat-rag-list", "chat-rag",
+    "chat-rag-actions", "chat-rag-file-btn", "chat-rag-file-input",
+    "chat-model", "rag-picker-list", "rag-picker-add",
+    "rag-picker-count", "rags-open-file-btn", "rags-external-file-input",
+    "rag-download-edited-btn", "rag-create-btn", "rag-create-cancel-btn",
+    "rags-back-btn", "rags-new-btn", "rags-reload-btn", "rag-create-box",
+    "rag-entries", "rag-entry-list", "rag-entry-count", "rag-new-name",
+    "rag-new-desc", "rag-new-model", "rag-edit-meta", "rag-create-status",
+    "rag-external-hint", "rags-view", "rags-list-wrap"]) {
+    fakeEl(id);
+  }
+  ragState.list = [];
+  ragState.chatExternalList = [];
+  ragState.entries = [];
+  ragState.activeEntry = 0;
+  ragState.editingFilename = "";
+  ragState.externalFile = null;
+  ragState.externalName = "";
+  ragState.externalLoading = false;
+  ragState.creating = false;
+  sandbox.chatRagEnabled = false;
+  sandbox.chatRagPaths = [];
+  sandbox.chatRagEditable = [];
+  sandbox.location.pathname = "/";
+
+  const fileIn = els.get("chat-rag-file-input");
+  const attachFile = { name: "attach.db", size: 16 };
+  fileIn.value = "C:\\fake\\attach.db";
+  fileIn.files = [attachFile];
+  fileIn.dispatch("change", { target: fileIn });
+  await flush();
+  const ref = sandbox._chatRags[0].filename;
+  assert.match(ref, /^chat-external-[0-9a-f]{32}\.db$/, "chat upload returns an external ref");
+  const uploads = sandbox._apiCalls.filter((c) => String(c.url).startsWith("/api/chat/rags") && c.opts.method === "POST");
+  assert.equal(uploads.length, 1, "chat upload posts to the chat endpoint");
+  assert.equal(uploads[0].opts.body, attachFile, "original file bytes are uploaded");
+  assert.ok(!sandbox._apiCalls.some((c) => String(c.url).includes("/api/rags/import")),
+    "chat upload must not hit the library import endpoint");
+  assert.ok(sandbox.chatRagPaths.includes(ref), "external ref is selected");
+  assert.ok(!(ragState.list || []).some((r) => r.filename === ref), "external ref is not in the managed list");
+  assert.ok(sandbox.chatRagInfo(ref), "chat info resolves from the external list");
+  assert.ok(toasts.some((x) => x.type === "success" && /rag\.loaded_external/.test(x.msg)),
+    "external load toast shown");
+  const metaEl = findDeep(els.get("chat-rag-list"), (c) => c._classes && c._classes.has("chat-rag-item-meta"))[0];
+  assert.ok(metaEl && /rag\.chat_external/.test(metaEl.textContent), "chat row is marked external");
+
+  sandbox.chatRagRenderPicker("");
+  assert.equal(findDeep(els.get("rag-picker-list"),
+    (c) => String(c.dataset && c.dataset.filename) === ref).length, 0,
+    "picker never offers the external attachment");
+
+  await sandbox.chatRagValidateSelection(false);
+  assert.ok(sandbox.chatRagPaths.includes(ref), "list refresh keeps the external selection");
+  assert.deepEqual(Array.from(sandbox.chatRagOptionPayload().rag_paths), [ref], "payload carries the external ref");
+
+  sandbox._apiCalls = [];
+  sandbox.chatRagRemovePath(ref);
+  await flush();
+  assert.equal(sandbox.chatRagPaths.length, 0, "deselect removes the ref");
+  assert.equal(mutationCalls(sandbox._apiCalls).length, 0, "deselect writes nothing");
+
+  sandbox._externalDetail = {
+    filename: "staged-abc.db",
+    size_bytes: 2048,
+    meta: { id: "m1", name: "Ext", description: "d", created_at: 100, updated_at: 200, embedding_model: "embed-multimodal:latest" },
+    entries: [
+      { id: 7, term: "alpha", content: "first", input_mode: "combined", created_at: 100, updated_at: 100 },
+      { id: 8, term: "beta", content: "second", input_mode: "combined", created_at: 100, updated_at: 100 },
+    ],
+  };
+  const extFile = { name: "external.db", size: 2048 };
+  const exits = [
+    { name: "list", cleared: true, run: async () => { ragEval(`ragNav("/rags")`); await flush(); } },
+    { name: "cancel", cleared: true, run: async () => { els.get("rag-create-cancel-btn").dispatch("click", {}); await flush(); } },
+    { name: "back", cleared: false, run: async () => { els.get("rags-back-btn").dispatch("click", {}); await flush(); } },
+    { name: "history", cleared: true, run: async () => { sandbox.location.pathname = "/rags"; await ragEval("showRagsView()"); await flush(); } },
+  ];
+  for (const exit of exits) {
+    sandbox._apiCalls = [];
+    createdURLs.length = 0;
+    ragState.externalFile = null;
+    ragState.externalName = "";
+    ragState.externalLoading = false;
+    ragState.creating = false;
+    ragState.entries = [];
+    ragState.activeEntry = 0;
+    ragState.editingFilename = "";
+    sandbox.location.pathname = "/rags";
+    await sandbox.ragOpenExternalFile(extFile);
+    await flush();
+    assert.equal(ragState.externalFile, extFile, `${exit.name}: external draft loaded`);
+    assert.equal(sandbox.location.pathname, "/rags/external", `${exit.name}: editor route`);
+
+    ragState.entries[0].term = "edited term";
+    ragState.entries[0].content = "edited body";
+    els.get("rag-new-name").value = "Renamed ext";
+    els.get("rag-download-edited-btn").dispatch("click", {});
+    await flush();
+    const saves = sandbox._apiCalls.filter((c) => c.url === "/api/rags/external/save");
+    assert.equal(saves.length, 1, `${exit.name}: exactly one external save`);
+    assert.equal(saves[0].responseType, "blob", `${exit.name}: download asks for a blob`);
+    const fd = saves[0].opts.body;
+    assert.equal(fd.get("destination"), "download", `${exit.name}: download destination`);
+    const changes = JSON.parse(fd.get("changes"));
+    assert.equal(changes.name, "Renamed ext", `${exit.name}: edited name in payload`);
+    assert.equal(changes.entries[0].term, "edited term", `${exit.name}: edited term in payload`);
+    assert.equal(changes.entries[0].content, "edited body", `${exit.name}: edited content in payload`);
+
+    const idx = sandbox._apiCalls.length;
+    await exit.run();
+    assert.equal(mutationCalls(sandbox._apiCalls.slice(idx)).length, 0,
+      `${exit.name}: leaving the editor writes nothing`);
+    assert.ok(!sandbox._apiCalls.some((c) =>
+      c.url === "/api/rags/import" || (c.url === "/api/rags" && c.opts && c.opts.method === "POST") ||
+      (String(c.url).startsWith("/api/rags/") && !String(c.url).includes("external") && c.opts && c.opts.method)),
+      `${exit.name}: no library mutation requests`);
+    if (exit.cleared) {
+      assert.equal(ragState.externalFile, null, `${exit.name}: draft cleared on exit`);
+      assert.equal(ragState.entries.length, 0, `${exit.name}: entries cleared on exit`);
+    } else {
+      sandbox.location.pathname = "/rags";
+      await ragEval("showRagsView()");
+      await flush();
+      assert.equal(ragState.externalFile, null, `${exit.name}: list clears the retained draft`);
+      assert.equal(ragState.entries.length, 0, `${exit.name}: list clears retained entries`);
+      assert.equal(mutationCalls(sandbox._apiCalls.slice(idx)).length, 0,
+        `${exit.name}: clearing the draft writes nothing`);
+    }
+    assert.ok(!sandbox._apiCalls.some((c) =>
+      c.url === "/api/rags/external/save" && c.opts.body.get("destination") === "local"),
+      `${exit.name}: no local import without the explicit button`);
+  }
+
+  const uploadsBefore = sandbox._chatUploads;
+  const editedFile = { name: "edited.db", size: 2048 };
+  fileIn.value = "C:\\fake\\edited.db";
+  fileIn.files = [editedFile];
+  fileIn.dispatch("change", { target: fileIn });
+  await flush();
+  assert.equal(sandbox._chatUploads, uploadsBefore + 1, "re-upload hits the chat endpoint");
+  const ref2 = sandbox._chatRags[sandbox._chatRags.length - 1].filename;
+  assert.ok(sandbox.chatRagPaths.includes(ref2), "edited file attaches as a chat ref");
+  sandbox._apiCalls = [];
+  sandbox.chatRagRemovePath(ref2);
+  await flush();
+  assert.equal(mutationCalls(sandbox._apiCalls).length, 0, "removing the re-uploaded ref writes nothing");
+  assert.equal(ragState.list.filter((r) => /^chat-external-/.test(r.filename || "")).length, 0,
+    "managed list never gains external refs");
+
+  const origApi = sandbox.api;
+  sandbox._apiCalls = [];
+  sandbox.api = async (url, opts, rt) => {
+    if (String(url).startsWith("/api/chat/rags") && opts && opts.method === "POST") {
+      return { rag: { filename: "a.db", name: "Fake" } };
+    }
+    return origApi(url, opts, rt);
+  };
+  const toastBase2 = toasts.length;
+  fileIn.value = "C:\\fake\\sneaky.db";
+  fileIn.files = [{ name: "sneaky.db", size: 4 }];
+  fileIn.dispatch("change", { target: fileIn });
+  await flush();
+  assert.equal(sandbox.chatRagPaths.length, 0, "non-token response is not selected");
+  assert.ok(!sandbox._chatRags.some((r) => r.filename === "a.db"), "managed filename not adopted");
+  assert.ok(toasts.slice(toastBase2).some((x) => x.type === "error"), "reject shows an error toast");
+  assert.ok(!sandbox._apiCalls.some((c) => String(c.url).includes("/api/rags/import")),
+    "reject never touches the library import endpoint");
+  sandbox.api = origApi;
+
+  sandbox.chatRagPaths = [ref];
+  sandbox.chatRagEnabled = true;
+  sandbox._failChatUpload = true;
+  fileIn.value = "C:\\fake\\again.db";
+  fileIn.files = [{ name: "again.db", size: 4 }];
+  fileIn.dispatch("change", { target: fileIn });
+  await flush();
+  sandbox._failChatUpload = false;
+  assert.deepEqual(Array.from(sandbox.chatRagPaths), [ref], "failed upload keeps the existing selection");
+
+  sandbox.chatRagFetchList = async () => {
+    sandbox._ragFetches = (sandbox._ragFetches || 0) + 1;
+    return [{ filename: "a.db" }, { filename: "b.db" }];
+  };
+  sandbox.chatRagRenderSelection = () => { sandbox._ragRenders = (sandbox._ragRenders || 0) + 1; };
+}
 
 console.log("chat-rag.test.mjs: all assertions passed");

@@ -52,6 +52,7 @@ const ragState = {
   entrySeq: 0,
   activeEntry: 0,
   chatListLoaded: false,
+  chatExternalList: [],
   chatImporting: false,
   pickerSelected: new Set(),
   externalFile: null,
@@ -1456,8 +1457,13 @@ async function chatRagSyncSession() {
   }
 }
 
+function isChatExternalRag(filename) {
+  return /^chat-external-[0-9a-f]{32}\.db$/.test(String(filename || ""));
+}
+
 function chatRagInfo(filename) {
-  return (ragState.list || []).find((r) => r.filename === filename) || null;
+  return (ragState.list || []).find((r) => r.filename === filename) ||
+    (ragState.chatExternalList || []).find((r) => r.filename === filename) || null;
 }
 
 function updateChatRagAvailability() {
@@ -1497,7 +1503,8 @@ function chatRagRenderSelection() {
     const description = (info && info.description || "").trim();
     row.title = [description, filename, info && info.embedding_model].filter(Boolean).join("\n");
     const entries = info ? t("rag.entries_count", { count: info.entries || 0 }) : "";
-    const metaText = !info ? t("rag.chat_pending") : (description ? `${description} · ${entries}` : entries);
+    let metaText = !info ? t("rag.chat_pending") : (description ? `${description} · ${entries}` : entries);
+    if (isChatExternalRag(filename)) metaText = `${t("rag.chat_external")} · ${metaText}`;
     main.appendChild(title);
     main.appendChild(ragEl("div", "chat-rag-item-meta", metaText));
     const remove = ragEl("button", "chat-rag-remove", "×");
@@ -1580,14 +1587,15 @@ function chatRagApplyOptions(opts) {
 }
 
 async function chatRagFetchList() {
-  const res = await api("/api/rags");
+  const [res, extRes] = await Promise.all([api("/api/rags"), api("/api/chat/rags")]);
   ragState.list = res.rags || [];
+  ragState.chatExternalList = (extRes.rags || []).filter((r) => isChatExternalRag(String(r && r.filename || "")));
   ragState.warnings = res.warnings || [];
   if (Object.prototype.hasOwnProperty.call(res, "default_embedding")) {
     ragState.defaultEmbedding = res.default_embedding || "";
   }
   ragState.chatListLoaded = true;
-  return ragState.list;
+  return [...ragState.list, ...ragState.chatExternalList];
 }
 
 async function chatRagValidateSelection(syncSession) {
@@ -1724,7 +1732,7 @@ async function chatRagImportFile(file) {
   ragState.chatImporting = true;
   chatRagRenderSelection();
   try {
-    const res = await api(`/api/rags/import?name=${encodeURIComponent(file.name)}`, {
+    const res = await api(`/api/chat/rags?name=${encodeURIComponent(file.name)}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
@@ -1733,12 +1741,14 @@ async function chatRagImportFile(file) {
       body: file,
     });
     const filename = res && res.rag && res.rag.filename;
-    if (!ragSafeFilename(filename)) throw new Error(t("rag.import_bad_response"));
+    if (!ragSafeFilename(filename) || !isChatExternalRag(filename)) throw new Error(t("rag.import_bad_response"));
+    ragState.chatExternalList = (ragState.chatExternalList || [])
+      .filter((r) => r.filename !== filename).concat([res.rag]);
     try {
       await chatRagFetchList();
     } catch { }
     chatRagAddPaths([filename]);
-    toast(t("rag.imported", { name: (res.rag && res.rag.name) || filename }), "success");
+    toast(t("rag.loaded_external", { name: (res.rag && res.rag.name) || filename }), "success");
   } catch (e) {
     toast(String(e && e.message ? e.message : e), "error");
   } finally {

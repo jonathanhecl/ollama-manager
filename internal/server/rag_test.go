@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -958,6 +960,8 @@ func TestRAGRoutesRequireAuth(t *testing.T) {
 		{http.MethodGet, "/api/rags/x.db/media/1/image"},
 		{http.MethodPost, "/api/rags/external/open"},
 		{http.MethodPost, "/api/rags/external/save"},
+		{http.MethodGet, "/api/chat/rags"},
+		{http.MethodPost, "/api/chat/rags"},
 		{http.MethodPut, "/api/rags/x.db"},
 		{http.MethodDelete, "/api/rags/x.db"},
 	} {
@@ -1622,5 +1626,150 @@ func TestRAGSaveAliases(t *testing.T) {
 	entry = det["entries"].([]any)[0].(map[string]any)
 	if got, _ := entry["aliases"].([]any); len(got) != 1 || got[0] != "kw" {
 		t.Fatalf("media entry aliases not persisted: %v", entry["aliases"])
+	}
+}
+
+var chatExternalRefRe = regexp.MustCompile(`^chat-external-[0-9a-f]{32}\.db$`)
+
+func chatRAGUpload(t *testing.T, srv *Server, name string, raw []byte) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/rags?name="+url.QueryEscape(name), bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	var out map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &out)
+	return rr.Code, out
+}
+
+func TestChatRAGExternalUpload(t *testing.T) {
+	fake := newFakeOllamaRAG()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	dir := ragDirOf(t, srv)
+	attachDir := srv.chatRAGDirectory()
+
+	code, out := ragCall(t, srv, http.MethodGet, "/api/chat/rags", nil)
+	if code != http.StatusOK {
+		t.Fatalf("empty list status = %d, body = %v", code, out)
+	}
+	if rags, _ := out["rags"].([]any); len(rags) != 0 {
+		t.Fatalf("empty attachment list = %v", out)
+	}
+
+	raw := makeExternalDB(t)
+	origCopy := append([]byte(nil), raw...)
+	code, out = chatRAGUpload(t, srv, "attach.db", raw)
+	if code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %v", code, out)
+	}
+	info, _ := out["rag"].(map[string]any)
+	ref, _ := info["filename"].(string)
+	if !chatExternalRefRe.MatchString(ref) {
+		t.Fatalf("attachment ref %q does not match the external token shape", ref)
+	}
+	if info["name"] != "External Base" || info["entries"] != float64(2) {
+		t.Fatalf("uploaded info = %v", info)
+	}
+	if got := countDBFiles(t, dir); len(got) != 0 {
+		t.Fatalf("chat upload leaked into managed dir: %v", got)
+	}
+	if got := countDBFiles(t, attachDir); len(got) != 1 || got[0] != ref {
+		t.Fatalf("attachment dir files = %v", got)
+	}
+	if !bytes.Equal(raw, origCopy) {
+		t.Fatal("source bytes mutated")
+	}
+
+	code, out = ragCall(t, srv, http.MethodGet, "/api/chat/rags", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list status = %d", code)
+	}
+	rags, _ := out["rags"].([]any)
+	if len(rags) != 1 || rags[0].(map[string]any)["filename"] != ref {
+		t.Fatalf("chat rag list = %v", out)
+	}
+	code, out = ragCall(t, srv, http.MethodGet, "/api/rags", nil)
+	if code != http.StatusOK {
+		t.Fatalf("managed list status = %d", code)
+	}
+	if rags, _ := out["rags"].([]any); len(rags) != 0 {
+		t.Fatalf("managed list must stay empty: %v", out)
+	}
+	code, _ = ragCall(t, srv, http.MethodGet, "/api/rags/"+ref, nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("library detail for attachment status = %d, want 404", code)
+	}
+
+	infos, _, err := ragpkg.List(attachDir)
+	if err != nil || len(infos) != 1 || infos[0].Filename != ref {
+		t.Fatalf("re-resolved attachment list = %v err=%v", infos, err)
+	}
+
+	sess := srv.chatSessions.Create("chat-model:latest", SessionSettings{
+		RAGEnabled: true, RAGPaths: []string{ref}, RAGEditable: []string{ref},
+	})
+	srv.chatSessions.flush(sess.ID)
+	st2 := newChatSessionStore(filepath.Dir(attachDir))
+	st2.Load()
+	reloaded := st2.Get(sess.ID)
+	if reloaded == nil || !reloaded.Settings.RAGEnabled ||
+		len(reloaded.Settings.RAGPaths) != 1 || reloaded.Settings.RAGPaths[0] != ref ||
+		len(reloaded.Settings.RAGEditable) != 1 || reloaded.Settings.RAGEditable[0] != ref {
+		t.Fatalf("reloaded session settings = %+v", reloaded)
+	}
+	srv2 := &Server{cfg: srv.cfg, chatSessions: st2}
+	code, out = ragCall(t, srv2, http.MethodGet, "/api/chat/rags", nil)
+	if code != http.StatusOK {
+		t.Fatalf("fresh server chat list status = %d", code)
+	}
+	rags, _ = out["rags"].([]any)
+	if len(rags) != 1 || rags[0].(map[string]any)["filename"] != ref {
+		t.Fatalf("fresh server attachment list = %v", out)
+	}
+	code, out = ragCall(t, srv2, http.MethodGet, "/api/rags", nil)
+	if code != http.StatusOK {
+		t.Fatalf("fresh server managed list status = %d", code)
+	}
+	if rags, _ := out["rags"].([]any); len(rags) != 0 {
+		t.Fatalf("fresh server managed list must stay empty: %v", out)
+	}
+	sel, writable := srv2.ragToolScope(chatRequestBody{
+		SessionID:   sess.ID,
+		RAGEnabled:  true,
+		RAGPaths:    []string{ref},
+		RAGEditable: []string{ref},
+	})
+	if len(sel) != 1 || sel[0] != ref || !writable[ref] {
+		t.Fatalf("reloaded scope sel=%v writable=%v", sel, writable)
+	}
+
+	shadow := "chat-external-" + strings.Repeat("0", 32) + ".db"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, shadow), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ragpkg.GetContext(context.Background(), srv.chatRAGDirectoryFor(shadow), shadow); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed token-shaped base must not resolve as an attachment: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, shadow)); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		raw  []byte
+	}{{name: "x.txt", raw: raw}, {name: "broken.db", raw: []byte("not sqlite")}, {name: "empty.db", raw: nil}} {
+		if code, _ := chatRAGUpload(t, srv, tc.name, tc.raw); code != http.StatusBadRequest {
+			t.Fatalf("%s upload status = %d, want 400", tc.name, code)
+		}
+	}
+	if got := countDBFiles(t, dir); len(got) != 0 {
+		t.Fatalf("failed uploads leaked into managed dir: %v", got)
+	}
+	if got := countDBFiles(t, attachDir); len(got) != 1 || got[0] != ref {
+		t.Fatalf("failed uploads left extra attachments: %v", got)
 	}
 }

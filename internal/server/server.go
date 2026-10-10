@@ -363,6 +363,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))
+	mux.Handle("POST /api/settings/secrets/reveal", s.requireAuth(s.handleRevealSecret))
 	mux.Handle("POST /api/config/password", s.requireAuth(s.handleSetPassword))
 
 	mux.Handle("GET /api/system-prompts", s.requireAuth(s.handleListSystemPrompts))

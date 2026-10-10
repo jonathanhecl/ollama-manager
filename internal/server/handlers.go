@@ -12,7 +12,9 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -364,6 +366,73 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"rag_directory":           s.cfg.RAGDirectory(),
 		"version":                 s.versionInfo,
 	})
+}
+
+func (s *Server) handleRevealSecret(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mt != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, errors.New("content type must be application/json"))
+		return
+	}
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "", "same-origin", "none":
+	default:
+		writeError(w, http.StatusForbidden, errors.New("cross-origin request rejected"))
+		return
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
+			(u.Scheme != "http" && u.Scheme != "https") ||
+			!strings.EqualFold(u.Host, r.Host) {
+			writeError(w, http.StatusForbidden, errors.New("cross-origin request rejected"))
+			return
+		}
+	}
+	var body struct {
+		Kind string `json:"kind"`
+		ID   string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid body"))
+		return
+	}
+	var secret string
+	switch body.Kind {
+	case "hf_token":
+		s.cfgMu.RLock()
+		secret = strings.TrimSpace(s.cfg.HFToken)
+		s.cfgMu.RUnlock()
+		if secret == "" {
+			writeError(w, http.StatusNotFound, errors.New("no secret stored"))
+			return
+		}
+	case "external_api_key":
+		if strings.TrimSpace(body.ID) == "" {
+			writeError(w, http.StatusBadRequest, errors.New("missing id"))
+			return
+		}
+		if s.externalModels == nil {
+			writeError(w, http.StatusNotFound, errors.New("external model not found"))
+			return
+		}
+		rec, ok := s.externalModels.Get(body.ID)
+		if !ok {
+			writeError(w, http.StatusNotFound, errors.New("external model not found"))
+			return
+		}
+		secret = strings.TrimSpace(rec.APIKey)
+		if secret == "" {
+			writeError(w, http.StatusNotFound, errors.New("no secret stored"))
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, errors.New("unsupported kind"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"value": secret})
 }
 
 // patchGatewayBody uses pointers so callers can update only the gateway

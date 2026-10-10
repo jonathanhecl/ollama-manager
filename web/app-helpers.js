@@ -434,6 +434,7 @@ function findModelByUrlKey(key) {
 
 function hideAllMainViews() {
   if (typeof stopBatteryPolling === "function") stopBatteryPolling();
+  if (typeof resetSettingsSecretVisibility === "function") resetSettingsSecretVisibility();
   // Leaving the chat throws a quick chat away on purpose, but a persistent
   // session outlives the view: it is still open on the server and still
   // streaming. Wiping it here would drop the transcript the user came back to

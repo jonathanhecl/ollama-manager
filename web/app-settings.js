@@ -72,6 +72,7 @@ async function showSettingsView() {
   bindChatDefaultsEvents();
   bindChatSessionsSettingsEvents();
   bindHuggingFaceEvents();
+  bindSettingsSecretEvents();
   updateHFTokenBadge();
   syncHFTokenInput();
   void loadOllamaKey();
@@ -391,6 +392,7 @@ function bindSettingsNavEvents() {
 }
 
 function showSettingsSection(sectionId, updateUrl = true) {
+  resetSettingsSecretVisibility();
   const settingsView = $("settings-view");
   if (settingsView) {
     settingsView.classList.add("settings-mobile-section-open");
@@ -434,6 +436,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
 }
 
 function showSettingsMobileMenu() {
+  resetSettingsSecretVisibility();
   const settingsView = $("settings-view");
   if (settingsView) {
     settingsView.classList.remove("settings-mobile-section-open");
@@ -465,12 +468,153 @@ window.updateHFTokenBadge = updateHFTokenBadge;
 function syncHFTokenInput() {
   const input = $("set-hf-token");
   if (!input) return;
+  resetSettingsSecretVisibility("set-hf-token");
   input.value = "";
   input.placeholder = currentConfig?.has_hf_token
     ? t("settings.hf_token_saved_placeholder")
     : "hf_...";
 }
 window.syncHFTokenInput = syncHFTokenInput;
+
+const settingsSecretState = new Map();
+
+function settingsSecretRec(inputId) {
+  let r = settingsSecretState.get(inputId);
+  if (!r) {
+    r = { gen: 0, originSaved: false, busy: false };
+    settingsSecretState.set(inputId, r);
+  }
+  return r;
+}
+
+function setSettingsSecretVisible(inputId, visible) {
+  const input = $(inputId);
+  const btn = document.querySelector(`[data-secret-eye="${inputId}"]`);
+  if (input) input.type = visible ? "text" : "password";
+  if (btn) {
+    btn.setAttribute("aria-pressed", visible ? "true" : "false");
+    btn.setAttribute("data-i18n", visible ? "settings.secret_hide" : "settings.secret_show");
+    const label = t(visible ? "settings.secret_hide" : "settings.secret_show");
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    const eye = btn.querySelector(".icon-eye");
+    const off = btn.querySelector(".icon-eye-off");
+    if (eye) { if (visible) eye.setAttribute("hidden", ""); else eye.removeAttribute("hidden"); }
+    if (off) { if (visible) off.removeAttribute("hidden"); else off.setAttribute("hidden", ""); }
+  }
+}
+window.setSettingsSecretVisible = setSettingsSecretVisible;
+
+function getSettingsSecretDraft(inputId) {
+  const input = $(inputId);
+  if (settingsSecretRec(inputId).originSaved) return "";
+  return input ? String(input.value ?? "").trim() : "";
+}
+window.getSettingsSecretDraft = getSettingsSecretDraft;
+
+function resetSettingsSecretVisibility(inputId) {
+  const ids = inputId ? [inputId] : [...settingsSecretState.keys()];
+  for (const id of ids) {
+    const rec = settingsSecretRec(id);
+    rec.gen++;
+    rec.busy = false;
+    if (rec.originSaved) {
+      const input = $(id);
+      if (input) input.value = "";
+      rec.originSaved = false;
+    }
+    setSettingsSecretVisible(id, false);
+    const btn = document.querySelector(`[data-secret-eye="${id}"]`);
+    if (btn) btn.disabled = false;
+  }
+}
+window.resetSettingsSecretVisibility = resetSettingsSecretVisibility;
+
+async function toggleSettingsSecret(inputId) {
+  const input = $(inputId);
+  const rec = settingsSecretRec(inputId);
+  if (!input || rec.busy) return;
+  const btn = document.querySelector(`[data-secret-eye="${inputId}"]`);
+  if (input.type === "text") {
+    rec.gen++;
+    if (rec.originSaved) {
+      input.value = "";
+      rec.originSaved = false;
+    }
+    setSettingsSecretVisible(inputId, false);
+    return;
+  }
+  if (input.value !== "" || inputId === "hf-ollama-key") {
+    setSettingsSecretVisible(inputId, true);
+    return;
+  }
+  const kind = inputId === "set-hf-token" ? "hf_token" : inputId === "ext-model-apikey" ? "external_api_key" : "";
+  if (!kind) return;
+  let body;
+  if (kind === "hf_token") {
+    if (!currentConfig?.has_hf_token) return;
+    body = { kind };
+  } else {
+    if (!editingExtModel || !editingExtModel.api_key) return;
+    body = { kind, id: editingExtModel.id || editingExtModel.name };
+  }
+  const gen = ++rec.gen;
+  rec.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api("/api/settings/secrets/reveal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (settingsSecretRec(inputId).gen !== gen) return;
+    if (kind === "external_api_key") {
+      const still = editingExtModel ? (editingExtModel.id || editingExtModel.name) : "";
+      if (still !== body.id) return;
+    }
+    input.value = res.value || "";
+    rec.originSaved = true;
+    setSettingsSecretVisible(inputId, true);
+    rec.busy = false;
+    if (btn) btn.disabled = false;
+  } catch (e) {
+    if (settingsSecretRec(inputId).gen === gen) {
+      rec.busy = false;
+      if (btn) btn.disabled = false;
+      toast(t("toast.error", { msg: e.message }), "error");
+    }
+  }
+}
+window.toggleSettingsSecret = toggleSettingsSecret;
+
+function bindSettingsSecretEvents() {
+  document.querySelectorAll("[data-secret-eye]").forEach((btn) => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.addEventListener("click", () => { void toggleSettingsSecret(btn.dataset.secretEye); });
+  });
+  ["set-hf-token", "ext-model-apikey"].forEach((id) => {
+    const input = $(id);
+    if (input && !input._secretBound) {
+      input._secretBound = true;
+      input.addEventListener("input", () => {
+        const rec = settingsSecretRec(id);
+        rec.originSaved = false;
+        rec.gen++;
+        rec.busy = false;
+        const btn = document.querySelector(`[data-secret-eye="${id}"]`);
+        if (btn) btn.disabled = false;
+      });
+    }
+  });
+  if (!document._secretVisBound) {
+    document._secretVisBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") resetSettingsSecretVisibility();
+    });
+  }
+}
+window.bindSettingsSecretEvents = bindSettingsSecretEvents;
 
 function openHuggingFaceSettings() {
   const go = async () => {
@@ -528,6 +672,7 @@ function bindHuggingFaceEvents() {
   if (clearBtn && !clearBtn._bound) {
     clearBtn._bound = true;
     clearBtn.addEventListener("click", async () => {
+      resetSettingsSecretVisibility("set-hf-token");
       try {
         const res = await api("/api/config", {
           method: "PATCH",
@@ -1369,8 +1514,9 @@ function editExternalModel(m) {
   }
   if (urlInput) urlInput.value = m.url;
   if (keyInput) {
+    resetSettingsSecretVisibility("ext-model-apikey");
     keyInput.value = "";
-    keyInput.placeholder = m.api_key ? "•••••••• (Keep existing key / Mantener clave)" : (t("settings.ext_model_apikey_placeholder") || "Bearer token or secret key");
+    keyInput.placeholder = m.api_key ? "******** (Keep existing key / Mantener clave)" : (t("settings.ext_model_apikey_placeholder") || "Bearer token or secret key");
   }
   if (cancelBtn) cancelBtn.hidden = false;
   if (addBtn) addBtn.textContent = t("settings.ext_model_save_btn");
@@ -1420,6 +1566,7 @@ function cancelEditExternalModel() {
   if (nameInput) nameInput.value = "";
   if (urlInput) urlInput.value = "";
   if (keyInput) {
+    resetSettingsSecretVisibility("ext-model-apikey");
     keyInput.value = "";
     keyInput.placeholder = t("settings.ext_model_apikey_placeholder") || "Bearer token or secret key";
   }
@@ -1461,8 +1608,9 @@ function cloneExternalModel(m) {
   }
   if (urlInput) urlInput.value = m.url;
   if (keyInput) {
+    resetSettingsSecretVisibility("ext-model-apikey");
     keyInput.value = "";
-    keyInput.placeholder = m.api_key ? "•••••••• (Keep existing key / Mantener clave)" : (t("settings.ext_model_apikey_placeholder") || "Bearer token or secret key");
+    keyInput.placeholder = m.api_key ? "******** (Keep existing key / Mantener clave)" : (t("settings.ext_model_apikey_placeholder") || "Bearer token or secret key");
   }
   if (cancelBtn) cancelBtn.hidden = false;
 
@@ -1668,7 +1816,7 @@ async function testExternalModel() {
 
   const name = nameInput ? nameInput.value.trim() : "";
   const url = urlInput ? urlInput.value.trim() : "";
-  const apiKey = keyInput ? keyInput.value.trim() : "";
+  const apiKey = getSettingsSecretDraft("ext-model-apikey");
 
   if (!url) {
     toast(t("settings.ext_model_url") + " required", "error");
@@ -1741,7 +1889,7 @@ async function addExternalModel() {
 
   const name = nameInput ? nameInput.value.trim() : "";
   const url = urlInput ? urlInput.value.trim() : "";
-  const apiKey = keyInput ? keyInput.value.trim() : "";
+  const apiKey = getSettingsSecretDraft("ext-model-apikey");
 
   if (!name || !url) {
     toast(t("settings.ext_model_name") + " & " + t("settings.ext_model_url") + " required", "error");

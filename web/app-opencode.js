@@ -483,7 +483,9 @@ $("settings-save").addEventListener("click", async () => {
   };
   // Only send the token when the user typed a new one; leaving the field
   // empty must not wipe an already-saved token (use "Remove" for that).
-  const hfToken = ($("set-hf-token")?.value ?? "").trim();
+  const hfToken = typeof getSettingsSecretDraft === "function"
+    ? getSettingsSecretDraft("set-hf-token")
+    : ($("set-hf-token")?.value ?? "").trim();
   if (hfToken) body.hf_token = hfToken;
   try {
     const res = await api("/api/config", {
@@ -501,6 +503,7 @@ $("settings-save").addEventListener("click", async () => {
       // "(saved)" placeholder instead.
       const hfInput = $("set-hf-token");
       if (hfInput) hfInput.placeholder = t("settings.hf_token_saved_placeholder");
+      if (typeof setSettingsSecretVisible === "function") setSettingsSecretVisible("set-hf-token", false);
       if (typeof window.updateHFTokenBadge === "function") window.updateHFTokenBadge();
     }
 

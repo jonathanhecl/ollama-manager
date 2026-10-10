@@ -2041,6 +2041,10 @@
                 <label for="set-hf-token" data-i18n="settings.hf_token">Access token</label>
                 <div class="input-with-action">
                   <input id="set-hf-token" type="password" autocomplete="new-password" spellcheck="false" placeholder="hf_...">
+                  <button id="set-hf-token-eye" class="ghost secret-eye" type="button" data-secret-eye="set-hf-token" aria-controls="set-hf-token" aria-pressed="false" aria-label="Show value" data-i18n-attr="title aria-label" data-i18n="settings.secret_show" title="Show value">
+                    <svg class="icon-eye" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg class="icon-eye-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  </button>
                   <button id="hf-token-clear-btn" class="ghost danger-text" data-i18n="settings.hf_token_clear">Remove</button>
                 </div>
                 <small class="muted" data-i18n="settings.hf_token_field_hint">Create a read token at huggingface.co/settings/tokens. It is stored locally and only sent to huggingface.co.</small>
@@ -2053,7 +2057,11 @@
               <div class="field">
                 <label for="hf-ollama-key" data-i18n="settings.hf_key_label">Ollama public key</label>
                 <div class="input-with-action">
-                  <input id="hf-ollama-key" class="mono" type="text" readonly value="">
+                  <input id="hf-ollama-key" class="mono" type="password" readonly value="">
+                  <button id="hf-ollama-key-eye" class="ghost secret-eye" type="button" data-secret-eye="hf-ollama-key" aria-controls="hf-ollama-key" aria-pressed="false" aria-label="Show value" data-i18n-attr="title aria-label" data-i18n="settings.secret_show" title="Show value">
+                    <svg class="icon-eye" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg class="icon-eye-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  </button>
                   <button id="hf-ollama-key-copy" class="ghost" data-i18n="settings.hf_key_copy">Copy</button>
                 </div>
                 <small class="muted mono" id="hf-ollama-key-note"></small>
@@ -2318,7 +2326,13 @@
               </div>
               <div class="field">
                 <label for="ext-model-apikey" data-i18n="settings.ext_model_apikey">API Key (optional)</label>
-                <input id="ext-model-apikey" type="text" class="input-masked" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_apikey_placeholder" placeholder="Bearer token or secret key">
+                <div class="input-with-action">
+                  <input id="ext-model-apikey" type="password" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" data-i18n-attr="placeholder" data-i18n="settings.ext_model_apikey_placeholder" placeholder="Bearer token or secret key">
+                  <button id="ext-model-apikey-eye" class="ghost secret-eye" type="button" data-secret-eye="ext-model-apikey" aria-controls="ext-model-apikey" aria-pressed="false" aria-label="Show value" data-i18n-attr="title aria-label" data-i18n="settings.secret_show" title="Show value">
+                    <svg class="icon-eye" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg class="icon-eye-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  </button>
+                </div>
               </div>
               <div class="ext-model-actions">
                 <button type="button" id="ext-model-test-btn" class="ghost ext-test-btn" data-i18n="settings.ext_model_test_btn">Test &amp; Detect Capabilities</button>

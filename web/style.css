@@ -1873,6 +1873,17 @@ select:focus { border-color: var(--accent); }
 .input-with-action button {
   flex-shrink: 0;
 }
+.secret-eye {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.secret-eye svg {
+  display: block;
+}
 .pwd-clear {
   margin-top: 8px;
   font-size: 12px;

@@ -127,6 +127,25 @@ type speedSample struct {
 	value float64   `json:"-"`
 }
 
+// HFRecoveryFile is one GGUF file a recovery run must place in the Ollama
+// blob store. Digest is the lowercase hex sha256 (no "sha256:" prefix).
+type HFRecoveryFile struct {
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+	Digest   string `json:"digest"`
+}
+
+// HFRecoverySpec is the persisted plan for recovering a failed Hugging Face
+// pull: download the missing blobs directly from HF (with the configured
+// token), reuse the ones already in the blob store, then create the model.
+// It never carries credentials.
+type HFRecoverySpec struct {
+	Repo      string           `json:"repo"`     // "owner/name"
+	Revision  string           `json:"revision"` // 40-hex commit sha
+	Files     []HFRecoveryFile `json:"files"`
+	Projector *HFRecoveryFile  `json:"projector,omitempty"`
+}
+
 // Job is a single model download tracked by the manager.
 type Job struct {
 	ID         string    `json:"id"`
@@ -142,6 +161,12 @@ type Job struct {
 	Digest     string    `json:"digest,omitempty"`
 	StatusText string    `json:"status_text,omitempty"`
 	Error      string    `json:"error,omitempty"`
+
+	// Recovery, when set, makes this job run the HF blob-recovery path
+	// instead of a native /api/pull. OriginalError keeps the error that
+	// made the original pull fail so a recovery failure can report both.
+	Recovery      *HFRecoverySpec `json:"recovery,omitempty"`
+	OriginalError string          `json:"original_error,omitempty"`
 
 	// cancel is set while the job is running so Cancel() can abort the
 	// underlying /api/pull stream.
@@ -216,6 +241,11 @@ type Manager struct {
 	history     map[string]*DownloadHistory
 	ollama      *ollama.Client
 	logger      *log.Logger
+
+	// recoveryRunner executes a job that carries a HFRecoverySpec. It is
+	// injected by the server package (which owns the HF token and the blob
+	// upload path) so this package stays free of HTTP/HF details.
+	recoveryRunner func(ctx context.Context, name string, spec HFRecoverySpec, onProgress func(ollama.PullProgress) error) error
 
 	subsMu  sync.Mutex
 	subs    map[int64]chan Event
@@ -339,6 +369,26 @@ func (m *Manager) Start() {
 	m.tryStartNextLocked()
 }
 
+// SetRecoveryRunner installs the function used to execute jobs that carry a
+// HFRecoverySpec. Call it before Start() so specs restored from disk run
+// through recovery instead of the native pull.
+func (m *Manager) SetRecoveryRunner(fn func(ctx context.Context, name string, spec HFRecoverySpec, onProgress func(ollama.PullProgress) error) error) {
+	m.mu.Lock()
+	m.recoveryRunner = fn
+	m.mu.Unlock()
+}
+
+// Get returns a snapshot of one job by id.
+func (m *Manager) Get(id string) (Job, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok || j == nil {
+		return Job{}, false
+	}
+	return j.clone(), true
+}
+
 // List returns a snapshot of all jobs in insertion order.
 func (m *Manager) List() []Job {
 	m.mu.Lock()
@@ -397,6 +447,10 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 			j.StatusText = ""
 			j.Error = ""
 			j.Digest = ""
+			// A plain retry always means "run the native pull again":
+			// recovery mode is only entered through Recover().
+			j.Recovery = nil
+			j.OriginalError = ""
 			m.order = removeString(m.order, id)
 			m.order = append(m.order, id)
 			snap := j.clone()
@@ -426,6 +480,54 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 		CreatedAt: time.Now().UTC(),
 	}
 	m.jobs[id] = j
+	m.order = append(m.order, id)
+	snap := j.clone()
+	m.tryStartNextLocked()
+	if err := m.saveLocked(); err != nil {
+		m.logger.Printf("jobs: save failed: %v", err)
+	}
+	m.mu.Unlock()
+	m.broadcast(Event{Kind: EventUpdate, Job: &snap})
+	return snap, nil
+}
+
+// Recover requeues a failed job so it runs through the HF recovery runner
+// instead of the native pull. The job must currently be in StatusError; the
+// spec is persisted with the job so recovery survives restarts. The job
+// keeps its id/name/queue slot semantics (moved to the end of the queue).
+func (m *Manager) Recover(id string, spec HFRecoverySpec) (Job, error) {
+	m.mu.Lock()
+	j, ok := m.jobs[id]
+	if !ok || j == nil {
+		m.mu.Unlock()
+		return Job{}, errors.New("job not found")
+	}
+	if j.Status != StatusError {
+		snap := j.clone()
+		m.mu.Unlock()
+		return snap, fmt.Errorf("job is %s", j.Status)
+	}
+	if j.OriginalError == "" {
+		j.OriginalError = j.Error
+	}
+	specCopy := spec
+	j.Recovery = &specCopy
+	if m.queuePaused {
+		j.Status = StatusPaused
+	} else {
+		j.Status = StatusQueued
+	}
+	j.CreatedAt = time.Now().UTC()
+	j.StartedAt = time.Time{}
+	j.FinishedAt = time.Time{}
+	j.Completed = 0
+	j.Total = 0
+	j.Percent = 0
+	j.Speed = 0
+	j.StatusText = ""
+	j.Error = ""
+	j.Digest = ""
+	m.order = removeString(m.order, id)
 	m.order = append(m.order, id)
 	snap := j.clone()
 	m.tryStartNextLocked()
@@ -786,8 +888,7 @@ func (m *Manager) run(ctx context.Context, id string) {
 	var lastEmit time.Time
 	const emitEvery = 250 * time.Millisecond
 
-	doPull := func(pullName string) error {
-		return m.ollama.Pull(ctx, pullName, func(ev ollama.PullProgress) error {
+	onProgress := func(ev ollama.PullProgress) error {
 		m.mu.Lock()
 		j := m.jobs[id]
 		if j == nil {
@@ -853,13 +954,28 @@ func (m *Manager) run(ctx context.Context, id string) {
 		m.mu.Unlock()
 		m.broadcast(Event{Kind: EventUpdate, Job: &cp})
 		return nil
-		})
 	}
 
-	err := doPull(name)
+	doPull := func(pullName string) error {
+		return m.ollama.Pull(ctx, pullName, onProgress)
+	}
+
+	var err error
+	if spec := startJob.Recovery; spec != nil {
+		m.mu.Lock()
+		runner := m.recoveryRunner
+		m.mu.Unlock()
+		if runner == nil {
+			err = errors.New("HF recovery runner is not configured")
+		} else {
+			err = runner(ctx, name, *spec, onProgress)
+		}
+	} else {
+		err = doPull(name)
+	}
 	// Auto-fix for ollama/ollama#15661: if Ollama rejects hf.co with a
 	// realm host mismatch, retry once with the alternate HF host.
-	if isRealmHostMismatch(err) && ctx.Err() == nil {
+	if startJob.Recovery == nil && isRealmHostMismatch(err) && ctx.Err() == nil {
 		if alt := alternateHFHost(name); alt != "" && !strings.EqualFold(alt, name) {
 			m.logger.Printf("jobs: realm host mismatch for %q, retrying as %q", name, alt)
 			m.mu.Lock()
@@ -922,6 +1038,10 @@ func (m *Manager) run(ctx context.Context, id string) {
 			j.Speed = 0
 			j.speedSamples = nil
 			j.Error = err.Error()
+			if j.Recovery != nil && j.OriginalError != "" {
+				j.Error = "HF recovery: " + boundErrText(err.Error()) +
+					"; original pull: " + boundErrText(j.OriginalError)
+			}
 		}
 		m.recordHistoryLocked(j.Name, j.Status, j.Error, j.FinishedAt)
 	}
@@ -1028,6 +1148,22 @@ func (m *Manager) Shutdown() {
 		}
 	}
 	m.mu.Unlock()
+}
+
+// boundErrText flattens an error message to a single line and caps it so a
+// verbose upstream error cannot flood the job card.
+func boundErrText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, s)
+	const max = 400
+	if len(s) > max {
+		s = s[:max] + "…"
+	}
+	return strings.TrimSpace(s)
 }
 
 // newID returns a short random hex id.

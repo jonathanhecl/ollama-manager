@@ -86,3 +86,5 @@ If the response ends with only `generating` entries (no real tool execution comp
 
 - `go test ./internal/rag ./internal/server -run 'RAG|Rag|Search|AugmentPreserves|ChatSession|Agent|Mutate'` — RAG package, chat retrieval, agent tools, mutations, and session coverage.
 - `node --test testing/chat-rag.test.mjs` — frontend RAG chat behavior (warning events, selection gating, payload forwarding).
+- `go test ./internal/jobs ./internal/server -run 'HFRecovery|HfRecovery|ParseHFJobName|Recover|Recovery'` — HF recovery queueing, preview, blob reuse/download, redirect policy and create.
+- `node --test testing/hf-recovery.test.mjs` — frontend HF recovery card/modal behavior (button gating, preview-before-POST, selection, error handling).

@@ -127,7 +127,6 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 	if err := jobMgr.Load(); err != nil {
 		log.Printf("jobs: could not load %s: %v", jobsPath, err)
 	}
-	jobMgr.Start()
 	uninst := newUninstallHistoryStore(uninstallPath)
 	if err := uninst.Load(); err != nil {
 		log.Printf("uninstall-history: could not load %s: %v", uninstallPath, err)
@@ -252,6 +251,11 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		}
 		return rec.RecordTokensPerSec, true
 	})
+	// The HF recovery runner lives on Server (it needs the configured token
+	// and the blob upload path). It must be registered before Start() so a
+	// recovery job restored from jobs.json runs through recovery.
+	jobMgr.SetRecoveryRunner(srv.runHFRecovery)
+	jobMgr.Start()
 	return srv, nil
 }
 
@@ -342,6 +346,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/jobs/{id}/pause", s.requireAuth(s.handleJobPause))
 	mux.Handle("POST /api/jobs/{id}/resume", s.requireAuth(s.handleJobResume))
 	mux.Handle("POST /api/jobs/{id}/promote", s.requireAuth(s.handleJobPromote))
+	mux.Handle("GET /api/jobs/{id}/hf-recovery", s.requireAuth(s.handleHFRecovery))
+	mux.Handle("POST /api/jobs/{id}/hf-recovery", s.requireAuth(s.handleHFRecovery))
 	mux.Handle("DELETE /api/jobs/{id}", s.requireAuth(s.handleJobRemove))
 
 	mux.Handle("GET /api/rags", s.requireAuth(s.handleListRAGs))

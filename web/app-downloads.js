@@ -407,8 +407,12 @@ function jobCardHTML(j) {
       <button class="ghost dl-resume" data-action="resume" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.resume"))}">▶</button>
       <button class="btn-icon" data-action="cancel" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.cancel"))}">×</button>`;
   } else if (j.status === "error" || j.status === "cancelled") {
+    const hfRecoverBtn = hfJobRecoverable(j)
+      ? `<button class="ghost dl-recover" data-action="hf-recover" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.hf_recover"))}">${escapeHtml(t("downloads.hf_recover"))}</button>`
+      : "";
     actionBtn = `
       ${siteBtn}
+      ${hfRecoverBtn}
       <button class="ghost dl-retry" data-action="retry" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.retry"))}">↻</button>
       <button class="btn-icon" data-action="remove" data-id="${escapeHtml(j.id)}" title="${escapeHtml(t("downloads.remove"))}">×</button>`;
   } else {
@@ -592,6 +596,8 @@ $("downloads-modal").addEventListener("click", async (e) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: j.name }),
         });
+      } else if (action === "hf-recover") {
+        await openHFRecoveryModal(id);
       }
     } catch (err) {
       toast(t("toast.error", { msg: err.message }), "error");
@@ -638,6 +644,194 @@ $("dl-resume-btn").addEventListener("click", async () => {
     await refreshJobs();
   } catch (err) {
     toast(t("toast.error", { msg: err.message }), "error");
+  }
+});
+
+// ---------- HF recovery ----------
+//
+// A failed `ollama pull huggingface.co/owner/repo[:tag]` cannot be retried
+// with the configured HF token (Ollama authenticates with its own key). The
+// recovery action previews what can be reused from the local blob store and
+// what must be downloaded with the token, then queues a recovery job on the
+// same download card.
+
+function hfJobRecoverable(j) {
+  if (!j || j.status !== "error" || !j.name) return false;
+  const s = String(j.name).trim().replace(/^https?:\/\//i, "");
+  return /^(hf\.co|huggingface\.co)\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*(:[^\s/:]+)?$/i.test(s);
+}
+
+let hfRecoveryState = null;
+
+function closeHFRecoveryModal() {
+  const modal = $("hf-recovery-modal");
+  if (modal) modal.hidden = true;
+  hfRecoveryState = null;
+}
+
+async function openHFRecoveryModal(jobId) {
+  const modal = $("hf-recovery-modal");
+  if (!modal) return;
+  const j = jobs.get(jobId);
+  if (!j || !hfJobRecoverable(j)) return;
+  hfRecoveryState = { jobId, name: j.name, preview: null, selected: "", projector: "", busy: false };
+  renderHFRecoveryBody();
+  modal.hidden = false;
+  try {
+    const preview = await api(`/api/jobs/${encodeURIComponent(jobId)}/hf-recovery`);
+    if (!hfRecoveryState || hfRecoveryState.jobId !== jobId) return;
+    hfRecoveryState.preview = preview;
+    hfRecoveryState.selected = preview.selected_filename || "";
+    hfRecoveryState.projector = "";
+  } catch (err) {
+    if (!hfRecoveryState || hfRecoveryState.jobId !== jobId) return;
+    hfRecoveryState.error = err.message;
+  }
+  renderHFRecoveryBody();
+}
+
+// Totals for the currently selected model option + optional projector.
+function hfRecoveryTotals() {
+  const st = hfRecoveryState;
+  const totals = { reused: 0, missing: 0, total: 0 };
+  if (!st || !st.preview) return totals;
+  const opt = (st.preview.options || []).find((o) => o.filename === st.selected);
+  const files = [];
+  if (opt) files.push(...(opt.files || []));
+  if (st.projector) {
+    const p = (st.preview.projectors || []).find((x) => x.filename === st.projector);
+    if (p) files.push(p);
+  }
+  for (const f of files) {
+    totals.total += f.size || 0;
+    if (f.exists) totals.reused += f.size || 0;
+    else totals.missing += f.size || 0;
+  }
+  return totals;
+}
+
+function hfRecoveryFileRow(f) {
+  const badge = f.exists
+    ? `<span class="dl-badge-installed">${escapeHtml(t("downloads.hf_recover_reused_badge"))}</span>`
+    : `<span class="dl-badge-error">${escapeHtml(t("downloads.hf_recover_missing_badge"))}</span>`;
+  return `<div class="dl-hist-stats mono" style="display:flex;gap:8px;align-items:center;"><span>${escapeHtml(f.filename)}</span><span class="muted">${escapeHtml(fmtBytes(f.size || 0))}</span>${badge}</div>`;
+}
+
+function renderHFRecoveryBody() {
+  const body = $("hf-recovery-body");
+  const confirm = $("hf-recovery-confirm");
+  if (!body || !confirm) return;
+  const st = hfRecoveryState;
+  if (!st) { body.innerHTML = ""; confirm.disabled = true; return; }
+  if (st.busy) { confirm.disabled = true; return; }
+  if (st.error) {
+    body.innerHTML = `<div class="dl-error">${escapeHtml(t("downloads.hf_recover_error", { msg: st.error }))}</div>`;
+    confirm.disabled = true;
+    return;
+  }
+  if (!st.preview) {
+    body.innerHTML = `<div class="muted">${escapeHtml(t("downloads.hf_recover_loading"))}</div>`;
+    confirm.disabled = true;
+    return;
+  }
+  const p = st.preview;
+  const options = Array.isArray(p.options) ? p.options : [];
+  const projectors = Array.isArray(p.projectors) ? p.projectors : [];
+
+  const optsHtml = options.map((o) => {
+    const filesHtml = (o.files || []).map(hfRecoveryFileRow).join("");
+    const checked = o.filename === st.selected ? " checked" : "";
+    return `
+      <label class="dl-history-alert-card" style="display:block;cursor:pointer;">
+        <div class="dl-hist-head">
+          <span><input type="radio" name="hf-rec-model" value="${escapeHtml(o.filename)}"${checked}> <span class="mono">${escapeHtml(o.filename)}</span></span>
+          <span class="dl-hist-badge dl-badge-tested">${escapeHtml(o.quant || "")} · ${escapeHtml(fmtBytes(o.total_bytes || 0))}</span>
+        </div>
+        ${filesHtml}
+      </label>`;
+  }).join("");
+
+  const projOptions = [`<option value="">${escapeHtml(t("downloads.hf_recover_projector_none"))}</option>`]
+    .concat(projectors.map((pr) => `<option value="${escapeHtml(pr.filename)}"${pr.filename === st.projector ? " selected" : ""}>${escapeHtml(pr.filename)} (${escapeHtml(fmtBytes(pr.size || 0))}${pr.exists ? " · " + escapeHtml(t("downloads.hf_recover_reused_badge")) : ""})</option>`))
+    .join("");
+
+  body.innerHTML = `
+    <div class="muted small">${escapeHtml(p.repo)} @ <span class="mono">${escapeHtml(String(p.revision || "").slice(0, 12))}</span></div>
+    <div style="margin-top:8px;font-weight:600;">${escapeHtml(t("downloads.hf_recover_model"))}</div>
+    <div class="dl-history-alert-wrap">${optsHtml || `<div class="muted">${escapeHtml(t("downloads.hf_recover_select"))}</div>`}</div>
+    <div style="margin-top:8px;font-weight:600;">${escapeHtml(t("downloads.hf_recover_projector"))}</div>
+    <select id="hf-rec-proj" style="margin-top:4px;max-width:100%;">${projOptions}</select>
+    <div class="muted small" style="margin-top:4px;">${escapeHtml(t("downloads.hf_recover_projector_hint"))}</div>
+    <div id="hf-rec-summary" class="mono" style="margin-top:10px;"></div>
+    <div class="muted small" style="margin-top:6px;">${escapeHtml(t("downloads.hf_recover_caveat"))}</div>
+    ${p.has_token ? "" : `<div class="muted small" style="margin-top:6px;">${escapeHtml(t("downloads.hf_recover_auth"))} <button type="button" class="ghost" onclick="openHuggingFaceSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button></div>`}
+  `;
+  updateHFRecoverySummary();
+}
+
+function updateHFRecoverySummary() {
+  const st = hfRecoveryState;
+  const el = $("hf-rec-summary");
+  const confirm = $("hf-recovery-confirm");
+  if (!st || !st.preview || !el || !confirm) return;
+  const totals = hfRecoveryTotals();
+  const valid = !!st.selected && totals.total > 0;
+  el.textContent = valid
+    ? `${t("downloads.hf_recover_reused", { size: fmtBytes(totals.reused) })} · ${t("downloads.hf_recover_download", { size: fmtBytes(totals.missing) })} · ${t("downloads.hf_recover_total", { size: fmtBytes(totals.total) })}`
+    : t("downloads.hf_recover_select");
+  confirm.disabled = st.busy || !valid;
+}
+
+async function submitHFRecovery() {
+  const st = hfRecoveryState;
+  if (!st || st.busy || !st.preview || !st.selected) return;
+  st.busy = true;
+  updateHFRecoverySummary();
+  const confirm = $("hf-recovery-confirm");
+  if (confirm) confirm.disabled = true;
+  try {
+    const res = await api(`/api/jobs/${encodeURIComponent(st.jobId)}/hf-recovery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        revision: st.preview.revision,
+        filename: st.selected,
+        projector: st.projector || "",
+      }),
+    });
+    const name = res && res.name ? res.name : st.name;
+    closeHFRecoveryModal();
+    toast(t("downloads.hf_recover_queued", { name }), "success");
+    await refreshJobs();
+  } catch (err) {
+    if (hfRecoveryState === st) {
+      st.busy = false;
+      updateHFRecoverySummary();
+    }
+    toast(t("toast.error", { msg: err.message }), "error");
+  }
+}
+
+$("hf-recovery-x").addEventListener("click", closeHFRecoveryModal);
+$("hf-recovery-close").addEventListener("click", closeHFRecoveryModal);
+$("hf-recovery-confirm").addEventListener("click", submitHFRecovery);
+$("hf-recovery-modal").addEventListener("click", (e) => {
+  if (e.target === $("hf-recovery-modal")) closeHFRecoveryModal();
+});
+$("hf-recovery-modal").addEventListener("change", (e) => {
+  const st = hfRecoveryState;
+  if (!st) return;
+  if (e.target && e.target.name === "hf-rec-model") {
+    st.selected = e.target.value;
+    updateHFRecoverySummary();
+  } else if (e.target && e.target.id === "hf-rec-proj") {
+    st.projector = e.target.value;
+    updateHFRecoverySummary();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && hfRecoveryState && $("hf-recovery-modal") && !$("hf-recovery-modal").hidden) {
+    closeHFRecoveryModal();
   }
 });
 

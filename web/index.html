@@ -1678,12 +1678,12 @@
   </div>
 
   <div id="hf-recovery-modal" class="modal" hidden>
-    <div class="modal-card repair-modal-card">
+    <div class="modal-card repair-modal-card" role="dialog" aria-modal="true" aria-labelledby="hf-recovery-title">
       <header class="repair-modal-head">
-        <h2 data-i18n="downloads.hf_recover_title">Recover via HuggingFace</h2>
+        <h2 id="hf-recovery-title" data-i18n="downloads.hf_recover_title">Recover via HuggingFace</h2>
         <button id="hf-recovery-x" class="btn-icon" data-i18n-attr="title" data-i18n="action.close" title="Close">×</button>
       </header>
-      <div id="hf-recovery-body" class="repair-modal-body"></div>
+      <div id="hf-recovery-body" class="repair-modal-body" style="min-width:0;overflow-wrap:anywhere;"></div>
       <footer class="repair-modal-foot">
         <button id="hf-recovery-confirm" class="primary" data-i18n="downloads.hf_recover_confirm" disabled>Recover</button>
         <button id="hf-recovery-close" class="ghost" data-i18n="action.cancel">Cancel</button>

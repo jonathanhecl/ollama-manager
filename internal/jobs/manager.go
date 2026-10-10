@@ -127,21 +127,15 @@ type speedSample struct {
 	value float64   `json:"-"`
 }
 
-// HFRecoveryFile is one GGUF file a recovery run must place in the Ollama
-// blob store. Digest is the lowercase hex sha256 (no "sha256:" prefix).
 type HFRecoveryFile struct {
 	Filename string `json:"filename"`
 	Size     int64  `json:"size"`
 	Digest   string `json:"digest"`
 }
 
-// HFRecoverySpec is the persisted plan for recovering a failed Hugging Face
-// pull: download the missing blobs directly from HF (with the configured
-// token), reuse the ones already in the blob store, then create the model.
-// It never carries credentials.
 type HFRecoverySpec struct {
-	Repo      string           `json:"repo"`     // "owner/name"
-	Revision  string           `json:"revision"` // 40-hex commit sha
+	Repo      string           `json:"repo"`
+	Revision  string           `json:"revision"`
 	Files     []HFRecoveryFile `json:"files"`
 	Projector *HFRecoveryFile  `json:"projector,omitempty"`
 }
@@ -162,9 +156,6 @@ type Job struct {
 	StatusText string    `json:"status_text,omitempty"`
 	Error      string    `json:"error,omitempty"`
 
-	// Recovery, when set, makes this job run the HF blob-recovery path
-	// instead of a native /api/pull. OriginalError keeps the error that
-	// made the original pull fail so a recovery failure can report both.
 	Recovery      *HFRecoverySpec `json:"recovery,omitempty"`
 	OriginalError string          `json:"original_error,omitempty"`
 
@@ -189,6 +180,15 @@ func (j *Job) clone() Job {
 	cp := *j
 	cp.cancel = nil
 	cp.speedSamples = nil
+	if j.Recovery != nil {
+		rs := *j.Recovery
+		rs.Files = append([]HFRecoveryFile(nil), j.Recovery.Files...)
+		if j.Recovery.Projector != nil {
+			pr := *j.Recovery.Projector
+			rs.Projector = &pr
+		}
+		cp.Recovery = &rs
+	}
 	return cp
 }
 
@@ -242,9 +242,6 @@ type Manager struct {
 	ollama      *ollama.Client
 	logger      *log.Logger
 
-	// recoveryRunner executes a job that carries a HFRecoverySpec. It is
-	// injected by the server package (which owns the HF token and the blob
-	// upload path) so this package stays free of HTTP/HF details.
 	recoveryRunner func(ctx context.Context, name string, spec HFRecoverySpec, onProgress func(ollama.PullProgress) error) error
 
 	subsMu  sync.Mutex
@@ -369,16 +366,12 @@ func (m *Manager) Start() {
 	m.tryStartNextLocked()
 }
 
-// SetRecoveryRunner installs the function used to execute jobs that carry a
-// HFRecoverySpec. Call it before Start() so specs restored from disk run
-// through recovery instead of the native pull.
 func (m *Manager) SetRecoveryRunner(fn func(ctx context.Context, name string, spec HFRecoverySpec, onProgress func(ollama.PullProgress) error) error) {
 	m.mu.Lock()
 	m.recoveryRunner = fn
 	m.mu.Unlock()
 }
 
-// Get returns a snapshot of one job by id.
 func (m *Manager) Get(id string) (Job, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -447,10 +440,12 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 			j.StatusText = ""
 			j.Error = ""
 			j.Digest = ""
-			// A plain retry always means "run the native pull again":
-			// recovery mode is only entered through Recover().
 			j.Recovery = nil
 			j.OriginalError = ""
+			j.lastCompleted = 0
+			j.lastDigest = ""
+			j.lastSpeedAt = time.Time{}
+			j.speedSamples = nil
 			m.order = removeString(m.order, id)
 			m.order = append(m.order, id)
 			snap := j.clone()
@@ -491,10 +486,6 @@ func (m *Manager) Enqueue(name string) (Job, error) {
 	return snap, nil
 }
 
-// Recover requeues a failed job so it runs through the HF recovery runner
-// instead of the native pull. The job must currently be in StatusError; the
-// spec is persisted with the job so recovery survives restarts. The job
-// keeps its id/name/queue slot semantics (moved to the end of the queue).
 func (m *Manager) Recover(id string, spec HFRecoverySpec) (Job, error) {
 	m.mu.Lock()
 	j, ok := m.jobs[id]
@@ -511,6 +502,11 @@ func (m *Manager) Recover(id string, spec HFRecoverySpec) (Job, error) {
 		j.OriginalError = j.Error
 	}
 	specCopy := spec
+	specCopy.Files = append([]HFRecoveryFile(nil), spec.Files...)
+	if spec.Projector != nil {
+		pr := *spec.Projector
+		specCopy.Projector = &pr
+	}
 	j.Recovery = &specCopy
 	if m.queuePaused {
 		j.Status = StatusPaused
@@ -527,6 +523,10 @@ func (m *Manager) Recover(id string, spec HFRecoverySpec) (Job, error) {
 	j.StatusText = ""
 	j.Error = ""
 	j.Digest = ""
+	j.lastCompleted = 0
+	j.lastDigest = ""
+	j.lastSpeedAt = time.Time{}
+	j.speedSamples = nil
 	m.order = removeString(m.order, id)
 	m.order = append(m.order, id)
 	snap := j.clone()
@@ -878,6 +878,7 @@ func (m *Manager) run(ctx context.Context, id string) {
 	name := NormalizePullName(startJob.Name)
 	startJob.Name = name
 	snap := startJob.clone()
+	recoverySpec := snap.Recovery
 	// Persist the queued->running transition.
 	if err := m.saveLocked(); err != nil {
 		m.logger.Printf("jobs: save failed: %v", err)
@@ -961,21 +962,21 @@ func (m *Manager) run(ctx context.Context, id string) {
 	}
 
 	var err error
-	if spec := startJob.Recovery; spec != nil {
+	if recoverySpec != nil {
 		m.mu.Lock()
 		runner := m.recoveryRunner
 		m.mu.Unlock()
 		if runner == nil {
 			err = errors.New("HF recovery runner is not configured")
 		} else {
-			err = runner(ctx, name, *spec, onProgress)
+			err = runner(ctx, name, *recoverySpec, onProgress)
 		}
 	} else {
 		err = doPull(name)
 	}
 	// Auto-fix for ollama/ollama#15661: if Ollama rejects hf.co with a
 	// realm host mismatch, retry once with the alternate HF host.
-	if startJob.Recovery == nil && isRealmHostMismatch(err) && ctx.Err() == nil {
+	if recoverySpec == nil && isRealmHostMismatch(err) && ctx.Err() == nil {
 		if alt := alternateHFHost(name); alt != "" && !strings.EqualFold(alt, name) {
 			m.logger.Printf("jobs: realm host mismatch for %q, retrying as %q", name, alt)
 			m.mu.Lock()
@@ -1150,8 +1151,6 @@ func (m *Manager) Shutdown() {
 	m.mu.Unlock()
 }
 
-// boundErrText flattens an error message to a single line and caps it so a
-// verbose upstream error cannot flood the job card.
 func boundErrText(s string) string {
 	s = strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\r' || r == '\t' {

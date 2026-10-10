@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,20 +16,18 @@ import (
 	"time"
 
 	"github.com/gense/ollama-manager/internal/jobs"
+	"github.com/gense/ollama-manager/internal/ollama"
 )
 
 const hfRecRev = "0123456789abcdef0123456789abcdef01234567"
 
-// hfReqRecord is one request that passed through the stub HF transport.
 type hfReqRecord struct {
 	method string
-	host   string // original (pre-rewrite) host, e.g. huggingface.co or cdn.hf.co
+	host   string
 	path   string
 	auth   string
 }
 
-// hfRewriteTransport routes every request the recovery client makes to the
-// httptest server while recording the original host and Authorization header.
 type hfRewriteTransport struct {
 	target *url.URL
 	mu     sync.Mutex
@@ -64,9 +64,6 @@ func (rt *hfRewriteTransport) count(method, pathPrefix string) int {
 	return n
 }
 
-// useHFStub replaces the recovery HTTP client with one that talks to the
-// test server. The real CheckRedirect policy is kept so redirect safety is
-// exercised.
 func useHFStub(t *testing.T, target *httptest.Server) *hfRewriteTransport {
 	t.Helper()
 	u, err := url.Parse(target.URL)
@@ -95,16 +92,17 @@ func hfTE(p string, size int64, oid string) any {
 	}
 }
 
-// fakeHF serves the HF API and resolve endpoints from in-memory fixtures.
-// handler overrides: resolveOverrides maps path -> http.HandlerFunc.
 type fakeHFConfig struct {
-	repo       string
-	revision   string
-	treePages  [][]any // per-page tree entries; emits Link headers between pages
-	badNext    string  // when set, page 1 carries this as its Link header
-	files      map[string][]byte
-	statusBy   map[string]int // resolve path -> forced status code
-	redirectTo map[string]string
+	repo          string
+	revision      string
+	treePages     [][]any
+	badNext       string
+	rawLink       string
+	alwaysLink    bool
+	uniquePerPage bool
+	files         map[string][]byte
+	statusBy      map[string]int
+	redirectTo    map[string]string
 }
 
 func fakeHF(t *testing.T, cfg fakeHFConfig) *httptest.Server {
@@ -119,13 +117,21 @@ func fakeHF(t *testing.T, cfg fakeHFConfig) *httptest.Server {
 			if p := r.URL.Query().Get("p"); p != "" {
 				fmt.Sscanf(p, "%d", &page)
 			}
-			if cfg.badNext != "" && page == 0 {
+			if cfg.rawLink != "" && page == 0 {
+				w.Header().Set("Link", cfg.rawLink)
+			} else if cfg.badNext != "" && page == 0 {
 				w.Header().Set("Link", fmt.Sprintf("<%s>; rel=\"next\"", cfg.badNext))
-			} else if page+1 < len(cfg.treePages) {
+			} else if cfg.alwaysLink || page+1 < len(cfg.treePages) {
 				next := fmt.Sprintf("https://huggingface.co%s?recursive=true&p=%d", r.URL.Path, page+1)
 				w.Header().Set("Link", fmt.Sprintf("<%s>; rel=\"next\"", next))
 			}
-			entries := cfg.treePages[page]
+			var entries []any
+			if cfg.uniquePerPage {
+				_, oid := ggufFixture(fmt.Sprintf("page-%d", page))
+				entries = []any{hfTE(fmt.Sprintf("m-%03d.gguf", page), 4, oid)}
+			} else {
+				entries = cfg.treePages[page]
+			}
 			writeJSON(w, http.StatusOK, entries)
 		case strings.Contains(r.URL.Path, "/resolve/") || strings.HasPrefix(r.URL.Path, "/cdn-"):
 			if loc, ok := cfg.redirectTo[r.URL.Path]; ok {
@@ -137,7 +143,6 @@ func fakeHF(t *testing.T, cfg fakeHFConfig) *httptest.Server {
 				w.WriteHeader(code)
 				return
 			}
-			// Map the last path segments back onto fixture names.
 			for name, data := range cfg.files {
 				if strings.HasSuffix(r.URL.Path, "/"+name) {
 					w.Header().Set("Content-Type", "application/octet-stream")
@@ -155,16 +160,17 @@ func fakeHF(t *testing.T, cfg fakeHFConfig) *httptest.Server {
 	return srv
 }
 
-// fakeOllamaRec is a fake Ollama API that records blob/model mutations.
 type fakeOllamaRec struct {
 	mu          sync.Mutex
-	blobs       map[string]bool // digests (sha256:...) that HEAD answers 200
-	headStatus  map[string]int  // digest -> forced HEAD status
+	blobs       map[string]bool
+	headStatus  map[string]int
 	uploads     map[string]int64
 	creates     []map[string]any
 	deletes     int
 	installed   []string
-	createEmpty bool // when true, the create stream closes without success
+	createEmpty bool
+	createError string
+	tagsStatus  int
 }
 
 func newFakeOllama() *fakeOllamaRec {
@@ -186,6 +192,10 @@ func (f *fakeOllamaRec) server(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"error":"registry exploded"}`))
 		case r.URL.Path == "/api/tags":
+			if f.tagsStatus != 0 {
+				w.WriteHeader(f.tagsStatus)
+				return
+			}
 			models := make([]map[string]any, 0, len(f.installed))
 			for _, m := range f.installed {
 				models = append(models, map[string]any{"name": m})
@@ -196,7 +206,10 @@ func (f *fakeOllamaRec) server(t *testing.T) *httptest.Server {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			f.creates = append(f.creates, req)
 			w.Header().Set("Content-Type", "application/x-ndjson")
-			if !f.createEmpty {
+			if f.createError != "" {
+				b, _ := json.Marshal(map[string]string{"error": f.createError})
+				_, _ = w.Write(append(b, '\n'))
+			} else if !f.createEmpty {
 				_, _ = w.Write([]byte(`{"status":"success"}` + "\n"))
 			}
 		case strings.HasPrefix(r.URL.Path, "/api/blobs/"):
@@ -449,8 +462,6 @@ func TestHFRecoveryProjectorSelected(t *testing.T) {
 }
 
 func TestHFRecoveryLargeFileNotProjectorCapped(t *testing.T) {
-	// A >8GiB model that is already in the blob store must not hit the
-	// legacy 8 GiB projector cap (nor be downloaded at all).
 	oid := strings.Repeat("ab", 32)
 	big := int64(9) << 30
 	cfg := fakeHFConfig{
@@ -488,8 +499,8 @@ func TestHFRecoveryBadDownloadsRejected(t *testing.T) {
 	cases := []struct {
 		name    string
 		content []byte
-		declOID string // overrides digest when non-empty
-		declSz  int64  // overrides declared size when non-zero
+		declOID string
+		declSz  int64
 	}{
 		{name: "sha mismatch", content: []byte("GGUFxxxx")},
 		{name: "truncated", content: []byte("GGUFshort"), declSz: 100},
@@ -717,7 +728,7 @@ func TestHFRecoveryMaliciousNextLinkRejected(t *testing.T) {
 	id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
 	code, _ := getHFPreview(t, srv, id)
 	if code != http.StatusOK {
-		return // rejected is fine
+		return
 	}
 	t.Fatal("malicious next link should fail the preview")
 }
@@ -761,16 +772,13 @@ func TestHFRecoveryEndpointStateValidation(t *testing.T) {
 	oll := newFakeOllama()
 	srv := newTestServer(t, oll.server(t).URL)
 
-	// Non-HF job name → 400.
 	nonHF := failHFJobAt(t, srv, "llama3:latest")
 	if code, _ := getHFPreview(t, srv, nonHF); code != http.StatusBadRequest {
 		t.Fatalf("non-HF job preview status = %d", code)
 	}
-	// Unknown job → 404.
 	if code, _ := getHFPreview(t, srv, "deadbeef"); code != http.StatusNotFound {
 		t.Fatalf("missing job status = %d", code)
 	}
-	// Queued (not failed) job → 409. Pause the queue first so it stays queued.
 	srv.jobs.PauseQueue()
 	req := httptest.NewRequest(http.MethodPost, "/api/pull", strings.NewReader(`{"name":"huggingface.co/owner/repo:Q4_K_M"}`))
 	rr := httptest.NewRecorder()
@@ -913,7 +921,6 @@ func TestHFRecoverySelectionRules(t *testing.T) {
 	oll := newFakeOllama()
 	srv := newTestServer(t, oll.server(t).URL)
 
-	// Untagged with two options → ambiguous, user must choose.
 	id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
 	code, p := getHFPreview(t, srv, id)
 	if code != http.StatusOK || p.SelectedFilename != "" || len(p.Options) != 2 {
@@ -922,19 +929,16 @@ func TestHFRecoverySelectionRules(t *testing.T) {
 	if len(p.Projectors) != 1 || p.Projectors[0].Filename != "mmproj-f16.gguf" {
 		t.Fatalf("projectors = %+v", p.Projectors)
 	}
-	// Quant tag selects exactly.
 	id = failHFJobAt(t, srv, "huggingface.co/owner/repo:Q8_0")
 	code, p = getHFPreview(t, srv, id)
 	if code != http.StatusOK || p.SelectedFilename != "model-Q8_0.gguf" {
 		t.Fatalf("quant preview = %d %+v", code, p)
 	}
-	// Unknown tag must not select arbitrarily.
 	id = failHFJobAt(t, srv, "huggingface.co/owner/repo:bfg9000")
 	_, p = getHFPreview(t, srv, id)
 	if p.SelectedFilename != "" {
 		t.Fatalf("unknown tag selected %q", p.SelectedFilename)
 	}
-	// Full filename tag selects that exact variant.
 	id = failHFJobAt(t, srv, "huggingface.co/owner/repo:model-Q4_K_M.gguf")
 	_, p = getHFPreview(t, srv, id)
 	if p.SelectedFilename != "model-Q4_K_M.gguf" {
@@ -943,8 +947,6 @@ func TestHFRecoverySelectionRules(t *testing.T) {
 }
 
 func TestHFRecoveryNoVerifiableSHA(t *testing.T) {
-	// Entries without lfs.oid (or only xetHash / git oid) are not usable:
-	// neither is the content sha256 the blob store needs.
 	cfg := fakeHFConfig{
 		repo:     "owner/repo",
 		revision: hfRecRev,
@@ -981,5 +983,327 @@ func TestHFRecoveryCreateWithoutSuccessFails(t *testing.T) {
 	j := waitJobDone(t, srv, id, jobs.StatusError)
 	if !strings.Contains(j.Error, "success") {
 		t.Fatalf("error = %q", j.Error)
+	}
+}
+
+func TestHFRecoveryRequiresAuth(t *testing.T) {
+	data, oid := ggufFixture("auth")
+	hf := fakeHF(t, stdHFCfg("model.gguf", data, oid))
+	useHFStub(t, hf)
+	oll := newFakeOllama()
+	srv := newTestServer(t, oll.server(t).URL)
+	srv.cfg.PasswordHash = "$2a$10$0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs/whatever/hf-recovery", nil)
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("GET status = %d", rr.Code)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/jobs/whatever/hf-recovery", strings.NewReader(`{}`))
+	rr = httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("POST status = %d", rr.Code)
+	}
+}
+
+func TestHFRecoveryInstalledGuard(t *testing.T) {
+	data, oid := ggufFixture("guard")
+	mk := func() (*Server, *hfRewriteTransport, *fakeOllamaRec) {
+		hf := fakeHF(t, stdHFCfg("model.gguf", data, oid))
+		rt := useHFStub(t, hf)
+		oll := newFakeOllama()
+		return newTestServer(t, oll.server(t).URL), rt, oll
+	}
+	body := fmt.Sprintf(`{"revision":%q,"filename":"model.gguf"}`, hfRecRev)
+
+	t.Run("tags 500 aborts with 502", func(t *testing.T) {
+		srv, rt, oll := mk()
+		oll.tagsStatus = http.StatusInternalServerError
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := postHFRecover(t, srv, id, body); code != http.StatusBadGateway {
+			t.Fatalf("status = %d", code)
+		}
+		if n := rt.count(http.MethodGet, "/owner/repo/resolve/"); n != 0 {
+			t.Fatalf("weight GETs = %d", n)
+		}
+	})
+	t.Run("untagged vs installed latest", func(t *testing.T) {
+		srv, _, oll := mk()
+		oll.installed = []string{"huggingface.co/owner/repo:latest"}
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := postHFRecover(t, srv, id, body); code != http.StatusConflict {
+			t.Fatalf("status = %d", code)
+		}
+	})
+	t.Run("hf.co alias", func(t *testing.T) {
+		srv, _, oll := mk()
+		oll.installed = []string{"hf.co/owner/repo:latest"}
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := postHFRecover(t, srv, id, body); code != http.StatusConflict {
+			t.Fatalf("status = %d", code)
+		}
+	})
+	t.Run("runner rechecks before downloads", func(t *testing.T) {
+		srv, rt, oll := mk()
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		srv.jobs.PauseQueue()
+		if code, out := postHFRecover(t, srv, id, body); code != http.StatusOK {
+			t.Fatalf("post = %d %v", code, out)
+		}
+		oll.mu.Lock()
+		oll.installed = []string{"huggingface.co/owner/repo:latest"}
+		oll.mu.Unlock()
+		srv.jobs.ResumeQueue()
+		j := waitJobDone(t, srv, id, jobs.StatusError)
+		if !strings.Contains(j.Error, "already installed") {
+			t.Fatalf("error = %q", j.Error)
+		}
+		if n := rt.count(http.MethodGet, "/owner/repo/resolve/"); n != 0 {
+			t.Fatalf("weight GETs = %d", n)
+		}
+	})
+}
+
+func TestHFRecoveryRunnerRejectsBadSpec(t *testing.T) {
+	data, oid := ggufFixture("spec")
+	hf := fakeHF(t, stdHFCfg("model.gguf", data, oid))
+	rt := useHFStub(t, hf)
+	oll := newFakeOllama()
+	srv := newTestServer(t, oll.server(t).URL)
+	progress := func(ollama.PullProgress) error { return nil }
+
+	for _, spec := range []jobs.HFRecoverySpec{
+		{Repo: "other/repo", Revision: hfRecRev, Files: []jobs.HFRecoveryFile{{Filename: "model.gguf", Size: int64(len(data)), Digest: oid}}},
+		{Repo: "../evil", Revision: hfRecRev, Files: []jobs.HFRecoveryFile{{Filename: "model.gguf", Size: int64(len(data)), Digest: oid}}},
+		{Repo: "owner/repo", Revision: "nothex", Files: []jobs.HFRecoveryFile{{Filename: "model.gguf", Size: int64(len(data)), Digest: oid}}},
+		{Repo: "owner/repo", Revision: hfRecRev, Files: []jobs.HFRecoveryFile{{Filename: "model.gguf", Size: -1, Digest: oid}}},
+		{Repo: "owner/repo", Revision: hfRecRev, Files: []jobs.HFRecoveryFile{{Filename: "model.gguf", Size: 1, Digest: "zz"}}},
+		{Repo: "owner/repo", Revision: hfRecRev, Files: []jobs.HFRecoveryFile{{Filename: "a/../b.gguf", Size: 1, Digest: oid}}},
+		{Repo: "owner/repo", Revision: hfRecRev, Files: []jobs.HFRecoveryFile{
+			{Filename: "model.gguf", Size: 1, Digest: oid},
+			{Filename: "model.gguf", Size: 2, Digest: oid},
+		}},
+	} {
+		if err := srv.runHFRecovery(context.Background(), "huggingface.co/owner/repo", spec, progress); err == nil {
+			t.Fatalf("bad spec accepted: %+v", spec)
+		}
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for _, r := range rt.reqs {
+		if strings.Contains(r.path, "/resolve/") {
+			t.Fatalf("corrupted spec caused a weight request: %v", r)
+		}
+	}
+}
+
+func TestHFRecoveryPaginationFailures(t *testing.T) {
+	mkSrv := func(cfg fakeHFConfig) *Server {
+		hf := fakeHF(t, cfg)
+		useHFStub(t, hf)
+		oll := newFakeOllama()
+		return newTestServer(t, oll.server(t).URL)
+	}
+	_, o1 := ggufFixture("one")
+
+	t.Run("cap reached with continuation", func(t *testing.T) {
+		srv := mkSrv(fakeHFConfig{repo: "owner/repo", revision: hfRecRev, alwaysLink: true, uniquePerPage: true})
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := getHFPreview(t, srv, id); code == http.StatusOK {
+			t.Fatal("128 continuing pages must fail")
+		}
+	})
+	t.Run("duplicate path", func(t *testing.T) {
+		srv := mkSrv(fakeHFConfig{repo: "owner/repo", revision: hfRecRev,
+			treePages: [][]any{{hfTE("model.gguf", 4, o1)}, {hfTE("model.gguf", 4, o1)}}})
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := getHFPreview(t, srv, id); code == http.StatusOK {
+			t.Fatal("duplicate path must fail")
+		}
+	})
+	t.Run("malformed next relation", func(t *testing.T) {
+		srv := mkSrv(fakeHFConfig{repo: "owner/repo", revision: hfRecRev,
+			treePages: [][]any{{hfTE("model.gguf", 4, o1)}}, rawLink: `rel="next"`})
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := getHFPreview(t, srv, id); code == http.StatusOK {
+			t.Fatal("malformed rel=next must fail")
+		}
+	})
+	t.Run("next link userinfo", func(t *testing.T) {
+		srv := mkSrv(fakeHFConfig{repo: "owner/repo", revision: hfRecRev,
+			treePages: [][]any{{hfTE("model.gguf", 4, o1)}},
+			rawLink:   fmt.Sprintf(`<https://u:p@huggingface.co/api/models/owner/repo/tree/%s?recursive=true&p=1>; rel="next"`, hfRecRev)})
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := getHFPreview(t, srv, id); code == http.StatusOK {
+			t.Fatal("userinfo next link must fail")
+		}
+	})
+	t.Run("next link non-443 port", func(t *testing.T) {
+		srv := mkSrv(fakeHFConfig{repo: "owner/repo", revision: hfRecRev,
+			treePages: [][]any{{hfTE("model.gguf", 4, o1)}},
+			rawLink:   fmt.Sprintf(`<https://huggingface.co:8443/api/models/owner/repo/tree/%s?recursive=true&p=1>; rel="next"`, hfRecRev)})
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		if code, _ := getHFPreview(t, srv, id); code == http.StatusOK {
+			t.Fatal("non-443 next link must fail")
+		}
+	})
+	t.Run("redirect userinfo blocked", func(t *testing.T) {
+		data, oid := ggufFixture("r")
+		resolvePath := "/owner/repo/resolve/" + hfRecRev + "/model.gguf"
+		cfg := stdHFCfg("model.gguf", data, oid)
+		cfg.redirectTo = map[string]string{resolvePath: "https://u:p@cdn.hf.co/x"}
+		srv := mkSrv(cfg)
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		postHFRecover(t, srv, id, fmt.Sprintf(`{"revision":%q,"filename":"model.gguf"}`, hfRecRev))
+		waitJobDone(t, srv, id, jobs.StatusError)
+	})
+	t.Run("redirect non-443 port blocked", func(t *testing.T) {
+		data, oid := ggufFixture("r")
+		resolvePath := "/owner/repo/resolve/" + hfRecRev + "/model.gguf"
+		cfg := stdHFCfg("model.gguf", data, oid)
+		cfg.redirectTo = map[string]string{resolvePath: "https://cdn.hf.co:8443/x"}
+		srv := mkSrv(cfg)
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		postHFRecover(t, srv, id, fmt.Sprintf(`{"revision":%q,"filename":"model.gguf"}`, hfRecRev))
+		waitJobDone(t, srv, id, jobs.StatusError)
+	})
+	t.Run("redirect http blocked", func(t *testing.T) {
+		data, oid := ggufFixture("r")
+		resolvePath := "/owner/repo/resolve/" + hfRecRev + "/model.gguf"
+		cfg := stdHFCfg("model.gguf", data, oid)
+		cfg.redirectTo = map[string]string{resolvePath: "http://cdn.hf.co/x"}
+		srv := mkSrv(cfg)
+		id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+		postHFRecover(t, srv, id, fmt.Sprintf(`{"revision":%q,"filename":"model.gguf"}`, hfRecRev))
+		waitJobDone(t, srv, id, jobs.StatusError)
+	})
+}
+
+func TestHFRecoverySanitizeError(t *testing.T) {
+	uerr := &url.Error{Op: "Get", URL: "https://cdn.hf.co/x?sig=SECRET&token=hf_tok", Err: errors.New("refused")}
+	msg := sanitizeHFErr(uerr).Error()
+	if strings.Contains(msg, "SECRET") || strings.Contains(msg, "hf_tok") || strings.Contains(msg, "cdn.hf.co") {
+		t.Fatalf("url.Error leaked: %q", msg)
+	}
+	if !strings.Contains(msg, "refused") {
+		t.Fatalf("lost cause: %q", msg)
+	}
+	msg = sanitizeHFErr(errors.New(`Get "https://huggingface.co/x?sig=SECRET": EOF`)).Error()
+	if strings.Contains(msg, "SECRET") || !strings.Contains(msg, "[redacted URL]") {
+		t.Fatalf("generic error leaked: %q", msg)
+	}
+	msg = hfStatusError("x", http.StatusUnauthorized).Error()
+	if !strings.Contains(msg, "Settings") {
+		t.Fatalf("401 guidance missing: %q", msg)
+	}
+}
+
+func TestHFRecoverySplitSortDeterministic(t *testing.T) {
+	var entries []any
+	for i := 4; i >= 1; i-- {
+		for s := 3; s >= 1; s-- {
+			_, oid := ggufFixture(fmt.Sprintf("g%d-s%d", i, s))
+			entries = append(entries, hfTE(fmt.Sprintf("grp%d-0000%d-of-00003.gguf", i, s), 4, oid))
+		}
+	}
+	hf := fakeHF(t, fakeHFConfig{repo: "owner/repo", revision: hfRecRev, treePages: [][]any{entries}})
+	useHFStub(t, hf)
+	oll := newFakeOllama()
+	srv := newTestServer(t, oll.server(t).URL)
+
+	id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+	code, p := getHFPreview(t, srv, id)
+	if code != http.StatusOK || len(p.Options) != 4 {
+		t.Fatalf("preview = %d %+v", code, p.Options)
+	}
+	for i, o := range p.Options {
+		want := fmt.Sprintf("grp%d-00001-of-00003.gguf", i+1)
+		if o.Filename != want {
+			t.Fatalf("option %d = %q, want %q", i, o.Filename, want)
+		}
+		for s, f := range o.Files {
+			wantF := fmt.Sprintf("grp%d-0000%d-of-00003.gguf", i+1, s+1)
+			if f.Filename != wantF {
+				t.Fatalf("option %d file %d = %q, want %q", i, s, f.Filename, wantF)
+			}
+		}
+	}
+}
+
+func TestHFRecoverySelectOptionRules(t *testing.T) {
+	opt := func(name, quant string) hfRecoveryOption {
+		return hfRecoveryOption{Filename: name, Quant: quant}
+	}
+	opts := []hfRecoveryOption{
+		opt("a/model-Q4_K_M.gguf", "Q4_K_M"),
+		opt("b/model-Q4_K_M.gguf", "Q4_K_M"),
+		opt("model-Q8_0.gguf", "Q8_0"),
+	}
+	if got := hfSelectOption(opts, "a/model-Q4_K_M.gguf"); got != "a/model-Q4_K_M.gguf" {
+		t.Fatalf("exact path = %q", got)
+	}
+	if got := hfSelectOption(opts, "model-Q4_K_M.gguf"); got != "" {
+		t.Fatalf("ambiguous basename picked %q", got)
+	}
+	if got := hfSelectOption(opts, "MODEL-Q8_0.GGUF"); got != "model-Q8_0.gguf" {
+		t.Fatalf("unique case-insensitive basename = %q", got)
+	}
+	if got := hfSelectOption(opts, "OTHER"); got != "" {
+		t.Fatalf("OTHER tag picked %q", got)
+	}
+	other := []hfRecoveryOption{opt("model-oddball.gguf", "OTHER")}
+	if got := hfSelectOption(other, "OTHER"); got != "" {
+		t.Fatalf("OTHER tag picked %q", got)
+	}
+	if got := hfSelectOption(other, ""); got != "model-oddball.gguf" {
+		t.Fatalf("unique default = %q", got)
+	}
+	aux := []hfRecoveryOption{opt("model-oddball.gguf", "OTHER"), opt("aux.gguf", "AUXILIARY")}
+	if got := hfSelectOption(aux, "Q4_K_M"); got != "" {
+		t.Fatalf("quant tag picked %q", got)
+	}
+	if got := hfSelectOption(aux, "AUXILIARY"); got != "" {
+		t.Fatalf("AUXILIARY tag picked %q", got)
+	}
+}
+
+func TestHFRecoveryUniqueOtherDefault(t *testing.T) {
+	data, oid := ggufFixture("oddball")
+	hf := fakeHF(t, fakeHFConfig{
+		repo:      "owner/repo",
+		revision:  hfRecRev,
+		treePages: [][]any{{hfTE("model-exotic.gguf", int64(len(data)), oid), hfTE("imatrix.gguf", 8, strings.Repeat("ab", 32))}},
+		files:     map[string][]byte{"model-exotic.gguf": data},
+	})
+	useHFStub(t, hf)
+	oll := newFakeOllama()
+	srv := newTestServer(t, oll.server(t).URL)
+
+	id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+	code, p := getHFPreview(t, srv, id)
+	if code != http.StatusOK || len(p.Options) != 1 || p.SelectedFilename != "model-exotic.gguf" {
+		t.Fatalf("preview = %d %+v", code, p)
+	}
+}
+
+func TestHFRecoveryCreateErrorFails(t *testing.T) {
+	data, oid := ggufFixture("c")
+	hf := fakeHF(t, stdHFCfg("model.gguf", data, oid))
+	useHFStub(t, hf)
+	oll := newFakeOllama()
+	oll.blobs["sha256:"+oid] = true
+	oll.createError = "unsupported architecture"
+	srv := newTestServer(t, oll.server(t).URL)
+
+	id := failHFJobAt(t, srv, "huggingface.co/owner/repo")
+	code, _ := postHFRecover(t, srv, id, fmt.Sprintf(`{"revision":%q,"filename":"model.gguf"}`, hfRecRev))
+	if code != http.StatusOK {
+		t.Fatalf("post = %d", code)
+	}
+	j := waitJobDone(t, srv, id, jobs.StatusError)
+	if !strings.Contains(j.Error, "unsupported architecture") || j.OriginalError == "" {
+		t.Fatalf("job = %+v", j)
 	}
 }

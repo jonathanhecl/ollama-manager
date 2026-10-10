@@ -13,8 +13,6 @@ import (
 	"github.com/gense/ollama-manager/internal/ollama"
 )
 
-// fakeOllamaPull returns an httptest server whose /api/pull always fails, so
-// enqueued jobs reach StatusError deterministically.
 func fakeOllamaPull(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +57,7 @@ func testSpec() HFRecoverySpec {
 }
 
 func TestRecoverRequeuesFailedJob(t *testing.T) {
-	m := newTestManager(t) // fake active job keeps the worker slot busy
+	m := newTestManager(t)
 	id := enqueue(t, m, "huggingface.co/owner/repo:Q4_K_M", StatusError)
 	m.mu.Lock()
 	m.jobs[id].Error = "pull exploded"
@@ -72,7 +70,6 @@ func TestRecoverRequeuesFailedJob(t *testing.T) {
 	if j.Status != StatusQueued || j.Recovery == nil || j.OriginalError != "pull exploded" || j.Error != "" {
 		t.Fatalf("unexpected job after Recover: %+v", j)
 	}
-	// The job moves to the end of the queue.
 	order := jobOrder(t, m)
 	if order[len(order)-1] != "huggingface.co/owner/repo:Q4_K_M" {
 		t.Fatalf("recovered job not at end: %v", order)
@@ -187,7 +184,6 @@ func TestNativeRetryClearsRecovery(t *testing.T) {
 	ollamaSrv := fakeOllamaPull(t)
 	m := New(filepath.Join(t.TempDir(), "jobs.json"), "", ollama.New(ollamaSrv.URL), nil)
 	t.Cleanup(m.Shutdown)
-	// Pause the queue so the re-enqueued pull does not actually run.
 	m.PauseQueue()
 
 	id := enqueue(t, m, "huggingface.co/owner/repo", StatusError)
@@ -210,7 +206,7 @@ func TestRecoverySpecSurvivesReload(t *testing.T) {
 	dir := t.TempDir()
 	jobsPath := filepath.Join(dir, "jobs.json")
 	m := New(jobsPath, "", nil, nil)
-	m.PauseQueue() // never run, only persist
+	m.PauseQueue()
 	id := enqueue(t, m, "huggingface.co/owner/repo", StatusError)
 	if _, err := m.Recover(id, testSpec()); err != nil {
 		t.Fatal(err)
@@ -258,4 +254,110 @@ func TestCancelRunningRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitJobStatus(t, m, job.ID, StatusCancelled)
+}
+
+func TestPauseResumeRunningRecovery(t *testing.T) {
+	ollamaSrv := fakeOllamaPull(t)
+	m := New("", "", ollama.New(ollamaSrv.URL), nil)
+	t.Cleanup(m.Shutdown)
+
+	started := make(chan struct{}, 4)
+	var calls int32
+	m.SetRecoveryRunner(func(ctx context.Context, name string, spec HFRecoverySpec, onProgress func(ollama.PullProgress) error) error {
+		started <- struct{}{}
+		if atomic.AddInt32(&calls, 1) == 1 {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		if spec.Repo != "owner/repo" {
+			t.Errorf("resumed run lost spec: %+v", spec)
+		}
+		return nil
+	})
+	m.Start()
+
+	job, err := m.Enqueue("huggingface.co/owner/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitJobStatus(t, m, job.ID, StatusError)
+	if _, err := m.Recover(job.ID, testSpec()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runner never started")
+	}
+	if err := m.Pause(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitJobStatus(t, m, job.ID, StatusPaused)
+	if err := m.Resume(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runner did not restart after resume")
+	}
+	waitJobStatus(t, m, job.ID, StatusDone)
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("runner calls = %d, want 2", calls)
+	}
+}
+
+func TestRecoverySuccessRecordsHistory(t *testing.T) {
+	ollamaSrv := fakeOllamaPull(t)
+	dir := t.TempDir()
+	m := New(filepath.Join(dir, "jobs.json"), filepath.Join(dir, "history.json"), ollama.New(ollamaSrv.URL), nil)
+	t.Cleanup(m.Shutdown)
+	m.SetRecoveryRunner(func(ctx context.Context, name string, spec HFRecoverySpec, onProgress func(ollama.PullProgress) error) error {
+		return nil
+	})
+	m.Start()
+
+	job, err := m.Enqueue("huggingface.co/owner/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitJobStatus(t, m, job.ID, StatusError)
+	if _, err := m.Recover(job.ID, testSpec()); err != nil {
+		t.Fatal(err)
+	}
+	waitJobStatus(t, m, job.ID, StatusDone)
+
+	h, ok := m.History("huggingface.co/owner/repo")
+	if !ok || h.DoneCount != 1 {
+		t.Fatalf("history missing done record: %+v ok=%v", h, ok)
+	}
+}
+
+func TestRecoverySpecDeepCopy(t *testing.T) {
+	m := newTestManager(t)
+	id := enqueue(t, m, "huggingface.co/owner/repo", StatusError)
+	spec := testSpec()
+	spec.Projector = &HFRecoveryFile{Filename: "mmproj.gguf", Size: 10, Digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	j, err := m.Recover(id, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Files[0].Filename = "mutated.gguf"
+	spec.Projector.Filename = "mutated-proj.gguf"
+	got, _ := m.Get(id)
+	if got.Recovery.Files[0].Filename != "model-Q4_K_M.gguf" || got.Recovery.Projector.Filename != "mmproj.gguf" {
+		t.Fatalf("Recover kept caller slices: %+v", got.Recovery)
+	}
+	got.Recovery.Files[0].Filename = "mutated2.gguf"
+	got.Recovery.Projector.Filename = "mutated2.gguf"
+	got2, _ := m.Get(id)
+	if got2.Recovery.Files[0].Filename != "model-Q4_K_M.gguf" || got2.Recovery.Projector.Filename != "mmproj.gguf" {
+		t.Fatalf("Get returned shared spec: %+v", got2.Recovery)
+	}
+	m.mu.Lock()
+	m.jobs[id].Recovery.Files[0].Filename = "inner.gguf"
+	m.mu.Unlock()
+	if j.Recovery.Files[0].Filename == "inner.gguf" {
+		t.Fatal("Recover snapshot shares spec internals")
+	}
 }

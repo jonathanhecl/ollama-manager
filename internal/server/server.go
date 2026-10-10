@@ -251,9 +251,6 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		}
 		return rec.RecordTokensPerSec, true
 	})
-	// The HF recovery runner lives on Server (it needs the configured token
-	// and the blob upload path). It must be registered before Start() so a
-	// recovery job restored from jobs.json runs through recovery.
 	jobMgr.SetRecoveryRunner(srv.runHFRecovery)
 	jobMgr.Start()
 	return srv, nil

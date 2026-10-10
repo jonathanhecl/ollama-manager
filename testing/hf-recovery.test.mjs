@@ -45,6 +45,7 @@ class FakeEl {
   set innerHTML(v) { this._html = String(v); }
   addEventListener(ev, fn) { (this.listeners[ev] ||= []).push(fn); }
   dispatch(ev, e) { for (const fn of this.listeners[ev] || []) fn(e); }
+  focus() {}
 }
 
 function makeSandbox() {
@@ -85,7 +86,12 @@ function makeSandbox() {
   };
   const sandbox = {
     console,
-    document: { addEventListener: () => {}, createElement: () => new FakeEl("tmp") },
+    document: {
+      addEventListener: () => {},
+      createElement: () => new FakeEl("tmp"),
+      querySelector: () => null,
+      activeElement: null,
+    },
     window: {},
     $,
     jobs: new Map([[job.id, job]]),
@@ -93,14 +99,20 @@ function makeSandbox() {
     hfRecoveryState: null,
     apiCalls,
     toasts,
-    api: async (path, opts) => {
+    api: (path, opts) => {
       apiCalls.push({ path, opts });
       if (opts && opts.method === "POST") {
-        if (sandbox.__postFails) throw new Error("boom");
-        return { job_id: job.id, status: "queued", name: job.name };
+        if (sandbox.__deferPost) {
+          return new Promise((res, rej) => (sandbox.__pendingPosts ||= []).push({ res, rej }));
+        }
+        if (sandbox.__postFails) return Promise.reject(new Error("boom"));
+        return Promise.resolve({ job_id: job.id, status: "queued", name: job.name });
       }
-      if (sandbox.__getFails) throw new Error("preview exploded");
-      return preview;
+      if (sandbox.__deferGet) {
+        return new Promise((res, rej) => (sandbox.__pendingGets ||= []).push({ res, rej }));
+      }
+      if (sandbox.__getFails) return Promise.reject(new Error("preview exploded"));
+      return Promise.resolve(preview);
     },
     toast: (msg, kind) => toasts.push({ msg, kind }),
     refreshJobs: async () => {},
@@ -162,7 +174,7 @@ test("job card shows recover button only on failed HF jobs", () => {
   assert.doesNotMatch(card({ id: "b", status: "error", name: "llama3:8b" }), /hf-recover/);
   assert.doesNotMatch(card({ id: "c", status: "done", name: "huggingface.co/o/r" }), /hf-recover/);
   assert.doesNotMatch(card({ id: "d", status: "cancelled", name: "huggingface.co/o/r" }), /hf-recover/);
-  // Regular retry is still present.
+
   assert.match(card({ id: "e", status: "error", name: "huggingface.co/o/r" }), /data-action="retry"/);
 });
 
@@ -171,16 +183,16 @@ test("preview does not post until confirm; confirm sends id + selection", async 
   loadFns(sandbox);
   await vm.runInContext(`openHFRecoveryModal("j1")`, sandbox);
   assert.equal(els.get("hf-recovery-modal").hidden, false);
-  // Exactly one call: the GET preview.
+
   assert.equal(apiCalls.length, 1);
   assert.equal(apiCalls[0].path, "/api/jobs/j1/hf-recovery");
   assert.equal(apiCalls[0].opts?.method, undefined);
-  // Auto-selected option enables the confirm button.
+
   assert.equal(els.get("hf-recovery-confirm").disabled, false);
 
   vm.runInContext(`hfRecoveryState.projector = "mmproj-f16.gguf"; updateHFRecoverySummary();`, sandbox);
   const summary = els.get("hf-rec-summary").textContent;
-  // Q4_K_M (100B reused) + projector (50B to download) = 150B total.
+
   assert.match(summary, /100B/);
   assert.match(summary, /50B/);
   assert.match(summary, /150B/);
@@ -228,4 +240,37 @@ test("failed POST keeps modal open, toasts and re-enables controls", async () =>
   assert.equal(els.get("hf-recovery-confirm").disabled, false);
   assert.equal(toasts.length, 1);
   assert.equal(toasts[0].kind, "error");
+});
+
+test("stale preview is ignored after close and reopen of the same job", async () => {
+  const { sandbox, els, preview } = makeSandbox();
+  sandbox.__deferGet = true;
+  loadFns(sandbox);
+  const p1 = vm.runInContext(`openHFRecoveryModal("j1")`, sandbox);
+  vm.runInContext(`closeHFRecoveryModal()`, sandbox);
+  const p2 = vm.runInContext(`openHFRecoveryModal("j1")`, sandbox);
+  sandbox.__pendingGets[0].res(preview);
+  await p1;
+  assert.equal(sandbox.hfRecoveryState.preview, null);
+  sandbox.__pendingGets[1].res(preview);
+  await p2;
+  assert.equal(sandbox.hfRecoveryState.preview, preview);
+  assert.equal(els.get("hf-recovery-modal").hidden, false);
+});
+
+test("pending POST does not close a newer modal for the same job", async () => {
+  const { sandbox, els } = makeSandbox();
+  loadFns(sandbox);
+  await vm.runInContext(`openHFRecoveryModal("j1")`, sandbox);
+  sandbox.__deferPost = true;
+  const pending = vm.runInContext(`submitHFRecovery()`, sandbox);
+  const first = sandbox.hfRecoveryState;
+  assert.equal(first.busy, true);
+  assert.match(els.get("hf-recovery-body").innerHTML, /name="hf-rec-model"[^>]*disabled/);
+  await vm.runInContext(`openHFRecoveryModal("j1")`, sandbox);
+  assert.notEqual(sandbox.hfRecoveryState, first);
+  sandbox.__pendingPosts[0].res({ job_id: "j1", status: "queued", name: "n" });
+  await pending;
+  assert.equal(els.get("hf-recovery-modal").hidden, false);
+  assert.equal(sandbox.hfRecoveryState.busy, false);
 });

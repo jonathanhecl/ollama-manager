@@ -483,12 +483,26 @@ func hfSelectOption(options []hfRecoveryOption, tag string) string {
 		if basenameCount > 1 {
 			return ""
 		}
+		ciMatch := ""
+		ciCount := 0
+		for _, o := range options {
+			if strings.EqualFold(o.Filename, tag) || strings.EqualFold(path.Base(o.Filename), tag) {
+				ciMatch = o.Filename
+				ciCount++
+			}
+		}
+		if ciCount == 1 {
+			return ciMatch
+		}
+		if ciCount > 1 {
+			return ""
+		}
 		if tag == "OTHER" {
 			return ""
 		}
 		var matched []hfRecoveryOption
 		for _, o := range options {
-			if o.Quant != "OTHER" && strings.EqualFold(o.Quant, tag) {
+			if o.Quant != "OTHER" && o.Quant != "AUXILIARY" && o.Quant != "MMPROJ" && strings.EqualFold(o.Quant, tag) {
 				matched = append(matched, o)
 			}
 		}
@@ -672,6 +686,10 @@ func (s *Server) handleHFRecoveryStart(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusBadRequest, errors.New("missing filename"))
 		return
 	}
+	if err := s.hfRecoveryEnsureModelAbsent(r.Context(), j.Name); err != nil {
+		writeHFError(w, err, http.StatusBadGateway)
+		return
+	}
 	entries, err := s.hfFetchTree(r.Context(), repo, body.Revision)
 	if err != nil {
 		writeHFError(w, err, http.StatusBadGateway)
@@ -726,10 +744,6 @@ func (s *Server) handleHFRecoveryStart(w http.ResponseWriter, r *http.Request, i
 			writeError(w, http.StatusBadRequest, errors.New("selected files exceed the recovery size limit"))
 			return
 		}
-	}
-	if err := s.hfRecoveryEnsureModelAbsent(r.Context(), j.Name); err != nil {
-		writeHFError(w, err, http.StatusBadGateway)
-		return
 	}
 	job, err := s.jobs.Recover(id, spec)
 	if err != nil {

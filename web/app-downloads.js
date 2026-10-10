@@ -647,14 +647,6 @@ $("dl-resume-btn").addEventListener("click", async () => {
   }
 });
 
-// ---------- HF recovery ----------
-//
-// A failed `ollama pull huggingface.co/owner/repo[:tag]` cannot be retried
-// with the configured HF token (Ollama authenticates with its own key). The
-// recovery action previews what can be reused from the local blob store and
-// what must be downloaded with the token, then queues a recovery job on the
-// same download card.
-
 function hfJobRecoverable(j) {
   if (!j || j.status !== "error" || !j.name) return false;
   const s = String(j.name).trim().replace(/^https?:\/\//i, "");
@@ -665,8 +657,12 @@ let hfRecoveryState = null;
 
 function closeHFRecoveryModal() {
   const modal = $("hf-recovery-modal");
+  const st = hfRecoveryState;
   if (modal) modal.hidden = true;
   hfRecoveryState = null;
+  if (st && st.returnFocus && typeof st.returnFocus.focus === "function") {
+    try { st.returnFocus.focus(); } catch {}
+  }
 }
 
 async function openHFRecoveryModal(jobId) {
@@ -674,23 +670,27 @@ async function openHFRecoveryModal(jobId) {
   if (!modal) return;
   const j = jobs.get(jobId);
   if (!j || !hfJobRecoverable(j)) return;
-  hfRecoveryState = { jobId, name: j.name, preview: null, selected: "", projector: "", busy: false };
+  const st = { jobId, name: j.name, preview: null, selected: "", projector: "", busy: false, error: "", returnFocus: document.activeElement };
+  hfRecoveryState = st;
   renderHFRecoveryBody();
   modal.hidden = false;
   try {
     const preview = await api(`/api/jobs/${encodeURIComponent(jobId)}/hf-recovery`);
-    if (!hfRecoveryState || hfRecoveryState.jobId !== jobId) return;
-    hfRecoveryState.preview = preview;
-    hfRecoveryState.selected = preview.selected_filename || "";
-    hfRecoveryState.projector = "";
+    if (hfRecoveryState !== st) return;
+    st.preview = preview;
+    st.selected = preview.selected_filename || "";
+    st.projector = "";
   } catch (err) {
-    if (!hfRecoveryState || hfRecoveryState.jobId !== jobId) return;
-    hfRecoveryState.error = err.message;
+    if (hfRecoveryState !== st) return;
+    st.error = err.message;
   }
   renderHFRecoveryBody();
+  if (hfRecoveryState === st && !st.error && st.preview) {
+    const sel = document.querySelector('#hf-recovery-body input[name="hf-rec-model"]:checked');
+    (sel || $("hf-recovery-confirm"))?.focus();
+  }
 }
 
-// Totals for the currently selected model option + optional projector.
 function hfRecoveryTotals() {
   const st = hfRecoveryState;
   const totals = { reused: 0, missing: 0, total: 0 };
@@ -723,9 +723,9 @@ function renderHFRecoveryBody() {
   if (!body || !confirm) return;
   const st = hfRecoveryState;
   if (!st) { body.innerHTML = ""; confirm.disabled = true; return; }
-  if (st.busy) { confirm.disabled = true; return; }
   if (st.error) {
-    body.innerHTML = `<div class="dl-error">${escapeHtml(t("downloads.hf_recover_error", { msg: st.error }))}</div>`;
+    body.innerHTML = `<div class="dl-error">${escapeHtml(t("downloads.hf_recover_error", { msg: st.error }))}</div>
+      <div class="muted small" style="margin-top:6px;"><button type="button" class="ghost" onclick="hfRecoveryOpenSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button></div>`;
     confirm.disabled = true;
     return;
   }
@@ -738,13 +738,14 @@ function renderHFRecoveryBody() {
   const options = Array.isArray(p.options) ? p.options : [];
   const projectors = Array.isArray(p.projectors) ? p.projectors : [];
 
+  const dis = st.busy ? " disabled" : "";
   const optsHtml = options.map((o) => {
     const filesHtml = (o.files || []).map(hfRecoveryFileRow).join("");
     const checked = o.filename === st.selected ? " checked" : "";
     return `
       <label class="dl-history-alert-card" style="display:block;cursor:pointer;">
         <div class="dl-hist-head">
-          <span><input type="radio" name="hf-rec-model" value="${escapeHtml(o.filename)}"${checked}> <span class="mono">${escapeHtml(o.filename)}</span></span>
+          <span style="min-width:0;"><input type="radio" name="hf-rec-model" value="${escapeHtml(o.filename)}"${checked}${dis}> <span class="mono" style="overflow-wrap:anywhere;">${escapeHtml(o.filename)}</span></span>
           <span class="dl-hist-badge dl-badge-tested">${escapeHtml(o.quant || "")} · ${escapeHtml(fmtBytes(o.total_bytes || 0))}</span>
         </div>
         ${filesHtml}
@@ -760,11 +761,11 @@ function renderHFRecoveryBody() {
     <div style="margin-top:8px;font-weight:600;">${escapeHtml(t("downloads.hf_recover_model"))}</div>
     <div class="dl-history-alert-wrap">${optsHtml || `<div class="muted">${escapeHtml(t("downloads.hf_recover_select"))}</div>`}</div>
     <div style="margin-top:8px;font-weight:600;">${escapeHtml(t("downloads.hf_recover_projector"))}</div>
-    <select id="hf-rec-proj" style="margin-top:4px;max-width:100%;">${projOptions}</select>
+    <select id="hf-rec-proj" style="margin-top:4px;max-width:100%;"${dis}>${projOptions}</select>
     <div class="muted small" style="margin-top:4px;">${escapeHtml(t("downloads.hf_recover_projector_hint"))}</div>
-    <div id="hf-rec-summary" class="mono" style="margin-top:10px;"></div>
+    <div id="hf-rec-summary" class="mono" style="margin-top:10px;overflow-wrap:anywhere;"></div>
     <div class="muted small" style="margin-top:6px;">${escapeHtml(t("downloads.hf_recover_caveat"))}</div>
-    ${p.has_token ? "" : `<div class="muted small" style="margin-top:6px;">${escapeHtml(t("downloads.hf_recover_auth"))} <button type="button" class="ghost" onclick="openHuggingFaceSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button></div>`}
+    ${p.has_token ? "" : `<div class="muted small" style="margin-top:6px;">${escapeHtml(t("downloads.hf_recover_auth"))} <button type="button" class="ghost" onclick="hfRecoveryOpenSettings()">${escapeHtml(t("downloads.hf_auth_action"))}</button></div>`}
   `;
   updateHFRecoverySummary();
 }
@@ -786,9 +787,7 @@ async function submitHFRecovery() {
   const st = hfRecoveryState;
   if (!st || st.busy || !st.preview || !st.selected) return;
   st.busy = true;
-  updateHFRecoverySummary();
-  const confirm = $("hf-recovery-confirm");
-  if (confirm) confirm.disabled = true;
+  renderHFRecoveryBody();
   try {
     const res = await api(`/api/jobs/${encodeURIComponent(st.jobId)}/hf-recovery`, {
       method: "POST",
@@ -800,16 +799,22 @@ async function submitHFRecovery() {
       }),
     });
     const name = res && res.name ? res.name : st.name;
-    closeHFRecoveryModal();
+    if (hfRecoveryState === st) closeHFRecoveryModal();
     toast(t("downloads.hf_recover_queued", { name }), "success");
     await refreshJobs();
   } catch (err) {
     if (hfRecoveryState === st) {
       st.busy = false;
-      updateHFRecoverySummary();
+      renderHFRecoveryBody();
     }
     toast(t("toast.error", { msg: err.message }), "error");
   }
+}
+
+function hfRecoveryOpenSettings() {
+  closeHFRecoveryModal();
+  closeDownloads();
+  openHuggingFaceSettings();
 }
 
 $("hf-recovery-x").addEventListener("click", closeHFRecoveryModal);

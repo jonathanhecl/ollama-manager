@@ -37,6 +37,7 @@ const sandbox = {
   addEventListener() {},
   document: {
     getElementById: (id) => (els.has(id) ? els.get(id) : null),
+    querySelector: () => null,
     querySelectorAll: () => [],
     documentElement: {},
     readyState: "complete",

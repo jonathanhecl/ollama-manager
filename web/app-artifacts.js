@@ -212,7 +212,6 @@ function showArtifactPanel(url, name, generating) {
   const splitter = $("chat-splitter");
   const chatView = $("chat-view");
   if (!panel || !frame) return;
-  console.log("[artifact] showArtifactPanel", { url, name, generating, panelHidden: panel.hidden, frameSrc: frame.src, frameSrcdoc: frame.srcdoc ? "(set)" : "(none)" });
 
   if (url) {
     activeArtifactUrl = url;

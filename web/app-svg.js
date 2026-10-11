@@ -5232,23 +5232,6 @@ function scrollActiveBlocks() {
 //   ctx.modelName     the model the turn was started with
 // It throws on an "error" event, exactly like the inline handler always did.
 function applyChatStreamEvent(assistantMsg, event, data, ctx) {
-  // Debug: log every SSE event with full data
-  if (event === "chunk") {
-    const thinkDelta = data?.message?.thinking || "";
-    const contentDelta = data?.message?.content || "";
-    const toolCalls = data?.message?.tool_calls;
-    if (thinkDelta || contentDelta || toolCalls) {
-      // console.log("[chat] chunk", {
-      //   thinking: thinkDelta ? thinkDelta.slice(0, 200) : "",
-      //   content: contentDelta ? contentDelta.slice(0, 200) : "",
-      //   tool_calls: toolCalls,
-      //   done: data?.done,
-      //   eval_count: data?.eval_count,
-      // });
-    }
-  } else {
-    console.log(`[chat] event:${event}`, data);
-  }
   if (event === "artifact") {
     if (data?.timestamp) {
       assistantMsg.artifactTimestamp = data.timestamp;
@@ -5498,15 +5481,6 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
     throw new Error(data?.error || "stream error");
   } else if (event === "done") {
     stopStreamTicker();
-    console.log("[chat] done event", {
-      toolLog: assistantMsg.toolLog || [],
-      artifactUrl: assistantMsg.artifactUrl || null,
-      artifactGenerating: assistantMsg.artifactGenerating || false,
-      contentPreview: (assistantMsg.content || "").slice(0, 300),
-      thinkPreview: (assistantMsg.thinkContent || "").slice(0, 300),
-      tokens: data?.total_tokens,
-      elapsed_ms: data?.elapsed_ms,
-    });
     if (assistantMsg.thinkBlockStarted && !assistantMsg.thinkBlockClosed) {
       ctx.raw += "\n</think>\n";
       assistantMsg.thinkBlockClosed = true;

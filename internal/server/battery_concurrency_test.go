@@ -3,10 +3,10 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/gense/ollama-manager/internal/runner"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"github.com/gense/ollama-manager/internal/runner"
 )
 
 func TestBatteryConcurrencyAndActiveEndpoints(t *testing.T) {

@@ -32,10 +32,10 @@ type jnode struct {
 }
 
 type jchild struct {
-	key          string
-	valStart     int
-	valEnd       int
-	valNode      *jnode
+	key      string
+	valStart int
+	valEnd   int
+	valNode  *jnode
 }
 
 // parseNode parses one JSON value starting at i. Comments are treated as

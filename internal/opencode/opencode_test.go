@@ -674,5 +674,3 @@ func TestSetEnabledModelsPreservesOrder(t *testing.T) {
 		t.Fatalf("expected order zebra < alpha < gamma, but got positions %d, %d, %d in:\n%s", posZ, posA, posG, s)
 	}
 }
-
-

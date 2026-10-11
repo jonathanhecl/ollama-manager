@@ -250,8 +250,8 @@ func (d *Document) EnsureLocalProvider(baseURL string) (string, bool) {
 		}
 	}
 	entry := map[string]any{
-		"npm":   "@ai-sdk/openai-compatible",
-		"name":  "Ollama (local)",
+		"npm":  "@ai-sdk/openai-compatible",
+		"name": "Ollama (local)",
 		"options": map[string]any{
 			"baseURL": baseURL,
 		},

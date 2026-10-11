@@ -179,7 +179,8 @@ func quarantineRunnerHistory(path string) {
 	_ = os.Rename(path, q)
 }
 
-func mergeRunIntoMap(runMap map[string]BatteryRun, incoming BatteryRun) {	if incoming.Results == nil {
+func mergeRunIntoMap(runMap map[string]BatteryRun, incoming BatteryRun) {
+	if incoming.Results == nil {
 		incoming.Results = []TestResult{}
 	}
 	if incoming.Models == nil {

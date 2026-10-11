@@ -35,34 +35,34 @@ const (
 
 // Turn is a single step in the conversation.
 type Turn struct {
-	Number      int           `json:"number"`
-	Role        Role          `json:"role"`
-	Content     string        `json:"content"`
-	ToolCalls   []ToolCall    `json:"tool_calls,omitempty"`
-	ToolResults []ToolResult  `json:"tool_results,omitempty"`
-	CreatedAt   time.Time     `json:"created_at"`
+	Number      int          `json:"number"`
+	Role        Role         `json:"role"`
+	Content     string       `json:"content"`
+	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
+	ToolResults []ToolResult `json:"tool_results,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
 }
 
 // Session holds the full state of one agent-test run.
 type Session struct {
-	ID           string        `json:"id"`
-	ModelID      string        `json:"model_id"`
-	TestID       string        `json:"test_id"`
-	Status       SessionStatus `json:"status"`
-	MaxTurns     int           `json:"max_turns"`
-	CurrentTurn  int           `json:"current_turn"`
-	Turns        []Turn        `json:"turns"`
-	SandboxPath  string        `json:"sandbox_path"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	ID          string        `json:"id"`
+	ModelID     string        `json:"model_id"`
+	TestID      string        `json:"test_id"`
+	Status      SessionStatus `json:"status"`
+	MaxTurns    int           `json:"max_turns"`
+	CurrentTurn int           `json:"current_turn"`
+	Turns       []Turn        `json:"turns"`
+	SandboxPath string        `json:"sandbox_path"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 }
 
 // AgentConfig is the evaluation_config shape for agent tests.
 type AgentConfig struct {
-	MaxTurns     int            `json:"max_turns"`
-	InitialFiles []InitialFile  `json:"initial_files,omitempty"`
-	Tools        []string       `json:"tools,omitempty"`
-	HumanReview  bool           `json:"human_review"`
+	MaxTurns     int           `json:"max_turns"`
+	InitialFiles []InitialFile `json:"initial_files,omitempty"`
+	Tools        []string      `json:"tools,omitempty"`
+	HumanReview  bool          `json:"human_review"`
 }
 
 // DefaultAgentConfig returns a sensible default configuration.
@@ -76,9 +76,9 @@ func DefaultAgentConfig() AgentConfig {
 
 // SessionStore keeps sessions in memory and persists them to disk.
 type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	path     string // sessions.json
+	mu        sync.RWMutex
+	sessions  map[string]*Session
+	path      string // sessions.json
 	sandboxes *sandboxStore
 }
 

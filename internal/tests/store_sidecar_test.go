@@ -175,4 +175,3 @@ cases:
 		t.Fatalf("case 2 step attachment wrong: %+v", test.Cases[2].Steps[0].Attachments)
 	}
 }
-

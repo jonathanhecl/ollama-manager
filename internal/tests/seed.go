@@ -304,12 +304,12 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 		}, true
 	case "example-human-review":
 		return Test{
-			ID:           "example-human-review",
-			Name:         "Creative Writing (human review)",
-			Description:  "Open-ended bilingual writing sample for manual rating with good/regular/bad.",
-			GroupID:      "examples",
-			Active:       true,
-			Order:        8,
+			ID:          "example-human-review",
+			Name:        "Creative Writing (human review)",
+			Description: "Open-ended bilingual writing sample for manual rating with good/regular/bad.",
+			GroupID:     "examples",
+			Active:      true,
+			Order:       8,
 			Cases: []TestCase{
 				{
 					Name:   "Haiku",
@@ -365,7 +365,7 @@ func GetSeedTest(id string, now time.Time) (Test, bool) {
 					},
 				},
 			},
-			Filename:  "vision_cases.yaml",
+			Filename: "vision_cases.yaml",
 		}, true
 	case "example-instructions":
 		tempLow := 0.2

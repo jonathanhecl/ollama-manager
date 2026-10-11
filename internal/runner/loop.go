@@ -6,9 +6,9 @@ import (
 )
 
 var (
-	errRepetitionLoop = errors.New("repetition loop detected")
-	errManualSkip     = errors.New("manually skipped")
-	errManualRetry    = errors.New("manually retried")
+	errRepetitionLoop  = errors.New("repetition loop detected")
+	errManualSkip      = errors.New("manually skipped")
+	errManualRetry     = errors.New("manually retried")
 	errManualSkipModel = errors.New("manually skipped model")
 	// errAutoSkipStage aborts a turn when a configured per-stage testing
 	// limit is exceeded. It wraps details about the stage and the limit;

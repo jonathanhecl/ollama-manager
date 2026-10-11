@@ -471,7 +471,6 @@ func TestGetLatestRunPendingReview_EmptyOutput(t *testing.T) {
 	}
 }
 
-
 func TestLoadQuarantinesCorruptHistory(t *testing.T) {
 	dir := t.TempDir()
 	catDir := filepath.Join(dir, "coding")

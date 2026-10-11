@@ -775,4 +775,3 @@ func TestSinglePromptTestSkip(t *testing.T) {
 		t.Errorf("expected t2 to pass, got %+v", run.Results[1])
 	}
 }
-

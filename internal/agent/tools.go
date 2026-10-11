@@ -82,7 +82,9 @@ func (r *Registry) Definitions() []ToolDefinition {
 }
 
 func toolReadFile(sb *Sandbox, params json.RawMessage) ToolResult {
-	var args struct{ Path string `json:"path"` }
+	var args struct {
+		Path string `json:"path"`
+	}
 	if err := json.Unmarshal(params, &args); err != nil {
 		return ToolResult{Success: false, Error: err.Error()}
 	}
@@ -108,7 +110,9 @@ func toolWriteFile(sb *Sandbox, params json.RawMessage) ToolResult {
 }
 
 func toolListDir(sb *Sandbox, params json.RawMessage) ToolResult {
-	var args struct{ Path string `json:"path"` }
+	var args struct {
+		Path string `json:"path"`
+	}
 	_ = json.Unmarshal(params, &args) // optional, default "."
 	if args.Path == "" {
 		args.Path = "."
@@ -135,7 +139,9 @@ func toolListDir(sb *Sandbox, params json.RawMessage) ToolResult {
 }
 
 func toolExec(sb *Sandbox, params json.RawMessage) ToolResult {
-	var args struct{ Command string `json:"command"` }
+	var args struct {
+		Command string `json:"command"`
+	}
 	if err := json.Unmarshal(params, &args); err != nil {
 		return ToolResult{Success: false, Error: err.Error()}
 	}

@@ -9,10 +9,10 @@ import (
 )
 
 var allowedUninstallReasons = map[string]bool{
-	"load_failed":            true,
-	"missing_capabilities":   true,
-	"too_slow":               true,
-	"obsolete_or_outdated":   true,
+	"load_failed":          true,
+	"missing_capabilities": true,
+	"too_slow":             true,
+	"obsolete_or_outdated": true,
 }
 
 type uninstallRecord struct {

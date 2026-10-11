@@ -7,9 +7,9 @@ import (
 
 func TestThinkLevelUnmarshal(t *testing.T) {
 	cases := []struct {
-		in       string
-		want     ThinkLevel
-		wantErr  bool
+		in      string
+		want    ThinkLevel
+		wantErr bool
 	}{
 		{in: `"low"`, want: "low"},
 		{in: `"medium"`, want: "medium"},

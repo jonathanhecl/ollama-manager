@@ -455,6 +455,47 @@ func openAIModelsServer(t *testing.T, ownedBy any, extra map[string]any, auth st
 	}))
 }
 
+func TestFetchExternalListingInfoContext(t *testing.T) {
+	ctx := context.Background()
+	endpointOf := func(ts *httptest.Server) string {
+		return normalizeOpenAIEndpoint(ts.URL)
+	}
+
+	cases := []struct {
+		name  string
+		extra map[string]any
+		want  int64
+	}{
+		{"max_model_len", map[string]any{"max_model_len": 262144}, 262144},
+		{"max_context_length", map[string]any{"max_context_length": 32768}, 32768},
+		{"context_length", map[string]any{"context_length": 8192}, 8192},
+		{"n_ctx", map[string]any{"n_ctx": 4096}, 4096},
+		{"nested meta.n_ctx", map[string]any{"meta": map[string]any{"n_ctx": 2048}}, 2048},
+		{"max_model_len wins over others", map[string]any{"max_model_len": 131072, "context_length": 8192}, 131072},
+		{"none advertised", nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := openAIModelsServer(t, "omlx", tc.extra, "")
+			defer ts.Close()
+			info := fetchExternalListingInfo(ctx, endpointOf(ts), "", "m")
+			if info.MaxContext != tc.want {
+				t.Fatalf("MaxContext = %d, want %d", info.MaxContext, tc.want)
+			}
+			if info.Provider != "oMLX" {
+				t.Fatalf("Provider = %q, want oMLX", info.Provider)
+			}
+		})
+	}
+
+	// Unknown model id must not be guessed from the listing.
+	ts := openAIModelsServer(t, "omlx", map[string]any{"max_model_len": 262144}, "")
+	defer ts.Close()
+	if got := fetchExternalListingInfo(ctx, endpointOf(ts), "", "other"); got.MaxContext != 0 || got.Provider != "" {
+		t.Fatalf("unknown id must yield zero info, got %+v", got)
+	}
+}
+
 func TestDetectExternalProvider(t *testing.T) {
 	ctx := context.Background()
 	endpointOf := func(ts *httptest.Server) string {

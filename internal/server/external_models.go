@@ -23,14 +23,15 @@ import (
 // ExternalModelRecord stores metadata and configuration for a remote/external
 // model served via an OpenAI-compatible API (e.g., oMLX, vLLM, LM Studio).
 type ExternalModelRecord struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	URL          string    `json:"url"`
-	APIKey       string    `json:"api_key,omitempty"`
-	Capabilities []string  `json:"capabilities,omitempty"`
-	Provider     string    `json:"provider,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	Disabled     bool      `json:"disabled,omitempty"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	URL           string    `json:"url"`
+	APIKey        string    `json:"api_key,omitempty"`
+	Capabilities  []string  `json:"capabilities,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	ContextLength int64     `json:"context_length,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	Disabled      bool      `json:"disabled,omitempty"`
 }
 
 type externalModelsFile struct {
@@ -283,6 +284,9 @@ func (s *externalModelsStore) Upsert(id, name, targetURL, apiKey string, capabil
 	rec.Disabled = disabled
 	if fieldsChanged {
 		rec.Provider = provider
+		// A new name/URL/api key targets a possibly different model: drop the
+		// cached context window so RefreshProviders re-probes it.
+		rec.ContextLength = 0
 		delete(s.providerChecked, key)
 	} else if provider != "" {
 		rec.Provider = provider
@@ -297,6 +301,29 @@ func (s *externalModelsStore) Upsert(id, name, targetURL, apiKey string, capabil
 		return ExternalModelRecord{}, err
 	}
 	return rec, nil
+}
+
+// SetContextLength records the advertised context window for an existing model.
+// Non-positive values are ignored so a failed probe never clears a good value.
+func (s *externalModelsStore) SetContextLength(id string, n int64) {
+	if s == nil || n <= 0 {
+		return
+	}
+	s.mu.Lock()
+	key, ok := s.resolveKeyLocked(id)
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	rec := s.models[key]
+	if rec.ContextLength == n {
+		s.mu.Unlock()
+		return
+	}
+	rec.ContextLength = n
+	s.models[key] = rec
+	s.mu.Unlock()
+	_ = s.save()
 }
 
 func (s *externalModelsStore) ToggleDisabled(name string) (bool, error) {
@@ -392,21 +419,26 @@ func (s *externalModelsStore) save() error {
 // ---------- OpenAI API Protocol Types ----------
 
 type openAIChatRequest struct {
-	Model              string          `json:"model"`
-	Messages           []openAIMessage `json:"messages"`
-	Stream             bool            `json:"stream"`
-	Temperature        *float64        `json:"temperature,omitempty"`
-	TopP               *float64        `json:"top_p,omitempty"`
-	TopK               *int            `json:"top_k,omitempty"`
-	MaxTokens          *int            `json:"max_tokens,omitempty"`
-	Stop               any             `json:"stop,omitempty"`
-	FrequencyPenalty   *float64        `json:"frequency_penalty,omitempty"`
-	PresencePenalty    *float64        `json:"presence_penalty,omitempty"`
-	ReasoningEffort    string          `json:"reasoning_effort,omitempty"`
-	EnableThinking     *bool           `json:"enable_thinking,omitempty"`
-	ChatTemplateKwargs map[string]any  `json:"chat_template_kwargs,omitempty"`
-	Thinking           any             `json:"thinking,omitempty"`
-	Tools              any             `json:"tools,omitempty"`
+	Model              string               `json:"model"`
+	Messages           []openAIMessage      `json:"messages"`
+	Stream             bool                 `json:"stream"`
+	Temperature        *float64             `json:"temperature,omitempty"`
+	TopP               *float64             `json:"top_p,omitempty"`
+	TopK               *int                 `json:"top_k,omitempty"`
+	MaxTokens          *int                 `json:"max_tokens,omitempty"`
+	Stop               any                  `json:"stop,omitempty"`
+	FrequencyPenalty   *float64             `json:"frequency_penalty,omitempty"`
+	PresencePenalty    *float64             `json:"presence_penalty,omitempty"`
+	ReasoningEffort    string               `json:"reasoning_effort,omitempty"`
+	EnableThinking     *bool                `json:"enable_thinking,omitempty"`
+	ChatTemplateKwargs map[string]any       `json:"chat_template_kwargs,omitempty"`
+	Thinking           any                  `json:"thinking,omitempty"`
+	Tools              any                  `json:"tools,omitempty"`
+	StreamOptions      *openAIStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAIMessage struct {
@@ -514,6 +546,7 @@ type ExternalModelProbeResult struct {
 	Capabilities []string `json:"capabilities"`
 	Model        string   `json:"model"`
 	Provider     string   `json:"provider,omitempty"`
+	MaxContext   int64    `json:"max_context,omitempty"`
 	LatencyMs    int64    `json:"latency_ms"`
 	Message      string   `json:"message,omitempty"`
 }
@@ -750,6 +783,8 @@ func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string
 		caps = append(caps, "tools")
 	}
 
+	info := fetchExternalListingInfo(ctx, endpoint, apiKey, modelName)
+
 	return &ExternalModelProbeResult{
 		Connected:    connected,
 		Vision:       vision,
@@ -757,7 +792,8 @@ func ProbeExternalModel(ctx context.Context, targetURL, apiKey, modelName string
 		Thinking:     thinking,
 		Capabilities: caps,
 		Model:        modelName,
-		Provider:     detectExternalProvider(ctx, endpoint, apiKey, modelName),
+		Provider:     info.Provider,
+		MaxContext:   info.MaxContext,
 		LatencyMs:    latency,
 	}, nil
 }
@@ -777,7 +813,17 @@ func externalModelsEndpoint(normalizedEndpoint string) string {
 	return strings.TrimSuffix(normalizedEndpoint, "/chat/completions") + "/models"
 }
 
-func detectExternalProvider(ctx context.Context, normalizedEndpoint, apiKey, modelName string) string {
+// externalListingInfo captures provider and context metadata discovered from a
+// GET /v1/models listing. Zero values mean "not advertised".
+type externalListingInfo struct {
+	Provider   string
+	MaxContext int64
+}
+
+// fetchExternalListingInfo queries the OpenAI-compatible /models endpoint and
+// extracts the provider label and context window advertised for modelName.
+// Only an exact id match is honored; unknown servers simply yield zero values.
+func fetchExternalListingInfo(ctx context.Context, normalizedEndpoint, apiKey, modelName string) externalListingInfo {
 	modelsURL := externalModelsEndpoint(normalizedEndpoint)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
@@ -790,38 +836,68 @@ func detectExternalProvider(ctx context.Context, normalizedEndpoint, apiKey, mod
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
 	if err != nil {
-		return ""
+		return externalListingInfo{}
 	}
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return ""
+		return externalListingInfo{}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return ""
+		return externalListingInfo{}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return ""
+		return externalListingInfo{}
 	}
 	var listing struct {
 		Data []struct {
-			ID      string `json:"id"`
-			OwnedBy string `json:"owned_by"`
+			ID               string `json:"id"`
+			OwnedBy          string `json:"owned_by"`
+			MaxModelLen      int64  `json:"max_model_len"`
+			MaxContextLength int64  `json:"max_context_length"`
+			ContextLength    int64  `json:"context_length"`
+			Nctx             int64  `json:"n_ctx"`
+			Meta             struct {
+				Nctx int64 `json:"n_ctx"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &listing); err != nil {
-		return ""
+		return externalListingInfo{}
 	}
 	for _, m := range listing.Data {
-		if m.ID == modelName {
-			return canonicalProviderLabel(m.OwnedBy)
+		if m.ID != modelName {
+			continue
+		}
+		maxCtx := m.MaxModelLen
+		if maxCtx == 0 {
+			maxCtx = m.MaxContextLength
+		}
+		if maxCtx == 0 {
+			maxCtx = m.ContextLength
+		}
+		if maxCtx == 0 {
+			maxCtx = m.Nctx
+		}
+		if maxCtx == 0 {
+			maxCtx = m.Meta.Nctx
+		}
+		return externalListingInfo{
+			Provider:   canonicalProviderLabel(m.OwnedBy),
+			MaxContext: maxCtx,
 		}
 	}
-	return ""
+	return externalListingInfo{}
+}
+
+// detectExternalProvider returns only the provider label for a model, keeping
+// the historical single-value signature used by callers and tests.
+func detectExternalProvider(ctx context.Context, normalizedEndpoint, apiKey, modelName string) string {
+	return fetchExternalListingInfo(ctx, normalizedEndpoint, apiKey, modelName).Provider
 }
 
 func (s *externalModelsStore) RefreshProviders(ctx context.Context) {
@@ -839,7 +915,7 @@ func (s *externalModelsStore) RefreshProviders(ctx context.Context) {
 	now := time.Now()
 	s.mu.Lock()
 	for k, v := range s.models {
-		if v.Provider != "" {
+		if v.Provider != "" && v.ContextLength > 0 {
 			continue
 		}
 		if last, ok := s.providerChecked[k]; ok && now.Sub(last) < 5*time.Minute {
@@ -867,17 +943,26 @@ func (s *externalModelsStore) RefreshProviders(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			}
-			p := detectExternalProvider(ctx, normalizeOpenAIEndpoint(tgt.rec.URL), tgt.rec.APIKey, tgt.rec.Name)
-			if p == "" {
+			info := fetchExternalListingInfo(ctx, normalizeOpenAIEndpoint(tgt.rec.URL), tgt.rec.APIKey, tgt.rec.Name)
+			if info.Provider == "" && info.MaxContext <= 0 {
 				return
 			}
 			s.mu.Lock()
 			if cur, ok := s.models[tgt.key]; ok &&
-				cur.Name == tgt.rec.Name && cur.URL == tgt.rec.URL && cur.APIKey == tgt.rec.APIKey &&
-				cur.Provider == "" {
-				cur.Provider = p
-				s.models[tgt.key] = cur
-				changed = true
+				cur.Name == tgt.rec.Name && cur.URL == tgt.rec.URL && cur.APIKey == tgt.rec.APIKey {
+				dirty := false
+				if cur.Provider == "" && info.Provider != "" {
+					cur.Provider = info.Provider
+					dirty = true
+				}
+				if cur.ContextLength <= 0 && info.MaxContext > 0 {
+					cur.ContextLength = info.MaxContext
+					dirty = true
+				}
+				if dirty {
+					s.models[tgt.key] = cur
+					changed = true
+				}
 			}
 			s.mu.Unlock()
 		}()
@@ -937,10 +1022,11 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 	}
 
 	payload := openAIChatRequest{
-		Model:    ext.Name,
-		Messages: openAIMsgs,
-		Stream:   true,
-		Tools:    req.Tools,
+		Model:         ext.Name,
+		Messages:      openAIMsgs,
+		Stream:        true,
+		Tools:         req.Tools,
+		StreamOptions: &openAIStreamOptions{IncludeUsage: true},
 	}
 
 	if req.Think != nil {
@@ -1090,7 +1176,7 @@ func (s *Server) chatExternal(ctx context.Context, ext ExternalModelRecord, req 
 	// Some OpenAI-compatible servers (oMLX, LM Studio, older vLLM) reject
 	// extended thinking/reasoning params with 400. Retry once with a minimal
 	// payload so bench works against strict servers.
-	if resp.StatusCode >= 400 && (payload.EnableThinking != nil || payload.ReasoningEffort != "" || payload.Thinking != nil || payload.ChatTemplateKwargs != nil || payload.TopK != nil) {
+	if resp.StatusCode >= 400 && (payload.EnableThinking != nil || payload.ReasoningEffort != "" || payload.Thinking != nil || payload.ChatTemplateKwargs != nil || payload.TopK != nil || payload.StreamOptions != nil) {
 		_, _ = io.ReadAll(resp.Body)
 		resp.Body.Close()
 		minimal := openAIChatRequest{

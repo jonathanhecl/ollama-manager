@@ -963,6 +963,9 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.externalModels != nil {
+		// Best-effort refresh of provider labels and context windows so external
+		// rows expose a context_length even before the first chat.
+		s.externalModels.RefreshProviders(r.Context())
 		for extID, ext := range s.externalModels.All() {
 			if ext.Disabled {
 				continue
@@ -972,16 +975,17 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 				caps = []string{"completion", "tools", "thinking"}
 			}
 			ev := modelView{
-				Name:         extID,
-				Family:       "external",
-				Format:       "external",
-				Capabilities: caps,
-				IsExternal:   true,
-				Disabled:     ext.Disabled,
-				URL:          cleanURLDisplay(ext.URL),
-				RemoteName:   ext.Name,
-				Provider:     ext.Provider,
-				ModifiedAt:   ext.CreatedAt,
+				Name:          extID,
+				Family:        "external",
+				Format:        "external",
+				Capabilities:  caps,
+				IsExternal:    true,
+				Disabled:      ext.Disabled,
+				URL:           cleanURLDisplay(ext.URL),
+				RemoteName:    ext.Name,
+				Provider:      ext.Provider,
+				ContextLength: ext.ContextLength,
+				ModifiedAt:    ext.CreatedAt,
 			}
 			if s.usage != nil {
 				if rec, ok := s.usage.Get(extID); ok {
@@ -3924,9 +3928,9 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	provider := detectExternalProvider(r.Context(), normalizeOpenAIEndpoint(targetURL), apiKey, name)
+	info := fetchExternalListingInfo(r.Context(), normalizeOpenAIEndpoint(targetURL), apiKey, name)
 
-	rec, err := s.externalModels.Upsert(id, name, targetURL, apiKey, body.Capabilities, body.Disabled, provider)
+	rec, err := s.externalModels.Upsert(id, name, targetURL, apiKey, body.Capabilities, body.Disabled, info.Provider)
 	if err != nil {
 		switch {
 		case errors.Is(err, errExternalNotFound):
@@ -3938,6 +3942,7 @@ func (s *Server) handleCreateExternalModel(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
+	s.externalModels.SetContextLength(rec.ID, info.MaxContext)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "id": rec.ID, "name": rec.Name, "disabled": rec.Disabled})
 }
 
@@ -4023,6 +4028,7 @@ func (s *Server) handleTestExternalModel(w http.ResponseWriter, r *http.Request)
 		"thinking":     res.Thinking,
 		"capabilities": res.Capabilities,
 		"provider":     res.Provider,
+		"max_context":  res.MaxContext,
 		"latency_ms":   res.LatencyMs,
 	})
 }

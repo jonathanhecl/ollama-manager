@@ -1860,6 +1860,7 @@ async function testExternalModel() {
           <span>${escapeHtml(t("settings.ext_test_success", { latency: res.latency_ms || 0 }))}</span>
         </div>
         <div class="ext-test-caps"><span class="muted small">${escapeHtml(t("detail.capabilities"))}:</span> ${capsHtml}</div>
+        ${res.max_context > 0 ? `<div class="ext-test-caps"><span class="muted small">${escapeHtml(t("col.context"))}:</span> <span class="mono">${escapeHtml(fmtCtx(res.max_context))}</span></div>` : ""}
       `;
 
       resultEl.querySelectorAll(".ext-cap-pill").forEach((pill) => {

@@ -630,7 +630,7 @@ function renderTable() {
       </td>
       <td class="cell-bench-col">${getBenchCellHtml(m)}</td>
       <td class="cell-params">${escapeHtml(m.is_external ? "—" : modelParameterLabel(m))}</td>
-      <td class="cell-ctx">${m.isPending || m.is_external ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
+      <td class="cell-ctx">${m.isPending ? "—" : (m.context_length > 0 ? fmtCtx(m.context_length) : "—")}</td>
       <td class="cell-size">${m.isPending || m.is_external ? "—" : (m.size > 0 ? fmtBytes(m.size) : "—")}</td>
       <td class="cell-modified">
         <div class="cell-dates">

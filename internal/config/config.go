@@ -58,11 +58,14 @@ func (c ChatSessionsConfig) DeleteSessionsOnModelUninstall() bool {
 // GatewayConfig controls the optional OpenAI/Ollama-compatible gateway
 // that re-exposes selected models to third-party clients on its own port.
 type GatewayConfig struct {
-	// Enabled turns the gateway listener on (requires restart).
+	// Enabled turns the gateway listener on. Applied live on config save
+	// (the listener is reconciled via SyncGateway, no restart needed).
 	Enabled bool `json:"enabled"`
-	// Port is the gateway listen port (requires restart). 0 = default.
+	// Port is the gateway listen port. 0 = default. Applied live on config
+	// save (reconciled via SyncGateway, no restart needed).
 	Port int `json:"port"`
-	// ExposeNetwork binds 0.0.0.0 instead of 127.0.0.1 (requires restart).
+	// ExposeNetwork binds 0.0.0.0 instead of 127.0.0.1. Applied live on
+	// config save (reconciled via SyncGateway, no restart needed).
 	ExposeNetwork bool `json:"expose_network"`
 	// Models is the allowlist of exposed model names (local and external).
 	// When nil (unconfigured), all visible models are exposed.

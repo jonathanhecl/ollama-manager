@@ -14,5 +14,24 @@
     "think_level": "auto",
     "web_tools": false,
     "artifacts": false
+  },
+  "chat_sessions": {
+    "enabled": true,
+    "on_model_delete": "delete"
+  },
+  "comfyui": {
+    "url": "http://127.0.0.1:8188",
+    "timeout_seconds": 600
+  },
+  "rag": {
+    "default_embedding": "",
+    "directory": ""
+  },
+  "gateway": {
+    "enabled": false,
+    "port": 7861,
+    "expose_network": false,
+    "models": null,
+    "require_auth": false
   }
 }

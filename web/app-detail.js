@@ -207,6 +207,28 @@ function renderDetail(d) {
   const decisionColdVal = decisionColdMs > 0
     ? `${fmtMs(decisionColdMs)}${d.decision_cold_at ? ` (${fmtDate(d.decision_cold_at)})` : ""}`
     : "—";
+  const isSpeechModel = [...(d.capabilities || []), ...(m.capabilities || [])].some((c) => String(c).toLowerCase() === "speech");
+  const speechCalls = Number(d.speech_calls || m.speech_calls) || 0;
+  const speechAvgMs = Number(d.speech_avg_ms || m.speech_avg_ms) || 0;
+  const speechMinMs = Number(d.speech_min_ms || m.speech_min_ms) || 0;
+  const speechMaxMs = Number(d.speech_max_ms || m.speech_max_ms) || 0;
+  const speechCps = Number(d.speech_chars_per_sec || m.speech_chars_per_sec) || 0;
+  const speechColdMs = Number(d.speech_cold_ms || m.speech_cold_ms) || 0;
+  const speechChars = Number(d.speech_input_chars || m.speech_input_chars) || 0;
+  const speechAudioBytes = Number(d.speech_audio_bytes || m.speech_audio_bytes) || 0;
+  const speechRespVal = speechAvgMs > 0
+    ? `${fmtMs(speechAvgMs)}${speechCps > 0 ? ` · ${Math.round(speechCps)} chars/s` : ""}`
+    : "—";
+  const speechRangeVal = (speechMinMs > 0 || speechMaxMs > 0)
+    ? `${fmtMs(speechMinMs)} – ${fmtMs(speechMaxMs)}`
+    : "—";
+  const speechCallsVal = speechCalls > 0
+    ? `${speechCalls.toLocaleString()}${speechChars > 0 ? ` (${speechChars.toLocaleString()} chars)` : ""}`
+    : "—";
+  const speechAudioVal = speechAudioBytes > 0 ? fmtBytes(speechAudioBytes) : "—";
+  const speechColdVal = speechColdMs > 0
+    ? `${fmtMs(speechColdMs)}${(d.speech_cold_at || m.speech_cold_at) ? ` (${fmtDate(d.speech_cold_at || m.speech_cold_at)})` : ""}`
+    : "—";
   const siteUrl = !isExternal ? modelHomepageUrl(d.name, isCustom) : "";
   const hostLabel = siteUrl ? (siteUrl.startsWith("https://huggingface.co") ? "Hugging Face" : "Ollama") : "";
   let hfRepoId = getHFRepoFromModel(d.name);
@@ -244,6 +266,13 @@ function renderDetail(d) {
         [t("analytics.usage_stat_decision_calls"), decisionCallsVal, false],
         [t("analytics.usage_stat_decision_tokens"), decisionTokensVal, false],
         [t("analytics.usage_stat_decision_cold"), decisionColdVal, false],
+      ] : []),
+      ...((isSpeechModel || speechCalls > 0) ? [
+        [t("analytics.usage_stat_speech_avg"), speechRespVal, false],
+        [t("analytics.usage_stat_speech_range"), speechRangeVal, false],
+        [t("analytics.usage_stat_speech_calls"), speechCallsVal, false],
+        [t("analytics.usage_stat_speech_audio"), speechAudioVal, false],
+        [t("analytics.usage_stat_speech_cold"), speechColdVal, false],
       ] : []),
       [t("detail.state"), stateText, true],
       [t("detail.modified"), new Date(d.modified_at).toLocaleString(), false],
@@ -504,7 +533,7 @@ async function toggleArchived(name, toArchive) {
 }
 window.toggleArchived = toggleArchived;
 
-const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "embedding", "decision"];
+const REPAIR_CAPS = ["completion", "tools", "thinking", "vision", "audio", "speech", "embedding", "decision"];
 
 function isFixedModelName(name) {
   return String(name || "").trim().endsWith(":fixed");

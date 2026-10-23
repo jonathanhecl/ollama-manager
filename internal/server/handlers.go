@@ -776,38 +776,49 @@ type modelView struct {
 	DecisionQuestionsPerSec float64    `json:"decision_questions_per_sec,omitempty"`
 	DecisionColdMs          int64      `json:"decision_cold_ms,omitempty"`
 	DecisionColdAt          *time.Time `json:"decision_cold_at,omitempty"`
-	Digest                  string     `json:"digest"`
-	Family                  string     `json:"family"`
-	Families                []string   `json:"families"`
-	Format                  string     `json:"format"`
-	ParameterSize           string     `json:"parameter_size"`
-	Quantization            string     `json:"quantization"`
-	ContextLength           int64      `json:"context_length,omitempty"`
-	Capabilities            []string   `json:"capabilities,omitempty"`
-	ParameterCount          int64      `json:"parameter_count,omitempty"`
-	Architecture            string     `json:"architecture,omitempty"`
-	FileType                int64      `json:"file_type,omitempty"`
-	SizeLabel               string     `json:"size_label,omitempty"`
-	IsMOE                   bool       `json:"is_moe,omitempty"`
-	Loaded                  bool       `json:"loaded"`
-	SizeVRAM                int64      `json:"size_vram,omitempty"`
-	ExpiresAt               *time.Time `json:"expires_at,omitempty"`
-	Archived                bool       `json:"archived"`
-	IsGhost                 bool       `json:"is_ghost,omitempty"`
-	UninstallReason         string     `json:"uninstall_reason,omitempty"`
-	UninstallAt             *time.Time `json:"uninstall_at,omitempty"`
-	IsCustom                bool       `json:"is_custom,omitempty"`
-	IsExternal              bool       `json:"is_external,omitempty"`
-	Disabled                bool       `json:"disabled,omitempty"`
-	URL                     string     `json:"url,omitempty"`
-	RemoteName              string     `json:"remote_name,omitempty"`
-	Provider                string     `json:"provider,omitempty"`
-	BaseModel               string     `json:"base_model,omitempty"`
-	BenchOverall            *float64   `json:"bench_overall,omitempty"`
-	BenchTested             bool       `json:"bench_tested,omitempty"`
-	BenchComplete           bool       `json:"bench_complete,omitempty"`
-	BenchMissing            []string   `json:"bench_missing,omitempty"`
-	BenchPossible           []string   `json:"bench_possible,omitempty"`
+	// Speech (text-to-speech) metrics.
+	SpeechCalls       int64      `json:"speech_calls,omitempty"`
+	SpeechInputChars  int64      `json:"speech_input_chars,omitempty"`
+	SpeechAudioBytes  int64      `json:"speech_audio_bytes,omitempty"`
+	SpeechAvgMs       int64      `json:"speech_avg_ms,omitempty"`
+	SpeechMinMs       int64      `json:"speech_min_ms,omitempty"`
+	SpeechMaxMs       int64      `json:"speech_max_ms,omitempty"`
+	SpeechLastMs      int64      `json:"speech_last_ms,omitempty"`
+	SpeechCharsPerSec float64    `json:"speech_chars_per_sec,omitempty"`
+	SpeechColdMs      int64      `json:"speech_cold_ms,omitempty"`
+	SpeechColdAt      *time.Time `json:"speech_cold_at,omitempty"`
+	Digest            string     `json:"digest"`
+	Family            string     `json:"family"`
+	Families          []string   `json:"families"`
+	Format            string     `json:"format"`
+	ParameterSize     string     `json:"parameter_size"`
+	Quantization      string     `json:"quantization"`
+	ContextLength     int64      `json:"context_length,omitempty"`
+	Capabilities      []string   `json:"capabilities,omitempty"`
+	ParameterCount    int64      `json:"parameter_count,omitempty"`
+	Architecture      string     `json:"architecture,omitempty"`
+	FileType          int64      `json:"file_type,omitempty"`
+	SizeLabel         string     `json:"size_label,omitempty"`
+	IsMOE             bool       `json:"is_moe,omitempty"`
+	Loaded            bool       `json:"loaded"`
+	SizeVRAM          int64      `json:"size_vram,omitempty"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	Archived          bool       `json:"archived"`
+	IsGhost           bool       `json:"is_ghost,omitempty"`
+	UninstallReason   string     `json:"uninstall_reason,omitempty"`
+	UninstallAt       *time.Time `json:"uninstall_at,omitempty"`
+	IsCustom          bool       `json:"is_custom,omitempty"`
+	IsExternal        bool       `json:"is_external,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	URL               string     `json:"url,omitempty"`
+	RemoteName        string     `json:"remote_name,omitempty"`
+	Provider          string     `json:"provider,omitempty"`
+	BaseModel         string     `json:"base_model,omitempty"`
+	BenchOverall      *float64   `json:"bench_overall,omitempty"`
+	BenchTested       bool       `json:"bench_tested,omitempty"`
+	BenchComplete     bool       `json:"bench_complete,omitempty"`
+	BenchMissing      []string   `json:"bench_missing,omitempty"`
+	BenchPossible     []string   `json:"bench_possible,omitempty"`
 }
 
 // applyUsageRecord copies a persisted usage/metrics record onto a model view.
@@ -830,6 +841,16 @@ func applyUsageRecord(v *modelView, rec ModelUsageRecord) {
 	v.DecisionQuestionsPerSec = rec.DecisionQuestionsPerSec()
 	v.DecisionColdMs = rec.DecisionColdMs
 	v.DecisionColdAt = rec.DecisionColdAt
+	v.SpeechCalls = rec.SpeechCalls
+	v.SpeechInputChars = rec.SpeechInputChars
+	v.SpeechAudioBytes = rec.SpeechAudioBytes
+	v.SpeechAvgMs = rec.SpeechAvgMs()
+	v.SpeechMinMs = rec.SpeechMinMs
+	v.SpeechMaxMs = rec.SpeechMaxMs
+	v.SpeechLastMs = rec.SpeechLastMs
+	v.SpeechCharsPerSec = rec.SpeechCharsPerSec()
+	v.SpeechColdMs = rec.SpeechColdMs
+	v.SpeechColdAt = rec.SpeechColdAt
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -1555,6 +1576,16 @@ type modelDetail struct {
 	RecordTokensPerSecAt *time.Time          `json:"record_tokens_per_sec_at,omitempty"`
 	MinColdLoadMs        int64               `json:"min_cold_load_ms,omitempty"`
 	MinColdLoadAt        *time.Time          `json:"min_cold_load_at,omitempty"`
+	SpeechCalls          int64               `json:"speech_calls,omitempty"`
+	SpeechInputChars     int64               `json:"speech_input_chars,omitempty"`
+	SpeechAudioBytes     int64               `json:"speech_audio_bytes,omitempty"`
+	SpeechAvgMs          int64               `json:"speech_avg_ms,omitempty"`
+	SpeechMinMs          int64               `json:"speech_min_ms,omitempty"`
+	SpeechMaxMs          int64               `json:"speech_max_ms,omitempty"`
+	SpeechLastMs         int64               `json:"speech_last_ms,omitempty"`
+	SpeechCharsPerSec    float64             `json:"speech_chars_per_sec,omitempty"`
+	SpeechColdMs         int64               `json:"speech_cold_ms,omitempty"`
+	SpeechColdAt         *time.Time          `json:"speech_cold_at,omitempty"`
 	IsCustom             bool                `json:"is_custom,omitempty"`
 	IsExternal           bool                `json:"is_external,omitempty"`
 	Disabled             bool                `json:"disabled,omitempty"`
@@ -1657,6 +1688,16 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 			detail.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
 			detail.MinColdLoadMs = rec.MinColdLoadMs
 			detail.MinColdLoadAt = rec.MinColdLoadAt
+			detail.SpeechCalls = rec.SpeechCalls
+			detail.SpeechInputChars = rec.SpeechInputChars
+			detail.SpeechAudioBytes = rec.SpeechAudioBytes
+			detail.SpeechAvgMs = rec.SpeechAvgMs()
+			detail.SpeechMinMs = rec.SpeechMinMs
+			detail.SpeechMaxMs = rec.SpeechMaxMs
+			detail.SpeechLastMs = rec.SpeechLastMs
+			detail.SpeechCharsPerSec = rec.SpeechCharsPerSec()
+			detail.SpeechColdMs = rec.SpeechColdMs
+			detail.SpeechColdAt = rec.SpeechColdAt
 		}
 	}
 	detail.ArtifactCount, detail.ArtifactBytes = s.artifactInfoForModel(r.Context(), name)
@@ -2660,6 +2701,17 @@ func (s *Server) recordModelColdLoad(name string, durationMs int64, at time.Time
 	}
 }
 
+// recordModelSpeech stores one text-to-speech invocation against the model and
+// every member of its family.
+func (s *Server) recordModelSpeech(name string, inputChars, audioBytes int, latencyMs int64, cold bool, at time.Time) {
+	if s.usage == nil || name == "" {
+		return
+	}
+	for _, member := range s.modelFamily(name) {
+		_ = s.usage.RecordSpeech(member, inputChars, audioBytes, latencyMs, cold, at)
+	}
+}
+
 // recordModelDecision stores one System One ("decision") invocation against the
 // model and every member of its family.
 func (s *Server) recordModelDecision(name string, questions, inputTokens, outputTokens int, latencyMs int64, cold bool, at time.Time) {
@@ -2818,6 +2870,72 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		"embedding": out.Embedding,
 		"dims":      len(out.Embedding),
 	})
+}
+
+// handleSpeech proxies the OpenAI-compatible POST /v1/audio/speech so a
+// "speech" model can turn text into audio. The response is raw audio, never
+// JSON: the browser plays it from a blob URL.
+func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Model  string `json:"model"`
+		Input  string `json:"input"`
+		Voice  string `json:"voice"`
+		Format string `json:"format"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid body: %w", err))
+		return
+	}
+	body.Model = strings.TrimSpace(body.Model)
+	if body.Model == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'model'"))
+		return
+	}
+	body.Input = strings.TrimSpace(body.Input)
+	if body.Input == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'input'"))
+		return
+	}
+	// Ollama rejects longer inputs; fail here with a message that names the
+	// limit instead of forwarding a 400 from the engine.
+	if n := utf8.RuneCountInString(body.Input); n > 4096 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("input too long: %d characters (limit 4096)", n))
+		return
+	}
+
+	// The endpoint reports no timing of its own, so measure wall clock and note
+	// whether the model had to be loaded for this request.
+	wasCold := true
+	if running, err := s.ollama.PS(r.Context()); err == nil {
+		for _, rm := range running {
+			if sameModelName(rm.Name, body.Model) || sameModelName(rm.Model, body.Model) {
+				wasCold = false
+				break
+			}
+		}
+	}
+
+	started := time.Now()
+	audio, contentType, err := s.ollama.Speech(r.Context(), ollama.SpeechRequest{
+		Model:  body.Model,
+		Input:  body.Input,
+		Voice:  strings.TrimSpace(body.Voice),
+		Format: strings.TrimSpace(body.Format),
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	latencyMs := time.Since(started).Milliseconds()
+	if latencyMs < 1 {
+		latencyMs = 1
+	}
+	s.recordModelSpeech(body.Model, utf8.RuneCountInString(body.Input), len(audio), latencyMs, wasCold, time.Now())
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(audio)
 }
 
 // handleDecision proxies POST /v1/systemone for Ollama "decision" (System One)

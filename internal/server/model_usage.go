@@ -56,6 +56,36 @@ type ModelUsageRecord struct {
 	DecisionLastMs       int64      `json:"decision_last_ms,omitempty"`
 	DecisionColdMs       int64      `json:"decision_cold_ms,omitempty"`
 	DecisionColdAt       *time.Time `json:"decision_cold_at,omitempty"`
+	// Speech (text-to-speech) metrics. The OpenAI-compatible
+	// /v1/audio/speech endpoint returns audio with no timing of its own, so
+	// response time is measured as wall clock and load time is only observable
+	// as the latency of a call that found the model not loaded.
+	SpeechCalls      int64      `json:"speech_calls,omitempty"`
+	SpeechInputChars int64      `json:"speech_input_chars,omitempty"`
+	SpeechAudioBytes int64      `json:"speech_audio_bytes,omitempty"`
+	SpeechTotalMs    int64      `json:"speech_total_ms,omitempty"`
+	SpeechMinMs      int64      `json:"speech_min_ms,omitempty"`
+	SpeechMaxMs      int64      `json:"speech_max_ms,omitempty"`
+	SpeechLastMs     int64      `json:"speech_last_ms,omitempty"`
+	SpeechColdMs     int64      `json:"speech_cold_ms,omitempty"`
+	SpeechColdAt     *time.Time `json:"speech_cold_at,omitempty"`
+}
+
+// SpeechAvgMs is the mean wall-clock latency of recorded speech calls.
+func (r ModelUsageRecord) SpeechAvgMs() int64 {
+	if r.SpeechCalls > 0 && r.SpeechTotalMs > 0 {
+		return r.SpeechTotalMs / r.SpeechCalls
+	}
+	return 0
+}
+
+// SpeechCharsPerSec is the observed text throughput of recorded speech calls,
+// the text-to-speech counterpart of tokens per second.
+func (r ModelUsageRecord) SpeechCharsPerSec() float64 {
+	if r.SpeechTotalMs > 0 && r.SpeechInputChars > 0 {
+		return float64(r.SpeechInputChars) / (float64(r.SpeechTotalMs) / 1000)
+	}
+	return 0
 }
 
 // DecisionAvgMs is the mean wall-clock latency of recorded decision calls.
@@ -627,6 +657,50 @@ func (s *modelUsageStore) RecordDecision(name string, questions, inputTokens, ou
 		if cold && (rec.DecisionColdMs == 0 || latencyMs < rec.DecisionColdMs) {
 			rec.DecisionColdMs = latencyMs
 			rec.DecisionColdAt = &usedAt
+		}
+	}
+	models[name] = rec
+	s.mu.Unlock()
+
+	return s.save()
+}
+
+// RecordSpeech stores one text-to-speech invocation: wall-clock response time,
+// input size and produced audio size. When cold is true the request found the
+// model unloaded, so the latency also captures model load time (the
+// /v1/audio/speech response reports no load/eval timing of its own).
+func (s *modelUsageStore) RecordSpeech(name string, inputChars, audioBytes int, latencyMs int64, cold bool, usedAt time.Time) error {
+	if name == "" {
+		return nil
+	}
+	if usedAt.IsZero() {
+		usedAt = time.Now()
+	}
+
+	s.mu.Lock()
+	models := s.currentModelsLocked()
+	rec := models[name]
+	rec.LastUsedAt = &usedAt
+	rec.TotalCalls++
+	rec.SpeechCalls++
+	if inputChars > 0 {
+		rec.SpeechInputChars += int64(inputChars)
+	}
+	if audioBytes > 0 {
+		rec.SpeechAudioBytes += int64(audioBytes)
+	}
+	if latencyMs > 0 {
+		rec.SpeechTotalMs += latencyMs
+		rec.SpeechLastMs = latencyMs
+		if rec.SpeechMinMs == 0 || latencyMs < rec.SpeechMinMs {
+			rec.SpeechMinMs = latencyMs
+		}
+		if latencyMs > rec.SpeechMaxMs {
+			rec.SpeechMaxMs = latencyMs
+		}
+		if cold && (rec.SpeechColdMs == 0 || latencyMs < rec.SpeechColdMs) {
+			rec.SpeechColdMs = latencyMs
+			rec.SpeechColdAt = &usedAt
 		}
 	}
 	models[name] = rec

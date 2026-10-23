@@ -23,6 +23,7 @@ function fmtAxis(v, kind) {
   if (kind === "paramsB") return `${v.toFixed(1)}B`;
   if (kind === "tps") return `${v.toFixed(0)} tok/s`;
   if (kind === "qps") return `${v.toFixed(1)} dec/s`;
+  if (kind === "cps") return `${v.toFixed(0)} chars/s`;
   if (kind === "num") return `${Math.round(v)}`;
   return `${Math.round(v)}`;
 }
@@ -219,6 +220,51 @@ function renderAnalyticsKPIs(data) {
         <span class="analytics-kpi-label">${escapeHtml(t("analytics.decision_kpi_avg_latency"))}</span>
         <strong class="analytics-kpi-val highlight-purple">${avgLat > 0 ? Math.round(avgLat) + " <small>ms</small>" : "—"}</strong>
         <span class="analytics-kpi-sub muted">${avgQps > 0 ? avgQps.toFixed(2) + " dec/s" : "—"}</span>
+      </div>
+    </div>
+  `;
+    return;
+  }
+
+  if (typeof analyticsScopeIsSpeech === "function" && analyticsScopeIsSpeech()) {
+    const withCps = points.filter((p) => p.speechCps > 0).sort((a, b) => b.speechCps - a.speechCps);
+    const topCps = withCps[0];
+    const withLat = points.filter((p) => p.speechAvgMs > 0).sort((a, b) => a.speechAvgMs - b.speechAvgMs);
+    const fastest = withLat[0];
+    const validLat = points.filter((p) => p.speechAvgMs > 0);
+    const avgLat = validLat.length ? validLat.reduce((acc, p) => acc + p.speechAvgMs, 0) / validLat.length : 0;
+    const totalCalls = points.reduce((acc, p) => acc + p.speechCalls, 0);
+    container.innerHTML = `
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon">📊</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.kpi_models"))}</span>
+        <strong class="analytics-kpi-val">${totalModels}</strong>
+        <span class="analytics-kpi-sub muted">${installedCount} ${escapeHtml(t("analytics.source_installed").toLowerCase())}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-cyan-icon">⚡</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.speech_kpi_peak_cps"))}</span>
+        <strong class="analytics-kpi-val highlight-cyan">${topCps ? Math.round(topCps.speechCps) + " <small>chars/s</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted" title="${topCps ? escapeHtml(topCps.name) : ""}">${topCps ? escapeHtml(shortModelLabel(topCps.name, 16)) : "—"}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-emerald-icon">🚀</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.speech_kpi_fastest"))}</span>
+        <strong class="analytics-kpi-val highlight-emerald">${fastest ? Math.round(fastest.speechAvgMs) + " <small>ms</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted" title="${fastest ? escapeHtml(fastest.name) : ""}">${fastest ? escapeHtml(shortModelLabel(fastest.name, 16)) : "—"}</span>
+      </div>
+    </div>
+    <div class="analytics-kpi-card">
+      <div class="analytics-kpi-icon highlight-purple-icon">📈</div>
+      <div class="analytics-kpi-body">
+        <span class="analytics-kpi-label">${escapeHtml(t("analytics.speech_kpi_avg_latency"))}</span>
+        <strong class="analytics-kpi-val highlight-purple">${avgLat > 0 ? Math.round(avgLat) + " <small>ms</small>" : "—"}</strong>
+        <span class="analytics-kpi-sub muted">${totalCalls > 0 ? totalCalls.toLocaleString() + " calls" : "—"}</span>
       </div>
     </div>
   `;
@@ -578,11 +624,12 @@ function renderTpsVsParams(all) {
   const el = $("analytics-chart-tps");
   if (!el) return;
   const decision = typeof analyticsScopeIsDecision === "function" && analyticsScopeIsDecision();
+  const speech = typeof analyticsScopeIsSpeech === "function" && analyticsScopeIsSpeech();
   renderModernScatter(el, all, {
-    xLabel: t("analytics.tps_x"), yLabel: decision ? t("analytics.decision_qps_unit") : t("analytics.tps_y"),
-    xKind: "paramsB", yKind: decision ? "qps" : "tps",
+    xLabel: t("analytics.tps_x"), yLabel: decision ? t("analytics.decision_qps_unit") : speech ? t("analytics.speech_cps_unit") : t("analytics.tps_y"),
+    xKind: "paramsB", yKind: decision ? "qps" : speech ? "cps" : "tps",
     xValue: (p) => p.paramsB,
-    yValue: (p) => decision ? p.decisionQps : p.tps,
+    yValue: (p) => decision ? p.decisionQps : speech ? p.speechCps : p.tps,
     showTrendline: true,
     showPareto: true,
     theme: "speed",
@@ -608,13 +655,20 @@ function renderEfficiency(all) {
   const el = $("analytics-chart-efficiency");
   if (!el) return;
   const decision = typeof analyticsScopeIsDecision === "function" && analyticsScopeIsDecision();
+  const speech = typeof analyticsScopeIsSpeech === "function" && analyticsScopeIsSpeech();
   renderModernBars(el, all, {
-    label: t(decision ? "analytics.decision_efficiency_title" : "analytics.efficiency"),
-    value: decision ? (p) => (p.sizeGB > 0 ? p.decisionQps / p.sizeGB : 0) : (p) => p.efficiencyTokPerGB,
-    formatVal: (v) => decision ? `${v.toFixed(2)} dec/s/GB` : `${v.toFixed(1)} tok/s/GB`,
+    label: t(decision ? "analytics.decision_efficiency_title" : speech ? "analytics.speech_efficiency_title" : "analytics.efficiency"),
+    value: decision
+      ? (p) => (p.sizeGB > 0 ? p.decisionQps / p.sizeGB : 0)
+      : speech
+        ? (p) => (p.sizeGB > 0 ? p.speechCps / p.sizeGB : 0)
+        : (p) => p.efficiencyTokPerGB,
+    formatVal: (v) => decision ? `${v.toFixed(2)} dec/s/GB` : speech ? `${v.toFixed(0)} chars/s/GB` : `${v.toFixed(1)} tok/s/GB`,
     formatSub: decision
       ? (p) => p.decisionQps > 0 && p.sizeBytes > 0 ? `${p.decisionQps.toFixed(1)} dec/s · ${fmtBytes(p.sizeBytes)}` : ""
-      : (p) => p.tps > 0 && p.sizeBytes > 0 ? `${p.tps.toFixed(1)} tok/s · ${fmtBytes(p.sizeBytes)}` : "",
+      : speech
+        ? (p) => p.speechCps > 0 && p.sizeBytes > 0 ? `${Math.round(p.speechCps)} chars/s · ${fmtBytes(p.sizeBytes)}` : ""
+        : (p) => p.tps > 0 && p.sizeBytes > 0 ? `${p.tps.toFixed(1)} tok/s · ${fmtBytes(p.sizeBytes)}` : "",
     gradientClass: "grad-emerald",
   });
 }
@@ -623,6 +677,16 @@ function renderColdLoad(all) {
   const el = $("analytics-chart-coldload");
   if (!el) return;
   const decision = typeof analyticsScopeIsDecision === "function" && analyticsScopeIsDecision();
+  if (typeof analyticsScopeIsSpeech === "function" && analyticsScopeIsSpeech()) {
+    renderModernBars(el, all, {
+      label: t("analytics.speech_latency_title"),
+      value: (p) => p.speechAvgMs,
+      formatVal: (v) => `${Math.round(v)} ms`,
+      formatSub: (p) => p.speechCalls > 0 ? `${p.speechCalls} calls · ${p.speechInputChars.toLocaleString()} chars` : "",
+      gradientClass: "grad-amber",
+    });
+    return;
+  }
   if (decision) {
     renderModernBars(el, all, {
       label: t("analytics.decision_latency_title"),
@@ -995,6 +1059,47 @@ function renderModelUsageModalContent(m, u, uninst, installedModel, detail) {
     </div>`;
   }
 
+  const speechCalls = p.speechCalls || 0;
+  const isSpeechModel = (rawCaps || []).some((c) => String(c).toLowerCase() === "speech");
+  let speechSection = "";
+  if (isSpeechModel || speechCalls > 0) {
+    const fmtMs = (v) => (v > 0 ? `${Math.round(v)} ms` : "—");
+    const coldSub = p.speechColdMs > 0
+      ? `${(p.speechColdMs / 1000).toFixed(2)}s${(u?.speech_cold_at || m?.speech_cold_at) ? ` · ${fmtDate(u?.speech_cold_at || m?.speech_cold_at)}` : ""}`
+      : "—";
+    speechSection = `
+    <div class="model-usage-section">
+      <h4 class="model-usage-section-title">${escapeHtml(t("analytics.usage_speech_title"))}</h4>
+      <div class="model-usage-grid">
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🗣️</span>${escapeHtml(t("analytics.usage_stat_speech_avg"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(fmtMs(p.speechAvgMs))}</div>
+          <div class="model-usage-metric-sub">${p.speechCps > 0 ? `${Math.round(p.speechCps)} chars/s` : "—"}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">⚡</span>${escapeHtml(t("analytics.usage_stat_speech_range"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(fmtMs(p.speechMinMs))}</div>
+          <div class="model-usage-metric-sub">${p.speechMaxMs > 0 ? `max ${Math.round(p.speechMaxMs)} ms` : "—"}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🔢</span>${escapeHtml(t("analytics.usage_stat_speech_calls"))}</div>
+          <div class="model-usage-metric-val mono">${speechCalls.toLocaleString()}</div>
+          <div class="model-usage-metric-sub">${(p.speechInputChars || 0).toLocaleString()} ${escapeHtml(t("analytics.usage_stat_speech_chars").toLowerCase())}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">🔊</span>${escapeHtml(t("analytics.usage_stat_speech_audio"))}</div>
+          <div class="model-usage-metric-val mono">${(p.speechAudioBytes || 0) > 0 ? fmtBytes(p.speechAudioBytes) : "—"}</div>
+          <div class="model-usage-metric-sub">${p.speechLastMs > 0 ? `last ${Math.round(p.speechLastMs)} ms` : "—"}</div>
+        </div>
+        <div class="model-usage-metric-card">
+          <div class="model-usage-metric-label"><span class="model-usage-metric-card-icon">❄️</span>${escapeHtml(t("analytics.usage_stat_speech_cold"))}</div>
+          <div class="model-usage-metric-val mono">${escapeHtml(fmtMs(p.speechColdMs))}</div>
+          <div class="model-usage-metric-sub">${escapeHtml(coldSub)}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
   body.innerHTML = `
     <div class="model-usage-hero">
       <div class="model-usage-hero-top">
@@ -1065,6 +1170,8 @@ function renderModelUsageModalContent(m, u, uninst, installedModel, detail) {
     </div>
 
     ${decisionSection}
+
+    ${speechSection}
 
     ${capsSection}
 
@@ -3590,6 +3697,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
     return `<span class="chat-file-pill">${escapeHtml(a.kind)} · ${escapeHtml(a.name)}</span>`;
   }).join("");
 
+  const speechBlock = m.role === "user" && typeof renderMessageSpeechHTML === "function" ? renderMessageSpeechHTML(m) : "";
   const hasTl = m.role === "assistant" && m.timeline && m.timeline.length > 0;
   const acc = m._accRaw || "";
   const flushI = hasTl ? (Number(m.segmentFlushIndex) || 0) : 0;
@@ -3786,6 +3894,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
       ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
       ${contentBlock}
       ${files ? `<div class="chat-file-list">${files}</div>` : ""}
+      ${speechBlock}
       ${artifactBadge}
       ${footBlock}
     </article>
@@ -5933,7 +6042,11 @@ async function sendChatMessage(interruptNow = false) {
     return;
   }
 
-  await runOneChatTurn(snapText, snapAtt);
+  const turn = runOneChatTurn(snapText, snapAtt);
+  // The turn pushes the user bubble synchronously, so the audio can start now
+  // instead of waiting for the answer to finish.
+  if (typeof attachSpeechToLastSentMessage === "function") attachSpeechToLastSentMessage(snapText);
+  await turn;
 }
 
 let chatArtifactWidthSet = false;

@@ -203,6 +203,15 @@ function analyticsPoint(m) {
   const decisionColdMs = Number(m.decision_cold_ms) || 0;
   const decisionInputTokens = Number(m.decision_input_tokens) || 0;
   const decisionOutputTokens = Number(m.decision_output_tokens) || 0;
+  const speechCalls = Number(m.speech_calls) || 0;
+  const speechInputChars = Number(m.speech_input_chars) || 0;
+  const speechAudioBytes = Number(m.speech_audio_bytes) || 0;
+  const speechAvgMs = Number(m.speech_avg_ms) || 0;
+  const speechMinMs = Number(m.speech_min_ms) || 0;
+  const speechMaxMs = Number(m.speech_max_ms) || 0;
+  const speechLastMs = Number(m.speech_last_ms) || 0;
+  const speechCps = Number(m.speech_chars_per_sec) || 0;
+  const speechColdMs = Number(m.speech_cold_ms) || 0;
 
   // Derived metrics
   const sizeGB = sizeBytes > 0 ? sizeBytes / 1e9 : 0;
@@ -252,6 +261,15 @@ function analyticsPoint(m) {
     decisionColdMs,
     decisionInputTokens,
     decisionOutputTokens,
+    speechCalls,
+    speechInputChars,
+    speechAudioBytes,
+    speechAvgMs,
+    speechMinMs,
+    speechMaxMs,
+    speechLastMs,
+    speechCps,
+    speechColdMs,
   };
 }
 
@@ -301,6 +319,10 @@ function analyticsScopeIsDecision() {
   return analyticsFilters.scope === "decision";
 }
 
+function analyticsScopeIsSpeech() {
+  return analyticsFilters.scope === "speech";
+}
+
 function setAnalyticsLabel(id, text) {
   const el = $(id);
   if (el) el.textContent = text;
@@ -308,12 +330,13 @@ function setAnalyticsLabel(id, text) {
 
 function updateAnalyticsChartLabels() {
   const decision = analyticsScopeIsDecision();
-  setAnalyticsLabel("analytics-tps-title", t(decision ? "analytics.decision_tps_title" : "analytics.tps_title"));
-  setAnalyticsLabel("analytics-tps-sub", t(decision ? "analytics.decision_tps_sub" : "analytics.tps_sub"));
-  setAnalyticsLabel("analytics-efficiency-title", t(decision ? "analytics.decision_efficiency_title" : "analytics.efficiency_title"));
-  setAnalyticsLabel("analytics-efficiency-sub", t(decision ? "analytics.decision_efficiency_sub" : "analytics.efficiency_sub"));
-  setAnalyticsLabel("analytics-coldload-title", t(decision ? "analytics.decision_latency_title" : "analytics.coldload_title"));
-  setAnalyticsLabel("analytics-coldload-sub", t(decision ? "analytics.decision_latency_sub" : "analytics.coldload_sub"));
+  const speech = analyticsScopeIsSpeech();
+  setAnalyticsLabel("analytics-tps-title", t(decision ? "analytics.decision_tps_title" : speech ? "analytics.speech_tps_title" : "analytics.tps_title"));
+  setAnalyticsLabel("analytics-tps-sub", t(decision ? "analytics.decision_tps_sub" : speech ? "analytics.speech_tps_sub" : "analytics.tps_sub"));
+  setAnalyticsLabel("analytics-efficiency-title", t(decision ? "analytics.decision_efficiency_title" : speech ? "analytics.speech_efficiency_title" : "analytics.efficiency_title"));
+  setAnalyticsLabel("analytics-efficiency-sub", t(decision ? "analytics.decision_efficiency_sub" : speech ? "analytics.speech_efficiency_sub" : "analytics.efficiency_sub"));
+  setAnalyticsLabel("analytics-coldload-title", t(decision ? "analytics.decision_latency_title" : speech ? "analytics.speech_latency_title" : "analytics.coldload_title"));
+  setAnalyticsLabel("analytics-coldload-sub", t(decision ? "analytics.decision_latency_sub" : speech ? "analytics.speech_latency_sub" : "analytics.coldload_sub"));
 }
 
 function renderAnalyticsFiltered() {

@@ -29,7 +29,7 @@ function formatCapabilityLabel(raw) {
   return k.charAt(0).toUpperCase() + k.slice(1);
 }
 
-const CAPABILITY_ORDER = ["embedding", "decision", "completion", "tools", "thinking", "vision", "audio"];
+const CAPABILITY_ORDER = ["embedding", "decision", "completion", "tools", "thinking", "vision", "audio", "speech"];
 
 function capabilityOrderKey(cap) {
   const k = String(cap || "").toLowerCase().trim();
@@ -139,6 +139,7 @@ function syncChatModelOptions() {
   }
   updateChatModelLoadDot();
   updateChatModelDisplay();
+  if (typeof updateSpeechUI === "function") updateSpeechUI();
 }
 
 function updateChatCapabilityUI() {

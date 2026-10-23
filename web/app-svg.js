@@ -6042,6 +6042,13 @@ async function sendChatMessage(interruptNow = false) {
     return;
   }
 
+  // A speech-only model answers with audio, not text: sending is synthesis and
+  // there is no chat completion to wait for.
+  if (typeof isSpeechOnlyModel === "function" && isSpeechOnlyModel($("chat-model")?.value)) {
+    sendSpeechOnlyTurn(snapText, snapAtt, $("chat-model").value);
+    return;
+  }
+
   const turn = runOneChatTurn(snapText, snapAtt);
   // The turn pushes the user bubble synchronously, so the audio can start now
   // instead of waiting for the answer to finish.

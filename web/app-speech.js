@@ -28,6 +28,17 @@ function speechAutoEnabled() {
   return Boolean(el && el.checked);
 }
 
+// isSpeechOnlyModel reports a model that synthesizes audio and cannot answer
+// chat: picking one turns the chat into a voice composer instead of a
+// conversation.
+function isSpeechOnlyModel(name) {
+  if (!name || typeof models === "undefined" || !Array.isArray(models)) return false;
+  const m = models.find((x) => x && x.name === name);
+  if (!m) return false;
+  const caps = new Set((m.capabilities || []).map((c) => String(c).toLowerCase()));
+  return caps.has("speech") && !caps.has("completion");
+}
+
 // updateSpeechUI fills the voice-model selector from the installed models and
 // hides the whole block when nothing can speak. The preference lives in
 // localStorage so it survives a reload along with the rest of the chat options.
@@ -82,10 +93,10 @@ async function generateSpeechURL(text, model) {
 
 // attachSpeechToMessage generates the audio for a user message in the
 // background. The bubble repaints with a pending line and then with the player.
-function attachSpeechToMessage(msg, text) {
+function attachSpeechToMessage(msg, text, force, modelOverride) {
   if (!msg || msg.role !== "user" || msg._speech) return;
-  if (!speechAutoEnabled()) return;
-  const model = selectedSpeechModel();
+  if (!force && !speechAutoEnabled()) return;
+  const model = modelOverride || selectedSpeechModel();
   const input = String(text || "").trim();
   if (!model || !input) return;
 
@@ -105,14 +116,33 @@ function attachSpeechToMessage(msg, text) {
 
 // attachSpeechToLastSentMessage finds the bubble the send path just pushed. The
 // composer was cleared before the call, so the text is what identifies it.
-function attachSpeechToLastSentMessage(text) {
-  if (!speechAutoEnabled()) return;
+function attachSpeechToLastSentMessage(text, force) {
+  if (!force && !speechAutoEnabled()) return;
   for (let i = chatMessages.length - 1; i >= 0; i--) {
     const m = chatMessages[i];
     if (m.role !== "user") continue;
     if ((m.content || "") !== text) continue;
-    attachSpeechToMessage(m, text);
+    attachSpeechToMessage(m, text, force);
     return;
+  }
+}
+
+// sendSpeechOnlyTurn posts a message to a model that only speaks. There is no
+// chat completion to run: the bubble appears and its audio is generated with
+// the model itself, so "send" means "speak this".
+function sendSpeechOnlyTurn(text, attachments, model) {
+  const userMsg = {
+    id: nanoid(),
+    role: "user",
+    content: text,
+    attachments: (attachments || []).map((a) => ({ ...a })),
+  };
+  chatMessages.push(userMsg);
+  renderChatMessages();
+  if (typeof scrollChatToBottom === "function") scrollChatToBottom(true);
+  attachSpeechToMessage(userMsg, text, true, model);
+  if (model) {
+    try { localStorage.setItem(SPEECH_MODEL_KEY, model); } catch (_) {}
   }
 }
 

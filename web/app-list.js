@@ -555,6 +555,13 @@ function renderTable() {
     const recordTokHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
       ? `<span class="cell-record-tok" title="${m.record_tokens_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })) : ""}"><span class="record-num"${colorStyle}>${m.record_tokens_per_sec.toFixed(1)}</span> <span class="unit">tok/s</span></span>`
       : "—";
+    // Speech (text-to-speech) models synthesize characters instead of tokens,
+    // so their record is chars/s: the closest counterpart of tok/s, in the same
+    // cell but with its own unit (the speed scales do not compare).
+    const charsPerSec = Number(m.record_chars_per_sec) || 0;
+    const recordCharsHtml = charsPerSec > 0
+      ? `<span class="cell-record-tok" title="${m.record_chars_per_sec_at ? escapeHtml(t("detail.record_at", { date: fmtDateTimeFull(m.record_chars_per_sec_at) })) : ""}"><span class="record-num">${Math.round(charsPerSec)}</span> <span class="unit">chars/s</span></span>`
+      : "—";
     // Decision (System One) models produce no tok/s, so surface their latency
     // instead: best processing time (ms) as the main value, cold/load time below.
     const decisionCalls = Number(m.decision_calls) || 0;
@@ -566,7 +573,7 @@ function renderTable() {
       : "—";
     const recordMainHtml = (m.record_tokens_per_sec && m.record_tokens_per_sec > 0)
       ? recordTokHtml
-      : (isDecision ? decisionMsHtml : "—");
+      : charsPerSec > 0 ? recordCharsHtml : (isDecision ? decisionMsHtml : "—");
     const loadMs = (Number(m.min_cold_load_ms) || 0) > 0 ? Number(m.min_cold_load_ms) : decisionColdMs;
     const loadAt = (Number(m.min_cold_load_ms) || 0) > 0 ? m.min_cold_load_at : m.decision_cold_at;
     const minLoadHtml = (!m.is_external && loadMs > 0)
@@ -684,6 +691,7 @@ function renderTable() {
         tr._m_modified !== m.modified_at ||
         tr._m_last_used !== m.last_used_at ||
         tr._m_record_tok !== m.record_tokens_per_sec ||
+        tr._m_record_chars !== m.record_chars_per_sec ||
         tr._m_tok_color !== tokColor ||
         tr._m_decision_min !== m.decision_min_ms ||
         tr._m_decision_cold !== m.decision_cold_ms ||
@@ -784,6 +792,7 @@ function renderTable() {
       newTr._m_modified = m.modified_at;
       newTr._m_last_used = m.last_used_at;
       newTr._m_record_tok = m.record_tokens_per_sec;
+      newTr._m_record_chars = m.record_chars_per_sec;
       newTr._m_tok_color = tokColor;
       newTr._m_decision_min = m.decision_min_ms;
       newTr._m_decision_cold = m.decision_cold_ms;

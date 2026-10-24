@@ -122,8 +122,9 @@ func TestHandleSpeechVoices(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 	var out struct {
-		Model  string   `json:"model"`
-		Voices []string `json:"voices"`
+		Model    string   `json:"model"`
+		Voices   []string `json:"voices"`
+		Reported int      `json:"reported"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode failed: %v", err)
@@ -134,11 +135,44 @@ func TestHandleSpeechVoices(t *testing.T) {
 	if strings.Join(out.Voices, ",") != "default,Zoey,Easton" {
 		t.Errorf("unexpected voices: %v", out.Voices)
 	}
+	if out.Reported != 2 {
+		t.Errorf("expected 2 reported voices, got %d", out.Reported)
+	}
 
 	// Without a model there is nothing to ask the engine about.
 	rr = httptest.NewRecorder()
 	s.handleSpeechVoices(rr, httptest.NewRequest(http.MethodGet, "/api/speech/voices", nil))
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 without model, got %d", rr.Code)
+	}
+}
+
+// An engine that does not report voices (Ollama before 0.40.11) leaves the
+// field out of /api/show, which must not look like a model with one named
+// voice: the answer carries reported=0 so the UI can say why.
+func TestHandleSpeechVoicesWithoutEngineList(t *testing.T) {
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"capabilities": []string{"speech"},
+		})
+	}))
+	defer ollamaSrv.Close()
+
+	s := &Server{ollama: ollama.New(ollamaSrv.URL)}
+	rr := httptest.NewRecorder()
+	s.handleSpeechVoices(rr, httptest.NewRequest(http.MethodGet, "/api/speech/voices?model=phonon:40m-es", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var out struct {
+		Voices   []string `json:"voices"`
+		Reported int      `json:"reported"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if strings.Join(out.Voices, ",") != "default" || out.Reported != 0 {
+		t.Errorf("expected [default] with reported=0, got %v / %d", out.Voices, out.Reported)
 	}
 }

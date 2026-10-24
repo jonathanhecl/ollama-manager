@@ -1685,6 +1685,14 @@ select:focus { border-color: var(--accent); }
   margin-bottom: 12px;
 }
 .field:last-child { margin-bottom: 0; }
+/* Note under a field that explains a disabled control. It sits outside the
+   field because the chat side panel lays its fields out as flex rows. */
+.chat-field-hint {
+  display: block;
+  margin: -6px 0 10px;
+  font-size: 11px;
+  line-height: 1.35;
+}
 .field > label {
   color: var(--text-dim);
   font-size: 13px;

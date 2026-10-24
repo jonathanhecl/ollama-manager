@@ -20,6 +20,11 @@ const SPEECH_INPUT_LIMIT = 4096;
 // invalidated during a session.
 const speechVoiceCache = new Map();
 
+// speechVoiceReported counts the voices the engine listed for each model.
+// Ollama only reports them from 0.40.11 on, so the number separates "the
+// checkpoint has a single voice" (1) from "the engine cannot name them" (0).
+const speechVoiceReported = new Map();
+
 function speechModels() {
   const list = typeof models !== "undefined" && Array.isArray(models) ? models : [];
   return list.filter((m) => !m.archived && (m.capabilities || []).some((c) => String(c).toLowerCase() === "speech"));
@@ -78,12 +83,16 @@ function selectedSpeechVoice(model) {
 
 // loadSpeechVoices asks the backend for the voices of one model. The backend
 // reads them from Ollama's /api/show, where they are part of the model itself.
+// It also reports how many of them the engine listed: Ollama leaves the field
+// out before 0.40.11, so an empty list cannot be told apart from a checkpoint
+// that only ships its own voice.
 async function loadSpeechVoices(model) {
   if (!model) return [];
   if (speechVoiceCache.has(model)) return speechVoiceCache.get(model);
   const data = await api(`/api/speech/voices?model=${encodeURIComponent(model)}`);
   const list = Array.isArray(data?.voices) ? data.voices.map((v) => String(v)).filter(Boolean) : [];
   const voices = list.length ? list : ["default"];
+  speechVoiceReported.set(model, Number(data?.reported) || 0);
   speechVoiceCache.set(model, voices);
   return voices;
 }
@@ -95,16 +104,22 @@ function speechVoiceFieldVisible() {
 }
 
 // renderSpeechVoiceOptions paints the voice selector for the given model. A
-// single voice (the checkpoint's own) stays visible but disabled, so it is
-// clear which voice will speak instead of hiding the option.
+// single voice (the checkpoint's own) stays visible but disabled, and the hint
+// under it says why: a selector with one option and no explanation reads like a
+// bug, when in fact most checkpoints ship exactly one voice.
 function renderSpeechVoiceOptions(model) {
   const field = $("chat-speech-voice-field");
   const sel = $("chat-speech-voice");
+  const hint = $("chat-speech-voice-hint");
   if (!field || !sel) return;
   const voices = speechVoiceCache.get(model) || [];
   if (!model || !voices.length) {
     field.hidden = true;
     sel.innerHTML = "";
+    if (hint) {
+      hint.textContent = "";
+      hint.hidden = true;
+    }
     return;
   }
   const current = selectedSpeechVoice(model);
@@ -113,6 +128,18 @@ function renderSpeechVoiceOptions(model) {
     .join("");
   sel.value = voices.includes(current) ? current : voices[0];
   sel.disabled = voices.length <= 1;
+  if (hint) {
+    let text = "";
+    if (voices.length <= 1) {
+      // Ollama leaves "voices" out of /api/show before 0.40.11, so an empty
+      // list means the engine cannot name them instead of "one voice only".
+      text = (speechVoiceReported.get(model) || 0) > 0
+        ? t("chat.speech_voice_single")
+        : t("chat.speech_voice_unknown");
+    }
+    hint.textContent = text;
+    hint.hidden = !text || !speechVoiceFieldVisible();
+  }
   field.hidden = !speechVoiceFieldVisible();
 }
 

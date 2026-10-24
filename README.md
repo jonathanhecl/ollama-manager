@@ -232,9 +232,9 @@ On first launch, `config.json` is generated automatically:
 Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capability is `speech` (Ollama 0.40.9 or later; on macOS/Apple only for now).
 
 - Picking a speech-only model in the chat turns the composer into a voice composer: sending text answers with an audio player in the assistant bubble.
-- Options → Speech → `Voice` lists the voices of the selected model. The list comes from `ollama show` (`voices` in `/api/show`); a checkpoint that ships no extra voice profiles only offers `default`, the voice baked into it.
+- Options → Speech → `Voice` lists the voices of the selected model. The list comes from `ollama show` (`voices` in `/api/show`, reported from Ollama 0.40.11 on); a checkpoint that ships no extra voice profiles only offers `default`, the voice baked into it, and the panel says so under the selector. Every `phonon` checkpoint published so far ships just that one voice.
 - For chat models that also answer in text, the `Speech` switch reads back what you send, under your own bubble.
-- `Record Speed` shows chars/s (warm calls only) and `Cold Load` the first call that had to load the model, since the speech endpoint reports no timing of its own.
+- `Record Speed` shows chars/s (warm calls only) and `Cold Load` the first call that had to load the model, since the speech endpoint reports no timing of its own. If the model was already in memory when the manager first spoke with it (a run from the terminal, another client), there is no load to time until Ollama unloads it again.
 
 
 ### 💡 Recommended Workflow: Always-On Background Daemon

@@ -2988,6 +2988,11 @@ func (s *Server) handleSpeechVoices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"model":  model,
 		"voices": speechVoiceList(show.Voices),
+		// reported is how many voices the engine itself listed. Ollama only
+		// fills the field from 0.40.11 on, so 0 means "cannot name them" and
+		// 1 means the checkpoint ships nothing beyond its own voice. The UI
+		// uses it to explain a selector that has a single option.
+		"reported": len(show.Voices),
 	})
 }
 

@@ -254,7 +254,13 @@ function updateChatCapabilityUI() {
         : t("detail.min_cold_load");
     } else {
       loadValEl.innerHTML = `<span style="color:var(--muted)">—</span>`;
-      loadCard.title = isExt ? t("detail.external_model") : t("detail.min_cold_load");
+      // A model that already answered but has no cold load was in memory when
+      // the app first used it (a run from the terminal, another client), so
+      // there was no load to time. Say that instead of leaving a bare dash.
+      const usedWithoutCold = (Number(m?.total_calls) || 0) > 0;
+      loadCard.title = isExt
+        ? t("detail.external_model")
+        : usedWithoutCold ? t("chat.cold_load_unmeasured") : t("detail.min_cold_load");
     }
   }
 

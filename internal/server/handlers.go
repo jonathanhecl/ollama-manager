@@ -760,6 +760,8 @@ type modelView struct {
 	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
 	RecordTokensPerSec   float64    `json:"record_tokens_per_sec,omitempty"`
 	RecordTokensPerSecAt *time.Time `json:"record_tokens_per_sec_at,omitempty"`
+	RecordCharsPerSec    float64    `json:"record_chars_per_sec,omitempty"`
+	RecordCharsPerSecAt  *time.Time `json:"record_chars_per_sec_at,omitempty"`
 	MinColdLoadMs        int64      `json:"min_cold_load_ms,omitempty"`
 	MinColdLoadAt        *time.Time `json:"min_cold_load_at,omitempty"`
 	TotalTokens          int64      `json:"total_tokens,omitempty"`
@@ -826,6 +828,8 @@ func applyUsageRecord(v *modelView, rec ModelUsageRecord) {
 	v.LastUsedAt = rec.LastUsedAt
 	v.RecordTokensPerSec = rec.RecordTokensPerSec
 	v.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+	v.RecordCharsPerSec = rec.RecordCharsPerSec
+	v.RecordCharsPerSecAt = rec.RecordCharsPerSecAt
 	v.MinColdLoadMs = rec.MinColdLoadMs
 	v.MinColdLoadAt = rec.MinColdLoadAt
 	v.TotalTokens = rec.TotalTokens
@@ -1586,13 +1590,18 @@ type modelDetail struct {
 	SpeechCharsPerSec    float64             `json:"speech_chars_per_sec,omitempty"`
 	SpeechColdMs         int64               `json:"speech_cold_ms,omitempty"`
 	SpeechColdAt         *time.Time          `json:"speech_cold_at,omitempty"`
-	IsCustom             bool                `json:"is_custom,omitempty"`
-	IsExternal           bool                `json:"is_external,omitempty"`
-	Disabled             bool                `json:"disabled,omitempty"`
-	URL                  string              `json:"url,omitempty"`
-	RemoteName           string              `json:"remote_name,omitempty"`
-	Provider             string              `json:"provider,omitempty"`
-	BaseModel            string              `json:"base_model,omitempty"`
+	RecordCharsPerSec    float64             `json:"record_chars_per_sec,omitempty"`
+	RecordCharsPerSecAt  *time.Time          `json:"record_chars_per_sec_at,omitempty"`
+	// Voices lists the voice profiles the speech checkpoint ships with. Ollama
+	// reports them in /api/show; "default" is always usable and is added here.
+	Voices     []string `json:"voices,omitempty"`
+	IsCustom   bool     `json:"is_custom,omitempty"`
+	IsExternal bool     `json:"is_external,omitempty"`
+	Disabled   bool     `json:"disabled,omitempty"`
+	URL        string   `json:"url,omitempty"`
+	RemoteName string   `json:"remote_name,omitempty"`
+	Provider   string   `json:"provider,omitempty"`
+	BaseModel  string   `json:"base_model,omitempty"`
 }
 
 func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
@@ -1671,6 +1680,7 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 		System:       show.System,
 		Details:      show.Details,
 		Capabilities: withoutProjectorCaps(append([]string(nil), show.Capabilities...), len(show.ProjectorInfo) > 0, show.Details.Format),
+		Voices:       speechVoiceList(show.Voices),
 		ModifiedAt:   show.ModifiedAt,
 		IsCustom:     isCustom,
 		BaseModel:    baseModel,
@@ -1686,6 +1696,8 @@ func (s *Server) handleShowModel(w http.ResponseWriter, r *http.Request) {
 			detail.LastUsedAt = rec.LastUsedAt
 			detail.RecordTokensPerSec = rec.RecordTokensPerSec
 			detail.RecordTokensPerSecAt = rec.RecordTokensPerSecAt
+			detail.RecordCharsPerSec = rec.RecordCharsPerSec
+			detail.RecordCharsPerSecAt = rec.RecordCharsPerSecAt
 			detail.MinColdLoadMs = rec.MinColdLoadMs
 			detail.MinColdLoadAt = rec.MinColdLoadAt
 			detail.SpeechCalls = rec.SpeechCalls
@@ -2936,6 +2948,47 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(audio)
+}
+
+// speechVoiceList returns the voices a speech model can speak with. Ollama
+// reports the checkpoint's own voice profiles in /api/show and always accepts
+// "default" for the voice baked into the checkpoint, so it leads the list.
+func speechVoiceList(voices []string) []string {
+	out := make([]string, 0, len(voices)+1)
+	seen := make(map[string]bool, len(voices)+1)
+	for _, v := range append([]string{"default"}, voices...) {
+		name := strings.TrimSpace(v)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+// handleSpeechVoices lists the voices of one speech model so the chat can offer
+// them in a selector. Ollama has no dedicated endpoint for this: the voices are
+// part of /api/show, which is what "ollama show" prints.
+func (s *Server) handleSpeechVoices(w http.ResponseWriter, r *http.Request) {
+	model := strings.TrimSpace(r.URL.Query().Get("model"))
+	if model == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing 'model'"))
+		return
+	}
+	show, err := s.ollama.Show(r.Context(), model)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"model":  model,
+		"voices": speechVoiceList(show.Voices),
+	})
 }
 
 // handleDecision proxies POST /v1/systemone for Ollama "decision" (System One)

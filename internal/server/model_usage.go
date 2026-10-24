@@ -69,6 +69,11 @@ type ModelUsageRecord struct {
 	SpeechLastMs     int64      `json:"speech_last_ms,omitempty"`
 	SpeechColdMs     int64      `json:"speech_cold_ms,omitempty"`
 	SpeechColdAt     *time.Time `json:"speech_cold_at,omitempty"`
+	// RecordCharsPerSec is the best warm text throughput observed, the
+	// text-to-speech counterpart of RecordTokensPerSec. A cold call also pays
+	// for the model load, so it never sets the record.
+	RecordCharsPerSec   float64    `json:"record_chars_per_sec,omitempty"`
+	RecordCharsPerSecAt *time.Time `json:"record_chars_per_sec_at,omitempty"`
 }
 
 // SpeechAvgMs is the mean wall-clock latency of recorded speech calls.
@@ -424,6 +429,27 @@ func mergeBaseUsage(target, base ModelUsageRecord) ModelUsageRecord {
 		out.DecisionColdMs = target.DecisionColdMs
 		out.DecisionColdAt = target.DecisionColdAt
 	}
+	if target.RecordCharsPerSec > out.RecordCharsPerSec {
+		out.RecordCharsPerSec = target.RecordCharsPerSec
+		out.RecordCharsPerSecAt = target.RecordCharsPerSecAt
+	}
+	if target.SpeechCalls > out.SpeechCalls {
+		out.SpeechCalls = target.SpeechCalls
+		out.SpeechInputChars = target.SpeechInputChars
+		out.SpeechAudioBytes = target.SpeechAudioBytes
+		out.SpeechTotalMs = target.SpeechTotalMs
+		out.SpeechLastMs = target.SpeechLastMs
+	}
+	if target.SpeechMinMs > 0 && (out.SpeechMinMs == 0 || target.SpeechMinMs < out.SpeechMinMs) {
+		out.SpeechMinMs = target.SpeechMinMs
+	}
+	if target.SpeechMaxMs > out.SpeechMaxMs {
+		out.SpeechMaxMs = target.SpeechMaxMs
+	}
+	if target.SpeechColdMs > 0 && (out.SpeechColdMs == 0 || target.SpeechColdMs < out.SpeechColdMs) {
+		out.SpeechColdMs = target.SpeechColdMs
+		out.SpeechColdAt = target.SpeechColdAt
+	}
 	if target.ParameterSize != "" {
 		out.ParameterSize = target.ParameterSize
 	}
@@ -480,27 +506,27 @@ func (s *modelUsageStore) Get(name string) (ModelUsageRecord, bool) {
 // fallbacks. Pure function over the given map: holds no locks itself.
 func lookupUsageModel(models map[string]ModelUsageRecord, name string) (ModelUsageRecord, bool) {
 	rec, ok := models[name]
-	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0 || rec.DecisionCalls > 0) {
+	if ok && (rec.TotalCalls > 0 || rec.RecordTokensPerSec > 0 || rec.LastUsedAt != nil || rec.MinColdLoadMs > 0 || rec.DecisionCalls > 0 || rec.SpeechCalls > 0) {
 		return rec, true
 	}
 	// Fallback for :latest aliases
 	if strings.HasSuffix(name, ":latest") {
 		trimmed := strings.TrimSuffix(name, ":latest")
-		if baseRec, baseOk := models[trimmed]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
+		if baseRec, baseOk := models[trimmed]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0 || baseRec.SpeechCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	} else if !strings.Contains(name, ":") {
-		if baseRec, baseOk := models[name+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
+		if baseRec, baseOk := models[name+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0 || baseRec.SpeechCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	}
 	// Fallback for :fixed models inheriting from their base model (exact name or :latest alias)
 	if isFixedModelName(name) {
 		base := fixedBaseName(name)
-		if baseRec, baseOk := models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
+		if baseRec, baseOk := models[base]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0 || baseRec.SpeechCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
-		if baseRec, baseOk := models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0) {
+		if baseRec, baseOk := models[base+":latest"]; baseOk && (baseRec.TotalCalls > 0 || baseRec.RecordTokensPerSec > 0 || baseRec.LastUsedAt != nil || baseRec.MinColdLoadMs > 0 || baseRec.DecisionCalls > 0 || baseRec.SpeechCalls > 0) {
 			return mergeBaseUsage(rec, baseRec), true
 		}
 	}
@@ -698,9 +724,26 @@ func (s *modelUsageStore) RecordSpeech(name string, inputChars, audioBytes int, 
 		if latencyMs > rec.SpeechMaxMs {
 			rec.SpeechMaxMs = latencyMs
 		}
-		if cold && (rec.SpeechColdMs == 0 || latencyMs < rec.SpeechColdMs) {
-			rec.SpeechColdMs = latencyMs
-			rec.SpeechColdAt = &usedAt
+		if cold {
+			if rec.SpeechColdMs == 0 || latencyMs < rec.SpeechColdMs {
+				rec.SpeechColdMs = latencyMs
+				rec.SpeechColdAt = &usedAt
+			}
+			// A cold call is also a model load, so it feeds the same minimum
+			// load time that chat completions report. Without this a speech
+			// model would never show a cold load in the panel.
+			if rec.MinColdLoadMs == 0 || latencyMs < rec.MinColdLoadMs {
+				rec.MinColdLoadMs = latencyMs
+				rec.MinColdLoadAt = &usedAt
+			}
+		} else if inputChars > 0 {
+			// Only warm calls measure synthesis itself; a cold call would mix
+			// the model load into the throughput and understate it.
+			cps := float64(inputChars) / (float64(latencyMs) / 1000)
+			if cps > rec.RecordCharsPerSec {
+				rec.RecordCharsPerSec = cps
+				rec.RecordCharsPerSecAt = &usedAt
+			}
 		}
 	}
 	models[name] = rec
@@ -864,6 +907,17 @@ func (s *modelUsageStore) ResetAnalytics(name string) error {
 		rec.DecisionLastMs = 0
 		rec.DecisionColdMs = 0
 		rec.DecisionColdAt = nil
+		rec.SpeechCalls = 0
+		rec.SpeechInputChars = 0
+		rec.SpeechAudioBytes = 0
+		rec.SpeechTotalMs = 0
+		rec.SpeechMinMs = 0
+		rec.SpeechMaxMs = 0
+		rec.SpeechLastMs = 0
+		rec.SpeechColdMs = 0
+		rec.SpeechColdAt = nil
+		rec.RecordCharsPerSec = 0
+		rec.RecordCharsPerSecAt = nil
 		models[k] = rec
 		return true
 	}

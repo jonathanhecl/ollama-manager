@@ -2,13 +2,23 @@
 
 // ---------- speech (text-to-speech) ----------
 // Ollama synthesizes audio at POST /v1/audio/speech with a model whose
-// capabilities include "speech". The chat can hand every message you send to
-// that model and show the result in a player right under the bubble, so what
-// you wrote can be listened to without leaving the conversation.
+// capabilities include "speech". A speech-only model answers with audio, so the
+// player lives in the assistant bubble; for a chat model the "Speech" switch
+// also speaks what you send, under your own bubble.
+//
+// Voices come from /api/show (the same list `ollama show` prints). Ollama omits
+// the field when the checkpoint only has its own voice, which the API calls
+// "default", so the server always adds it first.
 
 const SPEECH_MODEL_KEY = "ollama_speech_model";
 const SPEECH_AUTO_KEY = "ollama_speech_auto";
+const SPEECH_VOICE_KEY = "ollama_speech_voice:";
 const SPEECH_INPUT_LIMIT = 4096;
+
+// speechVoiceCache maps a model name to the voices the engine reports for it.
+// The list only changes when the model is reinstalled, so it is never
+// invalidated during a session.
+const speechVoiceCache = new Map();
 
 function speechModels() {
   const list = typeof models !== "undefined" && Array.isArray(models) ? models : [];
@@ -21,6 +31,14 @@ function selectedSpeechModel() {
   const picked = (sel && sel.value) || localStorage.getItem(SPEECH_MODEL_KEY) || "";
   if (picked && available.some((m) => m.name === picked)) return picked;
   return available[0]?.name || "";
+}
+
+// effectiveSpeechModel is the model that actually synthesizes: the chat model
+// itself when it only speaks, otherwise the one picked in the Speech block.
+function effectiveSpeechModel() {
+  const chatModel = $("chat-model")?.value || "";
+  if (isSpeechOnlyModel(chatModel)) return chatModel;
+  return selectedSpeechModel();
 }
 
 function speechAutoEnabled() {
@@ -37,6 +55,65 @@ function isSpeechOnlyModel(name) {
   if (!m) return false;
   const caps = new Set((m.capabilities || []).map((c) => String(c).toLowerCase()));
   return caps.has("speech") && !caps.has("completion");
+}
+
+function selectedSpeechVoice(model) {
+  const name = model || effectiveSpeechModel();
+  if (!name) return "";
+  let stored = "";
+  try {
+    stored = localStorage.getItem(SPEECH_VOICE_KEY + name) || "";
+  } catch (_) { }
+  const cached = speechVoiceCache.get(name);
+  if (stored && cached && cached.length) {
+    // A reinstalled model can drop the voice the user picked. Fall back to the
+    // first one the engine reports instead of failing every request with an
+    // unknown voice.
+    const match = cached.find((v) => v.toLowerCase() === stored.toLowerCase());
+    return match || cached[0];
+  }
+  if (cached && cached.length) return cached[0];
+  return stored || "default";
+}
+
+// loadSpeechVoices asks the backend for the voices of one model. The backend
+// reads them from Ollama's /api/show, where they are part of the model itself.
+async function loadSpeechVoices(model) {
+  if (!model) return [];
+  if (speechVoiceCache.has(model)) return speechVoiceCache.get(model);
+  const data = await api(`/api/speech/voices?model=${encodeURIComponent(model)}`);
+  const list = Array.isArray(data?.voices) ? data.voices.map((v) => String(v)).filter(Boolean) : [];
+  const voices = list.length ? list : ["default"];
+  speechVoiceCache.set(model, voices);
+  return voices;
+}
+
+function speechVoiceFieldVisible() {
+  const wrap = $("chat-speech-wrap");
+  if (!wrap || wrap.hidden) return false;
+  return speechAutoEnabled() || isSpeechOnlyModel($("chat-model")?.value);
+}
+
+// renderSpeechVoiceOptions paints the voice selector for the given model. A
+// single voice (the checkpoint's own) stays visible but disabled, so it is
+// clear which voice will speak instead of hiding the option.
+function renderSpeechVoiceOptions(model) {
+  const field = $("chat-speech-voice-field");
+  const sel = $("chat-speech-voice");
+  if (!field || !sel) return;
+  const voices = speechVoiceCache.get(model) || [];
+  if (!model || !voices.length) {
+    field.hidden = true;
+    sel.innerHTML = "";
+    return;
+  }
+  const current = selectedSpeechVoice(model);
+  sel.innerHTML = voices
+    .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
+    .join("");
+  sel.value = voices.includes(current) ? current : voices[0];
+  sel.disabled = voices.length <= 1;
+  field.hidden = !speechVoiceFieldVisible();
 }
 
 // updateSpeechUI fills the voice-model selector from the installed models and
@@ -60,22 +137,40 @@ function updateSpeechUI() {
   }
   auto.checked = localStorage.getItem(SPEECH_AUTO_KEY) === "1";
   if (modelField) modelField.hidden = available.length === 0 || !auto.checked;
+
+  const voiceModel = effectiveSpeechModel();
+  renderSpeechVoiceOptions(voiceModel);
+  if (voiceModel && !speechVoiceCache.has(voiceModel)) {
+    loadSpeechVoices(voiceModel)
+      .then(() => {
+        if (effectiveSpeechModel() === voiceModel) renderSpeechVoiceOptions(voiceModel);
+      })
+      .catch(() => { });
+  }
 }
 
 function bindSpeechUI() {
   const auto = $("chat-speech-auto");
   const sel = $("chat-speech-model");
+  const voice = $("chat-speech-voice");
   updateSpeechUI();
   if (auto) {
     auto.addEventListener("change", () => {
       localStorage.setItem(SPEECH_AUTO_KEY, auto.checked ? "1" : "0");
-      const modelField = $("chat-speech-model-field");
-      if (modelField) modelField.hidden = !auto.checked;
+      updateSpeechUI();
     });
   }
   if (sel) {
     sel.addEventListener("change", () => {
       localStorage.setItem(SPEECH_MODEL_KEY, sel.value);
+      updateSpeechUI();
+    });
+  }
+  if (voice) {
+    voice.addEventListener("change", () => {
+      const model = effectiveSpeechModel();
+      if (!model) return;
+      try { localStorage.setItem(SPEECH_VOICE_KEY + model, voice.value); } catch (_) { }
     });
   }
 }
@@ -83,35 +178,50 @@ function bindSpeechUI() {
 // generateSpeechURL asks the backend for the audio of text and returns a blob
 // URL the player can use. The text is capped to the engine's input limit, cut
 // by code point so a surrogate pair is never split.
-async function generateSpeechURL(text, model) {
+async function generateSpeechURL(text, model, voice) {
   const chars = Array.from(String(text || "").trim());
   const input = chars.slice(0, SPEECH_INPUT_LIMIT).join("");
   if (!input) return "";
-  const blob = await api("/api/speech", { method: "POST", body: { model, input } }, "blob");
+  const blob = await api("/api/speech", { method: "POST", body: { model, input, voice: voice || "" } }, "blob");
   return URL.createObjectURL(blob);
 }
 
-// attachSpeechToMessage generates the audio for a user message in the
-// background. The bubble repaints with a pending line and then with the player.
-function attachSpeechToMessage(msg, text, force, modelOverride) {
-  if (!msg || msg.role !== "user" || msg._speech) return;
-  if (!force && !speechAutoEnabled()) return;
-  const model = modelOverride || selectedSpeechModel();
+// speakIntoMessage generates the audio for one message in the background. The
+// bubble repaints with a pending line and then with the player. It is used both
+// for a speech-only model's reply and for reading back what you sent.
+function speakIntoMessage(msg, text, opts = {}) {
+  if (!msg || msg._speech) return false;
+  const model = opts.model || effectiveSpeechModel();
   const input = String(text || "").trim();
-  if (!model || !input) return;
+  if (!model || !input) return false;
+  const voice = opts.voice || selectedSpeechVoice(model);
+  const startedAt = Date.now();
 
-  msg._speech = { status: "pending" };
+  msg._speech = { status: "pending", model, voice };
   renderChatMessages();
-  generateSpeechURL(input, model)
+  generateSpeechURL(input, model, voice)
     .then((url) => {
-      msg._speech = { status: "ready", url };
+      msg._speech = { status: "ready", url, model, voice };
+      if (msg.role === "assistant") msg.elapsedMs = Date.now() - startedAt;
       renderChatMessages();
+      // The server records the call against the model, so refresh the stats
+      // (record speed, cold load) the panel shows.
+      if (typeof refreshModels === "function") refreshModels().catch(() => { });
     })
     .catch((err) => {
-      msg._speech = { status: "error" };
+      msg._speech = { status: "error", model, voice };
       renderChatMessages();
       toast(`${t("chat.speech_failed")}: ${err.message}`, "error");
     });
+  return true;
+}
+
+// attachSpeechToMessage reads a user message back to the user, the "Speech"
+// switch behaviour for chat models that also answer in text.
+function attachSpeechToMessage(msg, text, force, modelOverride) {
+  if (!msg || msg.role !== "user" || msg._speech) return;
+  if (!force && !speechAutoEnabled()) return;
+  speakIntoMessage(msg, text, { model: modelOverride || effectiveSpeechModel() });
 }
 
 // attachSpeechToLastSentMessage finds the bubble the send path just pushed. The
@@ -128,8 +238,8 @@ function attachSpeechToLastSentMessage(text, force) {
 }
 
 // sendSpeechOnlyTurn posts a message to a model that only speaks. There is no
-// chat completion to run: the bubble appears and its audio is generated with
-// the model itself, so "send" means "speak this".
+// chat completion to run: the model's answer is the audio itself, so the player
+// goes in an assistant bubble and "send" means "speak this".
 function sendSpeechOnlyTurn(text, attachments, model) {
   const userMsg = {
     id: nanoid(),
@@ -138,11 +248,19 @@ function sendSpeechOnlyTurn(text, attachments, model) {
     attachments: (attachments || []).map((a) => ({ ...a })),
   };
   chatMessages.push(userMsg);
+
+  const replyMsg = typeof newAssistantMessage === "function"
+    ? newAssistantMessage()
+    : { id: nanoid(), role: "assistant", content: "", model: "" };
+  replyMsg.model = model || effectiveSpeechModel();
+  replyMsg.streaming = false;
+  chatMessages.push(replyMsg);
+
   renderChatMessages();
   if (typeof scrollChatToBottom === "function") scrollChatToBottom(true);
-  attachSpeechToMessage(userMsg, text, true, model);
+  speakIntoMessage(replyMsg, text, { model: replyMsg.model });
   if (model) {
-    try { localStorage.setItem(SPEECH_MODEL_KEY, model); } catch (_) {}
+    try { localStorage.setItem(SPEECH_MODEL_KEY, model); } catch (_) { }
   }
 }
 
@@ -155,9 +273,10 @@ function renderMessageSpeechHTML(m) {
   if (sp.status === "error") {
     return `<div class="chat-speech-block chat-speech-error">${escapeHtml(t("chat.speech_failed"))}</div>`;
   }
+  const voice = sp.voice && sp.voice !== "default" ? ` · ${sp.voice}` : "";
   return `<div class="chat-file-item chat-file-item-audio chat-speech-block">
     <audio class="chat-audio-player" controls preload="metadata" src="${escapeHtml(sp.url)}" aria-label="${escapeHtml(t("chat.speech_player"))}"></audio>
-    <span class="chat-file-name mono">${escapeHtml(t("chat.speech_player"))}</span>
+    <span class="chat-file-name mono">${escapeHtml(t("chat.speech_player"))}${escapeHtml(voice)}</span>
   </div>`;
 }
 

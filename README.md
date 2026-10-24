@@ -56,7 +56,7 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, aut
   - **Thinking Traces & Granular Reasoning Control**: collapsible and chronologically structured `<think>` reasoning traces with granular thinking levels (`auto`, `off`, `low`, `medium`, `high`, `max`).
   - **Per-Model Customizations**: customize system prompts, temperature, top-k, top-p, context length, and thinking levels with automatic persistence in `localStorage`.
   - **Multimodal Support**: image generation, vision inputs, audio attachments, and browser microphone voice recording.
-  - **Speech Playback**: turn every message you send into audio with an installed `speech` model and listen to it from a player in the bubble.
+  - **Speech Playback**: a `speech` model answers with audio in its own bubble, some models ship several voices to pick from, and the `Speech` switch also reads back what you send with a chat model.
   - **Session Management & Message Editing**: edit previous turns, cancel queued requests to recover inputs, and reset conversations with confirmation.
 
 - **Web Tools & Live Artifacts Agent**:
@@ -227,6 +227,16 @@ On first launch, `config.json` is generated automatically:
 - `rag`: knowledge base settings. `default_embedding` preselects an embedding model; `directory` overrides where databases are stored.
 - `gateway`: optional API gateway that re-exposes selected models to third-party clients on its own port. `enabled` turns it on; `port` is the listen port (`0` uses `7861`, and it must differ from the main port); `expose_network` binds `0.0.0.0` for LAN access; `models` is the allowlist (`null` or absent exposes every visible model, a list — including an empty one — exposes only those); `require_auth` demands a Bearer API key.
 
+### 🗣️ Speech models (text-to-speech)
+
+Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capability is `speech` (Ollama 0.40.9 or later; on macOS/Apple only for now).
+
+- Picking a speech-only model in the chat turns the composer into a voice composer: sending text answers with an audio player in the assistant bubble.
+- Options → Speech → `Voice` lists the voices of the selected model. The list comes from `ollama show` (`voices` in `/api/show`); a checkpoint that ships no extra voice profiles only offers `default`, the voice baked into it.
+- For chat models that also answer in text, the `Speech` switch reads back what you send, under your own bubble.
+- `Record Speed` shows chars/s (warm calls only) and `Cold Load` the first call that had to load the model, since the speech endpoint reports no timing of its own.
+
+
 ### 💡 Recommended Workflow: Always-On Background Daemon
 
 > [!TIP]
@@ -272,6 +282,7 @@ On first launch, `config.json` is generated automatically:
 | `POST` | `/api/chat/sessions/{id}/seen` | Mark a session as read |
 | `POST` | `/api/embed` | Generate text embeddings |
 | `POST` | `/api/speech` | Synthesize text to audio (`wav`/`pcm`) with a speech-capability model |
+| `GET` | `/api/speech/voices?model=` | Voices a speech model can speak with (from `ollama show`; always includes `default`) |
 | `POST` | `/api/decision` | Run a decision (System One) model request |
 | `GET` | `/api/hf/search` | Search Hugging Face GGUF models and calculate hardware fit |
 | `GET` | `/api/hf/model/{author}/{repo}` | Fetch detailed GGUF model files and projector compatibility from Hugging Face |

@@ -87,7 +87,11 @@ type ShowResponse struct {
 	// callers use this to tell a real vision model from a text-only import.
 	ProjectorInfo map[string]json.RawMessage `json:"projector_info"`
 	Capabilities  []string                   `json:"capabilities"`
-	ModifiedAt    time.Time                  `json:"modified_at"`
+	// Voices are the voice profiles a speech checkpoint ships with. Ollama
+	// omits the field when the model only has the checkpoint's own voice,
+	// which the API calls "default".
+	Voices     []string  `json:"voices,omitempty"`
+	ModifiedAt time.Time `json:"modified_at"`
 }
 
 // PullProgress is one streamed event from POST /api/pull.

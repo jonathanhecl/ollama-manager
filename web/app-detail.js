@@ -177,9 +177,13 @@ function renderDetail(d) {
   const lastUsedVal = (d.last_used_at || m.last_used_at)
     ? fmtDateTimeFull(d.last_used_at || m.last_used_at)
     : "—";
-  const recordToksVal = (d.record_tokens_per_sec || m.record_tokens_per_sec) > 0
-    ? `${(d.record_tokens_per_sec || m.record_tokens_per_sec).toFixed(1)} tok/s${(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at) ? ` (${fmtDate(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at)})` : ""}`
-    : "—";
+  const recordToksNum = Number(d.record_tokens_per_sec || m.record_tokens_per_sec) || 0;
+  const recordCharsNum = Number(d.record_chars_per_sec || m.record_chars_per_sec) || 0;
+  const recordToksVal = recordToksNum > 0
+    ? `${recordToksNum.toFixed(1)} tok/s${(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at) ? ` (${fmtDate(d.record_tokens_per_sec_at || m.record_tokens_per_sec_at)})` : ""}`
+    : recordCharsNum > 0
+      ? `${Math.round(recordCharsNum)} chars/s${(d.record_chars_per_sec_at || m.record_chars_per_sec_at) ? ` (${fmtDate(d.record_chars_per_sec_at || m.record_chars_per_sec_at)})` : ""}`
+      : "—";
   const minColdLoadVal = (!isExternal && (d.min_cold_load_ms || m.min_cold_load_ms) > 0)
     ? `${fmtColdLoad(d.min_cold_load_ms || m.min_cold_load_ms)}${(d.min_cold_load_at || m.min_cold_load_at) ? ` (${fmtDate(d.min_cold_load_at || m.min_cold_load_at)})` : ""}`
     : "—";
@@ -257,6 +261,9 @@ function renderDetail(d) {
       [t("detail.format"), d.details?.format || "—", false],
       [t("detail.context"), fmtCtx(d.context_length), false],
       [t("detail.size"), fmtBytes(m.size), false],
+      ...((Array.isArray(d.voices) && d.voices.length > 1) ? [
+        [t("detail.voices"), d.voices.map((v) => escapeHtml(String(v))).join(", "), false],
+      ] : []),
       [t("detail.record_tokens"), recordToksVal, false],
       [t("detail.min_cold_load"), minColdLoadVal, false],
       [t("detail.last_used"), lastUsedVal, false],

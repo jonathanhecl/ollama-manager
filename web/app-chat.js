@@ -212,6 +212,7 @@ function updateChatCapabilityUI() {
   if (toksValEl && toksCard) {
     const tps = Number(m?.record_tokens_per_sec) || 0;
     const decisionMinMs = Number(m?.decision_min_ms) || 0;
+    const speechCps = Number(m?.record_chars_per_sec) || 0;
     if (tps > 0) {
       const col = (typeof getToksRecordColor === "function") ? getToksRecordColor(tps) : "";
       const colStyle = col ? `style="color:${col}"` : "";
@@ -219,6 +220,15 @@ function updateChatCapabilityUI() {
       toksCard.title = m.record_tokens_per_sec_at
         ? t("detail.record_at", { date: fmtDateTimeFull(m.record_tokens_per_sec_at) })
         : t("detail.record_tokens");
+    } else if (speechCps > 0) {
+      // Speech models synthesize characters instead of tokens, so their record
+      // speed is chars/s, the closest counterpart of tok/s.
+      const col = (typeof getToksRecordColor === "function") ? getToksRecordColor(speechCps) : "";
+      const colStyle = col ? `style="color:${col}"` : "";
+      toksValEl.innerHTML = `<span ${colStyle}>${Math.round(speechCps)}</span> <span class="stat-unit">chars/s</span>`;
+      toksCard.title = m.record_chars_per_sec_at
+        ? t("detail.record_at", { date: fmtDateTimeFull(m.record_chars_per_sec_at) })
+        : t("detail.record_chars");
     } else if (decisionMinMs > 0) {
       // Decision (System One) models have no tok/s; show their best latency.
       toksValEl.innerHTML = `<span>${Math.round(decisionMinMs)}</span> <span class="stat-unit">ms</span>`;
@@ -266,6 +276,11 @@ function updateChatCapabilityUI() {
   }
   if (typeof updateDecisionChatUI === "function") {
     updateDecisionChatUI();
+  }
+  // A speech-only model uses its own voice list, so the Speech block has to
+  // follow the chat model too, not only the installed speech models.
+  if (typeof updateSpeechUI === "function") {
+    updateSpeechUI();
   }
 }
 

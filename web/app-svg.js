@@ -3851,9 +3851,13 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
 </svg></button>`
     : "";
   const isLast = i === chatMessages.length - 1;
-  const canRegen = m.role === "assistant" && isLast && !m.streaming && !m._awaitingServerTurn && !speechOnlyReply;
+  // A speech-only reply has no text to regenerate, but its audio can be
+  // generated again with another voice, so the button stays available.
+  const canRegen = m.role === "assistant" && isLast && !m.streaming && !m._awaitingServerTurn;
+  const regenLabel = speechOnlyReply ? t("chat.speech_regenerate") : t("chat.regenerate");
+  const regenTitle = speechOnlyReply ? t("chat.speech_regenerate_title") : t("chat.regenerate_title");
   const regenBtn = canRegen
-    ? `<button type="button" class="btn-icon chat-regenerate-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(t("chat.regenerate_title"))}" aria-label="${escapeHtml(t("chat.regenerate"))}">
+    ? `<button type="button" class="btn-icon chat-regenerate-btn" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(regenTitle)}" aria-label="${escapeHtml(regenLabel)}">
 <svg class="chat-regenerate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 <path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v7h-7"/>
 </svg></button>`
@@ -5995,6 +5999,26 @@ async function editAndResendUserMessage(userId, newText) {
   const trimmed = newText.trim();
   const atts = (chatEditingAttachments || []).slice();
   if (!trimmed && !atts.length) return;
+  // A speech-only model has no chat completion to run: editing the text means
+  // speaking the new text, and the old reply is replaced instead of answered.
+  // It has to come before the session branch for the same reason the send path
+  // checks it first.
+  if (typeof isSpeechOnlyModel === "function" && isSpeechOnlyModel($("chat-model")?.value)) {
+    chatMessages[idx].content = trimmed;
+    chatMessages[idx].attachments = atts;
+    chatMessages = chatMessages.slice(0, idx + 1);
+    const replyMsg = newAssistantMessage();
+    replyMsg.model = $("chat-model").value;
+    replyMsg.streaming = false;
+    chatMessages.push(replyMsg);
+    chatEditingMessageId = "";
+    chatEditingDraft = "";
+    chatEditingAttachments = [];
+    renderChatMessages();
+    scrollChatToBottom(true);
+    speakIntoMessage(replyMsg, trimmed, { model: replyMsg.model });
+    return;
+  }
   if (chatSessionId) {
     // The session transcript lives on the server, so let it do the trimming.
     await editChatSessionUserMessage(chatMessages[idx], trimmed, atts);

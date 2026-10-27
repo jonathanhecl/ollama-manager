@@ -213,21 +213,23 @@ async function generateSpeechURL(text, model, voice) {
   return URL.createObjectURL(blob);
 }
 
-// speakIntoMessage generates the audio for one message in the background. The
-// bubble repaints with a pending line and then with the player. It is used both
-// for a speech-only model's reply and for reading back what you sent.
-function speakIntoMessage(msg, text, opts = {}) {
-  if (!msg || msg._speech) return false;
-  const model = opts.model || effectiveSpeechModel();
-  const input = String(text || "").trim();
-  if (!model || !input) return false;
-  const voice = opts.voice || selectedSpeechVoice(model);
+// startSpeechSynthesis paints the pending state in the bubble and swaps in the
+// player once the audio arrives. It always overwrites whatever the bubble had,
+// which is what lets a regenerate reuse the same message instead of pushing a
+// new one.
+function startSpeechSynthesis(msg, input, model, voice) {
   const startedAt = Date.now();
-
-  msg._speech = { status: "pending", model, voice };
+  const prior = msg._speech && msg._speech.status === "ready" ? { ...msg._speech } : null;
+  // While a take is being regenerated the previous player stays on screen.
+  msg._speech = prior
+    ? { status: "pending", model, voice, url: prior.url }
+    : { status: "pending", model, voice };
   renderChatMessages();
   generateSpeechURL(input, model, voice)
     .then((url) => {
+      if (prior && prior.url && prior.url !== url) {
+        try { URL.revokeObjectURL(prior.url); } catch (_) { }
+      }
       msg._speech = { status: "ready", url, model, voice };
       if (msg.role === "assistant") msg.elapsedMs = Date.now() - startedAt;
       renderChatMessages();
@@ -236,10 +238,47 @@ function speakIntoMessage(msg, text, opts = {}) {
       if (typeof refreshModels === "function") refreshModels().catch(() => { });
     })
     .catch((err) => {
-      msg._speech = { status: "error", model, voice };
+      // A regenerate that fails keeps the audio it already had: losing a
+      // working player because a second voice failed would be worse than the
+      // error message.
+      msg._speech = prior || { status: "error", model, voice };
       renderChatMessages();
       toast(`${t("chat.speech_failed")}: ${err.message}`, "error");
     });
+}
+
+// speakIntoMessage generates the audio for one message in the background. The
+// bubble repaints with a pending line and then with the player. It is used both
+// for a speech-only model's reply and for reading back what you sent.
+function speakIntoMessage(msg, text, opts = {}) {
+  if (!msg || msg._speech) return false;
+  const model = opts.model || effectiveSpeechModel();
+  const input = String(text || "").trim();
+  if (!model || !input) return false;
+  startSpeechSynthesis(msg, input, model, opts.voice || selectedSpeechVoice(model));
+  return true;
+}
+
+// regenerateSpeechReply re-synthesizes the answer of a speech-only turn with
+// the voice selected now. The text to speak is the message the user sent,
+// because a speech-only reply carries its answer as audio and has no body.
+function regenerateSpeechReply(msg) {
+  if (!msg || msg.role !== "assistant") return false;
+  if (msg._speech && msg._speech.status === "pending") return false;
+  const idx = chatMessages.indexOf(msg);
+  if (idx < 0) return false;
+  let text = "";
+  for (let i = idx - 1; i >= 0; i--) {
+    const prev = chatMessages[i];
+    if (prev.role === "user" && String(prev.content || "").trim()) {
+      text = String(prev.content);
+      break;
+    }
+  }
+  const input = text.trim();
+  const model = (msg._speech && msg._speech.model) || effectiveSpeechModel();
+  if (!model || !input) return false;
+  startSpeechSynthesis(msg, input, model, selectedSpeechVoice(model));
   return true;
 }
 
@@ -294,6 +333,14 @@ function sendSpeechOnlyTurn(text, attachments, model) {
 function renderMessageSpeechHTML(m) {
   const sp = m && m._speech;
   if (!sp) return "";
+  // A regenerate keeps the player of the previous take visible while the new
+  // audio is generated, so the bubble never goes blank on a second try.
+  if (sp.status === "pending" && sp.url) {
+    return `<div class="chat-file-item chat-file-item-audio chat-speech-block">
+    <audio class="chat-audio-player" controls preload="metadata" src="${escapeHtml(sp.url)}" aria-label="${escapeHtml(t("chat.speech_player"))}"></audio>
+    <div class="chat-speech-pending" aria-live="polite">${escapeHtml(t("chat.speech_pending"))}</div>
+  </div>`;
+  }
   if (sp.status === "pending") {
     return `<div class="chat-speech-block chat-speech-pending" aria-live="polite">${escapeHtml(t("chat.speech_pending"))}</div>`;
   }

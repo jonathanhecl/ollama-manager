@@ -973,7 +973,16 @@ function bindChatEvents() {
     if (regenB) {
       e.preventDefault();
       const id = regenB.getAttribute("data-msg-id");
-      if (id) await regenerateLastAssistantMessage(id);
+      if (!id) return;
+      // A speech-only reply has no text to regenerate: its answer is the audio,
+      // so the button synthesizes it again with the voice selected now. It must
+      // not fall through to a chat turn, even while a take is still generating.
+      const speechMsg = chatMessages.find((x) => x.id === id);
+      if (speechMsg && speechMsg._speech && typeof regenerateSpeechReply === "function") {
+        regenerateSpeechReply(speechMsg);
+        return;
+      }
+      await regenerateLastAssistantMessage(id);
       return;
     }
     const oomB = e.target.closest(".chat-oom-retry-btn");

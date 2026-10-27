@@ -234,7 +234,7 @@ Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capa
 - Picking a speech-only model in the chat turns the composer into a voice composer: sending text answers with an audio player in the assistant bubble.
 - The reply keeps its regenerate button: pick another voice in Options → Speech → `Voice` and regenerate to hear the same text again, without sending the message a second time.
 - Options → Speech → `Voice` lists the voices of the selected model. The list comes from `ollama show` (`voices` in `/api/show`, reported from Ollama 0.40.11 on); a checkpoint that ships no extra voice profiles only offers `default`, the voice baked into it, and the panel says so under the selector. Every `phonon` checkpoint published so far ships just that one voice.
-- For chat models that also answer in text, the `Speech` switch reads back what you send, under your own bubble.
+- For chat models that also answer in text, the `Speech` switch voices the model's final answer in the assistant bubble, automatically, as soon as the turn ends. It reads `msg.content` only: the thinking block and the tool log stay silent, and code blocks are skipped.
 - `Record Speed` shows chars/s (warm calls only) and `Cold Load` the first call that had to load the model, since the speech endpoint reports no timing of its own. If the model was already in memory when the manager first spoke with it (a run from the terminal, another client), there is no load to time until Ollama unloads it again.
 
 

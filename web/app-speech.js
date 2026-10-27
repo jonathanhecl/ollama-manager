@@ -4,7 +4,7 @@
 // Ollama synthesizes audio at POST /v1/audio/speech with a model whose
 // capabilities include "speech". A speech-only model answers with audio, so the
 // player lives in the assistant bubble; for a chat model the "Speech" switch
-// also speaks what you send, under your own bubble.
+// voices the model's final answer in that same bubble when the turn ends.
 //
 // Voices come from /api/show (the same list `ollama show` prints). Ollama omits
 // the field when the checkpoint only has its own voice, which the API calls
@@ -217,7 +217,7 @@ async function generateSpeechURL(text, model, voice) {
 // player once the audio arrives. It always overwrites whatever the bubble had,
 // which is what lets a regenerate reuse the same message instead of pushing a
 // new one.
-function startSpeechSynthesis(msg, input, model, voice) {
+function startSpeechSynthesis(msg, input, model, voice, opts = {}) {
   const startedAt = Date.now();
   const prior = msg._speech && msg._speech.status === "ready" ? { ...msg._speech } : null;
   // While a take is being regenerated the previous player stays on screen.
@@ -231,8 +231,13 @@ function startSpeechSynthesis(msg, input, model, voice) {
         try { URL.revokeObjectURL(prior.url); } catch (_) { }
       }
       msg._speech = { status: "ready", url, model, voice };
-      if (msg.role === "assistant") msg.elapsedMs = Date.now() - startedAt;
+      // A chat answer keeps the numbers of its own turn; only a speech-only
+      // reply, whose whole answer is the audio, is timed by the synthesis.
+      if (msg.role === "assistant" && !String(msg.content || "").trim()) {
+        msg.elapsedMs = Date.now() - startedAt;
+      }
       renderChatMessages();
+      if (opts.autoplay) playMessageAudio(msg.id);
       // The server records the call against the model, so refresh the stats
       // (record speed, cold load) the panel shows.
       if (typeof refreshModels === "function") refreshModels().catch(() => { });
@@ -247,15 +252,26 @@ function startSpeechSynthesis(msg, input, model, voice) {
     });
 }
 
+// playMessageAudio starts the player that the last render put in the bubble.
+// Browsers may refuse an autoplay that has no recent gesture on the page; that
+// is not an error, the player is still there for the user to press.
+function playMessageAudio(msgId) {
+  const article = document.querySelector(`article.chat-msg[data-id="${CSS.escape(String(msgId))}"]`);
+  const audio = article && article.querySelector("audio.chat-audio-player");
+  if (!audio) return;
+  const started = audio.play();
+  if (started && typeof started.catch === "function") started.catch(() => { });
+}
+
 // speakIntoMessage generates the audio for one message in the background. The
 // bubble repaints with a pending line and then with the player. It is used both
-// for a speech-only model's reply and for reading back what you sent.
+// for a speech-only model's reply and for voicing a chat model's answer.
 function speakIntoMessage(msg, text, opts = {}) {
   if (!msg || msg._speech) return false;
   const model = opts.model || effectiveSpeechModel();
   const input = String(text || "").trim();
   if (!model || !input) return false;
-  startSpeechSynthesis(msg, input, model, opts.voice || selectedSpeechVoice(model));
+  startSpeechSynthesis(msg, input, model, opts.voice || selectedSpeechVoice(model), { autoplay: Boolean(opts.autoplay) });
   return true;
 }
 
@@ -282,25 +298,23 @@ function regenerateSpeechReply(msg) {
   return true;
 }
 
-// attachSpeechToMessage reads a user message back to the user, the "Speech"
-// switch behaviour for chat models that also answer in text.
-function attachSpeechToMessage(msg, text, force, modelOverride) {
-  if (!msg || msg.role !== "user" || msg._speech) return;
-  if (!force && !speechAutoEnabled()) return;
-  speakIntoMessage(msg, text, { model: modelOverride || effectiveSpeechModel() });
-}
-
-// attachSpeechToLastSentMessage finds the bubble the send path just pushed. The
-// composer was cleared before the call, so the text is what identifies it.
-function attachSpeechToLastSentMessage(text, force) {
-  if (!force && !speechAutoEnabled()) return;
-  for (let i = chatMessages.length - 1; i >= 0; i--) {
-    const m = chatMessages[i];
-    if (m.role !== "user") continue;
-    if ((m.content || "") !== text) continue;
-    attachSpeechToMessage(m, text, force);
-    return;
-  }
+// attachSpeechToAssistantReply voices the model's answer when the Speech switch
+// is on. It runs as the turn ends, because only then the answer is complete.
+// msg.content holds the final answer alone: the thinking and the tool log live
+// in their own fields, so they are never read aloud.
+function attachSpeechToAssistantReply(msg) {
+  if (!msg || msg.role !== "assistant" || msg._speech) return false;
+  if (msg.isError || msg.stopped || msg.doneReason === "aborted") return false;
+  if (!speechAutoEnabled()) return false;
+  // A speech-only model already answered with its own audio.
+  if (isSpeechOnlyModel(msg.model)) return false;
+  // An image model's "answer" is a base64 picture, not text.
+  if (typeof isImageGenerationOnlyCaps === "function" && isImageGenerationOnlyCaps(modelCaps(msg.model))) return false;
+  // textForSpeech drops code blocks and markdown noise: reading symbols aloud
+  // helps nobody.
+  const text = textForSpeech(msg.content || "");
+  if (!text) return false;
+  return speakIntoMessage(msg, text, { model: effectiveSpeechModel(), autoplay: true });
 }
 
 // sendSpeechOnlyTurn posts a message to a model that only speaks. There is no

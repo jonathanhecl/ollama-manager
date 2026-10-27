@@ -674,9 +674,6 @@ function handleChatSessionStreamEvent(name, ev) {
       chatMessages.push(sessionMessageToChatMessage(m));
       renderChatMessages();
       scrollChatToBottom(true);
-      // A queued turn only got its bubble now, so its speech is generated here
-      // rather than at send time.
-      if (typeof attachSpeechToLastSentMessage === "function") attachSpeechToLastSentMessage(m.content || "");
     }
     ensureSessionLiveMessage();
     // The server already started the turn, so the barrier stands for its pending

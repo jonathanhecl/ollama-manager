@@ -5656,6 +5656,11 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
     chatLastUsedTokens = assistantMsg.tokens || (assistantMsg.promptTokens + assistantMsg.completionTokens);
     updateChatContextMeter();
     flushChatRender();
+    // The answer is final now, so this is the moment to voice it: the Speech
+    // switch reads the reply, never the prompt, and never the thinking.
+    if (typeof attachSpeechToAssistantReply === "function") {
+      attachSpeechToAssistantReply(assistantMsg);
+    }
     refreshModels().catch(() => {});
   }
 }
@@ -6079,11 +6084,7 @@ async function sendChatMessage(interruptNow = false) {
     return;
   }
 
-  const turn = runOneChatTurn(snapText, snapAtt);
-  // The turn pushes the user bubble synchronously, so the audio can start now
-  // instead of waiting for the answer to finish.
-  if (typeof attachSpeechToLastSentMessage === "function") attachSpeechToLastSentMessage(snapText);
-  await turn;
+  await runOneChatTurn(snapText, snapAtt);
 }
 
 let chatArtifactWidthSet = false;

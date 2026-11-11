@@ -93,6 +93,9 @@ function updateBatteryGlobalStatus(s) {
   if (typeof updateActiveBatteryBanner === "function") {
     updateActiveBatteryBanner(window._activeBatteryRun);
   }
+  if (typeof updateBenchRunningRows === "function") {
+    updateBenchRunningRows();
+  }
 }
 
 function updateSystemWidgets(status) {

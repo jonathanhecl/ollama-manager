@@ -302,6 +302,45 @@ function updateModelsCount(renderedCount, totalCount, query) {
   }
 }
 
+// Models taking part in the battery run that is active right now. The runner
+// reports both the full selection (models) and the one being tested (model).
+function benchRunningModelNames() {
+  const names = new Set();
+  const run = window._activeBatteryRun;
+  if (!run) return names;
+  if (Array.isArray(run.models)) {
+    for (const name of run.models) {
+      if (name) names.add(name);
+    }
+  }
+  if (run.model) names.add(run.model);
+  return names;
+}
+
+// Marks the rows of the models being tested by the active battery, with the
+// same yellow glow as the Tests nav button. Runs after every render and on
+// every status poll, so a battery starting or ending updates the list without
+// a full refresh.
+function updateBenchRunningRows() {
+  const tbody = $("models-tbody");
+  if (!tbody) return;
+  const names = benchRunningModelNames();
+  const hint = t("battery.bench_row_running");
+  tbody.querySelectorAll("tr.row").forEach((tr) => {
+    const on = names.size > 0 && !!tr.dataset.name && names.has(tr.dataset.name);
+    const has = tr.classList.contains("bench-running");
+    if (on === has) return;
+    tr.classList.toggle("bench-running", on);
+    if (on) {
+      if (!tr.classList.contains("ghost") && !tr.classList.contains("pending")) {
+        tr.title = hint;
+      }
+    } else if (tr.title === hint) {
+      tr.removeAttribute("title");
+    }
+  });
+}
+
 function bindModelsSearchEvents() {
   const searchInput = $("models-search");
   const clearBtn = $("models-search-clear");
@@ -871,6 +910,7 @@ function renderTable() {
   }
 
   updateListMarquees();
+  updateBenchRunningRows();
 }
 
 function updateListMarquees() {

@@ -1305,7 +1305,7 @@ function renderBatteryLeaderboard(modelIDs, modelMap, currentModel) {
     }
 
     html += `
-      <tr class="${rowClass}" data-sig="${escapeHtml(batteryLbRowSig(st))}" title="${escapeHtml(m)} · ${escapeHtml(statusLabel)}">
+      <tr class="${rowClass}" data-sig="${escapeHtml(batteryLbRowSig(st))}" data-lb-model="${escapeHtml(m)}" title="${escapeHtml(m)} · ${escapeHtml(statusLabel)}">
         <td class="col-cell-model">
           <div class="leaderboard-model-cell">
             <div class="marquee-wrapper leaderboard-marquee">
@@ -1764,7 +1764,7 @@ function updateActiveBatteryBanner(activeRun) {
   }
 }
 
-function showBatteryProgressView(modelIDs, runID, groupId) {
+function showBatteryProgressView(modelIDs, runID, groupId, focusModel) {
   batteryCompletedTests = [];
   batteryLastTestSnapshot = null;
   batteryPollRetryCount = 0;
@@ -1895,7 +1895,26 @@ function showBatteryProgressView(modelIDs, runID, groupId) {
   if (window.location.pathname !== progressPath) {
     history.pushState(null, "", progressPath);
   }
+  if (focusModel) focusBatteryProgressModel(focusModel);
   void pollBatteryProgress(runID, batteryProgressModelIDs);
+}
+
+// Scrolls the live progress leaderboard to a model and flashes its row, so the
+// Bench cell of a model in the running battery lands on that model's row.
+function focusBatteryProgressModel(model) {
+  if (!model) return;
+  const container = $("battery-leaderboard-container");
+  if (!container) return;
+  let target = null;
+  for (const row of container.querySelectorAll("tr[data-lb-model]")) {
+    if (row.getAttribute("data-lb-model") === model) { target = row; break; }
+  }
+  if (!target) return;
+  window.requestAnimationFrame(() => {
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.classList.add("lb-row-highlight");
+    window.setTimeout(() => target.classList.remove("lb-row-highlight"), 2400);
+  });
 }
 
 function renderBatteryTimeline(liveResults = []) {

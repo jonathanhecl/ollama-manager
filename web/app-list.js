@@ -331,12 +331,21 @@ function updateBenchRunningRows() {
     const has = tr.classList.contains("bench-running");
     if (on === has) return;
     tr.classList.toggle("bench-running", on);
+    const benchBtn = tr.querySelector(".cell-bench-col .bench-btn");
     if (on) {
       if (!tr.classList.contains("ghost") && !tr.classList.contains("pending")) {
         tr.title = hint;
       }
-    } else if (tr.title === hint) {
-      tr.removeAttribute("title");
+      if (benchBtn) {
+        benchBtn.dataset.benchTitle = benchBtn.title;
+        benchBtn.title = hint;
+      }
+    } else {
+      if (tr.title === hint) tr.removeAttribute("title");
+      if (benchBtn && benchBtn.dataset.benchTitle !== undefined) {
+        benchBtn.title = benchBtn.dataset.benchTitle;
+        delete benchBtn.dataset.benchTitle;
+      }
     }
   });
 }
@@ -535,6 +544,26 @@ function renderTable() {
   }
 
   function handleBenchCellAction(action, m) {
+    // A model taking part in the running battery opens that run's live progress
+    // (the same page the Tests nav button leads to) instead of a new bench.
+    const run = window._activeBatteryRun;
+    if (run && run.runID && m && m.name && benchRunningModelNames().has(m.name)) {
+      if (run.waitingReview && typeof showBlindReviewView === "function") {
+        showBlindReviewView(run.runID);
+        return;
+      }
+      const alreadyThere = typeof currentView !== "undefined" &&
+        currentView === "battery-progress" &&
+        typeof batteryActiveRunID !== "undefined" && batteryActiveRunID === run.runID;
+      if (alreadyThere && typeof focusBatteryProgressModel === "function") {
+        focusBatteryProgressModel(m.name);
+        return;
+      }
+      if (typeof showBatteryProgressView === "function") {
+        showBatteryProgressView(run.models || [], run.runID, run.groupId || "all", m.name);
+        return;
+      }
+    }
     if (action === "leaderboard") {
       if (typeof showLeaderboardView === "function") showLeaderboardView(m && m.name);
       return;

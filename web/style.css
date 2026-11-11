@@ -14585,10 +14585,12 @@ button.chat-send:disabled:hover {
     background-color: transparent;
   }
 }
-.battery-lb-table tbody tr.lb-row-highlight td {
+.battery-lb-table tbody tr.lb-row-highlight td,
+.battery-leaderboard-table tbody tr.lb-row-highlight td {
   animation: lbRowHighlight 2.4s ease-out 1;
 }
-.battery-lb-table tbody tr.lb-row-highlight td.cell-lb-model {
+.battery-lb-table tbody tr.lb-row-highlight td.cell-lb-model,
+.battery-leaderboard-table tbody tr.lb-row-highlight td.col-cell-model {
   box-shadow: inset 3px 0 0 var(--accent), 3px 0 8px rgba(0, 0, 0, 0.45);
 }
 

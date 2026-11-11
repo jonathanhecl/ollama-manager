@@ -317,10 +317,10 @@ function benchRunningModelNames() {
   return names;
 }
 
-// Marks the rows of the models being tested by the active battery, with the
-// same yellow glow as the Tests nav button. Runs after every render and on
-// every status poll, so a battery starting or ending updates the list without
-// a full refresh.
+// Marks the rows of the models being tested by the active battery, so the Bench
+// cell glows with the same yellow pulse as the Tests nav button. Runs after
+// every render and on every status poll, so a battery starting or ending
+// updates the list without a full refresh.
 function updateBenchRunningRows() {
   const tbody = $("models-tbody");
   if (!tbody) return;
@@ -574,7 +574,7 @@ function renderTable() {
     }
     // Never benched but known to run (tok/s checked above): grey ⚡ opens
     // bench for all categories.
-    return `<button type="button" class="bench-btn bench-grey-bg" data-bench-action="bench-all" title="${escapeHtml(t("battery.lb_bench_missing"))}" aria-label="${escapeHtml(t("battery.lb_bench_missing"))}"><span aria-hidden="true">⚡</span></button>`;
+    return `<button type="button" class="bench-btn bench-grey-bg" data-bench-action="bench-all" title="${escapeHtml(t("battery.lb_bench_missing"))}" aria-label="${escapeHtml(t("battery.lb_bench_missing"))}"><span class="bench-bolt" aria-hidden="true">⚡</span></button>`;
   }
 
   const dotLoadedTxt = t("detail.dot_loaded");

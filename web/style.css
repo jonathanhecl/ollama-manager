@@ -15736,64 +15736,40 @@ button.chat-send:disabled:hover {
 }
 
 /* ---------- Models being tested by the active battery (Models list) ---------- */
-@keyframes model-bench-block-pulse {
+/* Only the Bench cell lights up: its button gets the same yellow pulse as the
+   Tests nav button, so the model name and the rest of the row stay readable. */
+@keyframes model-bench-icon-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.35);
-    background: rgba(234, 179, 8, 0.06);
-  }
-  50% {
-    box-shadow: 0 0 12px 2px rgba(234, 179, 8, 0.45);
-    background: rgba(234, 179, 8, 0.16);
-  }
-}
-
-@keyframes model-bench-name-pulse {
-  0%,
-  100% {
+    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0);
     color: #facc15;
-    text-shadow: 0 0 0 rgba(250, 204, 21, 0);
   }
   50% {
+    box-shadow: 0 0 12px 3px rgba(234, 179, 8, 0.7);
     color: #fef08a;
-    text-shadow: 0 0 10px rgba(250, 204, 21, 0.8);
   }
 }
 
-tbody tr.row.bench-running {
-  background: rgba(234, 179, 8, 0.05);
-}
-
-tbody tr.row.bench-running:hover {
-  background: rgba(234, 179, 8, 0.11);
-}
-
-/* Negative margins offset the padding, so the glow never changes row height. */
-tbody tr.row.bench-running .model-name-block {
-  margin: -4px -6px;
-  padding: 4px 6px;
+tbody tr.row.bench-running .cell-bench-col .bench-btn {
   border-radius: 8px;
-  animation: model-bench-block-pulse 1.8s ease-in-out infinite;
+  animation: model-bench-icon-pulse 1.8s ease-in-out infinite;
 }
 
-tbody tr.row.bench-running .model-name-base {
-  font-weight: 600;
-  animation: model-bench-name-pulse 1.8s ease-in-out infinite;
+/* A never-benched ⚡ button is grey; tint it yellow so the glow reads. */
+tbody tr.row.bench-running .cell-bench-col .bench-btn.bench-grey-bg {
+  background: rgba(234, 179, 8, 0.18);
 }
 
-#models-table tbody tr.row.bench-running td:last-child {
-  background: color-mix(in srgb, #eab308 5%, var(--panel));
+/* Keep the score text in its own colour, only the ⚡ adopts the pulse. */
+tbody tr.row.bench-running .cell-bench-col .bench-btn .record-num {
+  color: var(--text);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  tbody tr.row.bench-running .model-name-block {
-    animation: none;
-    background: rgba(234, 179, 8, 0.1);
-    box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.5);
-  }
-  tbody tr.row.bench-running .model-name-base {
+  tbody tr.row.bench-running .cell-bench-col .bench-btn {
     animation: none;
     color: #facc15;
+    box-shadow: 0 0 10px 2px rgba(234, 179, 8, 0.55);
   }
 }
 

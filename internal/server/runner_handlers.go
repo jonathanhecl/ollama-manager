@@ -260,16 +260,20 @@ func (s *Server) handleBatteryRun(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = s.runnerStore.SaveRun(run)
 		for _, testRes := range run.Results {
-			if testRes.Model != "" {
-				if testRes.TokensPerSec > 0 {
-					s.recordModelTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
-				} else {
-					s.recordModelTPS(testRes.Model, 0, run.Timestamp)
-				}
-				for _, sub := range testRes.SubResults {
-					if sub.TokensPerSec > 0 {
-						s.recordModelTPS(testRes.Model, sub.TokensPerSec, run.Timestamp)
-					}
+			if testRes.Model == "" || !runner.HasReviewableOutput(testRes) {
+				// A model that answered nothing (broken output, crash or skip)
+				// must not touch the stats: it neither counts as a call nor
+				// sets a tok/s record.
+				continue
+			}
+			if testRes.TokensPerSec > 0 {
+				s.recordModelTPS(testRes.Model, testRes.TokensPerSec, run.Timestamp)
+			} else {
+				s.recordModelTPS(testRes.Model, 0, run.Timestamp)
+			}
+			for _, sub := range testRes.SubResults {
+				if sub.TokensPerSec > 0 {
+					s.recordModelTPS(testRes.Model, sub.TokensPerSec, run.Timestamp)
 				}
 			}
 		}

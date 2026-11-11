@@ -835,10 +835,23 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 		accEvalNS += last.EvalDuration
 
 		if len(assistant.ToolCalls) == 0 {
-			if strings.TrimSpace(assistant.Content) == "" && strings.TrimSpace(assistant.Thinking) == "" {
+			emptyFinal := strings.TrimSpace(assistant.Content) == "" && strings.TrimSpace(assistant.Thinking) == ""
+			if emptyFinal {
 				log.Printf("[artifact] round %d: empty response (no content, no tool calls), stopping", round)
+				// Nothing was answered: the reported eval tokens and their
+				// near-zero duration are not real throughput, so this run does
+				// not count as usage nor as a tok/s record.
+				accComp -= last.EvalCount
+				accEvalNS -= last.EvalDuration
+				if accComp < 0 {
+					accComp = 0
+				}
+				if accEvalNS < 0 {
+					accEvalNS = 0
+				}
+			} else {
+				s.recordModelUsage(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
 			}
-			s.recordModelUsage(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
 			send("done", map[string]any{
 				"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 				"prompt_tokens":      last.PromptEvalCount,

@@ -359,11 +359,23 @@ func (s *Server) runPlainChatLoop(ctx context.Context, sink chatSink, body chatR
 			promptEvalCount = est
 		}
 	}
+	// A broken model can emit only control tokens: Ollama reports a large
+	// eval_count with an almost zero eval_duration while there is no visible
+	// output at all. That is not a real measurement, so it must not reach the
+	// stats: no tok/s record, no token totals and no call counted as a
+	// working run. The chat footer is also told there were zero tokens.
+	answered := strings.TrimSpace(accContent.String()) != "" || strings.TrimSpace(accThinking.String()) != ""
+	if !answered {
+		evalCount = 0
+		evalDuration = 0
+	}
 	if evalCount > 0 && evalDuration <= 0 {
 		evalDuration = int64(time.Since(startedAt))
 	}
 	totalTokens := promptEvalCount + evalCount
-	s.recordModelUsage(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
+	if answered {
+		s.recordModelUsage(body.Model, evalCount, evalDuration, promptEvalCount, time.Now())
+	}
 	send("done", map[string]any{
 		"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 		"prompt_tokens":      promptEvalCount,

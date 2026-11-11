@@ -293,7 +293,21 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 		accEvalNS += last.EvalDuration
 
 		if len(assistant.ToolCalls) == 0 {
-			s.recordModelUsage(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
+			// A final round with no output is not a working run. Its reported
+			// eval tokens (often thousands with a near-zero duration) are not a
+			// real measurement, so neither they nor the call reach the stats.
+			if strings.TrimSpace(assistant.Content) == "" && strings.TrimSpace(assistant.Thinking) == "" {
+				accComp -= last.EvalCount
+				accEvalNS -= last.EvalDuration
+				if accComp < 0 {
+					accComp = 0
+				}
+				if accEvalNS < 0 {
+					accEvalNS = 0
+				}
+			} else {
+				s.recordModelUsage(body.Model, accComp, accEvalNS, last.PromptEvalCount, time.Now())
+			}
 			send("done", map[string]any{
 				"elapsed_ms":         time.Since(startedAt).Milliseconds(),
 				"prompt_tokens":      last.PromptEvalCount,

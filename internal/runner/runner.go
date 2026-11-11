@@ -2083,12 +2083,19 @@ retryLoop:
 
 	if chunkMeta != nil {
 		res.PromptTokens = chunkMeta.PromptEvalCount
-		res.EvalTokens = chunkMeta.EvalCount
-		res.TotalTokens = chunkMeta.PromptEvalCount + chunkMeta.EvalCount
 		res.PromptEvalDuration = chunkMeta.PromptEvalDuration
-		res.EvalDuration = chunkMeta.EvalDuration
-		if chunkMeta.EvalCount > 0 && chunkMeta.EvalDuration > 0 {
-			res.TokensPerSec = float64(chunkMeta.EvalCount) / (float64(chunkMeta.EvalDuration) / 1e9)
+		res.TotalTokens = chunkMeta.PromptEvalCount
+		// A broken model can emit only control tokens: the backend reports eval
+		// tokens with a near-zero duration while the answer is empty. Those
+		// numbers are not a real measurement, so they must not become the
+		// model's tok/s record or make it look functional in the models list.
+		if strings.TrimSpace(answer) != "" || strings.TrimSpace(thinking) != "" {
+			res.EvalTokens = chunkMeta.EvalCount
+			res.TotalTokens = chunkMeta.PromptEvalCount + chunkMeta.EvalCount
+			res.EvalDuration = chunkMeta.EvalDuration
+			if chunkMeta.EvalCount > 0 && chunkMeta.EvalDuration > 0 {
+				res.TokensPerSec = float64(chunkMeta.EvalCount) / (float64(chunkMeta.EvalDuration) / 1e9)
+			}
 		}
 	}
 

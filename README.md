@@ -2,7 +2,7 @@
 
 Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact with [Ollama](https://ollama.com) models and external LLMs. **Features an advanced background download queue manager** to queue, pause, resume, and prioritize multiple model downloads sequentially without saturating your bandwidth — solving one of Ollama's biggest limitations.
 
-Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **Agent Skills (`agentskills.io`)**, autonomous **web & artifact agents**, detached **background sessions**, and self-hosted **ComfyUI image generation** — all from a single binary.
+Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **Agent Skills (`agentskills.io`)**, **MCP (Model Context Protocol) servers**, autonomous **web & artifact agents**, detached **background sessions**, and self-hosted **ComfyUI image generation** — all from a single binary.
 
 ![ollama-manager Showcase](image.png)
 
@@ -72,6 +72,11 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **A
   - **Full Catalog & Progressive Disclosure**: enabling **Skills** in Chat (for any `tools`-capable model) automatically injects the entire discovered `<available_skills>` catalog into the system prompt and exposes sandboxed consultation tools (`load_skill`, `list_skill_files`, `read_skill_file`) with path-traversal, symlink-escape, and binary-file protection.
   - **Read-Only vs. Artifacts Execution**: when `Artifacts` is off, models can only consult skills (and combine them with **Internet** `web_search`/`web_fetch` when enabled) with zero disk writes or command execution; when `Artifacts` is on, models can combine skill instructions with the isolated artifact workspace (`create_artifact`, `write_file`, `exec`, etc.).
 
+- **MCP (Model Context Protocol) Client**:
+  - **Standard JSON Configuration** (⚙ Settings → MCP): configure multiple MCP servers using the standard `{"mcpServers": { ... }}` JSON structure, test connections individually or all at once, and inspect connection status, server info, and discovered tools.
+  - **Multi-Transport JSON-RPC 2.0 Client**: supports local **`stdio`** servers (`command`, `args`, `env`, `cwd`), **Streamable HTTP** (`application/json` & `text/event-stream` with `Mcp-Session-Id`), and automatic fallback to **Legacy HTTP+SSE** (`url`, `headers`, `transport`).
+  - **Per-Chat Selective Activation**: for `tools`-capable models, turning on **MCPs** in Chat reveals the configured services all initialized to `false`, letting you enable only the specific MCP servers the model can access in that chat (both in direct chats and persistent background sessions).
+
 - **Knowledge Bases (RAG — Retrieval-Augmented Generation)**:
   - **Semantic Search over Your Own Knowledge**: SQLite-backed knowledge bases whose entries are embedded automatically with any installed Ollama embedding model and retrieved by cosine similarity.
   - **Multi-Media Entries**: each entry holds text, images, or audio — embedded either combined with its text or from attachments only — with a descriptive title and aliases/keywords.
@@ -90,7 +95,7 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **A
 - **Persistent Background Chat Sessions**:
   - **Detached Runs**: sessions run on the server and keep going after you close the tab; reopen, continue, export, or delete them later.
   - **Message Queues**: messages sent while a model is busy are queued, promotable, and never dropped or duplicated.
-  - **Capability-Based Tool Gating**: artifacts, web tools, skills, ComfyUI, and RAG tools are enabled only for the models that actually support them, for both local and external models.
+  - **Capability-Based Tool Gating**: artifacts, web tools, skills, MCPs, ComfyUI, and RAG tools are enabled only for the models that actually support them, for both local and external models.
   - **At-a-Glance Badges**: running/queued and unread states are visible next to every model in the list, and sessions are scoped to their model.
   - **Configurable Lifecycle** (`chat_sessions`): enable or disable the feature and choose whether uninstalling a model deletes its sessions or keeps them flagged as missing their model.
 
@@ -214,6 +219,9 @@ On first launch, `config.json` is generated automatically:
   "skills": {
     "directories": []
   },
+  "mcp": {
+    "mcpServers": {}
+  },
   "gateway": {
     "enabled": false,
     "port": 7861,
@@ -233,6 +241,7 @@ On first launch, `config.json` is generated automatically:
 - `chat_defaults`: global fallback chat parameters. `think_level` accepts `auto`, `off`, `low`, `medium`, `high`, or `max`.
 - `chat_sessions`: persistent background chat sessions. `enabled` turns the feature on or off; `on_model_delete` is `delete` (uninstalling a model drops its sessions) or `keep` (keeps them flagged as missing their model).
 - `comfyui`: optional ComfyUI integration, invisible until a URL is set and at least one workflow is registered. `url` is your ComfyUI endpoint (default `http://127.0.0.1:8188`); `timeout_seconds` caps a single workflow run (default `600`).
+- `mcp`: Model Context Protocol client registry (`mcpServers` map of named `stdio`, `http`, or `sse` server configs). Each chat starts with services disabled until explicitly toggled on.
 - `rag`: knowledge base settings. `default_embedding` preselects an embedding model; `directory` overrides where databases are stored.
 - `gateway`: optional API gateway that re-exposes selected models to third-party clients on its own port. `enabled` turns it on; `port` is the listen port (`0` uses `7861`, and it must differ from the main port); `expose_network` binds `0.0.0.0` for LAN access; `models` is the allowlist (`null` or absent exposes every visible model, a list — including an empty one — exposes only those); `require_auth` demands a Bearer API key.
 
@@ -353,6 +362,8 @@ Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capa
 | `GET` | `/api/opencode` | OpenCode integration state (config path, local provider, per-model visibility) |
 | `POST` | `/api/opencode/provider` | Create local Ollama provider in OpenCode config |
 | `POST` | `/api/opencode/models` | Set which models are exposed in the local OpenCode provider |
+| `GET` | `/api/mcp/servers` | List configured MCP servers and last-known connection/tool status |
+| `POST` | `/api/mcp/test` | Probe one or all MCP servers (supports draft `mcp` payload) and list tools |
 
 > The **gateway**, when enabled, serves its own listener on `port` (default `7861`) rather than the main port: `GET /v1/models` and `POST /v1/chat/completions` (OpenAI-compatible), plus `GET /api/tags`, `POST /api/chat`, `POST /api/generate`, and `POST /api/show` (Ollama-native). Every route requires `Authorization: Bearer` when `require_auth` is set.
 

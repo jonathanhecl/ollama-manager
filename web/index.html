@@ -415,6 +415,21 @@
             <span class="switch-slider"></span>
           </label>
         </div>
+        <div id="chat-mcp-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.mcp_hint" title="Connect to selected MCP servers configured in Settings → MCP.">
+          <div class="switch-label">
+            <div class="switch-title-row">
+              <span data-i18n="chat.mcp">MCPs</span>
+              <span id="chat-mcp-count-badge" class="badge badge-muted" hidden>0</span>
+            </div>
+          </div>
+          <label class="switch">
+            <input id="chat-mcp" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.mcp_hint" title="Connect to selected MCP servers configured in Settings → MCP.">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div id="chat-mcp-panel" class="chat-mcp-panel" hidden>
+          <div id="chat-mcp-list" class="chat-mcp-list"></div>
+        </div>
         <div id="chat-rag-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.rag_hint" title="Attach knowledge bases to this chat.">
           <div class="switch-label">
             <span data-i18n="chat.rag">RAG</span>
@@ -1778,6 +1793,11 @@
             <span class="settings-nav-label" data-i18n="settings.nav_skills">Skills</span>
             <span class="badge" id="skills-nav-badge" hidden>0</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-mcp">
+            <span class="settings-nav-icon">🔌</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_mcp">MCP</span>
+            <span class="badge" id="mcp-nav-badge" hidden>0</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-gateway">
             <span class="settings-nav-icon">📡</span>
             <span class="settings-nav-label" data-i18n="settings.nav_gateway">Tunneling Models</span>
@@ -2374,6 +2394,37 @@
               <div class="field field-vertical" style="margin-top:16px;">
                 <label data-i18n="settings.skills_catalog_label">Discovered skills catalog</label>
                 <div id="set-skills-catalog-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- MCP Servers -->
+          <section class="settings-section-card" id="sec-mcp" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.mcp_title">MCP Servers</h3>
+                <span class="badge" id="set-mcp-badge">0</span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.mcp_desc">Configure Model Context Protocol servers using the standard mcpServers JSON format. Models with Tools enabled can selectively connect to these services per chat.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="field field-vertical">
+                <label for="set-mcp-json" data-i18n="settings.mcp_json_label">MCP configuration (JSON)</label>
+                <textarea id="set-mcp-json" class="mono mcp-json-editor" rows="14" spellcheck="false" autocomplete="off" placeholder='{&#10;  "mcpServers": {&#10;    "filesystem": {&#10;      "command": "npx",&#10;      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"]&#10;    }&#10;  }&#10;}'></textarea>
+                <p class="form-hint" data-i18n="settings.mcp_json_hint">Supports stdio (command, args, env, cwd) and remote HTTP/SSE (url, headers, transport). Set "disabled": true on a server to keep it configured without exposing it in chat.</p>
+              </div>
+              <div class="mcp-actions-row">
+                <button id="set-mcp-format-btn" class="ghost" type="button" data-i18n="settings.mcp_format_btn">Format JSON</button>
+                <button id="set-mcp-test-btn" class="secondary" type="button" data-i18n="settings.mcp_test_all_btn">Test Connections</button>
+                <button id="set-mcp-save-btn" class="primary" type="button" data-i18n="settings.mcp_save_btn">Save &amp; Connect</button>
+              </div>
+              <div id="set-mcp-status" class="mcp-status-msg" hidden></div>
+              <div class="field field-vertical" style="margin-top:16px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <label style="margin:0;" data-i18n="settings.mcp_servers_label">Configured servers &amp; discovered tools</label>
+                  <span class="badge" id="set-mcp-servers-count">0</span>
+                </div>
+                <div id="set-mcp-servers-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;"></div>
               </div>
             </div>
           </section>

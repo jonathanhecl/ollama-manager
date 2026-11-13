@@ -56,6 +56,8 @@ const CHAT_OPTION_FALLBACKS = {
   web_tools: false,
   artifacts: false,
   skills: false,
+  mcp: false,
+  mcp_servers: [],
   rag_enabled: false,
   rag_paths: [],
   rag_editable: [],

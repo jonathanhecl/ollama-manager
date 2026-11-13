@@ -64,6 +64,7 @@ async function showSettingsView() {
   loadComfySettings(currentConfig);
   if (typeof ragSettingsInit === "function") ragSettingsInit();
   if (typeof skillsSettingsInit === "function") skillsSettingsInit(currentConfig);
+  if (typeof mcpSettingsInit === "function") mcpSettingsInit(currentConfig);
   bindExternalModelsEvents();
   bindSystemPromptsEvents();
   bindGatewayEvents();
@@ -98,6 +99,7 @@ async function showSettingsView() {
   else if (path === "/settings/gateway") targetSecId = "sec-gateway";
   else if (path === "/settings/rag") targetSecId = "sec-rag";
   else if (path === "/settings/skills") targetSecId = "sec-skills";
+  else if (path === "/settings/mcp") targetSecId = "sec-mcp";
   else if (path === "/settings/comfyui") targetSecId = "sec-comfyui";
   else if (path === "/settings/opencode" || path === "/opencode") targetSecId = "sec-opencode";
   else if (path === "/settings/general") targetSecId = "sec-general";
@@ -433,6 +435,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
     else if (sectionId === "sec-gateway") subRoute = "/settings/gateway";
     else if (sectionId === "sec-rag") subRoute = "/settings/rag";
     else if (sectionId === "sec-skills") subRoute = "/settings/skills";
+    else if (sectionId === "sec-mcp") subRoute = "/settings/mcp";
     else if (sectionId === "sec-opencode") subRoute = "/settings/opencode";
     if (window.location.pathname !== subRoute) {
       history.pushState(null, "", subRoute);
@@ -2824,5 +2827,592 @@ if (typeof document !== "undefined") {
     document.addEventListener("DOMContentLoaded", initSkillsBoot);
   } else {
     initSkillsBoot();
+  }
+}
+
+// ---------- MCP (Model Context Protocol) Client Settings & Chat Selector ----------
+
+let mcpServersCache = {
+  mcp: { mcpServers: {} },
+  servers: [],
+  loaded: false,
+};
+let chatMcpSelectedServers = new Set();
+const mcpTestingTargets = new Set();
+
+function mcpEnabledServersList() {
+  return (mcpServersCache.servers || []).filter((srv) => srv && !srv.disabled);
+}
+
+function setMcpStatusMessage(text, kind = "info") {
+  const el = $("set-mcp-status");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  el.hidden = !msg;
+  el.textContent = msg;
+  el.className = `mcp-status-msg${kind ? ` mcp-status-msg--${kind}` : ""}`;
+}
+
+function normalizeMcpEditorObject(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(t("settings.mcp_invalid_json"));
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed, "mcpServers")) {
+    if (!parsed.mcpServers || typeof parsed.mcpServers !== "object" || Array.isArray(parsed.mcpServers)) {
+      throw new Error(t("settings.mcp_invalid_json"));
+    }
+    return { mcpServers: parsed.mcpServers };
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed, "servers")) {
+    if (!parsed.servers || typeof parsed.servers !== "object" || Array.isArray(parsed.servers)) {
+      throw new Error(t("settings.mcp_invalid_json"));
+    }
+    return { mcpServers: parsed.servers };
+  }
+  for (const val of Object.values(parsed)) {
+    if (!val || typeof val !== "object" || Array.isArray(val)) {
+      throw new Error(t("settings.mcp_invalid_json"));
+    }
+  }
+  return { mcpServers: parsed };
+}
+
+function parseMcpJsonEditor() {
+  const textarea = $("set-mcp-json");
+  const raw = (textarea?.value || "").trim();
+  if (!raw) {
+    return { mcpServers: {} };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`${t("settings.mcp_invalid_json")}: ${err.message}`);
+  }
+  return normalizeMcpEditorObject(parsed);
+}
+
+function syncMcpEditorFromConfig(mcpCfg, force = false) {
+  const textarea = $("set-mcp-json");
+  if (!textarea) return;
+  if (!force && document.activeElement === textarea && textarea.value.trim()) {
+    return;
+  }
+  const normalized = {
+    mcpServers: mcpCfg && typeof mcpCfg.mcpServers === "object" && !Array.isArray(mcpCfg.mcpServers)
+      ? mcpCfg.mcpServers
+      : {},
+  };
+  textarea.value = JSON.stringify(normalized, null, 2);
+}
+
+async function refreshMcpServers(forceSyncEditor = false) {
+  try {
+    const data = await api("/api/mcp/servers");
+    const mcpCfg = data?.mcp && typeof data.mcp === "object" ? data.mcp : { mcpServers: {} };
+    mcpServersCache = {
+      mcp: mcpCfg,
+      servers: Array.isArray(data?.servers) ? data.servers : [],
+      loaded: true,
+    };
+    const enabledNames = new Set(mcpEnabledServersList().map((srv) => srv.name));
+    for (const name of [...chatMcpSelectedServers]) {
+      if (!enabledNames.has(name)) {
+        chatMcpSelectedServers.delete(name);
+      }
+    }
+    syncMcpEditorFromConfig(mcpCfg, forceSyncEditor);
+  } catch (err) {
+    console.warn("Failed to load MCP servers:", err);
+  }
+  updateMcpChatUI();
+  renderMcpSettingsUI();
+  return mcpServersCache;
+}
+
+function formatMcpJsonEditor() {
+  try {
+    const parsed = parseMcpJsonEditor();
+    const textarea = $("set-mcp-json");
+    if (textarea) {
+      textarea.value = JSON.stringify(parsed, null, 2);
+    }
+    setMcpStatusMessage("");
+  } catch (err) {
+    const msg = err?.message || t("settings.mcp_invalid_json");
+    setMcpStatusMessage(msg, "error");
+    toast(msg, "error");
+  }
+}
+
+async function testMcpServers(serverName = "", useEditorDraft = true) {
+  let draftMcp = null;
+  if (useEditorDraft && $("set-mcp-json")) {
+    try {
+      draftMcp = parseMcpJsonEditor();
+    } catch (err) {
+      const msg = err?.message || t("settings.mcp_invalid_json");
+      setMcpStatusMessage(msg, "error");
+      toast(msg, "error");
+      return;
+    }
+  }
+
+  const targetKey = serverName || "*";
+  mcpTestingTargets.add(targetKey);
+  setMcpStatusMessage(t("settings.mcp_testing"), "info");
+  renderMcpSettingsUI();
+
+  try {
+    const reqBody = {};
+    if (serverName) reqBody.server = serverName;
+    if (draftMcp) reqBody.mcp = draftMcp;
+    const data = await api("/api/mcp/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reqBody),
+    });
+    const tested = Array.isArray(data?.servers) ? data.servers : [];
+    if (!serverName && !draftMcp) {
+      mcpServersCache.servers = tested;
+    } else if (!serverName && draftMcp) {
+      mcpServersCache.servers = tested;
+      mcpServersCache.loaded = true;
+    } else if (tested.length) {
+      const byName = new Map(tested.map((s) => [s.name, s]));
+      const existing = [...(mcpServersCache.servers || [])];
+      let replaced = false;
+      for (let i = 0; i < existing.length; i += 1) {
+        const next = byName.get(existing[i].name);
+        if (next) {
+          existing[i] = next;
+          byName.delete(existing[i].name);
+          replaced = true;
+        }
+      }
+      if (!replaced) {
+        for (const extra of byName.values()) existing.push(extra);
+      }
+      mcpServersCache.servers = existing;
+    }
+
+    const enabled = tested.filter((s) => s && !s.disabled);
+    const okCount = enabled.filter((s) => s.connected).length;
+    const errCount = enabled.filter((s) => !s.connected && s.error).length;
+    if (enabled.length === 0) {
+      setMcpStatusMessage(t("settings.mcp_empty"), "info");
+    } else if (errCount > 0) {
+      setMcpStatusMessage(t("settings.mcp_test_failed", { ok: okCount, err: errCount }), okCount > 0 ? "warn" : "error");
+    } else {
+      setMcpStatusMessage(t("settings.mcp_test_done", { count: okCount }), "success");
+    }
+  } catch (err) {
+    const msg = err?.message || "MCP test failed";
+    setMcpStatusMessage(msg, "error");
+    toast(msg, "error");
+  } finally {
+    mcpTestingTargets.delete(targetKey);
+    renderMcpSettingsUI();
+    updateMcpChatUI();
+  }
+}
+
+async function saveMcpSettings() {
+  let parsed;
+  try {
+    parsed = parseMcpJsonEditor();
+  } catch (err) {
+    const msg = err?.message || t("settings.mcp_invalid_json");
+    setMcpStatusMessage(msg, "error");
+    toast(msg, "error");
+    return;
+  }
+
+  const saveBtn = $("set-mcp-save-btn");
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const res = await api("/api/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mcp: parsed }),
+    });
+    if (res && typeof res === "object") {
+      currentConfig = { ...currentConfig, ...res };
+    } else if (currentConfig) {
+      currentConfig.mcp = parsed;
+    }
+    await refreshMcpServers(true);
+    toast(t("settings.mcp_saved"), "success");
+    if (mcpEnabledServersList().length > 0) {
+      await testMcpServers("", false);
+    } else {
+      setMcpStatusMessage(t("settings.mcp_saved"), "success");
+    }
+  } catch (err) {
+    const msg = err?.message || "Failed to save MCP configuration";
+    setMcpStatusMessage(msg, "error");
+    toast(msg, "error");
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+function renderMcpSettingsUI() {
+  const list = $("set-mcp-servers-list");
+  const badge = $("set-mcp-badge");
+  const countEl = $("set-mcp-servers-count");
+  const navBadge = $("mcp-nav-badge");
+  const servers = Array.isArray(mcpServersCache.servers) ? mcpServersCache.servers : [];
+  const enabledCount = mcpEnabledServersList().length;
+
+  if (badge) badge.textContent = String(enabledCount);
+  if (countEl) countEl.textContent = String(servers.length);
+  if (navBadge) {
+    navBadge.textContent = String(enabledCount);
+    navBadge.hidden = enabledCount === 0;
+  }
+
+  if (!list) return;
+  list.innerHTML = "";
+  if (!servers.length) {
+    const empty = document.createElement("div");
+    empty.className = "muted small";
+    empty.textContent = t("settings.mcp_empty");
+    list.appendChild(empty);
+    return;
+  }
+
+  servers.forEach((srv) => {
+    const card = document.createElement("div");
+    card.className = `ext-model-card mcp-server-card${srv.disabled ? " is-paused" : ""}`;
+
+    const info = document.createElement("div");
+    info.className = "ext-model-card-info";
+
+    const nameRow = document.createElement("div");
+    nameRow.className = "ext-model-card-name";
+    nameRow.textContent = srv.name;
+
+    const transportBadge = document.createElement("span");
+    transportBadge.className = "badge";
+    transportBadge.textContent = srv.transport || "stdio";
+    nameRow.appendChild(transportBadge);
+
+    const statusBadge = document.createElement("span");
+    const isTesting = mcpTestingTargets.has("*") || mcpTestingTargets.has(srv.name);
+    if (isTesting) {
+      statusBadge.className = "badge";
+      statusBadge.textContent = t("settings.mcp_testing");
+    } else if (srv.disabled) {
+      statusBadge.className = "badge";
+      statusBadge.textContent = t("settings.mcp_disabled");
+    } else if (srv.connected) {
+      statusBadge.className = "badge mcp-badge-ok";
+      const srvLabel = srv.server_name
+        ? ` (${srv.server_name}${srv.server_version ? ` v${srv.server_version}` : ""})`
+        : "";
+      statusBadge.textContent = `${t("settings.mcp_connected")}${srvLabel}`;
+    } else if (srv.error) {
+      statusBadge.className = "badge mcp-badge-err";
+      statusBadge.textContent = "Error";
+    } else {
+      statusBadge.className = "badge";
+      statusBadge.textContent = t("settings.mcp_not_tested");
+    }
+    nameRow.appendChild(statusBadge);
+
+    if (srv.connected && Array.isArray(srv.tools)) {
+      const toolsCountBadge = document.createElement("span");
+      toolsCountBadge.className = "badge";
+      toolsCountBadge.textContent = t("settings.mcp_tools_count", { count: srv.tools.length });
+      nameRow.appendChild(toolsCountBadge);
+    }
+    info.appendChild(nameRow);
+
+    const endpointText = srv.transport === "stdio"
+      ? [srv.command, ...(Array.isArray(srv.args) ? srv.args : [])].filter(Boolean).join(" ")
+      : (srv.url || "");
+    if (endpointText) {
+      const epEl = document.createElement("div");
+      epEl.className = "ext-model-card-url mono";
+      epEl.textContent = endpointText;
+      epEl.title = endpointText;
+      info.appendChild(epEl);
+    }
+
+    if (srv.error && !srv.disabled) {
+      const errEl = document.createElement("div");
+      errEl.className = "mcp-server-error";
+      errEl.textContent = srv.error;
+      info.appendChild(errEl);
+    }
+
+    if (Array.isArray(srv.tools) && srv.tools.length > 0) {
+      const toolsWrap = document.createElement("div");
+      toolsWrap.className = "mcp-server-tools";
+      srv.tools.forEach((tool) => {
+        const pill = document.createElement("span");
+        pill.className = "mcp-tool-pill mono";
+        pill.textContent = tool.name;
+        if (tool.description) pill.title = tool.description;
+        toolsWrap.appendChild(pill);
+      });
+      info.appendChild(toolsWrap);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "ext-model-card-actions";
+    const testBtn = document.createElement("button");
+    testBtn.type = "button";
+    testBtn.className = "secondary small";
+    testBtn.textContent = isTesting ? t("settings.mcp_testing") : t("settings.mcp_test_btn");
+    testBtn.disabled = Boolean(srv.disabled || isTesting);
+    testBtn.addEventListener("click", () => {
+      void testMcpServers(srv.name, true);
+    });
+    actions.appendChild(testBtn);
+
+    card.appendChild(info);
+    card.appendChild(actions);
+    list.appendChild(card);
+  });
+}
+
+function getSelectedChatMcpServers() {
+  if (!$("chat-mcp")?.checked) return [];
+  const enabledNames = new Set(mcpEnabledServersList().map((srv) => srv.name));
+  const out = [];
+  for (const name of chatMcpSelectedServers) {
+    if (!mcpServersCache.loaded || enabledNames.has(name)) {
+      out.push(name);
+    }
+  }
+  out.sort();
+  return out;
+}
+
+function renderChatMcpPanel() {
+  const wrap = $("chat-mcp-wrap");
+  const toggle = $("chat-mcp");
+  const panel = $("chat-mcp-panel");
+  const list = $("chat-mcp-list");
+  if (!panel || !list) return;
+
+  const showPanel = Boolean(wrap && !wrap.hidden && toggle?.checked);
+  panel.hidden = !showPanel;
+  if (!showPanel) return;
+
+  if (!mcpServersCache.loaded) {
+    list.innerHTML = "";
+    const loadingEl = document.createElement("div");
+    loadingEl.className = "chat-mcp-empty";
+    loadingEl.textContent = "…";
+    list.appendChild(loadingEl);
+    void refreshMcpServers(false);
+    return;
+  }
+
+  const enabledServers = mcpEnabledServersList();
+  list.innerHTML = "";
+  if (!enabledServers.length) {
+    const emptyEl = document.createElement("div");
+    emptyEl.className = "chat-mcp-empty";
+    const msgSpan = document.createElement("span");
+    msgSpan.textContent = t("chat.mcp_empty");
+    emptyEl.appendChild(msgSpan);
+
+    const cfgBtn = document.createElement("button");
+    cfgBtn.type = "button";
+    cfgBtn.className = "ghost chat-mcp-cfg-btn";
+    cfgBtn.textContent = t("chat.mcp_configure_btn");
+    cfgBtn.addEventListener("click", () => {
+      if (typeof showSettingsView === "function") {
+        void showSettingsView("/settings/mcp");
+      }
+    });
+    emptyEl.appendChild(cfgBtn);
+    list.appendChild(emptyEl);
+    return;
+  }
+
+  enabledServers.forEach((srv) => {
+    const checked = chatMcpSelectedServers.has(srv.name);
+    const row = document.createElement("div");
+    row.className = `chat-mcp-item${checked ? " is-active" : ""}`;
+
+    const main = document.createElement("div");
+    main.className = "chat-mcp-item-main";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "chat-mcp-item-title";
+    titleEl.textContent = srv.name;
+    main.appendChild(titleEl);
+
+    const metaParts = [srv.transport || "stdio"];
+    if (srv.connected && Array.isArray(srv.tools)) {
+      metaParts.push(t("settings.mcp_tools_count", { count: srv.tools.length }));
+    } else if (srv.error) {
+      metaParts.push("error");
+    }
+    const metaEl = document.createElement("div");
+    metaEl.className = "chat-mcp-item-meta";
+    metaEl.textContent = metaParts.join(" · ");
+    main.appendChild(metaEl);
+
+    const switchLabel = document.createElement("label");
+    switchLabel.className = "switch chat-mcp-item-switch";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "chat-mcp-server-check";
+    input.dataset.mcpServer = srv.name;
+    input.checked = checked;
+    const slider = document.createElement("span");
+    slider.className = "switch-slider";
+    switchLabel.appendChild(input);
+    switchLabel.appendChild(slider);
+
+    row.appendChild(main);
+    row.appendChild(switchLabel);
+    list.appendChild(row);
+  });
+}
+
+function updateMcpChatUI() {
+  const wrap = $("chat-mcp-wrap");
+  const toggle = $("chat-mcp");
+  const badge = $("chat-mcp-count-badge");
+  const enabledServers = mcpEnabledServersList();
+  const totalCount = enabledServers.length;
+  const selectedCount = getSelectedChatMcpServers().length;
+
+  if (badge) {
+    if (toggle?.checked && totalCount > 0) {
+      badge.textContent = `${selectedCount}/${totalCount}`;
+      badge.hidden = false;
+    } else if (mcpServersCache.loaded) {
+      badge.textContent = String(totalCount);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  if (wrap) {
+    wrap.title = (mcpServersCache.loaded && totalCount === 0)
+      ? t("chat.mcp_empty")
+      : t("chat.mcp_hint");
+  }
+  if (toggle && wrap) {
+    toggle.title = wrap.title;
+  }
+
+  renderChatMcpPanel();
+}
+
+async function chatMcpSyncSession() {
+  if (typeof chatSessionId === "undefined" || !chatSessionId) return;
+  const mcpOn = Boolean($("chat-mcp")?.checked);
+  const mcpServers = mcpOn ? getSelectedChatMcpServers() : [];
+  try {
+    await api(`/api/chat/sessions/${encodeURIComponent(chatSessionId)}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mcp: mcpOn, mcp_servers: mcpServers }),
+    });
+  } catch (err) {
+    toast(String(err && err.message ? err.message : err), "error");
+  }
+}
+
+function chatMcpSetEnabled(enabled, saveModelOptions = true) {
+  const nextOn = Boolean(enabled);
+  const toggle = $("chat-mcp");
+  if (toggle) toggle.checked = nextOn;
+  // Toggling MCPs interactively starts with every configured service at false.
+  chatMcpSelectedServers.clear();
+  updateMcpChatUI();
+  if (saveModelOptions && typeof saveChatOptionsForCurrentModel === "function") {
+    saveChatOptionsForCurrentModel();
+  }
+  void chatMcpSyncSession();
+}
+
+function applyChatMcpOptions(opts) {
+  const mcpOn = Boolean(opts?.mcp);
+  chatMcpSelectedServers = new Set(
+    mcpOn && Array.isArray(opts?.mcp_servers)
+      ? opts.mcp_servers.map((s) => String(s || "").trim()).filter(Boolean)
+      : []
+  );
+  const toggle = $("chat-mcp");
+  if (toggle) {
+    toggle.checked = mcpOn;
+  }
+  updateMcpChatUI();
+}
+
+function bindMcpControls() {
+  const formatBtn = $("set-mcp-format-btn");
+  const testBtn = $("set-mcp-test-btn");
+  const saveBtn = $("set-mcp-save-btn");
+  const chatToggle = $("chat-mcp");
+  const chatList = $("chat-mcp-list");
+
+  if (formatBtn && !formatBtn._bound) {
+    formatBtn._bound = true;
+    formatBtn.addEventListener("click", formatMcpJsonEditor);
+  }
+  if (testBtn && !testBtn._bound) {
+    testBtn._bound = true;
+    testBtn.addEventListener("click", () => { void testMcpServers("", true); });
+  }
+  if (saveBtn && !saveBtn._bound) {
+    saveBtn._bound = true;
+    saveBtn.addEventListener("click", () => { void saveMcpSettings(); });
+  }
+  if (chatToggle && !chatToggle._bound) {
+    chatToggle._bound = true;
+    chatToggle.addEventListener("change", () => {
+      chatMcpSetEnabled(chatToggle.checked, true);
+    });
+  }
+  if (chatList && !chatList._bound) {
+    chatList._bound = true;
+    chatList.addEventListener("change", (ev) => {
+      const target = ev.target;
+      if (!target || !target.classList || !target.classList.contains("chat-mcp-server-check")) return;
+      const name = target.dataset.mcpServer;
+      if (!name) return;
+      if (target.checked) {
+        chatMcpSelectedServers.add(name);
+      } else {
+        chatMcpSelectedServers.delete(name);
+      }
+      updateMcpChatUI();
+      if (typeof saveChatOptionsForCurrentModel === "function") {
+        saveChatOptionsForCurrentModel();
+      }
+      void chatMcpSyncSession();
+    });
+  }
+}
+
+function mcpSettingsInit(cfg) {
+  bindMcpControls();
+  if (cfg?.mcp) {
+    syncMcpEditorFromConfig(cfg.mcp, false);
+  }
+  void refreshMcpServers(true);
+}
+
+if (typeof document !== "undefined") {
+  const initMcpBoot = () => {
+    bindMcpControls();
+    refreshMcpServers(false).catch(() => {});
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initMcpBoot);
+  } else {
+    initMcpBoot();
   }
 }

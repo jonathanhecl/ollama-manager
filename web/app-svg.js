@@ -2852,6 +2852,8 @@ async function handleRouting() {
         else if (path === "/settings/archived") showSettingsSection("sec-archived", false);
         else if (path === "/settings/gateway") showSettingsSection("sec-gateway", false);
         else if (path === "/settings/rag") showSettingsSection("sec-rag", false);
+        else if (path === "/settings/skills") showSettingsSection("sec-skills", false);
+        else if (path === "/settings/mcp") showSettingsSection("sec-mcp", false);
         else if (path === "/settings/opencode") showSettingsSection("sec-opencode", false);
         else if ((path === "/settings" || path === "/settings/") && window.innerWidth <= 900 && typeof showSettingsMobileMenu === "function") {
           showSettingsMobileMenu();
@@ -3497,6 +3499,16 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     read_skill_file: "chat.tool.read_skill_file",
   };
   const isSkill = Object.prototype.hasOwnProperty.call(skillToolKeys, e.name);
+  const isMcp = Boolean(e.mcp_server || e.mcp_tool || String(e.name || "").startsWith("mcp__"));
+  let mcpServer = e.mcp_server || "";
+  let mcpTool = e.mcp_tool || "";
+  if (isMcp && (!mcpServer || !mcpTool) && String(e.name || "").startsWith("mcp__")) {
+    const parts = String(e.name).slice(5).split("__");
+    if (parts.length >= 2) {
+      if (!mcpServer) mcpServer = parts[0];
+      if (!mcpTool) mcpTool = parts.slice(1).join("__");
+    }
+  }
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
@@ -3509,7 +3521,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
                     : isComfy ? t("chat.tool.run_comfy_workflow")
                       : isRag ? t(ragToolKeys[e.name])
                         : isSkill ? t(skillToolKeys[e.name])
-                          : escapeHtml(e.name);
+                          : isMcp ? escapeHtml(t("chat.tool.mcp_call", { server: mcpServer || "mcp", tool: mcpTool || e.name }))
+                            : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -3544,6 +3557,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     if (e.skill) d += `<strong>${escapeHtml(e.skill)}</strong>`;
     if (e.path) d += `${d ? " · " : ""}<span class="mono">${escapeHtml(e.path)}</span>`;
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
+  } else if (isMcp && e.query) {
+    detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.query)}</div>`;
   } else if (isComfy && (e.workflow || e.prompt)) {
     // The workflow name leads because that is what tells the user which of their
     // registered workflows ran; the prompt is quoted so they can see the wording
@@ -4773,6 +4788,8 @@ function getCurrentChatOptions() {
     web_tools: $("chat-web-tools")?.checked ?? false,
     artifacts: $("chat-artifacts")?.checked ?? false,
     skills: $("chat-skills")?.checked ?? false,
+    mcp: $("chat-mcp")?.checked ?? false,
+    mcp_servers: ($("chat-mcp")?.checked && typeof getSelectedChatMcpServers === "function") ? getSelectedChatMcpServers() : [],
     rag_enabled: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_enabled : !!chatRagEnabled,
     rag_paths: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_paths : (chatRagEnabled ? [...chatRagPaths] : []),
     rag_editable: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_editable : (chatRagEnabled ? [...chatRagEditable] : []),
@@ -4855,6 +4872,10 @@ function areChatOptionsDefault(modelName, opts) {
     if (Boolean(current.web_tools) !== Boolean(defaults.web_tools)) return false;
     if (Boolean(current.artifacts) !== Boolean(defaults.artifacts)) return false;
     if (Boolean(current.skills) !== Boolean(defaults.skills)) return false;
+    if (Boolean(current.mcp) !== Boolean(defaults.mcp)) return false;
+    const curMcp = Array.isArray(current.mcp_servers) ? current.mcp_servers : [];
+    const defMcp = Array.isArray(defaults.mcp_servers) ? defaults.mcp_servers : [];
+    if (curMcp.length !== defMcp.length || curMcp.some((x, idx) => x !== defMcp[idx])) return false;
   }
 
   return true;
@@ -4934,6 +4955,7 @@ function resetModelChatOptionsToDefaults() {
   }
 
   if (typeof chatRagSetEnabled === "function") chatRagSetEnabled(false, false);
+  if (typeof chatMcpSetEnabled === "function") chatMcpSetEnabled(false, false);
   void applyChatDefaultsForModel(modelName, true);
   updateChatCustomOptionsBadge();
   toast(t("chat.reset_to_defaults_done"), "success");
@@ -4948,6 +4970,7 @@ function resetAllModelChatOptionsToDefaults() {
 
   const activeChatModel = $("chat-model")?.value;
   if (typeof chatRagSetEnabled === "function") chatRagSetEnabled(false, false);
+  if (typeof chatMcpSetEnabled === "function") chatMcpSetEnabled(false, false);
   if (activeChatModel) {
     void applyChatDefaultsForModel(activeChatModel, true);
   }
@@ -4985,6 +5008,9 @@ function setChatOptionsValues(opts) {
   }
   if (opts.skills !== undefined && $("chat-skills")) {
     $("chat-skills").checked = !!opts.skills;
+  }
+  if (typeof applyChatMcpOptions === "function") {
+    applyChatMcpOptions(opts);
   }
   if ((opts.rag_enabled !== undefined || opts.rag_paths !== undefined || opts.rag_editable !== undefined) && typeof chatRagApplyOptions === "function") {
     chatRagApplyOptions(opts);
@@ -5452,6 +5478,8 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
           name: data.name,
           path: data.path,
           skill: data.skill,
+          mcp_server: data.mcp_server,
+          mcp_tool: data.mcp_tool,
           command: data.command,
           code: data.code,
           artifact_name: data.artifact_name,
@@ -5464,6 +5492,8 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
         // Update existing entry with any newly received fields.
         if (data.path) existing.path = data.path;
         if (data.skill) existing.skill = data.skill;
+        if (data.mcp_server) existing.mcp_server = data.mcp_server;
+        if (data.mcp_tool) existing.mcp_tool = data.mcp_tool;
         if (data.command) existing.command = data.command;
         if (data.code) existing.code = data.code;
         if (data.artifact_name) existing.artifact_name = data.artifact_name;
@@ -5492,6 +5522,8 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
           e.description = data.description;
           if (data.path) e.path = data.path;
           if (data.skill) e.skill = data.skill;
+          if (data.mcp_server) e.mcp_server = data.mcp_server;
+          if (data.mcp_tool) e.mcp_tool = data.mcp_tool;
           if (data.command) e.command = data.command;
           if (data.code) e.code = data.code;
           if (data.artifact_name) e.artifact_name = data.artifact_name;
@@ -5508,6 +5540,8 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
           max_results: data.max_results,
           path: data.path,
           skill: data.skill,
+          mcp_server: data.mcp_server,
+          mcp_tool: data.mcp_tool,
           command: data.command,
           code: data.code,
           artifact_name: data.artifact_name,
@@ -5539,6 +5573,8 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
           e.error = data.error || "";
           e.result_preview = data.result_preview || "";
           e.result_runes = data.result_runes;
+          if (data.mcp_server) e.mcp_server = data.mcp_server;
+          if (data.mcp_tool) e.mcp_tool = data.mcp_tool;
           if (data.image) e.image = data.image;
           break;
         }
@@ -5755,6 +5791,8 @@ async function runChatRequest(assistantMsg) {
   const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
   const artifactsOn = !isImageModel && canTools && $("chat-artifacts").checked;
   const skillsOn = !isImageModel && canTools && Boolean($("chat-skills")?.checked);
+  const mcpOn = !isImageModel && canTools && Boolean($("chat-mcp")?.checked);
+  const mcpServers = mcpOn && typeof getSelectedChatMcpServers === "function" ? getSelectedChatMcpServers() : [];
 
   const options = {};
   const imageParams = {};
@@ -5789,6 +5827,10 @@ async function runChatRequest(assistantMsg) {
   };
   if (webToolsOn) payload.web_tools = true;
   if (skillsOn) payload.skills = true;
+  if (mcpOn) {
+    payload.mcp = true;
+    payload.mcp_servers = mcpServers;
+  }
   // ComfyUI runs on the tool loop too, so it rides along with web tools even
   // when internet is off: offering it without the loop would never execute.
   const comfyOn = !isImageModel && canTools && $("chat-comfy")?.checked;

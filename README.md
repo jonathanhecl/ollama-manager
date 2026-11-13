@@ -2,7 +2,7 @@
 
 Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact with [Ollama](https://ollama.com) models and external LLMs. **Features an advanced background download queue manager** to queue, pause, resume, and prioritize multiple model downloads sequentially without saturating your bandwidth — solving one of Ollama's biggest limitations.
 
-Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **Agent Skills (`agentskills.io`)**, **MCP (Model Context Protocol) servers**, autonomous **web & artifact agents**, detached **background sessions**, and self-hosted **ComfyUI image generation** — all from a single binary.
+Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **Agent Skills (`agentskills.io`)**, **MCP (Model Context Protocol) servers**, autonomous **Web Tools & Agent Mode**, detached **background sessions**, and self-hosted **ComfyUI image generation** — all from a single binary.
 
 ![ollama-manager Showcase](image.png)
 
@@ -33,7 +33,7 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **A
 - **External Models Integration (OpenAI-Compatible)**:
   - Connect remote LLM providers (OpenAI, DeepSeek, Groq, OpenRouter, vLLM, LM Studio, etc.) alongside your local Ollama models.
   - Configure custom base URLs, API keys, model identifiers, and custom capability tags (`tools`, `thinking`, `vision`).
-  - Use external models across the entire application: chat, web tools, live artifacts, and benchmarks.
+  - Use external models across the entire application: chat, web tools, Agent Mode, and benchmarks.
   - **Context Length Discovery**: external models report their context window, shown in the model list and used by the live chat context meter to display how much of the context is in use.
 
 - **OpenAI & Ollama API Gateway** (⚙ Settings → Tunneling Models):
@@ -59,18 +59,18 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **A
   - **Speech Playback**: a `speech` model answers with audio in its own bubble, some models ship several voices to pick from, and the `Speech` switch also reads back what you send with a chat model.
   - **Session Management & Message Editing**: edit previous turns, cancel queued requests to recover inputs, and reset conversations with confirmation.
 
-- **Web Tools & Live Artifacts Agent**:
+- **Web Tools & Agent Mode**:
   - **Web Search & Fetch**: server-side bounded web agent using DuckDuckGo (`web_search`) and direct HTTP (`web_fetch`) with a structured timeline.
-  - **Artifacts Workspace Sandbox**: interactive workspace where models build, test, and iterate on full-stack web applications and code (`create_artifact`, `write_file`, `replace_in_file`, `read_file`, `list_dir`, `exec`) with real-time live preview.
+  - **Agent Mode Workspace Sandbox**: isolated per-chat workspace where models create and edit files, list directories, and run shell commands (`write_file`, `replace_in_file`, `read_file`, `list_dir`, `exec`) directly from the first turn, with real-time live web preview whenever `index.html` or `create_artifact` is used and full step-by-step tool telemetry in the chat log.
   - **Autonomous Visual Inspection (`take_artifact_screenshot`)**: vision-capable models capture and visually inspect rendered previews directly from the browser to fix layouts and styling.
   - **Direct UI Interaction (`eval_artifact_js`)**: models execute JavaScript inside the sandbox to click elements, fill forms, and test event flows.
   - **Console Diagnostics (`get_artifact_console`)**: automatic capture of sandboxed iframe runtime logs (`console.log`, `console.warn`, `console.error`) for autonomous debugging.
-  - **Artifact Project History**: browse past generated artifact workspaces by model and date, reload previous projects, or delete them via UI/API.
+  - **Workspace & Preview History**: browse past Agent Mode workspaces and web previews by model and date, reload previous projects, or delete them via UI/API.
 
 - **Agent Skills (`agentskills.io`)**:
   - **Multi-Directory Discovery** (⚙ Settings → Skills): configure one or more skill folders (`skills.directories`, supporting absolute paths, `~/`, and paths relative to `config.json`) containing `SKILL.md` skills with optional `references/`, `scripts/`, and `assets/` subdirectories.
   - **Full Catalog & Progressive Disclosure**: enabling **Skills** in Chat (for any `tools`-capable model) automatically injects the entire discovered `<available_skills>` catalog into the system prompt and exposes sandboxed consultation tools (`load_skill`, `list_skill_files`, `read_skill_file`) with path-traversal, symlink-escape, and binary-file protection.
-  - **Read-Only vs. Artifacts Execution**: when `Artifacts` is off, models can only consult skills (and combine them with **Internet** `web_search`/`web_fetch` when enabled) with zero disk writes or command execution; when `Artifacts` is on, models can combine skill instructions with the isolated artifact workspace (`create_artifact`, `write_file`, `exec`, etc.).
+  - **Read-Only vs. Agent Mode Execution**: when `Agent Mode` is off, models can only consult skills (and combine them with **Internet** `web_search`/`web_fetch` when enabled) with zero disk writes or command execution; when `Agent Mode` is on, models can combine skill instructions with the isolated agent workspace (`write_file`, `replace_in_file`, `read_file`, `list_dir`, `exec`, `create_artifact`, etc.).
 
 - **MCP (Model Context Protocol) Client**:
   - **Standard JSON Configuration** (⚙ Settings → MCP): configure multiple MCP servers using the standard `{"mcpServers": { ... }}` JSON structure, test connections individually or all at once, and inspect connection status, server info, and discovered tools.
@@ -95,7 +95,7 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **A
 - **Persistent Background Chat Sessions**:
   - **Detached Runs**: sessions run on the server and keep going after you close the tab; reopen, continue, export, or delete them later.
   - **Message Queues**: messages sent while a model is busy are queued, promotable, and never dropped or duplicated.
-  - **Capability-Based Tool Gating**: artifacts, web tools, skills, MCPs, ComfyUI, and RAG tools are enabled only for the models that actually support them, for both local and external models.
+  - **Capability-Based Tool Gating**: Agent Mode, web tools, skills, MCPs, ComfyUI, and RAG tools are enabled only for the models that actually support them, for both local and external models.
   - **At-a-Glance Badges**: running/queued and unread states are visible next to every model in the list, and sessions are scoped to their model.
   - **Configurable Lifecycle** (`chat_sessions`): enable or disable the feature and choose whether uninstalling a model deletes its sessions or keeps them flagged as missing their model.
 
@@ -238,7 +238,7 @@ On first launch, `config.json` is generated automatically:
 - `session_secret`: HMAC secret key used to sign session cookies.
 - `ollama_url`: URL of the Ollama server.
 - `language`: UI language (`en` or `es`).
-- `chat_defaults`: global fallback chat parameters. `think_level` accepts `auto`, `off`, `low`, `medium`, `high`, or `max`.
+- `chat_defaults`: global fallback chat parameters. `think_level` accepts `auto`, `off`, `low`, `medium`, `high`, or `max` (`artifacts` toggles **Agent Mode** by default).
 - `chat_sessions`: persistent background chat sessions. `enabled` turns the feature on or off; `on_model_delete` is `delete` (uninstalling a model drops its sessions) or `keep` (keeps them flagged as missing their model).
 - `comfyui`: optional ComfyUI integration, invisible until a URL is set and at least one workflow is registered. `url` is your ComfyUI endpoint (default `http://127.0.0.1:8188`); `timeout_seconds` caps a single workflow run (default `600`).
 - `mcp`: Model Context Protocol client registry (`mcpServers` map of named `stdio`, `http`, or `sse` server configs). Each chat starts with services disabled until explicitly toggled on.
@@ -283,8 +283,8 @@ Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capa
 | `POST` | `/api/models/unload` | Unload a specific model from VRAM/RAM |
 | `POST` | `/api/models/archive` | Archive a model to hide it from standard listings |
 | `POST` | `/api/models/unarchive` | Unarchive a model |
-| `DELETE` | `/api/models/{name}` | Uninstall model (with optional reason tracking) and clean up associated artifacts |
-| `POST` | `/api/chat` | SSE chat stream (`chunk`, `tool`, `done`, `error`) supporting Web Tools & Artifacts |
+| `DELETE` | `/api/models/{name}` | Uninstall model (with optional reason tracking) and clean up associated workspaces/artifacts |
+| `POST` | `/api/chat` | SSE chat stream (`chunk`, `tool`, `done`, `error`) supporting Web Tools & Agent Mode |
 | `GET`/`POST` | `/api/chat/sessions` | List or create persistent background chat sessions |
 | `DELETE` | `/api/chat/sessions` | Delete all sessions |
 | `GET` | `/api/chat/sessions/{id}` | Read a session's transcript and state |
@@ -325,12 +325,12 @@ Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capa
 | `GET` | `/api/rags/{id}/media/{entry}/{type}` | Serve an entry's attached image or audio |
 | `POST` | `/api/model-repair/preview` | Preview patched Modelfile (tools, templates, stops, projector disk check) |
 | `POST` | `/api/model-repair/apply` | Apply repair, download mmproj projector, and build `:fixed` model |
-| `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed artifact files for live preview |
-| `DELETE` | `/api/artifacts/{digest}/{timestamp}` | Delete a specific generated artifact workspace |
-| `POST` | `/api/artifacts/console` | Relay runtime console logs from artifact preview iframe to the agent |
-| `POST` | `/api/artifacts/screenshot` | Submit browser preview screenshot for vision agent inspection |
-| `POST` | `/api/artifacts/eval` | Submit browser preview JavaScript evaluation results for the agent |
-| `GET` | `/api/models/{name}/artifacts` | List artifact projects created by a model |
+| `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed Agent Mode workspace files and live web preview |
+| `DELETE` | `/api/artifacts/{digest}/{timestamp}` | Delete a specific Agent Mode workspace |
+| `POST` | `/api/artifacts/console` | Relay runtime console logs from the Agent Mode live preview iframe to the model |
+| `POST` | `/api/artifacts/screenshot` | Submit Agent Mode browser preview screenshot for vision inspection |
+| `POST` | `/api/artifacts/eval` | Submit Agent Mode browser preview JavaScript evaluation results to the model |
+| `GET` | `/api/models/{name}/artifacts` | List Agent Mode workspaces and previews created by a model |
 | `GET` | `/api/comfyui/status` | ComfyUI connection status |
 | `GET`/`POST` | `/api/comfyui/workflows` | List or register ComfyUI workflows |
 | `GET` | `/api/comfyui/workflows/summary` | Summarize registered workflows and their bindings |
@@ -377,7 +377,7 @@ Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capa
 ├── config.example.json         # Reference configuration template
 ├── jobs.json                   # Runtime download queue persistence (git-ignored)
 ├── internal/
-│   ├── agent/                  # Artifact agent and sandboxed execution tools
+│   ├── agent/                  # Agent Mode workspace and sandboxed execution tools
 │   ├── comfyui/                # ComfyUI client, workflow bindings, and media handling
 │   ├── config/                 # Configuration file loading and persistence
 │   ├── diskusage/              # Cross-platform disk space detection

@@ -31,6 +31,9 @@
   "skills": {
     "directories": []
   },
+  "mcp": {
+    "mcpServers": {}
+  },
   "gateway": {
     "enabled": false,
     "port": 7861,

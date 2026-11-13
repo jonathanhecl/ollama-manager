@@ -366,6 +366,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"rag_directory":           s.cfg.RAGDirectory(),
 		"skills":                  s.cfg.Skills,
 		"skills_directories":      s.cfg.SkillsDirectories(),
+		"mcp":                     s.cfg.MCP,
 		"version":                 s.versionInfo,
 	})
 }
@@ -463,6 +464,7 @@ type patchConfigBody struct {
 	ComfyUI               *config.ComfyUIConfig  `json:"comfyui"`
 	RAG                   *patchRAGBody          `json:"rag"`
 	Skills                *patchSkillsBody       `json:"skills"`
+	MCP                   *config.MCPConfig      `json:"mcp"`
 }
 
 type patchSkillsBody struct {
@@ -702,6 +704,15 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 			s.cfg.Skills.Directories = config.NormalizeSkillDirectories(*body.Skills.Directories)
 		}
 	}
+	var oldMCP config.MCPConfig
+	mcpTouched := false
+	if body.MCP != nil {
+		oldMCP = s.cfg.MCP
+		mcpTouched = true
+		nextMCP := *body.MCP
+		config.NormalizeMCPConfig(&nextMCP)
+		s.cfg.MCP = nextMCP
+	}
 
 	if err := s.cfg.Save(); err != nil {
 		if ragTouched {
@@ -710,8 +721,14 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		if skillsTouched {
 			s.cfg.Skills = oldSkills
 		}
+		if mcpTouched {
+			s.cfg.MCP = oldMCP
+		}
 		writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+	if mcpTouched {
+		s.pruneMCPStatusCache(s.cfg.MCP.MCPServers)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":             true,
@@ -734,6 +751,7 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"rag_directory":           s.cfg.RAGDirectory(),
 		"skills":                  s.cfg.Skills,
 		"skills_directories":      s.cfg.SkillsDirectories(),
+		"mcp":                     s.cfg.MCP,
 	})
 }
 
@@ -2560,6 +2578,8 @@ type chatRequestBody struct {
 	WebTools    *bool                `json:"web_tools,omitempty"`
 	Artifacts   *bool                `json:"artifacts,omitempty"`
 	Skills      *bool                `json:"skills,omitempty"`
+	MCP         *bool                `json:"mcp,omitempty"`
+	MCPServers  []string             `json:"mcp_servers,omitempty"`
 	ArtifactDir string               `json:"artifact_dir,omitempty"`
 	Width       int                  `json:"width,omitempty"`
 	Height      int                  `json:"height,omitempty"`
@@ -3139,9 +3159,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	comfyOn := body.Comfy != nil && *body.Comfy
 	skillsOn := s.skillsEnabled(body)
-	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v comfy=%v skills=%v think=%s",
+	mcpOn := s.mcpEnabled(body)
+	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v comfy=%v skills=%v mcp=%v (%d servers) think=%s",
 		body.Model, len(body.Messages), imageCount,
-		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, comfyOn, skillsOn, thinkVal)
+		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, comfyOn, skillsOn, mcpOn, len(s.selectedMCPServers(body)), thinkVal)
 
 	writeSSEHeaders(w)
 	sink := newSSESink(w, flusher)
@@ -3153,9 +3174,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The web loop is the lightweight tool runner: it has the tool-call loop but
-	// none of the artifact filesystem surface, which is exactly what ComfyUI-only
-	// or Skills-only read-only chats want.
-	if (body.WebTools != nil && *body.WebTools) || comfyOn || s.ragAgentEnabled(r.Context(), body) || skillsOn {
+	// none of the artifact filesystem surface, which is exactly what ComfyUI-only,
+	// Skills-only, or MCP chats want.
+	if (body.WebTools != nil && *body.WebTools) || comfyOn || s.ragAgentEnabled(r.Context(), body) || skillsOn || mcpOn {
 		s.runWebToolAgentLoop(r.Context(), sink, body)
 		return
 	}

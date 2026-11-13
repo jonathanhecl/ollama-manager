@@ -99,6 +99,9 @@ type Server struct {
 	projectorCacheMu sync.RWMutex
 	projectorCache   map[string]string // url -> hexSum
 
+	mcpMu          sync.RWMutex
+	mcpStatusCache map[string]MCPServerStatus
+
 	// comfyWorkflows is the registry of API-format workflows the chat agent can
 	// run. It lives next to config.json so a config directory stays portable.
 	comfyWorkflows *comfyWorkflowStore
@@ -231,6 +234,7 @@ func New(cfg *config.Config, ollamaClient *ollama.Client, webRoot fs.FS, testing
 		artifactScreenshotCh: make(map[string]chan artifactScreenshotResponse),
 		artifactEvalCh:       make(map[string]chan artifactEvalResponse),
 		projectorCache:       make(map[string]string),
+		mcpStatusCache:       make(map[string]MCPServerStatus),
 		testsCacheETag:       fmt.Sprintf("\"%d\"", time.Now().UnixNano()),
 	}
 	// Route battery turns through chatWithModel so external
@@ -364,6 +368,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/rags/{id}", s.requireAuth(s.handleDeleteRAG))
 
 	mux.Handle("GET /api/skills", s.requireAuth(s.handleListSkills))
+
+	mux.Handle("GET /api/mcp/servers", s.requireAuth(s.handleMCPServers))
+	mux.Handle("POST /api/mcp/test", s.requireAuth(s.handleMCPTest))
 
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))

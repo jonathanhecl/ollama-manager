@@ -653,11 +653,27 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 	}
 	skillsOn := len(skills) > 0
 	webOn := body.WebTools != nil && *body.WebTools
+	var mcpTurn *mcpTurnSession
+	if s.mcpEnabled(body) {
+		var mcpErr error
+		mcpTurn, mcpErr = s.prepareMCPForChat(ctx, body)
+		if mcpTurn != nil {
+			defer mcpTurn.Close()
+		}
+		if mcpErr != nil && !mcpTurn.HasTools() {
+			log.Printf("[artifact] MCP connect warning: %v", mcpErr)
+		}
+	}
 	if ragOn {
 		sysPrompt += "\n\n" + ragAgentSystemInstruction
 	}
 	if skillsOn {
 		sysPrompt += "\n\n" + skillsSystemPromptSection(skills, true, webOn)
+	}
+	if mcpTurn != nil {
+		if sec := mcpTurn.SystemPrompt(); sec != "" {
+			sysPrompt += "\n\n" + sec
+		}
 	}
 	if comfyOn {
 		sysPrompt += "\n\n" + comfySystemPromptSection(s.comfyWorkflows.ListEnabled(), hasVision, body.ComfyWorkflow)
@@ -742,6 +758,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 		if skillsOn {
 			tools = append(tools, skillToolDefinitions()...)
 		}
+		if mcpTurn != nil && mcpTurn.HasTools() {
+			tools = append(tools, mcpTurn.Tools()...)
+		}
 		if comfyOn {
 			// Re-read every round: the user can register or disable a workflow
 			// from Settings while a turn is running.
@@ -797,6 +816,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						state = &toolSentState{name: name}
 						sentTools[i] = state
 						p := map[string]any{"phase": "generating", "name": name}
+						if mcpSrv, mcpTool, ok := mcpTurn.LookupTool(name); ok {
+							p["mcp_server"] = mcpSrv
+							p["mcp_tool"] = mcpTool
+						}
 						if path != "" {
 							p["path"] = path
 							state.path = path
@@ -893,9 +916,12 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 				continue
 			}
 
-			// Use artifact-aware payload for artifact tools, web payload for web/rag/skill tools.
+			// Use artifact-aware payload for artifact tools, web payload for web/rag/skill/mcp tools.
+			mcpSrv, mcpTool, isMCP := mcpTurn.LookupTool(n)
 			startPayload := artifactToolStartPayload(n, tc.Function.Arguments)
-			if isWebTool(n) || isRAGTool(n) || isSkillTool(n) {
+			if isMCP {
+				startPayload = mcpToolStartPayload(mcpSrv, mcpTool, n, tc.Function.Arguments)
+			} else if isWebTool(n) || isRAGTool(n) || isSkillTool(n) {
 				startPayload = toolStartPayload(n, tc.Function.Arguments)
 			}
 			if n == comfyToolName {
@@ -910,7 +936,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 			var toolImages []string
 			var toolMedia []ChatMedia
 			toolWorkflow := ""
-			if n == comfyToolName {
+			if isMCP {
+				out, mcpSrv, mcpTool, _, toolErr = mcpTurn.Call(ctx, n, tc.Function.Arguments)
+			} else if n == comfyToolName {
 				res, runErr := s.executeComfyTool(ctx, body, tc.Function.Arguments, func(status string) {
 					send("tool", map[string]any{"phase": "running", "name": n, "run_status": status})
 				})
@@ -1010,6 +1038,8 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 				} else {
 					out, toolErr = s.runWebTool(ctx, n, tc.Function.Arguments)
 				}
+			} else if strings.HasPrefix(n, "mcp__") {
+				toolErr = fmt.Errorf("MCP tool %q is not enabled for this chat", n)
 			} else {
 				// Only create the artifacts directory when the agent is actually
 				// about to write or run a command in the project.
@@ -1114,6 +1144,12 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 			msgs = append(msgs, toolMsg)
 
 			done := map[string]any{"phase": "done", "name": n, "ok": toolErr == nil}
+			if mcpSrv != "" {
+				done["mcp_server"] = mcpSrv
+			}
+			if mcpTool != "" {
+				done["mcp_tool"] = mcpTool
+			}
 			if toolImageBase64 != "" {
 				done["image"] = "data:image/jpeg;base64," + toolImageBase64
 			}

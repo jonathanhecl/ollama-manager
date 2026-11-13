@@ -24,6 +24,8 @@ type sessionSettingsInput struct {
 	WebTools    any `json:"web_tools"`
 	Artifacts   any `json:"artifacts"`
 	Skills      any `json:"skills"`
+	MCP         any `json:"mcp"`
+	MCPServers  any `json:"mcp_servers"`
 	RAGEnabled  any `json:"rag_enabled"`
 	RAGPaths    any `json:"rag_paths"`
 	RAGEditable any `json:"rag_editable"`
@@ -87,6 +89,15 @@ func (in sessionSettingsInput) mergeInto(dst SessionSettings) SessionSettings {
 	}
 	if in.Skills != nil {
 		dst.Skills = sessionOptBool(in.Skills)
+	}
+	if in.MCP != nil {
+		dst.MCP = sessionOptBool(in.MCP)
+	}
+	if in.MCPServers != nil {
+		dst.MCPServers = sessionOptMCPServers(in.MCPServers)
+	}
+	if !dst.MCP {
+		dst.MCPServers = nil
 	}
 	if in.RAGEnabled != nil {
 		dst.RAGEnabled = sessionOptBool(in.RAGEnabled)
@@ -262,6 +273,45 @@ func filterRAGEditable(editable, paths []string) []string {
 	for _, e := range editable {
 		if allowed[e] {
 			out = append(out, e)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+const maxSessionMCPServers = 32
+
+func sessionOptMCPServers(v any) []string {
+	var raw []any
+	switch t := v.(type) {
+	case []any:
+		raw = t
+	case []string:
+		raw = make([]any, len(t))
+		for i, s := range t {
+			raw[i] = s
+		}
+	case string:
+		if strings.TrimSpace(t) == "" {
+			return nil
+		}
+		raw = []any{t}
+	default:
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, item := range raw {
+		name := strings.TrimSpace(sessionOptString(item))
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+		if len(out) >= maxSessionMCPServers {
+			break
 		}
 	}
 	if len(out) == 0 {

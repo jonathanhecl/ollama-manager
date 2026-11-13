@@ -211,6 +211,128 @@ type SkillsConfig struct {
 	Directories []string `json:"directories"`
 }
 
+// MCPServerConfig configures a single Model Context Protocol (MCP) server using
+// standard MCP JSON fields (command/args/env for stdio, url/headers for HTTP/SSE).
+type MCPServerConfig struct {
+	Command        string            `json:"command,omitempty"`
+	Args           []string          `json:"args,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	URL            string            `json:"url,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Transport      string            `json:"transport,omitempty"`
+	Type           string            `json:"type,omitempty"`
+	Disabled       bool              `json:"disabled,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+}
+
+// EffectiveTransport returns the resolved MCP transport ("stdio", "sse", or "http").
+func (s MCPServerConfig) EffectiveTransport() string {
+	t := strings.ToLower(strings.TrimSpace(s.Transport))
+	if t == "" {
+		t = strings.ToLower(strings.TrimSpace(s.Type))
+	}
+	switch t {
+	case "stdio":
+		return "stdio"
+	case "sse":
+		return "sse"
+	case "http", "streamable-http", "streamable_http":
+		return "http"
+	}
+	if strings.TrimSpace(s.Command) != "" {
+		return "stdio"
+	}
+	if strings.TrimSpace(s.URL) != "" {
+		return "http"
+	}
+	return ""
+}
+
+// MCPConfig holds configured MCP servers keyed by server name using the standard
+// {"mcpServers": {...}} structure.
+type MCPConfig struct {
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+}
+
+// UnmarshalJSON accepts {"mcpServers": {...}}, {"servers": {...}}, or a direct
+// map of server definitions.
+func (m *MCPConfig) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		m.MCPServers = map[string]MCPServerConfig{}
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if sub, ok := raw["mcpServers"]; ok {
+		var servers map[string]MCPServerConfig
+		if string(sub) != "null" && len(sub) > 0 {
+			if err := json.Unmarshal(sub, &servers); err != nil {
+				return err
+			}
+		}
+		m.MCPServers = servers
+		NormalizeMCPConfig(m)
+		return nil
+	}
+	if sub, ok := raw["servers"]; ok {
+		var servers map[string]MCPServerConfig
+		if string(sub) != "null" && len(sub) > 0 {
+			if err := json.Unmarshal(sub, &servers); err != nil {
+				return err
+			}
+		}
+		m.MCPServers = servers
+		NormalizeMCPConfig(m)
+		return nil
+	}
+	var direct map[string]MCPServerConfig
+	if err := json.Unmarshal(data, &direct); err != nil {
+		return err
+	}
+	m.MCPServers = direct
+	NormalizeMCPConfig(m)
+	return nil
+}
+
+// NormalizeMCPConfig cleans server names, URLs, commands, and timeout bounds.
+func NormalizeMCPConfig(cfg *MCPConfig) {
+	if cfg == nil {
+		return
+	}
+	if cfg.MCPServers == nil {
+		cfg.MCPServers = map[string]MCPServerConfig{}
+		return
+	}
+	cleaned := make(map[string]MCPServerConfig, len(cfg.MCPServers))
+	for rawName, srv := range cfg.MCPServers {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			continue
+		}
+		srv.Command = strings.TrimSpace(srv.Command)
+		srv.URL = strings.TrimSpace(srv.URL)
+		srv.Transport = strings.ToLower(strings.TrimSpace(srv.Transport))
+		srv.Type = strings.ToLower(strings.TrimSpace(srv.Type))
+		if srv.TimeoutSeconds < 0 {
+			srv.TimeoutSeconds = 0
+		} else if srv.TimeoutSeconds > 600 {
+			srv.TimeoutSeconds = 600
+		}
+		if len(srv.Args) > 0 {
+			args := make([]string, 0, len(srv.Args))
+			for _, a := range srv.Args {
+				args = append(args, a)
+			}
+			srv.Args = args
+		}
+		cleaned[name] = srv
+	}
+	cfg.MCPServers = cleaned
+}
+
 // DefaultComfyUIURL is ComfyUI's default listen address.
 const DefaultComfyUIURL = "http://127.0.0.1:8188"
 
@@ -255,6 +377,7 @@ type Config struct {
 	ComfyUI               ComfyUIConfig      `json:"comfyui"`
 	RAG                   RAGConfig          `json:"rag"`
 	Skills                SkillsConfig       `json:"skills"`
+	MCP                   MCPConfig          `json:"mcp"`
 
 	path string `json:"-"`
 }
@@ -296,6 +419,9 @@ func Defaults() *Config {
 		},
 		Skills: SkillsConfig{
 			Directories: []string{},
+		},
+		MCP: MCPConfig{
+			MCPServers: map[string]MCPServerConfig{},
 		},
 	}
 }
@@ -402,6 +528,7 @@ func Load(path string) (*Config, error) {
 		cfg.ChatDefaults.Skills = def.Skills
 	}
 	cfg.Skills.Directories = NormalizeSkillDirectories(cfg.Skills.Directories)
+	NormalizeMCPConfig(&cfg.MCP)
 	cfg.ComfyUI = cfg.ComfyUI.Normalize()
 	if cfg.ComfyUI.TimeoutSeconds > 3600 {
 		cfg.ComfyUI.TimeoutSeconds = 3600
@@ -432,6 +559,7 @@ func (c *Config) Save() error {
 	if c.path == "" {
 		return errors.New("config has no path")
 	}
+	NormalizeMCPConfig(&c.MCP)
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err

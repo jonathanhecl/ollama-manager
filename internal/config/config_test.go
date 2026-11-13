@@ -293,3 +293,68 @@ func TestSkillsDirectoryResolutionAndNormalization(t *testing.T) {
 		t.Fatalf("Skills.Directories = %v, want 2 trimmed distinct strings", cfg.Skills.Directories)
 	}
 }
+
+func TestMCPConfigUnmarshalNormalizationAndRoundTrip(t *testing.T) {
+	path := writeTempConfig(t, `{
+  "port": 7860,
+  "mcp": {
+    "mcpServers": {
+      "  filesystem  ": {
+        "command": " npx ",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        "env": {"NODE_ENV": "production"},
+        "timeout_seconds": 999
+      },
+      "remote-api": {
+        "url": " https://mcp.example.com/mcp ",
+        "headers": {"Authorization": "Bearer secret"},
+        "type": "HTTP"
+      },
+      "   ": {
+        "command": "ignored"
+      }
+    }
+  }
+}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.MCP.MCPServers) != 2 {
+		t.Fatalf("len(MCPServers) = %d, want 2 (%+v)", len(cfg.MCP.MCPServers), cfg.MCP.MCPServers)
+	}
+	fsSrv, ok := cfg.MCP.MCPServers["filesystem"]
+	if !ok {
+		t.Fatalf("expected trimmed server name 'filesystem', got %+v", cfg.MCP.MCPServers)
+	}
+	if fsSrv.Command != "npx" || fsSrv.EffectiveTransport() != "stdio" || fsSrv.TimeoutSeconds != 600 {
+		t.Fatalf("unexpected filesystem server config: %+v", fsSrv)
+	}
+	remoteSrv, ok := cfg.MCP.MCPServers["remote-api"]
+	if !ok {
+		t.Fatalf("expected remote-api server")
+	}
+	if remoteSrv.URL != "https://mcp.example.com/mcp" || remoteSrv.EffectiveTransport() != "http" || remoteSrv.Type != "http" {
+		t.Fatalf("unexpected remote server config: %+v", remoteSrv)
+	}
+
+	// Verify {"servers": ...} alias unmarshaling.
+	var alias MCPConfig
+	if err := alias.UnmarshalJSON([]byte(`{"servers":{"local":{"command":"echo"}}}`)); err != nil {
+		t.Fatalf("alias unmarshal failed: %v", err)
+	}
+	if alias.MCPServers["local"].Command != "echo" {
+		t.Fatalf("expected local command echo, got %+v", alias.MCPServers)
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if reloaded.MCP.MCPServers["remote-api"].URL != "https://mcp.example.com/mcp" {
+		t.Fatalf("MCP config did not round-trip: %+v", reloaded.MCP)
+	}
+}

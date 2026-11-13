@@ -182,6 +182,19 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 	}
 	skillsOn := len(skills) > 0
 	webOn := body.WebTools != nil && *body.WebTools
+	mcpOn := s.mcpEnabled(body)
+	var mcpTurn *mcpTurnSession
+	var mcpErr error
+	if mcpOn {
+		mcpTurn, mcpErr = s.prepareMCPForChat(ctx, body)
+		if mcpTurn != nil {
+			defer mcpTurn.Close()
+		}
+		if mcpErr != nil && !mcpTurn.HasTools() && !webOn && !comfyOn && !ragOn && !skillsOn {
+			send("error", map[string]any{"error": mcpErr.Error()})
+			return
+		}
+	}
 
 	msgs := make([]ollama.ChatMessage, len(body.Messages))
 	copy(msgs, body.Messages)
@@ -219,6 +232,10 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 		appendSystemSection(skillsSystemPromptSection(skills, false, webOn))
 	}
 
+	if mcpTurn != nil {
+		appendSystemSection(mcpTurn.SystemPrompt())
+	}
+
 	// A vision model is what makes image iteration work: without it the run
 	// produces a picture the model cannot see, so it has to be told so up front.
 	if comfyOn {
@@ -254,6 +271,9 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 		}
 		if skillsOn {
 			tools = append(tools, skillToolDefinitions()...)
+		}
+		if mcpTurn != nil && mcpTurn.HasTools() {
+			tools = append(tools, mcpTurn.Tools()...)
 		}
 		req := ollama.ChatRequest{
 			Model:    body.Model,
@@ -335,8 +355,11 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 			if n == "" {
 				continue
 			}
+			mcpSrv, mcpTool, isMCP := mcpTurn.LookupTool(n)
 			startPayload := toolStartPayload(n, tc.Function.Arguments)
-			if n == comfyToolName {
+			if isMCP {
+				startPayload = mcpToolStartPayload(mcpSrv, mcpTool, n, tc.Function.Arguments)
+			} else if n == comfyToolName {
 				startPayload = comfyToolStartPayload(startPayload, tc.Function.Arguments,
 					s.comfyWorkflowLabelFor(s.comfyConfiguredWorkflowID(body.ComfyWorkflow), tc.Function.Arguments))
 			}
@@ -347,7 +370,9 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 			var toolImages []string
 			var toolMedia []ChatMedia
 			toolWorkflow := ""
-			if n == comfyToolName {
+			if isMCP {
+				out, mcpSrv, mcpTool, _, err = mcpTurn.Call(ctx, n, tc.Function.Arguments)
+			} else if n == comfyToolName {
 				res, runErr := s.executeComfyTool(ctx, body, tc.Function.Arguments, func(status string) {
 					send("tool", map[string]any{"phase": "running", "name": n, "run_status": status})
 				})
@@ -371,6 +396,8 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 				} else {
 					out, err = s.runWebTool(ctx, n, tc.Function.Arguments)
 				}
+			} else if strings.HasPrefix(n, "mcp__") {
+				err = fmt.Errorf("MCP tool %q is not enabled for this chat", n)
 			} else {
 				out, err = s.runWebTool(ctx, n, tc.Function.Arguments)
 			}
@@ -395,6 +422,12 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 			}
 			msgs = append(msgs, toolMsg)
 			done := map[string]any{"phase": "done", "name": n, "ok": err == nil}
+			if mcpSrv != "" {
+				done["mcp_server"] = mcpSrv
+			}
+			if mcpTool != "" {
+				done["mcp_tool"] = mcpTool
+			}
 			if err != nil {
 				done["error"] = err.Error()
 			} else if out != "" {

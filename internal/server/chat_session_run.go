@@ -260,6 +260,11 @@ func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps s
 		yes := true
 		body.Skills = &yes
 	}
+	if st.MCP && len(st.MCPServers) > 0 && caps.CanTools && !caps.IsImage {
+		yes := true
+		body.MCP = &yes
+		body.MCPServers = append([]string(nil), st.MCPServers...)
+	}
 	// ComfyUI is independent of the other two: a plain vision chat with no
 	// artifact workspace and no web search still generates images. It does need a
 	// tool-capable model, and it is pointless on an image model, which takes
@@ -391,11 +396,12 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 		s.failSession(id, "session has no model")
 		return
 	}
-	log.Printf("[chat-sessions] session=%q model=%q turn_start requested_artifacts=%t requested_web_tools=%t requested_comfy=%t requested_skills=%t requested_rag=%t external_model=%t",
-		id, model, sess.Settings.Artifacts, sess.Settings.WebTools, sess.Settings.Comfy, sess.Settings.Skills, sess.Settings.RAGEnabled,
+	log.Printf("[chat-sessions] session=%q model=%q turn_start requested_artifacts=%t requested_web_tools=%t requested_comfy=%t requested_skills=%t requested_mcp=%t (%d servers) requested_rag=%t external_model=%t",
+		id, model, sess.Settings.Artifacts, sess.Settings.WebTools, sess.Settings.Comfy, sess.Settings.Skills,
+		sess.Settings.MCP, len(sess.Settings.MCPServers), sess.Settings.RAGEnabled,
 		s.externalModels != nil && s.externalModels.IsExternal(model))
 	caps := s.sessionModelCaps(ctx, model)
-	if sess.Settings.Artifacts || sess.Settings.WebTools || sess.Settings.Comfy || sess.Settings.Skills {
+	if sess.Settings.Artifacts || sess.Settings.WebTools || sess.Settings.Comfy || sess.Settings.Skills || (sess.Settings.MCP && len(sess.Settings.MCPServers) > 0) {
 		if caps.LookupFailed {
 			log.Printf("[chat-sessions] session=%q model=%q runner=blocked reason=capability_lookup_failed", id, model)
 			s.failSession(id, "could not determine model capabilities; tools were not run")
@@ -423,16 +429,16 @@ func (s *Server) runSessionTurn(ctx context.Context, id string) {
 
 	body = s.augmentChatWithRAG(ctx, sink, body)
 
-	log.Printf("[chat-sessions] session=%q model=%q turn_config can_tools=%t can_think=%t has_vision=%t is_image=%t effective_artifacts=%t effective_web_tools=%t effective_comfy=%t effective_skills=%t effective_rag=%t browser_tools_available=%t",
+	log.Printf("[chat-sessions] session=%q model=%q turn_config can_tools=%t can_think=%t has_vision=%t is_image=%t effective_artifacts=%t effective_web_tools=%t effective_comfy=%t effective_skills=%t effective_mcp=%t effective_rag=%t browser_tools_available=%t",
 		id, model, caps.CanTools, caps.CanThink, caps.HasVision, caps.IsImage,
 		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools,
-		body.Comfy != nil && *body.Comfy, body.Skills != nil && *body.Skills, body.RAGEnabled, body.browserToolsAllowed())
+		body.Comfy != nil && *body.Comfy, body.Skills != nil && *body.Skills, s.mcpEnabled(body), body.RAGEnabled, body.browserToolsAllowed())
 
 	switch {
 	case body.Artifacts != nil && *body.Artifacts:
 		log.Printf("[chat-sessions] session=%q model=%q runner=artifact", id, model)
 		s.runArtifactAgentLoop(ctx, sink, body)
-	case (body.WebTools != nil && *body.WebTools) || (body.Comfy != nil && *body.Comfy) || s.ragAgentEnabled(ctx, body) || s.skillsEnabled(body):
+	case (body.WebTools != nil && *body.WebTools) || (body.Comfy != nil && *body.Comfy) || s.ragAgentEnabled(ctx, body) || s.skillsEnabled(body) || s.mcpEnabled(body):
 		// ComfyUI alone still needs the tool-call loop, and the web loop is the
 		// one without the artifact filesystem surface.
 		log.Printf("[chat-sessions] session=%q model=%q runner=web_tools", id, model)
@@ -998,6 +1004,8 @@ type toolEvent struct {
 	MaxResults    int    `json:"max_results,omitempty"`
 	Path          string `json:"path,omitempty"`
 	Skill         string `json:"skill,omitempty"`
+	MCPServer     string `json:"mcp_server,omitempty"`
+	MCPTool       string `json:"mcp_tool,omitempty"`
 	Command       string `json:"command,omitempty"`
 	Code          string `json:"code,omitempty"`
 	ArtifactName  string `json:"artifact_name,omitempty"`
@@ -1239,6 +1247,8 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 		MaxResults:    ev.MaxResults,
 		Path:          ev.Path,
 		Skill:         ev.Skill,
+		MCPServer:     ev.MCPServer,
+		MCPTool:       ev.MCPTool,
 		Command:       ev.Command,
 		Code:          ev.Code,
 		ArtifactName:  ev.ArtifactName,
@@ -1264,6 +1274,12 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 				}
 				if ev.Skill != "" {
 					tools[i].Skill = ev.Skill
+				}
+				if ev.MCPServer != "" {
+					tools[i].MCPServer = ev.MCPServer
+				}
+				if ev.MCPTool != "" {
+					tools[i].MCPTool = ev.MCPTool
 				}
 				if ev.Command != "" {
 					tools[i].Command = ev.Command
@@ -1310,6 +1326,8 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 				tools[i].MaxResults = ev.MaxResults
 				tools[i].Path = ev.Path
 				tools[i].Skill = ev.Skill
+				tools[i].MCPServer = ev.MCPServer
+				tools[i].MCPTool = ev.MCPTool
 				tools[i].Command = ev.Command
 				tools[i].Code = ev.Code
 				tools[i].ArtifactName = ev.ArtifactName
@@ -1340,6 +1358,12 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 			tools[i].ResultRunes = ev.ResultRunes
 			tools[i].Image = ev.Image
 			tools[i].RunStatus = ""
+			if ev.MCPServer != "" {
+				tools[i].MCPServer = ev.MCPServer
+			}
+			if ev.MCPTool != "" {
+				tools[i].MCPTool = ev.MCPTool
+			}
 			if len(ev.Media) > 0 {
 				tools[i].Media = ev.Media
 				tools[i].PromptID = firstComfyPromptID(ev.Media)

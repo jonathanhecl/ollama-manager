@@ -40,7 +40,7 @@ async function refreshModelArtifactCount() {
 function updateArtifactResourceBtn() {
   const btn = $("chat-artifact-btn");
   if (!btn) return;
-  if (activeArtifactTimestamp) {
+  if (activeArtifactTimestamp && activeArtifactUrl) {
     btn.hidden = false;
     const name = activeArtifactName || "Artifact";
     const titleText = t("chat.artifact.active_resource", { name });

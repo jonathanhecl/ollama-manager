@@ -59,7 +59,7 @@ func (st *chatSessionStore) buildSessionMessages(sess *ChatSession, caps session
 			}
 			text := strings.TrimSpace(m.Content)
 			if text == "" {
-				if m.ArtifactURL != "" || m.ArtifactNm != "" || len(m.ToolLog) > 0 {
+				if m.ArtifactURL != "" || m.ArtifactNm != "" {
 					name := m.ArtifactNm
 					if name == "" {
 						name = "project"
@@ -67,6 +67,11 @@ func (st *chatSessionStore) buildSessionMessages(sess *ChatSession, caps session
 					out = append(out, ollama.ChatMessage{
 						Role:    "assistant",
 						Content: fmt.Sprintf("I have updated the artifact %s.", name),
+					})
+				} else if len(m.ToolLog) > 0 {
+					out = append(out, ollama.ChatMessage{
+						Role:    "assistant",
+						Content: "I have executed the requested agent tools in the workspace.",
 					})
 				}
 				continue
@@ -998,6 +1003,7 @@ func lastMessageIsUser(sess *ChatSession) bool {
 type toolEvent struct {
 	Phase         string `json:"phase"`
 	Name          string `json:"name"`
+	ToolIndex     *int   `json:"tool_index,omitempty"`
 	Status        string `json:"status"`
 	Query         string `json:"query,omitempty"`
 	URL           string `json:"url,omitempty"`
@@ -1233,6 +1239,10 @@ func (k *sessionSink) thinkMillisLocked() int64 {
 	return total.Milliseconds()
 }
 
+func sameToolSlot(entryIdx, evIdx *int) bool {
+	return entryIdx == nil || evIdx == nil || *entryIdx == *evIdx
+}
+
 func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 	ev := decodeToolEvent(payload)
 	if ev.Name == "" {
@@ -1240,6 +1250,7 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 	}
 	entry := SessionToolEntry{
 		Name:          ev.Name,
+		ToolIndex:     ev.ToolIndex,
 		Status:        ev.Status,
 		Phase:         ev.Phase,
 		Query:         ev.Query,
@@ -1268,7 +1279,7 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 	switch ev.Phase {
 	case "generating":
 		for i := range tools {
-			if tools[i].Name == ev.Name && tools[i].Status == "generating" {
+			if tools[i].Name == ev.Name && tools[i].Status == "generating" && sameToolSlot(tools[i].ToolIndex, ev.ToolIndex) {
 				if ev.Path != "" {
 					tools[i].Path = ev.Path
 				}
@@ -1284,6 +1295,9 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 				if ev.Command != "" {
 					tools[i].Command = ev.Command
 				}
+				if ev.Code != "" {
+					tools[i].Code = ev.Code
+				}
 				if ev.ArtifactName != "" {
 					tools[i].ArtifactName = ev.ArtifactName
 				}
@@ -1298,7 +1312,7 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 		// branch would mark the tool finished before it has produced anything,
 		// and the real "done" event would then be ignored.
 		for i := len(tools) - 1; i >= 0; i-- {
-			if tools[i].Name != ev.Name {
+			if tools[i].Name != ev.Name || !sameToolSlot(tools[i].ToolIndex, ev.ToolIndex) {
 				continue
 			}
 			if ev.RunStatus != "" {
@@ -1319,7 +1333,7 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 		tools = append(tools, entry)
 	case "start":
 		for i := len(tools) - 1; i >= 0; i-- {
-			if tools[i].Name == ev.Name && tools[i].Status == "generating" {
+			if tools[i].Name == ev.Name && tools[i].Status == "generating" && sameToolSlot(tools[i].ToolIndex, ev.ToolIndex) {
 				tools[i].Status = "running"
 				tools[i].Query = ev.Query
 				tools[i].URL = ev.URL
@@ -1339,6 +1353,7 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 				return
 			}
 		}
+		entry.Status = "running"
 		tools = append(tools, entry)
 	default:
 		status := "ok"
@@ -1346,7 +1361,7 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 			status = "error"
 		}
 		for i := len(tools) - 1; i >= 0; i-- {
-			if tools[i].Name != ev.Name {
+			if tools[i].Name != ev.Name || !sameToolSlot(tools[i].ToolIndex, ev.ToolIndex) {
 				continue
 			}
 			if tools[i].Status == "ok" || tools[i].Status == "error" {
@@ -1358,6 +1373,21 @@ func (k *sessionSink) applyToolLocked(payload any, msg *SessionMessage) {
 			tools[i].ResultRunes = ev.ResultRunes
 			tools[i].Image = ev.Image
 			tools[i].RunStatus = ""
+			if ev.Path != "" && tools[i].Path == "" {
+				tools[i].Path = ev.Path
+			}
+			if ev.Command != "" && tools[i].Command == "" {
+				tools[i].Command = ev.Command
+			}
+			if ev.Code != "" && tools[i].Code == "" {
+				tools[i].Code = ev.Code
+			}
+			if ev.Query != "" && tools[i].Query == "" {
+				tools[i].Query = ev.Query
+			}
+			if ev.URL != "" && tools[i].URL == "" {
+				tools[i].URL = ev.URL
+			}
 			if ev.MCPServer != "" {
 				tools[i].MCPServer = ev.MCPServer
 			}
@@ -1413,6 +1443,10 @@ func (k *sessionSink) applyArtifactLocked(payload any, msg *SessionMessage) {
 	}
 	if v, _ := m["timestamp"].(string); v != "" {
 		msg.ArtifactTS = v
+	}
+	if wsOnly, _ := m["workspace_only"].(bool); wsOnly {
+		msg.ArtifactGenerating = false
+		return
 	}
 	if v, _ := m["name"].(string); v != "" {
 		msg.ArtifactNm = v

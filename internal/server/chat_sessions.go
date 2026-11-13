@@ -51,6 +51,7 @@ const chatSessionSaveDebounce = 1500 * time.Millisecond
 // session shows the same tool timeline a live chat shows.
 type SessionToolEntry struct {
 	Name          string `json:"name"`
+	ToolIndex     *int   `json:"tool_index,omitempty"`
 	Status        string `json:"status,omitempty"`
 	Phase         string `json:"phase,omitempty"`
 	Query         string `json:"query,omitempty"`

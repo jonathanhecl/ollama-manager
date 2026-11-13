@@ -9,7 +9,7 @@ import (
 )
 
 // chatSink is the destination for chat stream events. The agent loops in
-// chat_artifact_agent.go and chat_web_agent.go write through a sink instead of
+// chat_agent_mode.go and chat_web_agent.go write through a sink instead of
 // straight to an http.ResponseWriter, which lets the very same generation code
 // either stream to a live browser (quick chat) or feed a detached, persisted
 // chat session that keeps running after the tab is closed.

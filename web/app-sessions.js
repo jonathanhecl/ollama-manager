@@ -409,11 +409,18 @@ function applySessionTranscript(detail) {
 
   chatLastUsedTokens = chatMessages.reduce((acc, m) => acc + (m.promptTokens || 0) + (m.completionTokens || 0), 0);
 
-  // Point the artifact panel at whatever this session last produced.
+  // Restore workspace continuity (even for workspace-only turns without a web preview)
+  // and point the artifact preview panel at the latest HTML artifact, if any.
   activeArtifactTimestamp = "";
   activeArtifactName = "";
   activeArtifactUrl = "";
   hideArtifactPanel();
+  for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
+    if (chatMessages[i].artifactTimestamp) {
+      activeArtifactTimestamp = chatMessages[i].artifactTimestamp;
+      break;
+    }
+  }
   let artifactMsg = null;
   for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
     if (chatMessages[i].artifactUrl) {
@@ -422,7 +429,7 @@ function applySessionTranscript(detail) {
     }
   }
   if (artifactMsg) {
-    activeArtifactTimestamp = artifactMsg.artifactTimestamp || "";
+    activeArtifactTimestamp = artifactMsg.artifactTimestamp || activeArtifactTimestamp || "";
     activeArtifactName = artifactMsg.artifactName || "";
     activeArtifactUrl = artifactMsg.artifactUrl || "";
     if (!artifactMsg.artifactGenerating) {

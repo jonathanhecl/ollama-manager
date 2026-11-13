@@ -863,18 +863,31 @@ func TestDetachedSessionWebResearchThenArtifact(t *testing.T) {
 		if !names["web_search"] || !names["web_fetch"] {
 			t.Errorf("req %d: web schemas must be offered every round: %v", i, names)
 		}
+		for _, ws := range []string{"write_file", "replace_in_file", "read_file", "list_dir", "exec"} {
+			if !names[ws] {
+				t.Errorf("req %d: workspace tool %s must be available from round 0 in Agent Mode: %v", i, ws, names)
+			}
+		}
 		if names["take_artifact_screenshot"] || names["eval_artifact_js"] {
 			t.Errorf("req %d: browser tools must stay hidden for an unwatched session: %v", i, names)
 		}
 	}
 	for i := 0; i < 3; i++ {
-		if names := ragAgentToolNames(reqs[i]); names["write_file"] {
-			t.Errorf("req %d: write_file must stay unavailable before create_artifact: %v", i, names)
+		names := ragAgentToolNames(reqs[i])
+		if !names["create_artifact"] {
+			t.Errorf("req %d: create_artifact must be offered before preview activation: %v", i, names)
+		}
+		if names["get_artifact_console"] {
+			t.Errorf("req %d: get_artifact_console must stay hidden before preview activation: %v", i, names)
 		}
 	}
 	for i := 3; i < len(reqs); i++ {
-		if names := ragAgentToolNames(reqs[i]); !names["write_file"] {
-			t.Errorf("req %d: write_file must be available after create_artifact: %v", i, names)
+		names := ragAgentToolNames(reqs[i])
+		if names["create_artifact"] {
+			t.Errorf("req %d: create_artifact must not be offered once preview is active: %v", i, names)
+		}
+		if !names["get_artifact_console"] {
+			t.Errorf("req %d: get_artifact_console must be available after preview activation: %v", i, names)
 		}
 	}
 	if searchResult := lastToolContent(reqs[1], "web_search"); !strings.Contains(searchResult, "21 C") {
@@ -962,5 +975,168 @@ func TestDetachedSessionWebResearchThenArtifact(t *testing.T) {
 
 	if errs := readErrs(); len(errs) > 0 {
 		t.Fatalf("mock script errors: %v", errs)
+	}
+}
+
+func TestAgentModeWorkspaceCommandsAndFilesWithoutArtifactPreview(t *testing.T) {
+	fake := newFakeOllamaRAGAgent()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	t.Chdir(t.TempDir())
+
+	var artifactsCreatedOnReadOnly bool
+	step := 0
+	fake.stepFn = func(req ollama.ChatRequest) ragAgentChatStep {
+		cur := step
+		step++
+		switch cur {
+		case 0:
+			return ragAgentChatStep{toolName: "list_dir", toolArgs: map[string]any{"path": "."}}
+		case 1:
+			if _, err := os.Stat("artifacts"); !os.IsNotExist(err) {
+				artifactsCreatedOnReadOnly = true
+			}
+			return ragAgentChatStep{toolName: "read_file", toolArgs: map[string]any{"path": "missing.txt"}}
+		case 2:
+			if _, err := os.Stat("artifacts"); !os.IsNotExist(err) {
+				artifactsCreatedOnReadOnly = true
+			}
+			return ragAgentChatStep{toolName: "write_file", toolArgs: map[string]any{
+				"path":    "script.sh",
+				"content": "#!/bin/sh\necho FIRST_RUN\n",
+			}}
+		case 3:
+			return ragAgentChatStep{toolName: "replace_in_file", toolArgs: map[string]any{
+				"path":       "script.sh",
+				"old_string": "FIRST_RUN",
+				"new_string": "SECOND_RUN",
+			}}
+		case 4:
+			return ragAgentChatStep{toolName: "read_file", toolArgs: map[string]any{"path": "script.sh"}}
+		case 5:
+			return ragAgentChatStep{toolName: "exec", toolArgs: map[string]any{"command": "sh script.sh"}}
+		case 6:
+			return ragAgentChatStep{content: "Executed script.sh successfully."}
+		case 7:
+			return ragAgentChatStep{toolName: "list_dir", toolArgs: map[string]any{}}
+		default:
+			return ragAgentChatStep{content: "Listed existing workspace."}
+		}
+	}
+
+	st := srv.chatSessions
+	sess := st.Create("chat-model:latest", SessionSettings{Artifacts: true})
+	if !st.AppendUser(sess.ID, "create and run a shell script in the workspace", nil) {
+		t.Fatal("AppendUser failed")
+	}
+	srv.runSessionTurn(context.Background(), sess.ID)
+
+	got := st.Get(sess.ID)
+	if got.Status != chatSessionIdle {
+		t.Fatalf("session status = %q (err=%q), want idle", got.Status, got.Error)
+	}
+	if artifactsCreatedOnReadOnly {
+		t.Fatal("list_dir/read_file on uninitialized workspace must not create artifacts/ directory prematurely")
+	}
+	asst := got.Messages[1]
+	if asst.ArtifactTS == "" {
+		t.Fatal("expected workspace timestamp ArtifactTS to be recorded for workspace-only turn")
+	}
+	if asst.ArtifactURL != "" || asst.ArtifactNm != "" || asst.ArtifactGenerating {
+		t.Fatalf("workspace-only turn must not open web artifact preview: url=%q name=%q gen=%v", asst.ArtifactURL, asst.ArtifactNm, asst.ArtifactGenerating)
+	}
+	wantOrder := []string{"list_dir", "read_file", "write_file", "replace_in_file", "read_file", "exec"}
+	if gotOrder := toolLogNames(asst.ToolLog); strings.Join(gotOrder, ",") != strings.Join(wantOrder, ",") {
+		t.Fatalf("tool order = %v, want %v", gotOrder, wantOrder)
+	}
+	if asst.ToolLog[0].Path != "." || asst.ToolLog[3].Path != "script.sh" || asst.ToolLog[5].Command != "sh script.sh" {
+		t.Fatalf("unexpected tool metadata in log: %+v", asst.ToolLog)
+	}
+
+	reqs := fake.chatRequests()
+	if len(reqs) != 7 {
+		t.Fatalf("chat requests = %d, want 7", len(reqs))
+	}
+	if gotList := lastToolContent(reqs[1], "list_dir"); gotList != "(empty)" {
+		t.Errorf("empty workspace list_dir = %q, want (empty)", gotList)
+	}
+	if gotRead := lastToolContent(reqs[5], "read_file"); !strings.Contains(gotRead, "SECOND_RUN") {
+		t.Errorf("read_file after replace_in_file = %q, want SECOND_RUN", gotRead)
+	}
+	if gotExec := lastToolContent(reqs[6], "exec"); !strings.Contains(gotExec, "SECOND_RUN") || !strings.Contains(gotExec, "[exit:0]") {
+		t.Errorf("exec output = %q, want SECOND_RUN and [exit:0]", gotExec)
+	}
+
+	// Second turn continues inside the exact same isolated workspace.
+	if !st.AppendUser(sess.ID, "list files in workspace", nil) {
+		t.Fatal("AppendUser turn 2 failed")
+	}
+	srv.runSessionTurn(context.Background(), sess.ID)
+
+	got2 := st.Get(sess.ID)
+	asst2 := got2.Messages[3]
+	if asst2.ArtifactTS != asst.ArtifactTS {
+		t.Fatalf("second turn workspace = %q, want %q", asst2.ArtifactTS, asst.ArtifactTS)
+	}
+	reqs = fake.chatRequests()
+	if len(reqs) != 9 {
+		t.Fatalf("chat requests after turn 2 = %d, want 9", len(reqs))
+	}
+	if gotList2 := lastToolContent(reqs[8], "list_dir"); !strings.Contains(gotList2, "script.sh") {
+		t.Errorf("second turn list_dir = %q, want script.sh", gotList2)
+	}
+	if names := ragAgentToolNames(reqs[7]); !names["create_artifact"] {
+		t.Errorf("second turn on workspace without preview should still allow create_artifact: %v", names)
+	}
+}
+
+func TestAgentModeDirectIndexHTMLOpensPreview(t *testing.T) {
+	fake := newFakeOllamaRAGAgent()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	t.Chdir(t.TempDir())
+
+	step := 0
+	fake.stepFn = func(req ollama.ChatRequest) ragAgentChatStep {
+		cur := step
+		step++
+		switch cur {
+		case 0:
+			return ragAgentChatStep{toolName: "write_file", toolArgs: map[string]any{
+				"path":    "index.html",
+				"content": "<html><head><title>Workspace Demo</title></head><body>Hi</body></html>",
+			}}
+		case 1:
+			return ragAgentChatStep{toolName: "get_artifact_console", toolArgs: map[string]any{}}
+		default:
+			return ragAgentChatStep{content: "Created demo."}
+		}
+	}
+
+	st := srv.chatSessions
+	sess := st.Create("chat-model:latest", SessionSettings{Artifacts: true})
+	if !st.AppendUser(sess.ID, "create an index.html page directly", nil) {
+		t.Fatal("AppendUser failed")
+	}
+	srv.runSessionTurn(context.Background(), sess.ID)
+
+	got := st.Get(sess.ID)
+	if got.Status != chatSessionIdle {
+		t.Fatalf("session status = %q (err=%q), want idle", got.Status, got.Error)
+	}
+	asst := got.Messages[1]
+	wantURL := "/api/artifacts/" + asst.ArtifactTS + "/"
+	if asst.ArtifactTS == "" || asst.ArtifactURL != wantURL || asst.ArtifactNm != "Workspace Demo" || asst.ArtifactGenerating {
+		t.Fatalf("unexpected artifact metadata on direct index.html write: %+v", asst)
+	}
+	reqs := fake.chatRequests()
+	if len(reqs) != 3 {
+		t.Fatalf("chat requests = %d, want 3", len(reqs))
+	}
+	if names0 := ragAgentToolNames(reqs[0]); names0["get_artifact_console"] || !names0["create_artifact"] || !names0["write_file"] {
+		t.Errorf("round 0 tools mismatch: %v", names0)
+	}
+	if names1 := ragAgentToolNames(reqs[1]); !names1["get_artifact_console"] || names1["create_artifact"] {
+		t.Errorf("round 1 after index.html tools mismatch: %v", names1)
 	}
 }

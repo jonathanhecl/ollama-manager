@@ -3475,10 +3475,12 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const isSearch = e.name === "web_search";
   const isFetch = e.name === "web_fetch";
   const isWrite = e.name === "write_file";
+  const isReplace = e.name === "replace_in_file";
   const isRead = e.name === "read_file";
   const isList = e.name === "list_dir";
   const isExec = e.name === "exec";
   const isCreateArt = e.name === "create_artifact";
+  const isConsole = e.name === "get_artifact_console";
   const isScreenshot = e.name === "take_artifact_screenshot";
   const isEval = e.name === "eval_artifact_js";
   const isComfy = e.name === "run_comfy_workflow";
@@ -3512,17 +3514,19 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
-        : isRead ? t("chat.tool.read_file")
-          : isList ? t("chat.tool.list_dir")
-            : isExec ? t("chat.tool.exec")
-              : isCreateArt ? t("chat.tool.create_artifact")
-                : isScreenshot ? t("chat.tool.take_artifact_screenshot")
-                  : isEval ? t("chat.tool.eval_artifact_js")
-                    : isComfy ? t("chat.tool.run_comfy_workflow")
-                      : isRag ? t(ragToolKeys[e.name])
-                        : isSkill ? t(skillToolKeys[e.name])
-                          : isMcp ? escapeHtml(t("chat.tool.mcp_call", { server: mcpServer || "mcp", tool: mcpTool || e.name }))
-                            : escapeHtml(e.name);
+        : isReplace ? t("chat.tool.replace_in_file")
+          : isRead ? t("chat.tool.read_file")
+            : isList ? t("chat.tool.list_dir")
+              : isExec ? t("chat.tool.exec")
+                : isCreateArt ? t("chat.tool.create_artifact")
+                  : isConsole ? t("chat.tool.get_artifact_console")
+                    : isScreenshot ? t("chat.tool.take_artifact_screenshot")
+                      : isEval ? t("chat.tool.eval_artifact_js")
+                        : isComfy ? t("chat.tool.run_comfy_workflow")
+                          : isRag ? t(ragToolKeys[e.name])
+                            : isSkill ? t(skillToolKeys[e.name])
+                              : isMcp ? escapeHtml(t("chat.tool.mcp_call", { server: mcpServer || "mcp", tool: mcpTool || e.name }))
+                                : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -3531,7 +3535,7 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
   } else if (isFetch && e.url) {
     const u = escapeHtml(e.url);
     detailHtml = `<div class="chat-tool-detail"><a href="${u}" target="_blank" rel="noopener noreferrer" class="chat-tool-link mono">${u}</a></div>`;
-  } else if ((isWrite || isRead || isList) && e.path) {
+  } else if ((isWrite || isReplace || isRead || isList) && e.path) {
     detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.path)}</div>`;
   } else if (isExec && e.command) {
     detailHtml = `<div class="chat-tool-detail mono">${escapeHtml(e.command)}</div>`;
@@ -5400,6 +5404,11 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
       assistantMsg.artifactTimestamp = data.timestamp;
       activeArtifactTimestamp = data.timestamp;
     }
+    if (data?.workspace_only) {
+      assistantMsg.artifactGenerating = false;
+      updateArtifactResourceBtn();
+      return;
+    }
     if (data?.name) {
       assistantMsg.artifactName = data.name;
       activeArtifactName = data.name;
@@ -5420,25 +5429,12 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
       updateArtifactResourceBtn();
       scheduleRenderChatMessages();
     } else if (data?.loaded) {
-      // index.html was written — transition from loading screen to live preview.
+      // index.html was written — transition from loading screen or open live preview directly.
       assistantMsg.artifactGenerating = false;
       const url = data?.url || assistantMsg.artifactUrl || "";
+      assistantMsg.artifactUrl = url;
       activeArtifactUrl = url;
-      const panel = $("chat-artifact-panel");
-      const frame = $("chat-artifact-frame");
-      if (panel) panel.hidden = false;
-      if (frame && url) {
-        frame.removeAttribute("srcdoc");
-        frame.src = url;
-        const match = String(url).match(/\/api\/artifacts\/(.+)\//);
-        if (match) {
-          activeArtifactTimestamp = match[1];
-        }
-      }
-      updateArtifactResourceBtn();
-      // Close options panel so artifact is visible on mobile
-      $("chat-view")?.classList.remove("chat-options-open");
-      syncChatPanels($("chat-view"));
+      showArtifactPanel(url, assistantMsg.artifactName || data?.name || "Artifact", false);
       scheduleRenderChatMessages();
     } else if (data?.reload) {
       // Reload the iframe if the artifact panel is already visible.
@@ -5467,15 +5463,19 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
     void handleArtifactEvalRequest(data);
   } else if (event === "tool") {
     if (!assistantMsg.toolLog) assistantMsg.toolLog = [];
+    const sameToolSlot = (e) =>
+      e.name === data.name &&
+      (data.tool_index == null || e.tool_index == null || e.tool_index === data.tool_index);
     if (data?.phase === "generating") {
       // Model is generating tool call arguments — show early feedback.
       let existing = assistantMsg.toolLog.find(
-        (e) => e.name === data.name && e.status === "generating"
+        (e) => e.status === "generating" && sameToolSlot(e)
       );
       if (!existing) {
         flushSegmentToTimeline(assistantMsg, ctx.raw, false);
         existing = {
           name: data.name,
+          tool_index: data.tool_index,
           path: data.path,
           skill: data.skill,
           mcp_server: data.mcp_server,
@@ -5514,7 +5514,7 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
       let upgraded = false;
       for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
         const e = assistantMsg.toolLog[i];
-        if (e.name === data.name && e.status === "generating") {
+        if (e.status === "generating" && sameToolSlot(e)) {
           e.status = "running";
           e.query = data.query;
           e.url = data.url;
@@ -5535,6 +5535,7 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
         flushSegmentToTimeline(assistantMsg, ctx.raw, false);
         const entry = {
           name: data.name,
+          tool_index: data.tool_index,
           query: data.query,
           url: data.url,
           max_results: data.max_results,
@@ -5568,11 +5569,15 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
       }
       for (let i = assistantMsg.toolLog.length - 1; i >= 0; i -= 1) {
         const e = assistantMsg.toolLog[i];
-        if (e.name === data.name && (e.status === "running" || e.status === "generating")) {
+        if ((e.status === "running" || e.status === "generating") && sameToolSlot(e)) {
           e.status = data.ok ? "ok" : "error";
           e.error = data.error || "";
           e.result_preview = data.result_preview || "";
           e.result_runes = data.result_runes;
+          if (data.path && !e.path) e.path = data.path;
+          if (data.command && !e.command) e.command = data.command;
+          if (data.code && !e.code) e.code = data.code;
+          if (data.artifact_name && !e.artifact_name) e.artifact_name = data.artifact_name;
           if (data.mcp_server) e.mcp_server = data.mcp_server;
           if (data.mcp_tool) e.mcp_tool = data.mcp_tool;
           if (data.image) e.image = data.image;

@@ -445,13 +445,18 @@ func TestSkillsInArtifactAgentLoop(t *testing.T) {
 	for i, req := range reqs {
 		names := ragAgentToolNames(req)
 		if !names["load_skill"] || !names["list_skill_files"] || !names["read_skill_file"] {
-			t.Errorf("req %d: skill tools must stay available across all artifact rounds: %v", i, names)
+			t.Errorf("req %d: skill tools must stay available across all agent rounds: %v", i, names)
 		}
-		if i < 3 && names["write_file"] {
-			t.Errorf("req %d: write_file must remain hidden before create_artifact: %v", i, names)
+		for _, ws := range []string{"write_file", "replace_in_file", "read_file", "list_dir", "exec"} {
+			if !names[ws] {
+				t.Errorf("req %d: workspace tool %s must be exposed in Agent Mode: %v", i, ws, names)
+			}
 		}
-		if i >= 3 && !names["write_file"] {
-			t.Errorf("req %d: write_file must be exposed after create_artifact: %v", i, names)
+		if i < 3 && names["get_artifact_console"] {
+			t.Errorf("req %d: get_artifact_console must remain hidden before preview activation: %v", i, names)
+		}
+		if i >= 3 && !names["get_artifact_console"] {
+			t.Errorf("req %d: get_artifact_console must be exposed after create_artifact: %v", i, names)
 		}
 	}
 

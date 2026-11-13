@@ -2093,7 +2093,7 @@ func wireRolesAndArtifactSystem(req map[string]any) (roles []string, artifactSys
 		role, _ := mm["role"].(string)
 		roles = append(roles, role)
 		if role == "system" {
-			if c, ok := mm["content"].(string); ok && strings.Contains(c, "WHEN TO CREATE AN ARTIFACT") {
+			if c, ok := mm["content"].(string); ok && strings.Contains(c, "ISOLATED WORKSPACE ENVIRONMENT") {
 				artifactSys = true
 			}
 		}
@@ -2648,18 +2648,27 @@ func TestSessionArtifactToolsSurviveRestoreAndBackground(t *testing.T) {
 			if !sys0 {
 				t.Error("round 1 request missing the artifact system prompt")
 			}
-			hasCreate := false
-			for _, n := range tools0 {
-				if n == "create_artifact" {
-					hasCreate = true
+			for _, want := range []string{"create_artifact", "write_file", "read_file", "replace_in_file", "list_dir", "exec"} {
+				found := false
+				for _, n := range tools0 {
+					if n == want {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("round 1 tools = %v, want %q", tools0, want)
 				}
 			}
-			if !hasCreate {
-				t.Errorf("round 1 tools = %v, want create_artifact", tools0)
+			for _, banned := range []string{"get_artifact_console", "eval_artifact_js", "take_artifact_screenshot"} {
+				for _, n := range tools0 {
+					if n == banned {
+						t.Errorf("round 1 tools expose preview tool %q before preview activation", banned)
+					}
+				}
 			}
 			tools1 := wireToolNames(reqs[1])
 			t.Logf("round 2 request: tools=%v", tools1)
-			for _, want := range []string{"write_file", "read_file", "replace_in_file", "list_dir", "exec"} {
+			for _, want := range []string{"write_file", "read_file", "replace_in_file", "list_dir", "exec", "get_artifact_console"} {
 				found := false
 				for _, n := range tools1 {
 					if n == want {
@@ -2670,10 +2679,10 @@ func TestSessionArtifactToolsSurviveRestoreAndBackground(t *testing.T) {
 					t.Errorf("round 2 tools = %v, missing %q", tools1, want)
 				}
 			}
-			for _, banned := range []string{"eval_artifact_js", "take_artifact_screenshot"} {
+			for _, banned := range []string{"create_artifact", "eval_artifact_js", "take_artifact_screenshot"} {
 				for _, n := range tools1 {
 					if n == banned {
-						t.Errorf("round 2 tools expose browser-only %q with no watcher attached", banned)
+						t.Errorf("round 2 tools expose unexpected %q", banned)
 					}
 				}
 			}

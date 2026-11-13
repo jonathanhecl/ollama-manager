@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io/fs"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -43,22 +45,23 @@ func filterArtifactToolDefinitions(tools []any, keep bool) []any {
 	return out
 }
 
-// artifactOperationalToolDefinitions returns filesystem, execution, and vision tool schemas.
-// These are available once an artifact has been initialized.
-func artifactOperationalToolDefinitions(hasVision bool) []any {
-	tools := []any{
+// artifactWorkspaceToolDefinitions returns the core agent workspace tools
+// (file creation, targeted edits, reading, directory listing, and command
+// execution) that are available immediately when Agent Mode is enabled.
+func artifactWorkspaceToolDefinitions() []any {
+	return []any{
 		map[string]any{
 			"type": "function",
 			"function": map[string]any{
 				"name":        "write_file",
-				"description": "Create or overwrite a file in the artifact project directory. Use this to create HTML, CSS, JS, and other project files.",
+				"description": "Create or overwrite a file in the agent workspace directory. Use this for scripts, code, data files, markdown, or HTML/CSS/JS web artifact files.",
 				"parameters": map[string]any{
 					"type":     "object",
 					"required": []string{"path", "content"},
 					"properties": map[string]any{
 						"path": map[string]any{
 							"type":        "string",
-							"description": "Relative path inside the project (e.g. index.html, styles.css, js/app.js)",
+							"description": "Relative path inside the workspace (e.g. script.py, notes.md, index.html, src/app.js)",
 						},
 						"content": map[string]any{
 							"type":        "string",
@@ -79,7 +82,7 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 					"properties": map[string]any{
 						"path": map[string]any{
 							"type":        "string",
-							"description": "Relative path inside the project (e.g. index.html, styles.css, js/app.js)",
+							"description": "Relative path inside the workspace (e.g. index.html, styles.css, main.py)",
 						},
 						"old_string": map[string]any{
 							"type":        "string",
@@ -97,14 +100,14 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "read_file",
-				"description": "Read the contents of a file in the artifact project directory.",
+				"description": "Read the contents of a file in the agent workspace directory.",
 				"parameters": map[string]any{
 					"type":     "object",
 					"required": []string{"path"},
 					"properties": map[string]any{
 						"path": map[string]any{
 							"type":        "string",
-							"description": "Relative path inside the project",
+							"description": "Relative path inside the workspace",
 						},
 					},
 				},
@@ -114,13 +117,13 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "list_dir",
-				"description": "List files and directories in the artifact project directory.",
+				"description": "List files and directories in the agent workspace directory.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"path": map[string]any{
 							"type":        "string",
-							"description": "Relative path inside the project (default '.')",
+							"description": "Relative path inside the workspace (default '.')",
 						},
 					},
 				},
@@ -130,19 +133,51 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "exec",
-				"description": "Execute a shell command inside the isolated project directory. The working directory (CWD) is already set to the project root ('.'). Never use cd or reference absolute host paths.",
+				"description": "Execute a shell command inside the isolated workspace directory. The working directory (CWD) is already set to the workspace root ('.'). Never use cd or reference absolute host paths.",
 				"parameters": map[string]any{
 					"type":     "object",
 					"required": []string{"command"},
 					"properties": map[string]any{
 						"command": map[string]any{
 							"type":        "string",
-							"description": "Shell command to run directly in the project root directory (e.g. 'ls', 'python3 script.py', 'npm test'). Do not use cd.",
+							"description": "Shell command to run directly in the workspace root directory (e.g. 'ls', 'python3 script.py', 'npm test'). Do not use cd.",
 						},
 					},
 				},
 			},
 		},
+	}
+}
+
+// artifactInitToolDefinition returns the create_artifact schema used to explicitly
+// name and open a live web artifact preview panel.
+func artifactInitToolDefinition() map[string]any {
+	return map[string]any{
+		"type": "function",
+		"function": map[string]any{
+			"name":        "create_artifact",
+			"description": "Initialize and open a named live web preview panel for an HTML/CSS/JS artifact. Call this only when building an interactive web page, dashboard, game, animation, or visualization that needs a live preview — NOT for scripts, CLI commands, or general workspace files.",
+			"parameters": map[string]any{
+				"type":     "object",
+				"required": []string{"name"},
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Display name for the web artifact",
+					},
+					"description": map[string]any{
+						"type":        "string",
+						"description": "Short description of what the web artifact does",
+					},
+				},
+			},
+		},
+	}
+}
+
+// artifactPreviewToolDefinitions returns tools for inspecting an active HTML artifact preview.
+func artifactPreviewToolDefinitions(hasVision bool) []any {
+	tools := []any{
 		map[string]any{
 			"type": "function",
 			"function": map[string]any{
@@ -188,82 +223,86 @@ func artifactOperationalToolDefinitions(hasVision bool) []any {
 	return tools
 }
 
-// artifactSystemPrompt returns the system prompt injected when artifacts mode is on for a new project.
+// artifactOperationalToolDefinitions returns all filesystem, execution, preview,
+// and vision tool schemas.
+func artifactOperationalToolDefinitions(hasVision bool) []any {
+	tools := artifactWorkspaceToolDefinitions()
+	return append(tools, artifactPreviewToolDefinitions(hasVision)...)
+}
+
+// artifactSystemPrompt returns the system prompt injected when Agent Mode is enabled for a new workspace.
 func artifactSystemPrompt(hasVision bool) string {
 	visionNote := ""
 	if hasVision {
 		visionNote = "\n- 'take_artifact_screenshot': Capture a visual screenshot of the rendered web page in the user's browser to inspect UI, layout, styling, and visual rendering."
 	}
-	return `You are a helpful coding and web assistant. You have access to artifact tools for creating and building interactive web applications, pages, animations, games, and other runnable projects.
+	return `You are an autonomous Agent Mode assistant operating inside an isolated per-session workspace directory ('.').
+You already have direct access to workspace agent tools:
+- 'write_file': Create or overwrite a file in the workspace (relative path, e.g. 'script.py', 'notes.md', 'index.html').
+- 'replace_in_file': Replace a specific snippet or block in an existing file.
+- 'read_file': Read the contents of an existing file.
+- 'list_dir': List files and subdirectories inside the workspace (default '.').
+- 'exec': Run shell commands directly inside the workspace root directory (CWD is already '.'). Never use 'cd' with absolute host paths.
+- 'create_artifact': Optionally initialize and name a live web preview panel when building an HTML/CSS/JS web artifact.
 
-WHEN TO CREATE AN ARTIFACT (this is YOUR decision):
-- Call 'create_artifact' (with 'name' and 'description') only when the user actually asks you to build, create, or run something that benefits from a live project preview (a web app, landing page, dashboard, game, animation, visualization, tool, etc.).
-- Do NOT create an artifact for ordinary conversation or requests that don't need one. Examples: greetings, small talk, simple math, factual questions, explanations, translations, opinions, or brainstorming.
-- The user may want to plan, discuss, ask for advice, or explore ideas BEFORE building anything. In those cases, respond directly in chat and wait until they ask you to build it. Never call 'create_artifact' preemptively just because artifact mode is on.
-- If it is unclear whether they want something built, ask a brief clarifying question first instead of creating an artifact.
-- When you do call 'create_artifact', it initializes the project workspace and immediately unlocks all project filesystem tools ('write_file', 'replace_in_file', 'read_file', 'list_dir', 'exec', 'get_artifact_console', 'eval_artifact_js'` + visionNote + `) for use in subsequent steps.
+HOW TO CHOOSE YOUR WORKFLOW:
+1. **General Agent Tasks (scripts, CLI commands, coding, analysis, file editing)**: Use 'write_file', 'replace_in_file', 'read_file', 'list_dir', and 'exec' directly in the workspace. Do NOT call 'create_artifact' unless building a web UI/page that should open a browser preview panel.
+2. **Live Web Artifacts (web apps, dashboards, games, animations, HTML visualizations)**: Call 'create_artifact' with 'name' and 'description' to open the preview panel, then write 'index.html' (or write 'index.html' directly with 'write_file'). Once a web artifact preview is active, preview inspection tools ('get_artifact_console', 'eval_artifact_js'` + visionNote + `) become available. Keep web artifacts self-contained (inline CSS/JS or CDN libraries).
+3. **Ordinary Conversation (greetings, simple questions, explanations, planning before editing)**: Respond directly in chat without calling tools unless they add clear value. Never create workspace files unnecessarily when the user is just asking a question.
 
 ISOLATED WORKSPACE ENVIRONMENT:
-1. You are operating inside an isolated project directory. Treat this directory as your complete root workspace ('.').
-2. The current working directory (CWD) for all tools and shell commands ('exec') is ALREADY this project directory.
+1. Treat this workspace directory as your complete root workspace ('.').
+2. The current working directory (CWD) for all tools and shell commands ('exec') is ALREADY this workspace directory.
 3. NEVER use 'cd' with absolute host paths and NEVER reference host paths (e.g. /Users/..., /home/..., C:\...).
-4. All file paths MUST be relative to the project root (e.g. 'index.html', 'style.css', 'app.js', 'src/utils.js').
-
-WORKFLOW (only once you have decided to build an artifact):
-1. Call 'create_artifact' with the project name.
-2. In the next turn, create 'index.html' (and any CSS/JS files) using 'write_file'. The preview runs live in a sandboxed iframe.
-3. Keep projects self-contained (inline CSS/JS or use CDN links for libraries like React, Tailwind, Lucide, KaTeX, Three.js, etc.).
-4. Use 'eval_artifact_js' and 'take_artifact_screenshot' to interact with and visually inspect the rendered UI.
+4. All file paths MUST be relative to the workspace root (e.g. 'main.py', 'data/out.json', 'index.html').
 
 UI/CONVERSATION RULES:
-1. Do NOT repeat or dump code blocks in your chat response when you write or edit them using the tools. The user sees the code and live preview in the preview panel automatically.
-2. When building, keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.
-3. When the user is just chatting, planning, or asking questions, answer helpfully and normally without tools; only use tools when they add value.`
+1. Do NOT repeat or dump large file contents in chat after writing/editing them via tools.
+2. Report clearly what commands you executed, files you created/edited, and observed outputs or results.`
 }
 
-// artifactExistingSystemPrompt returns the system prompt injected when modifying an active existing project.
-func artifactExistingSystemPrompt(hasVision bool) string {
-	visionLine := ""
-	if hasVision {
-		visionLine = "\n- 'take_artifact_screenshot': Capture a visual screenshot of the rendered preview in the user's browser to inspect UI, visual layout, styling, and colors."
+// artifactExistingSystemPrompt returns the system prompt injected when continuing in an existing Agent Mode workspace.
+func artifactExistingSystemPrompt(hasVision bool, hasPreview bool) string {
+	previewNote := "If you create an 'index.html' (or call 'create_artifact'), the live web preview panel will open automatically."
+	previewTools := ""
+	if hasPreview {
+		visionLine := ""
+		if hasVision {
+			visionLine = "\n- 'take_artifact_screenshot': Capture a visual screenshot of the rendered preview in the user's browser to inspect UI, visual layout, styling, and colors."
+		}
+		previewNote = "A live web artifact preview is active; any changes to web files will refresh it."
+		previewTools = "\n- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.\n- 'eval_artifact_js': Execute JavaScript directly in the rendered preview iframe to interact with the UI (click, input, submit) or inspect DOM state." + visionLine
 	}
-	return `You are a helpful coding and web assistant working on an ACTIVE artifact project workspace.
-The artifact session is ALREADY ACTIVE and initialized. You do NOT need to call 'create_artifact' — all project tools are ALREADY AVAILABLE for you to use:
-- 'write_file': Create or overwrite a file in the project. Required arguments: 'path' (relative, e.g. 'index.html'), 'content' (full file content).
+	return `You are an autonomous Agent Mode assistant continuing in an ACTIVE isolated workspace directory ('.').
+All workspace tools are ALREADY AVAILABLE for you to use:
+- 'write_file': Create or overwrite a file in the workspace. Required arguments: 'path' (relative), 'content' (full file content).
 - 'replace_in_file': Replace a specific text snippet or code block in an existing file. Required arguments: 'path', 'old_string', 'new_string'.
 - 'read_file': Read the contents of an existing file. Required arguments: 'path'.
 - 'list_dir': List files and folders in a directory. Optional argument: 'path' (default '.').
-- 'exec': Run a shell command in the project directory. The CWD is already the project root. Do not use cd or absolute host paths. Required argument: 'command'.
-- 'get_artifact_console': Retrieve the console logs, outputs, and javascript runtime errors from the active preview.
-- 'eval_artifact_js': Execute JavaScript directly in the rendered preview iframe to interact with the UI (click, input, submit) or inspect DOM state.` + visionLine + `
+- 'exec': Run a shell command in the workspace directory. The CWD is already the workspace root. Do not use cd or absolute host paths. Required argument: 'command'.` + previewTools + `
 
 ISOLATED WORKSPACE ENVIRONMENT:
-1. You are operating inside an isolated project directory. Treat this directory as your complete root workspace ('.').
-2. The current working directory (CWD) for all tools and shell commands ('exec') is ALREADY this project directory.
+1. Treat this workspace directory as your complete root workspace ('.').
+2. The current working directory (CWD) for all tools and shell commands ('exec') is ALREADY this workspace directory.
 3. NEVER use 'cd' with absolute host paths and NEVER reference host paths (e.g. /Users/..., /home/..., C:\...).
-4. All file paths MUST be relative to the project root (e.g. 'index.html', 'style.css', 'app.js').
+4. All file paths MUST be relative to the workspace root.
 
 WORKFLOW:
-1. When asked to modify, update, add features, or fix the project, directly use 'write_file', 'replace_in_file', or 'read_file'.
-2. The user will see your changes instantly reflected in the live preview.
-3. If the user reports a bug, error, blank screen, or unexpected behavior, call 'get_artifact_console', 'eval_artifact_js', 'take_artifact_screenshot', or 'read_file' to diagnose and fix it.
-4. Keep all file paths relative to the project root.
-
-UI/CONVERSATION RULES:
-1. Do NOT repeat or dump code blocks in your chat response when writing/editing with tools.
-2. When making changes, keep conversational text minimal (1-2 brief sentences max), prioritizing tool calls.
-3. Not every message requires a tool call. If the user is just chatting, asking a question, requesting an opinion, or planning the next change, answer directly in chat and wait for them to ask for the edit before touching files.`
+1. When asked to inspect, modify, run commands, or fix files, directly use 'read_file', 'list_dir', 'write_file', 'replace_in_file', or 'exec'.
+2. ` + previewNote + `
+3. Not every message requires a tool call. If the user is just chatting or asking a question that needs no workspace action, answer directly in chat.`
 }
 
 // buildArtifactSystemPrompt returns the system prompt, including a listing of
-// existing files when iterating on a previously created artifact.
+// existing files when continuing in a previously created workspace.
 func buildArtifactSystemPrompt(artifactDir string, hasVision bool) string {
 	if artifactDir == "" {
 		return artifactSystemPrompt(hasVision)
 	}
+	hasPreview := hasArtifactPreview(artifactDir)
 	entries, err := os.ReadDir(artifactDir)
 	if err != nil {
-		return artifactExistingSystemPrompt(hasVision)
+		return artifactExistingSystemPrompt(hasVision, hasPreview)
 	}
 	var files []string
 	for _, e := range entries {
@@ -277,12 +316,73 @@ func buildArtifactSystemPrompt(artifactDir string, hasVision bool) string {
 		}
 	}
 	if len(files) == 0 {
-		return artifactExistingSystemPrompt(hasVision)
+		return artifactExistingSystemPrompt(hasVision, hasPreview)
 	}
-	return artifactExistingSystemPrompt(hasVision) + "\n\n" + fmt.Sprintf(
+	return artifactExistingSystemPrompt(hasVision, hasPreview) + "\n\n" + fmt.Sprintf(
 		"The following files are already present in the active workspace:\n  %s\n"+
-			"Use read_file to inspect current files before making changes, or write_file / replace_in_file to update them.",
+			"Use read_file to inspect current files before making changes, or write_file / replace_in_file / exec to work with them.",
 		strings.Join(files, "\n  "))
+}
+
+var reHTMLTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+func hasArtifactPreview(artifactDir string) bool {
+	if strings.TrimSpace(artifactDir) == "" {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(artifactDir, "index.html")); err == nil && !info.IsDir() {
+		return true
+	}
+	if info, err := os.Stat(filepath.Join(artifactDir, ".artifact.json")); err == nil && !info.IsDir() {
+		return true
+	}
+	return false
+}
+
+// ensureArtifactPreviewMetadata returns the artifact display name for an
+// active preview, reading .artifact.json if present or creating it from the
+// HTML <title> (falling back to "Artifact") when index.html was written directly.
+func ensureArtifactPreviewMetadata(artifactDir string) string {
+	metaFile := filepath.Join(artifactDir, ".artifact.json")
+	if b, err := os.ReadFile(metaFile); err == nil {
+		var meta struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(b, &meta) == nil && strings.TrimSpace(meta.Name) != "" {
+			return strings.TrimSpace(meta.Name)
+		}
+	}
+	name := ""
+	if b, err := os.ReadFile(filepath.Join(artifactDir, "index.html")); err == nil {
+		if m := reHTMLTitle.FindStringSubmatch(string(b)); len(m) > 1 {
+			candidate := strings.TrimSpace(html.UnescapeString(m[1]))
+			candidate = strings.Join(strings.Fields(candidate), " ")
+			if candidate != "" {
+				name = truncateToolPreview(candidate, 80)
+			}
+		}
+	}
+	if name == "" {
+		name = "Artifact"
+	}
+	metaBytes, _ := json.MarshalIndent(map[string]any{
+		"name":        name,
+		"description": "",
+		"created_at":  time.Now().UTC().Format(time.RFC3339),
+	}, "", "  ")
+	_ = os.WriteFile(metaFile, metaBytes, 0o644)
+	return name
+}
+
+func truncateToolPreview(s string, maxRunes int) string {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" || maxRunes <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(trimmed) > maxRunes {
+		return string([]rune(trimmed)[:maxRunes]) + "…"
+	}
+	return trimmed
 }
 
 // artifactToolStartPayload builds the SSE "tool start" payload for artifact tools.
@@ -306,19 +406,11 @@ func artifactToolStartPayload(name string, args json.RawMessage) map[string]any 
 		}
 	case "exec":
 		if cmd, _ := m["command"].(string); strings.TrimSpace(cmd) != "" {
-			preview := cmd
-			if utf8.RuneCountInString(preview) > 120 {
-				preview = string([]rune(preview)[:120]) + "…"
-			}
-			p["command"] = preview
+			p["command"] = truncateToolPreview(cmd, 120)
 		}
 	case "eval_artifact_js":
 		if code, _ := m["code"].(string); strings.TrimSpace(code) != "" {
-			preview := code
-			if utf8.RuneCountInString(preview) > 120 {
-				preview = string([]rune(preview)[:120]) + "…"
-			}
-			p["code"] = preview
+			p["code"] = truncateToolPreview(code, 120)
 		}
 	case "create_artifact":
 		if n, _ := m["name"].(string); n != "" {
@@ -332,6 +424,9 @@ func artifactToolStartPayload(name string, args json.RawMessage) map[string]any 
 }
 
 func resolveArtifactSafePath(artifactDir, userPath string) (string, error) {
+	if strings.TrimSpace(artifactDir) == "" {
+		return "", errors.New("workspace not initialized")
+	}
 	clean := strings.TrimSpace(userPath)
 	if clean == "" {
 		return "", errors.New("missing path")
@@ -395,6 +490,12 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 
 	case "read_file":
 		path, _ := m["path"].(string)
+		if strings.TrimSpace(artifactDir) == "" {
+			if strings.TrimSpace(path) == "" {
+				return "Error: missing path", nil
+			}
+			return "Error: file not found", nil
+		}
 		full, err := resolveArtifactSafePath(artifactDir, path)
 		if err != nil {
 			return "Error: " + err.Error(), nil
@@ -412,6 +513,16 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		path, _ := m["path"].(string)
 		if path == "" {
 			path = "."
+		}
+		if strings.TrimSpace(artifactDir) == "" {
+			clean := filepath.Clean(strings.TrimSpace(path))
+			if clean == "." {
+				return "(empty)", nil
+			}
+			if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) || filepath.IsAbs(path) {
+				return "Error: path escapes project directory", nil
+			}
+			return "Error: directory not found", nil
 		}
 		full, err := resolveArtifactSafePath(artifactDir, path)
 		if err != nil {
@@ -445,11 +556,11 @@ func (s *Server) runArtifactTool(ctx context.Context, artifactDir, name string, 
 		return execInDir(ctx, artifactDir, command)
 
 	case "create_artifact":
-		if artifactDir != "" {
-			return "Error: an artifact workspace is already active in this session. Do NOT call create_artifact again. You already have full access to write_file, replace_in_file, read_file, list_dir, exec, eval_artifact_js, and get_artifact_console.", nil
+		if hasArtifactPreview(artifactDir) {
+			return "Error: an artifact preview is already active in this session. Do NOT call create_artifact again. You already have full access to write_file, replace_in_file, read_file, list_dir, exec, eval_artifact_js, and get_artifact_console.", nil
 		}
 		// No I/O — the loop handles sending the SSE artifact event.
-		return "Artifact workspace initialized successfully. All operational tools (write_file, replace_in_file, read_file, list_dir, exec, eval_artifact_js, get_artifact_console) are now available in the project root directory ('.').", nil
+		return "Artifact preview workspace initialized. You can write index.html and other project files inside the workspace root directory ('.').", nil
 
 	case "get_artifact_console":
 		ts := artifactRelID(artifactDir)
@@ -694,10 +805,17 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 
 	accComp := 0
 	var accEvalNS int64
-	// For existing artifacts the preview is already live, so subsequent writes
-	// should trigger reload events rather than a fresh loaded event.
-	artifactLoaded := artifactDir != ""
-	createArtifactCalled := artifactDir != ""
+	hasExistingIndex := false
+	if artifactDir != "" {
+		if info, err := os.Stat(filepath.Join(artifactDir, "index.html")); err == nil && !info.IsDir() {
+			hasExistingIndex = true
+		}
+	}
+	// For existing HTML artifacts the preview is already live, so subsequent writes
+	// trigger reload events rather than a fresh loaded event.
+	artifactLoaded := hasExistingIndex
+	artifactPreviewActive := hasArtifactPreview(artifactDir)
+	workspaceEventSent := false
 
 	for round := 0; round < maxArtifactRounds; round++ {
 		if ctx.Err() != nil {
@@ -710,44 +828,23 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 		}
 		log.Printf("[artifact] round %d start, messages: %d, images: %d", round, len(msgs), imgCount)
 
-		var tools []any
-		if createArtifactCalled {
-			tools = artifactOperationalToolDefinitions(hasVision)
+		tools := artifactWorkspaceToolDefinitions()
+		if !artifactPreviewActive {
+			// Offer create_artifact until a preview is active so the model can still
+			// initialize and name a live web preview panel whenever needed, while keeping
+			// all workspace tools immediately usable from round 0.
+			tools = append(tools, artifactInitToolDefinition())
+		} else {
+			previewTools := artifactPreviewToolDefinitions(hasVision)
 			if !body.browserToolsAllowed() {
 				// Nobody is watching this run in a browser, so the two tools
 				// that rendezvous with the artifact preview panel would only burn
 				// their 8-10s timeout before erroring out. Keep them out of the
 				// tool list until a tab subscribes again, which is why the
 				// condition is re-checked on every round rather than once.
-				tools = filterArtifactToolDefinitions(tools, false)
+				previewTools = filterArtifactToolDefinitions(previewTools, false)
 			}
-		} else {
-			// Initially only expose create_artifact. The model decides whether
-			// the request actually needs an artifact; once it calls the tool,
-			// the filesystem/exec tools become available on the next round.
-			tools = []any{
-				map[string]any{
-					"type": "function",
-					"function": map[string]any{
-						"name":        "create_artifact",
-						"description": "Initialize a new artifact project/workspace. Call this only when the user asks you to build something runnable (a web app, page, dashboard, game, animation, visualization, tool, etc.). Do NOT call it for greetings, questions, math, explanations, opinions, or planning chats.",
-						"parameters": map[string]any{
-							"type":     "object",
-							"required": []string{"name"},
-							"properties": map[string]any{
-								"name": map[string]any{
-									"type":        "string",
-									"description": "Display name for the artifact",
-								},
-								"description": map[string]any{
-									"type":        "string",
-									"description": "Short description of what the artifact does",
-								},
-							},
-						},
-					},
-				},
-			}
+			tools = append(tools, previewTools...)
 		}
 		if body.WebTools != nil && *body.WebTools {
 			tools = append(tools, webToolDefinitions()...)
@@ -797,10 +894,15 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						continue
 					}
 					partial := parseToolArgs(tc.Function.Arguments)
-					var path, cmd, artName, skill string
+					var path, cmd, code, artName, skill string
 					if partial != nil {
 						path, _ = partial["path"].(string)
-						cmd, _ = partial["command"].(string)
+						if rawCmd, _ := partial["command"].(string); rawCmd != "" {
+							cmd = truncateToolPreview(rawCmd, 120)
+						}
+						if rawCode, _ := partial["code"].(string); rawCode != "" {
+							code = truncateToolPreview(rawCode, 120)
+						}
 						if name == "create_artifact" {
 							artName, _ = partial["name"].(string)
 						} else if isSkillTool(name) {
@@ -815,7 +917,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 					if !exists {
 						state = &toolSentState{name: name}
 						sentTools[i] = state
-						p := map[string]any{"phase": "generating", "name": name}
+						p := map[string]any{"phase": "generating", "name": name, "tool_index": i}
 						if mcpSrv, mcpTool, ok := mcpTurn.LookupTool(name); ok {
 							p["mcp_server"] = mcpSrv
 							p["mcp_tool"] = mcpTool
@@ -828,6 +930,10 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 							p["command"] = cmd
 							state.command = cmd
 						}
+						if code != "" {
+							p["code"] = code
+							state.code = code
+						}
 						if artName != "" {
 							p["artifact_name"] = artName
 							state.artifactName = artName
@@ -838,7 +944,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						send("tool", p)
 					} else {
 						updated := false
-						p := map[string]any{"phase": "generating", "name": name}
+						p := map[string]any{"phase": "generating", "name": name, "tool_index": i}
 						if path != "" && path != state.path {
 							p["path"] = path
 							state.path = path
@@ -847,6 +953,11 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						if cmd != "" && cmd != state.command {
 							p["command"] = cmd
 							state.command = cmd
+							updated = true
+						}
+						if code != "" && code != state.code {
+							p["code"] = code
+							state.code = code
 							updated = true
 						}
 						if artName != "" && artName != state.artifactName {
@@ -910,7 +1021,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 			return
 		}
 
-		for _, tc := range assistant.ToolCalls {
+		for tcIdx, tc := range assistant.ToolCalls {
 			n := tc.Function.Name
 			if n == "" {
 				continue
@@ -928,6 +1039,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 				startPayload = comfyToolStartPayload(startPayload, tc.Function.Arguments,
 					s.comfyWorkflowLabelFor(s.comfyConfiguredWorkflowID(body.ComfyWorkflow), tc.Function.Arguments))
 			}
+			startPayload["tool_index"] = tcIdx
 			send("tool", startPayload)
 
 			var out string
@@ -1067,57 +1179,67 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 			// Handle create_artifact: reveal the artifact panel.
 			// If index.html is already present we can load the preview immediately;
 			// otherwise show a loading screen until the entry point is written.
-			if n == "create_artifact" {
-				createArtifactCalled = true
+			if n == "create_artifact" && toolErr == nil && !strings.HasPrefix(out, "Error:") {
+				artifactPreviewActive = true
+				workspaceEventSent = true
 				if artifactDir == "" {
-					_ = ensureArtifactDir()
+					if err := ensureArtifactDir(); err != nil {
+						toolErr = err
+					}
 				}
-				m := parseToolArgs(tc.Function.Arguments)
-				artName, _ := m["name"].(string)
-				artDesc, _ := m["description"].(string)
-				if artName == "" {
-					artName = "Artifact"
-				}
-				previewURL := fmt.Sprintf("/api/artifacts/%s/", ts)
-				metaFile := filepath.Join(artifactDir, ".artifact.json")
-				metaBytes, _ := json.MarshalIndent(map[string]any{
-					"name":        artName,
-					"description": artDesc,
-					"created_at":  time.Now().UTC().Format(time.RFC3339),
-				}, "", "  ")
-				_ = os.WriteFile(metaFile, metaBytes, 0o644)
+				if toolErr == nil {
+					m := parseToolArgs(tc.Function.Arguments)
+					artName, _ := m["name"].(string)
+					artDesc, _ := m["description"].(string)
+					if artName == "" {
+						artName = "Artifact"
+					}
+					previewURL := fmt.Sprintf("/api/artifacts/%s/", ts)
+					metaFile := filepath.Join(artifactDir, ".artifact.json")
+					metaBytes, _ := json.MarshalIndent(map[string]any{
+						"name":        artName,
+						"description": artDesc,
+						"created_at":  time.Now().UTC().Format(time.RFC3339),
+					}, "", "  ")
+					_ = os.WriteFile(metaFile, metaBytes, 0o644)
 
-				indexPath := filepath.Join(artifactDir, "index.html")
-				hasIndex := false
-				if info, err := os.Stat(indexPath); err == nil && !info.IsDir() {
-					hasIndex = true
+					indexPath := filepath.Join(artifactDir, "index.html")
+					hasIndex := false
+					if info, err := os.Stat(indexPath); err == nil && !info.IsDir() {
+						hasIndex = true
+					}
+					event := map[string]any{
+						"url":         previewURL,
+						"name":        artName,
+						"description": artDesc,
+						"timestamp":   ts,
+					}
+					if !artifactLoaded && hasIndex {
+						artifactLoaded = true
+						event["loaded"] = true
+					} else if !artifactLoaded {
+						event["generating"] = true
+					}
+					send("artifact", event)
+					out = "Artifact preview initialized. Write index.html (and any supporting CSS/JS files) in the workspace root directory ('.')."
 				}
-				event := map[string]any{
-					"url":         previewURL,
-					"name":        artName,
-					"description": artDesc,
-					"timestamp":   ts,
-				}
-				if !artifactLoaded && hasIndex {
-					artifactLoaded = true
-					event["loaded"] = true
-				} else if !artifactLoaded {
-					event["generating"] = true
-				}
-				send("artifact", event)
-				out = "Artifact project workspace initialized. All operational tools (write_file, replace_in_file, read_file, list_dir, exec, eval_artifact_js, get_artifact_console) are now available. All file paths and commands execute directly inside the project root directory ('.')."
 			}
-			// After write_file or replace_in_file on an artifact, send the appropriate event:
-			// - loaded: first time index.html is written (transition from loading screen)
-			// - reload: subsequent writes (refresh the live preview)
-			if (n == "write_file" || n == "replace_in_file") && toolErr == nil {
+			// After workspace mutating tools:
+			// - loaded: first time index.html is written (transition from loading screen, or direct index.html write)
+			// - reload: subsequent writes once preview is loaded (refresh the live preview)
+			// - workspace_only: first workspace file/command action without an HTML preview, so the session records ArtifactTS
+			if (n == "write_file" || n == "replace_in_file") && toolErr == nil && !strings.HasPrefix(out, "Error:") {
 				writePath, _ := parseToolArgs(tc.Function.Arguments)["path"].(string)
-				normalizedPath := strings.TrimPrefix(strings.ToLower(writePath), "./")
+				normalizedPath := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(writePath)), "./")
 				previewURL := fmt.Sprintf("/api/artifacts/%s/", ts)
 				if !artifactLoaded && normalizedPath == "index.html" {
 					artifactLoaded = true
+					artifactPreviewActive = true
+					workspaceEventSent = true
+					artName := ensureArtifactPreviewMetadata(artifactDir)
 					send("artifact", map[string]any{
 						"url":       previewURL,
+						"name":      artName,
 						"loaded":    true,
 						"timestamp": ts,
 					})
@@ -1128,6 +1250,13 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						"timestamp": ts,
 					})
 				}
+			}
+			if (n == "write_file" || n == "replace_in_file" || n == "read_file" || n == "list_dir" || n == "exec") && toolErr == nil && !artifactPreviewActive && !workspaceEventSent && ts != "" {
+				workspaceEventSent = true
+				send("artifact", map[string]any{
+					"timestamp":      ts,
+					"workspace_only": true,
+				})
 			}
 
 			toolMsg := ollama.ChatMessage{
@@ -1143,7 +1272,17 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 			}
 			msgs = append(msgs, toolMsg)
 
-			done := map[string]any{"phase": "done", "name": n, "ok": toolErr == nil}
+			done := map[string]any{
+				"phase":      "done",
+				"name":       n,
+				"ok":         toolErr == nil,
+				"tool_index": tcIdx,
+			}
+			for _, field := range []string{"path", "command", "code", "artifact_name"} {
+				if v, ok := startPayload[field]; ok && v != "" {
+					done[field] = v
+				}
+			}
 			if mcpSrv != "" {
 				done["mcp_server"] = mcpSrv
 			}
@@ -1250,6 +1389,7 @@ type toolSentState struct {
 	name         string
 	path         string
 	command      string
+	code         string
 	artifactName string
 }
 

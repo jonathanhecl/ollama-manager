@@ -149,12 +149,12 @@ func skillsSystemPromptSection(skills []DiscoveredSkill, artifactsEnabled bool, 
 	b.WriteString("3. When SKILL.md points to extra documentation, scripts, or templates (e.g. references/..., scripts/..., assets/...), use `list_skill_files` and `read_skill_file` on demand to inspect them.\n")
 	b.WriteString("4. Treat skill instructions and bundled files as specialized guidance; never invent file contents you have not read.\n")
 	if artifactsEnabled {
-		b.WriteString("5. EXECUTION MODE (ARTIFACTS ENABLED): You may consult skills in read-only mode (even before creating an artifact) and apply their instructions, templates, and assets to create and edit files inside an isolated artifact workspace (`create_artifact`, `write_file`, `replace_in_file`, `exec`, etc.). Never modify files inside the skill directories themselves.\n")
+		b.WriteString("5. AGENT EXECUTION MODE (AGENT MODE ENABLED): You may consult skills in read-only mode and apply their instructions, templates, and assets to create/edit files and run commands inside your isolated workspace (`write_file`, `replace_in_file`, `read_file`, `list_dir`, `exec`, and `create_artifact` / `index.html` when building a live web preview). Never modify files inside the skill directories themselves.\n")
 	} else {
-		b.WriteString("5. READ-ONLY CONSULTATION MODE (ARTIFACTS DISABLED): You can ONLY read and consult skills (`load_skill`, `list_skill_files`, `read_skill_file`). You do NOT have filesystem write or command execution tools and CANNOT create, modify, or delete files on disk. Do not claim to have created files on disk.\n")
+		b.WriteString("5. READ-ONLY CONSULTATION MODE (AGENT MODE DISABLED): You can ONLY read and consult skills (`load_skill`, `list_skill_files`, `read_skill_file`). You do NOT have filesystem write or command execution tools and CANNOT create, modify, or delete files on disk. Do not claim to have created files on disk.\n")
 	}
 	if webEnabled {
-		b.WriteString("6. INTERNET ACCESS ENABLED: If a consulted skill references external URLs, documentation sites, or APIs that need lookup, you may use `web_search` and `web_fetch` alongside skill consultation (still without writing files to disk unless Artifacts mode is enabled).\n")
+		b.WriteString("6. INTERNET ACCESS ENABLED: If a consulted skill references external URLs, documentation sites, or APIs that need lookup, you may use `web_search` and `web_fetch` alongside skill consultation (still without writing files to disk unless Agent Mode is enabled).\n")
 	}
 	b.WriteString("\n<available_skills>\n")
 	for _, sk := range skills {

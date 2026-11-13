@@ -3491,6 +3491,12 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     rag_update_base: "chat.tool.rag_update_base",
   };
   const isRag = Object.prototype.hasOwnProperty.call(ragToolKeys, e.name);
+  const skillToolKeys = {
+    load_skill: "chat.tool.load_skill",
+    list_skill_files: "chat.tool.list_skill_files",
+    read_skill_file: "chat.tool.read_skill_file",
+  };
+  const isSkill = Object.prototype.hasOwnProperty.call(skillToolKeys, e.name);
   const title = isSearch ? t("chat.tool.web_search")
     : isFetch ? t("chat.tool.web_fetch")
       : isWrite ? t("chat.tool.write_file")
@@ -3502,7 +3508,8 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
                   : isEval ? t("chat.tool.eval_artifact_js")
                     : isComfy ? t("chat.tool.run_comfy_workflow")
                       : isRag ? t(ragToolKeys[e.name])
-                        : escapeHtml(e.name);
+                        : isSkill ? t(skillToolKeys[e.name])
+                          : escapeHtml(e.name);
   let detailHtml = "";
   if (isSearch && e.query) {
     let d = escapeHtml(e.query);
@@ -3531,6 +3538,11 @@ function renderAssistantToolLogEntry(e, toolIdx, msgId) {
     let d = `<strong>${escapeHtml(ragName)}</strong>`;
     if (e.description) d += `${d ? " · " : ""}<span class="muted">${escapeHtml(e.description)}</span>`;
     if (e.query) d += `${d ? " · " : ""}<span class="muted">${escapeHtml(e.query)}</span>`;
+    detailHtml = `<div class="chat-tool-detail">${d}</div>`;
+  } else if (isSkill && (e.skill || e.path)) {
+    let d = "";
+    if (e.skill) d += `<strong>${escapeHtml(e.skill)}</strong>`;
+    if (e.path) d += `${d ? " · " : ""}<span class="mono">${escapeHtml(e.path)}</span>`;
     detailHtml = `<div class="chat-tool-detail">${d}</div>`;
   } else if (isComfy && (e.workflow || e.prompt)) {
     // The workflow name leads because that is what tells the user which of their
@@ -4693,6 +4705,7 @@ function getGlobalChatDefaults() {
     think_level: serverDefaults?.think_level ?? "auto",
     web_tools: serverDefaults?.web_tools ?? false,
     artifacts: serverDefaults?.artifacts ?? false,
+    skills: serverDefaults?.skills ?? false,
   };
   try {
     const raw = localStorage.getItem(GLOBAL_CHAT_DEFAULTS_KEY);
@@ -4759,6 +4772,7 @@ function getCurrentChatOptions() {
     think_level: $("chat-think-level")?.value ?? "auto",
     web_tools: $("chat-web-tools")?.checked ?? false,
     artifacts: $("chat-artifacts")?.checked ?? false,
+    skills: $("chat-skills")?.checked ?? false,
     rag_enabled: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_enabled : !!chatRagEnabled,
     rag_paths: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_paths : (chatRagEnabled ? [...chatRagPaths] : []),
     rag_editable: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_editable : (chatRagEnabled ? [...chatRagEditable] : []),
@@ -4840,6 +4854,7 @@ function areChatOptionsDefault(modelName, opts) {
   if (caps.has("tools")) {
     if (Boolean(current.web_tools) !== Boolean(defaults.web_tools)) return false;
     if (Boolean(current.artifacts) !== Boolean(defaults.artifacts)) return false;
+    if (Boolean(current.skills) !== Boolean(defaults.skills)) return false;
   }
 
   return true;
@@ -4967,6 +4982,9 @@ function setChatOptionsValues(opts) {
   }
   if (opts.artifacts !== undefined && $("chat-artifacts")) {
     $("chat-artifacts").checked = !!opts.artifacts;
+  }
+  if (opts.skills !== undefined && $("chat-skills")) {
+    $("chat-skills").checked = !!opts.skills;
   }
   if ((opts.rag_enabled !== undefined || opts.rag_paths !== undefined || opts.rag_editable !== undefined) && typeof chatRagApplyOptions === "function") {
     chatRagApplyOptions(opts);
@@ -5433,6 +5451,7 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
         existing = {
           name: data.name,
           path: data.path,
+          skill: data.skill,
           command: data.command,
           code: data.code,
           artifact_name: data.artifact_name,
@@ -5444,6 +5463,7 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
       } else {
         // Update existing entry with any newly received fields.
         if (data.path) existing.path = data.path;
+        if (data.skill) existing.skill = data.skill;
         if (data.command) existing.command = data.command;
         if (data.code) existing.code = data.code;
         if (data.artifact_name) existing.artifact_name = data.artifact_name;
@@ -5471,6 +5491,7 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
           e.max_results = data.max_results;
           e.description = data.description;
           if (data.path) e.path = data.path;
+          if (data.skill) e.skill = data.skill;
           if (data.command) e.command = data.command;
           if (data.code) e.code = data.code;
           if (data.artifact_name) e.artifact_name = data.artifact_name;
@@ -5486,6 +5507,7 @@ function applyChatStreamEvent(assistantMsg, event, data, ctx) {
           url: data.url,
           max_results: data.max_results,
           path: data.path,
+          skill: data.skill,
           command: data.command,
           code: data.code,
           artifact_name: data.artifact_name,
@@ -5732,6 +5754,7 @@ async function runChatRequest(assistantMsg) {
   const canTools = caps.has("tools");
   const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
   const artifactsOn = !isImageModel && canTools && $("chat-artifacts").checked;
+  const skillsOn = !isImageModel && canTools && Boolean($("chat-skills")?.checked);
 
   const options = {};
   const imageParams = {};
@@ -5765,6 +5788,7 @@ async function runChatRequest(assistantMsg) {
     ...imageParams,
   };
   if (webToolsOn) payload.web_tools = true;
+  if (skillsOn) payload.skills = true;
   // ComfyUI runs on the tool loop too, so it rides along with web tools even
   // when internet is off: offering it without the loop would never execute.
   const comfyOn = !isImageModel && canTools && $("chat-comfy")?.checked;

@@ -43,6 +43,7 @@ async function showSettingsView() {
   if ($("set-default-think-level")) $("set-default-think-level").value = globalDefaults.think_level || "auto";
   if ($("set-default-web-tools")) $("set-default-web-tools").checked = !!globalDefaults.web_tools;
   if ($("set-default-artifacts")) $("set-default-artifacts").checked = !!globalDefaults.artifacts;
+  if ($("set-default-skills")) $("set-default-skills").checked = !!globalDefaults.skills;
 
   const chatSessionsCfg = currentConfig.chat_sessions || {};
   if ($("set-chat-sessions-enabled")) $("set-chat-sessions-enabled").checked = chatSessionsCfg.enabled !== false;
@@ -62,6 +63,7 @@ async function showSettingsView() {
   }
   loadComfySettings(currentConfig);
   if (typeof ragSettingsInit === "function") ragSettingsInit();
+  if (typeof skillsSettingsInit === "function") skillsSettingsInit(currentConfig);
   bindExternalModelsEvents();
   bindSystemPromptsEvents();
   bindGatewayEvents();
@@ -95,6 +97,7 @@ async function showSettingsView() {
   else if (path === "/settings/archived" || path === "/archived") targetSecId = "sec-archived";
   else if (path === "/settings/gateway") targetSecId = "sec-gateway";
   else if (path === "/settings/rag") targetSecId = "sec-rag";
+  else if (path === "/settings/skills") targetSecId = "sec-skills";
   else if (path === "/settings/comfyui") targetSecId = "sec-comfyui";
   else if (path === "/settings/opencode" || path === "/opencode") targetSecId = "sec-opencode";
   else if (path === "/settings/general") targetSecId = "sec-general";
@@ -279,6 +282,7 @@ function bindChatDefaultsEvents() {
           think_level: $("set-default-think-level")?.value ?? "auto",
           web_tools: $("set-default-web-tools")?.checked ?? false,
           artifacts: $("set-default-artifacts")?.checked ?? false,
+          skills: $("set-default-skills")?.checked ?? false,
         });
       }
 
@@ -428,6 +432,7 @@ function showSettingsSection(sectionId, updateUrl = true) {
     else if (sectionId === "sec-archived") subRoute = "/settings/archived";
     else if (sectionId === "sec-gateway") subRoute = "/settings/gateway";
     else if (sectionId === "sec-rag") subRoute = "/settings/rag";
+    else if (sectionId === "sec-skills") subRoute = "/settings/skills";
     else if (sectionId === "sec-opencode") subRoute = "/settings/opencode";
     if (window.location.pathname !== subRoute) {
       history.pushState(null, "", subRoute);
@@ -2564,10 +2569,260 @@ function bindSystemPromptsModalEvents() {
 }
 
 // Bind immediately on boot if elements exist
-if (typeof document !== "undefined") {
+  if (typeof document !== "undefined") {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", bindSystemPromptsModalEvents);
   } else {
     bindSystemPromptsModalEvents();
+  }
+}
+
+// ---------- Agent Skills Settings & Catalog ----------
+
+let skillsCatalogCache = {
+  directories: [],
+  skills: [],
+  loaded: false,
+};
+
+async function refreshSkillsCatalog() {
+  try {
+    const data = await api("/api/skills");
+    skillsCatalogCache = {
+      directories: Array.isArray(data?.directories) ? data.directories : [],
+      skills: Array.isArray(data?.skills) ? data.skills : [],
+      loaded: true,
+    };
+  } catch (err) {
+    console.warn("Failed to load skills catalog:", err);
+  }
+  updateSkillsChatUI();
+  renderSkillsSettingsUI();
+  return skillsCatalogCache;
+}
+
+function updateSkillsChatUI() {
+  const wrap = $("chat-skills-wrap");
+  const toggle = $("chat-skills");
+  const badge = $("chat-skills-count-badge");
+  const count = skillsCatalogCache.skills.length;
+  if (badge) {
+    badge.textContent = String(count);
+    badge.hidden = !skillsCatalogCache.loaded;
+  }
+  const navBadge = $("skills-nav-badge");
+  if (navBadge) {
+    navBadge.textContent = String(count);
+    navBadge.hidden = count === 0;
+  }
+  if (wrap) {
+    if (skillsCatalogCache.loaded && count === 0) {
+      wrap.title = t("chat.skills_empty_hint");
+    } else {
+      wrap.title = t("chat.skills_hint");
+    }
+  }
+  if (toggle && wrap) {
+    toggle.title = wrap.title;
+  }
+}
+
+async function saveSkillDirectories(dirs) {
+  const cleaned = (Array.isArray(dirs) ? dirs : [])
+    .map((d) => String(d || "").trim())
+    .filter(Boolean);
+  const res = await api("/api/config", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ skills: { directories: cleaned } }),
+  });
+  if (res && typeof res === "object") {
+    currentConfig = { ...currentConfig, ...res };
+  } else if (currentConfig) {
+    currentConfig.skills = { directories: cleaned };
+  }
+  await refreshSkillsCatalog();
+  toast(t("settings.skills_saved"), "success");
+}
+
+function renderSkillsSettingsUI() {
+  const dirsList = $("set-skills-dirs-list");
+  const catList = $("set-skills-catalog-list");
+  const catCount = $("set-skills-catalog-count");
+  if (!dirsList && !catList) return;
+
+  const dirs = skillsCatalogCache.directories;
+  const skills = skillsCatalogCache.skills;
+
+  if (catCount) {
+    catCount.textContent = String(skills.length);
+  }
+
+  if (dirsList) {
+    dirsList.innerHTML = "";
+    if (!dirs.length) {
+      const empty = document.createElement("div");
+      empty.className = "muted small";
+      empty.textContent = t("settings.skills_dirs_empty");
+      dirsList.appendChild(empty);
+    } else {
+      dirs.forEach((d, idx) => {
+        const card = document.createElement("div");
+        card.className = "ext-model-card";
+
+        const info = document.createElement("div");
+        info.className = "ext-model-card-info";
+
+        const titleRow = document.createElement("div");
+        titleRow.className = "ext-model-card-name";
+        titleRow.textContent = d.raw_path || d.resolved_path || "";
+
+        const countBadge = document.createElement("span");
+        countBadge.className = "badge";
+        if (!d.exists) {
+          countBadge.textContent = t("settings.skills_dir_missing");
+          countBadge.style.background = "rgba(239, 68, 68, 0.15)";
+          countBadge.style.color = "#f87171";
+        } else {
+          countBadge.textContent = d.skill_count === 1
+            ? t("settings.skills_dir_skills_one")
+            : t("settings.skills_dir_skills_count", { count: d.skill_count || 0 });
+        }
+        titleRow.appendChild(countBadge);
+        info.appendChild(titleRow);
+
+        if (d.resolved_path && d.resolved_path !== d.raw_path) {
+          const resolvedEl = document.createElement("div");
+          resolvedEl.className = "ext-model-card-url mono";
+          resolvedEl.textContent = d.resolved_path;
+          info.appendChild(resolvedEl);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "ext-model-card-actions";
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn-icon";
+        removeBtn.title = t("settings.skills_remove_dir");
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", async () => {
+          const current = (currentConfig?.skills?.directories || dirs.map((x) => x.raw_path)).filter((_, i) => i !== idx);
+          try {
+            await saveSkillDirectories(current);
+          } catch (err) {
+            toast(err.message || "Error", "error");
+          }
+        });
+        actions.appendChild(removeBtn);
+
+        card.appendChild(info);
+        card.appendChild(actions);
+        dirsList.appendChild(card);
+      });
+    }
+  }
+
+  if (catList) {
+    catList.innerHTML = "";
+    if (!skills.length) {
+      const empty = document.createElement("div");
+      empty.className = "muted small";
+      empty.textContent = t("settings.skills_catalog_empty");
+      catList.appendChild(empty);
+    } else {
+      skills.forEach((sk) => {
+        const card = document.createElement("div");
+        card.className = "ext-model-card";
+
+        const info = document.createElement("div");
+        info.className = "ext-model-card-info";
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "ext-model-card-name";
+        nameEl.textContent = sk.name;
+
+        if (sk.license) {
+          const lic = document.createElement("span");
+          lic.className = "badge";
+          lic.textContent = sk.license;
+          nameEl.appendChild(lic);
+        }
+        if (sk.compatibility) {
+          const comp = document.createElement("span");
+          comp.className = "badge";
+          comp.textContent = sk.compatibility;
+          nameEl.appendChild(comp);
+        }
+        info.appendChild(nameEl);
+
+        if (sk.description) {
+          const descEl = document.createElement("div");
+          descEl.className = "muted small";
+          descEl.textContent = sk.description;
+          info.appendChild(descEl);
+        }
+
+        const dirEl = document.createElement("div");
+        dirEl.className = "ext-model-card-url mono";
+        dirEl.textContent = sk.dir;
+        info.appendChild(dirEl);
+
+        card.appendChild(info);
+        catList.appendChild(card);
+      });
+    }
+  }
+}
+
+function skillsSettingsInit(cfg) {
+  const input = $("set-skills-dir-input");
+  const addBtn = $("set-skills-add-dir-btn");
+  const rescanBtn = $("set-skills-rescan-btn");
+
+  const addCurrentInput = async () => {
+    const val = (input?.value || "").trim();
+    if (!val) return;
+    const baseDirs = Array.isArray(currentConfig?.skills?.directories)
+      ? [...currentConfig.skills.directories]
+      : (Array.isArray(cfg?.skills?.directories) ? [...cfg.skills.directories] : []);
+    if (!baseDirs.includes(val)) {
+      baseDirs.push(val);
+    }
+    try {
+      await saveSkillDirectories(baseDirs);
+      if (input) input.value = "";
+    } catch (err) {
+      toast(err.message || "Error", "error");
+    }
+  };
+
+  if (addBtn && !addBtn._bound) {
+    addBtn._bound = true;
+    addBtn.addEventListener("click", () => { void addCurrentInput(); });
+  }
+  if (input && !input._bound) {
+    input._bound = true;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void addCurrentInput();
+      }
+    });
+  }
+  if (rescanBtn && !rescanBtn._bound) {
+    rescanBtn._bound = true;
+    rescanBtn.addEventListener("click", () => { void refreshSkillsCatalog(); });
+  }
+  void refreshSkillsCatalog();
+}
+
+if (typeof document !== "undefined") {
+  const initSkillsBoot = () => {
+    refreshSkillsCatalog().catch(() => {});
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initSkillsBoot);
+  } else {
+    initSkillsBoot();
   }
 }

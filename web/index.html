@@ -403,6 +403,18 @@
             <span class="switch-slider"></span>
           </label>
         </div>
+        <div id="chat-skills-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.skills_hint" title="Give the model access to all configured Agent Skills (read-only unless Artifacts is enabled).">
+          <div class="switch-label">
+            <div class="switch-title-row">
+              <span data-i18n="chat.skills">Skills</span>
+              <span id="chat-skills-count-badge" class="badge badge-muted" hidden>0</span>
+            </div>
+          </div>
+          <label class="switch">
+            <input id="chat-skills" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.skills_hint" title="Give the model access to all configured Agent Skills (read-only unless Artifacts is enabled).">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
         <div id="chat-rag-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.rag_hint" title="Attach knowledge bases to this chat.">
           <div class="switch-label">
             <span data-i18n="chat.rag">RAG</span>
@@ -1761,6 +1773,11 @@
             <span class="settings-nav-icon">📚</span>
             <span class="settings-nav-label" data-i18n="settings.nav_rag">RAG</span>
           </button>
+          <button type="button" class="settings-nav-item" data-section="sec-skills">
+            <span class="settings-nav-icon">🧰</span>
+            <span class="settings-nav-label" data-i18n="settings.nav_skills">Skills</span>
+            <span class="badge" id="skills-nav-badge" hidden>0</span>
+          </button>
           <button type="button" class="settings-nav-item" data-section="sec-gateway">
             <span class="settings-nav-icon">📡</span>
             <span class="settings-nav-label" data-i18n="settings.nav_gateway">Tunneling Models</span>
@@ -1903,6 +1920,15 @@
                 </div>
                 <label class="switch">
                   <input id="set-default-artifacts" type="checkbox" autocomplete="off">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div class="field switch-field">
+                <div class="switch-label">
+                  <span data-i18n="chat.skills">Skills</span>
+                </div>
+                <label class="switch">
+                  <input id="set-default-skills" type="checkbox" autocomplete="off">
                   <span class="switch-slider"></span>
                 </label>
               </div>
@@ -2321,6 +2347,33 @@
                 <input id="set-rag-dir" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.rag_dir_placeholder" placeholder="rags">
                 <p class="form-hint" id="set-rag-dir-hint"></p>
                 <p class="form-hint" data-i18n="settings.rag_dir_hint2">Relative paths are resolved next to the config file. Existing files are not moved when the folder changes.</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Agent Skills -->
+          <section class="settings-section-card" id="sec-skills" hidden>
+            <div class="settings-section-header">
+              <div class="settings-section-title-wrap">
+                <h3 class="settings-section-title" data-i18n="settings.skills_title">Agent Skills</h3>
+                <span class="badge" id="set-skills-catalog-count">0</span>
+              </div>
+              <p class="settings-section-desc" data-i18n="settings.skills_desc">Configure one or more directories containing Agent Skills (folders with SKILL.md, references/, scripts/, assets/). Models with Tools enabled can consult the entire catalog; file creation and command execution remain restricted unless Artifacts is also enabled.</p>
+            </div>
+            <div class="settings-section-body">
+              <div class="field field-vertical">
+                <label for="set-skills-dir-input" data-i18n="settings.skills_dirs_label">Skill directories</label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <input id="set-skills-dir-input" type="text" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder" data-i18n="settings.skills_dir_placeholder" placeholder="~/.agents/skills or /path/to/skills" style="flex:1;min-width:220px;">
+                  <button id="set-skills-add-dir-btn" class="secondary" type="button" data-i18n="settings.skills_add_dir">Add folder</button>
+                  <button id="set-skills-rescan-btn" class="ghost" type="button" data-i18n="settings.skills_rescan">Rescan</button>
+                </div>
+                <p class="form-hint" data-i18n="settings.skills_dirs_hint">Supports absolute paths, ~/ home paths, and paths relative to config.json. Each folder is scanned for skill subdirectories containing SKILL.md.</p>
+              </div>
+              <div id="set-skills-dirs-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;"></div>
+              <div class="field field-vertical" style="margin-top:16px;">
+                <label data-i18n="settings.skills_catalog_label">Discovered skills catalog</label>
+                <div id="set-skills-catalog-list" style="display:flex;flex-direction:column;gap:8px;"></div>
               </div>
             </div>
           </section>

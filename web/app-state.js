@@ -55,6 +55,7 @@ const CHAT_OPTION_FALLBACKS = {
   think_level: "auto",
   web_tools: false,
   artifacts: false,
+  skills: false,
   rag_enabled: false,
   rag_paths: [],
   rag_editable: [],

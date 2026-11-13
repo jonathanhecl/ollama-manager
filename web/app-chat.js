@@ -163,6 +163,8 @@ function updateChatCapabilityUI() {
   $("chat-think-wrap").hidden = !canThink;
   $("chat-web-tools-wrap").hidden = !canTools;
   $("chat-artifacts-wrap").hidden = !canTools;
+  if ($("chat-skills-wrap")) $("chat-skills-wrap").hidden = !canTools;
+  if (typeof updateSkillsChatUI === "function") updateSkillsChatUI();
   if (typeof updateChatRagAvailability === "function") updateChatRagAvailability();
   // The workflow list is fetched once and cached; this only re-applies the gate
   // and the selector contents against it.

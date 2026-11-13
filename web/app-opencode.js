@@ -418,6 +418,7 @@ $("settings-save").addEventListener("click", async () => {
     think_level: $("set-default-think-level")?.value ?? "auto",
     web_tools: $("set-default-web-tools")?.checked ?? false,
     artifacts: $("set-default-artifacts")?.checked ?? false,
+    skills: $("set-default-skills")?.checked ?? false,
   };
   const gwPortRaw = ($("gw-port")?.value ?? "").trim();
   const gwPort = gwPortRaw === "" ? 0 : parseInt(gwPortRaw, 10);
@@ -516,6 +517,7 @@ $("settings-save").addEventListener("click", async () => {
       think_level: chatDefaults.think_level,
       web_tools: chatDefaults.web_tools,
       artifacts: chatDefaults.artifacts,
+      skills: chatDefaults.skills,
     });
 
     const activeChatModel = $("chat-model")?.value;

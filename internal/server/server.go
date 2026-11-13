@@ -363,6 +363,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("PUT /api/rags/{id}", s.requireAuth(s.handleUpdateRAG))
 	mux.Handle("DELETE /api/rags/{id}", s.requireAuth(s.handleDeleteRAG))
 
+	mux.Handle("GET /api/skills", s.requireAuth(s.handleListSkills))
+
 	mux.Handle("GET /api/config", s.requireAuth(s.handleGetConfig))
 	mux.Handle("PATCH /api/config", s.requireAuth(s.handlePatchConfig))
 	mux.Handle("POST /api/settings/secrets/reveal", s.requireAuth(s.handleRevealSecret))

@@ -136,6 +136,9 @@ func toolStartPayload(name string, args json.RawMessage) map[string]any {
 			p["description"] = fmt.Sprintf("Entry #%d", eid)
 		}
 	}
+	if isSkillTool(name) {
+		p = skillToolStartPayload(p, name, args)
+	}
 	return p
 }
 
@@ -173,11 +176,20 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 	startedAt := time.Now()
 	comfyOn := s.comfyToolEnabled(body)
 	ragOn := s.ragAgentEnabled(ctx, body)
+	var skills []DiscoveredSkill
+	if body.Skills != nil && *body.Skills {
+		skills = s.listDiscoveredSkills()
+	}
+	skillsOn := len(skills) > 0
+	webOn := body.WebTools != nil && *body.WebTools
 
 	msgs := make([]ollama.ChatMessage, len(body.Messages))
 	copy(msgs, body.Messages)
 
-	if body.WebTools != nil && *body.WebTools {
+	appendSystemSection := func(section string) {
+		if strings.TrimSpace(section) == "" {
+			return
+		}
 		sysIdx := -1
 		for i, m := range msgs {
 			if m.Role == "system" {
@@ -186,31 +198,25 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 			}
 		}
 		if sysIdx >= 0 {
-			msgs[sysIdx].Content = strings.TrimSpace(msgs[sysIdx].Content + "\n\n" + webToolSystemInstruction)
+			msgs[sysIdx].Content = strings.TrimSpace(msgs[sysIdx].Content + "\n\n" + section)
 		} else {
 			msgs = append([]ollama.ChatMessage{{
 				Role:    "system",
-				Content: webToolSystemInstruction,
+				Content: section,
 			}}, msgs...)
 		}
 	}
 
+	if webOn {
+		appendSystemSection(webToolSystemInstruction)
+	}
+
 	if ragOn {
-		sysIdx := -1
-		for i, m := range msgs {
-			if m.Role == "system" {
-				sysIdx = i
-				break
-			}
-		}
-		if sysIdx >= 0 {
-			msgs[sysIdx].Content = strings.TrimSpace(msgs[sysIdx].Content + "\n\n" + ragAgentSystemInstruction)
-		} else {
-			msgs = append([]ollama.ChatMessage{{
-				Role:    "system",
-				Content: ragAgentSystemInstruction,
-			}}, msgs...)
-		}
+		appendSystemSection(ragAgentSystemInstruction)
+	}
+
+	if skillsOn {
+		appendSystemSection(skillsSystemPromptSection(skills, false, webOn))
 	}
 
 	// A vision model is what makes image iteration work: without it the run
@@ -245,6 +251,9 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 		}
 		if ragOn {
 			tools = append(tools, s.ragToolDefinitions(body)...)
+		}
+		if skillsOn {
+			tools = append(tools, skillToolDefinitions()...)
 		}
 		req := ollama.ChatRequest{
 			Model:    body.Model,
@@ -349,6 +358,12 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 				out, ragFile, err = s.runRAGTool(ctx, sink, body, n, tc.Function.Arguments)
 				if err == nil && ragFile != "" {
 					send("rag_updated", map[string]any{"filename": ragFile})
+				}
+			} else if isSkillTool(n) {
+				if !skillsOn {
+					err = errors.New("skills are not enabled for this chat")
+				} else {
+					out, err = s.runSkillTool(ctx, n, tc.Function.Arguments)
 				}
 			} else if isWebTool(n) {
 				if body.WebTools == nil || !*body.WebTools {

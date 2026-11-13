@@ -265,3 +265,31 @@ func TestRAGDirectoryResolution(t *testing.T) {
 		t.Fatalf("rag config did not round-trip: %+v", re.RAG)
 	}
 }
+
+func TestSkillsDirectoryResolutionAndNormalization(t *testing.T) {
+	path := writeTempConfig(t, `{
+  "port": 7860,
+  "chat_defaults": {
+    "skills": true
+  },
+  "skills": {
+    "directories": ["  ./my-skills  ", "", "my-skills", "./my-skills"]
+  }
+}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ChatDefaults.Skills == nil || !*cfg.ChatDefaults.Skills {
+		t.Fatalf("ChatDefaults.Skills = %v, want true", cfg.ChatDefaults.Skills)
+	}
+	dirs := cfg.SkillsDirectories()
+	want := filepath.Join(filepath.Dir(path), "my-skills")
+	if len(dirs) != 1 || dirs[0] != want {
+		t.Fatalf("SkillsDirectories() = %v, want [%q]", dirs, want)
+	}
+	// Verify normalization deduplicated strings
+	if len(cfg.Skills.Directories) != 2 {
+		t.Fatalf("Skills.Directories = %v, want 2 trimmed distinct strings", cfg.Skills.Directories)
+	}
+}

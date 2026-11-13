@@ -647,13 +647,22 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 	sysPrompt := buildArtifactSystemPrompt(artifactDir, hasVision)
 	comfyOn := s.comfyToolEnabled(body)
 	ragOn := s.ragAgentEnabled(ctx, body)
+	var skills []DiscoveredSkill
+	if body.Skills != nil && *body.Skills {
+		skills = s.listDiscoveredSkills()
+	}
+	skillsOn := len(skills) > 0
+	webOn := body.WebTools != nil && *body.WebTools
 	if ragOn {
 		sysPrompt += "\n\n" + ragAgentSystemInstruction
+	}
+	if skillsOn {
+		sysPrompt += "\n\n" + skillsSystemPromptSection(skills, true, webOn)
 	}
 	if comfyOn {
 		sysPrompt += "\n\n" + comfySystemPromptSection(s.comfyWorkflows.ListEnabled(), hasVision, body.ComfyWorkflow)
 	}
-	if body.WebTools != nil && *body.WebTools {
+	if webOn {
 		sysPrompt += "\n\n" + webToolSystemInstruction
 	}
 	if customSystem != "" {
@@ -730,6 +739,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 		if ragOn {
 			tools = append(tools, s.ragToolDefinitions(body)...)
 		}
+		if skillsOn {
+			tools = append(tools, skillToolDefinitions()...)
+		}
 		if comfyOn {
 			// Re-read every round: the user can register or disable a workflow
 			// from Settings while a turn is running.
@@ -766,11 +778,18 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						continue
 					}
 					partial := parseToolArgs(tc.Function.Arguments)
-					var path, cmd, artName string
+					var path, cmd, artName, skill string
 					if partial != nil {
 						path, _ = partial["path"].(string)
 						cmd, _ = partial["command"].(string)
-						artName, _ = partial["name"].(string)
+						if name == "create_artifact" {
+							artName, _ = partial["name"].(string)
+						} else if isSkillTool(name) {
+							skill, _ = partial["skill"].(string)
+							if skill == "" && name == "load_skill" {
+								skill, _ = partial["name"].(string)
+							}
+						}
 					}
 
 					state, exists := sentTools[i]
@@ -789,6 +808,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 						if artName != "" {
 							p["artifact_name"] = artName
 							state.artifactName = artName
+						}
+						if skill != "" {
+							p["skill"] = skill
 						}
 						send("tool", p)
 					} else {
@@ -871,9 +893,9 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 				continue
 			}
 
-			// Use artifact-aware payload for artifact tools, web payload for web tools.
+			// Use artifact-aware payload for artifact tools, web payload for web/rag/skill tools.
 			startPayload := artifactToolStartPayload(n, tc.Function.Arguments)
-			if isWebTool(n) || isRAGTool(n) {
+			if isWebTool(n) || isRAGTool(n) || isSkillTool(n) {
 				startPayload = toolStartPayload(n, tc.Function.Arguments)
 			}
 			if n == comfyToolName {
@@ -975,6 +997,12 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 				out, ragFile, toolErr = s.runRAGTool(ctx, sink, body, n, tc.Function.Arguments)
 				if toolErr == nil && ragFile != "" {
 					send("rag_updated", map[string]any{"filename": ragFile})
+				}
+			} else if isSkillTool(n) {
+				if !skillsOn {
+					toolErr = errors.New("skills are not enabled for this chat")
+				} else {
+					out, toolErr = s.runSkillTool(ctx, n, tc.Function.Arguments)
 				}
 			} else if isWebTool(n) {
 				if body.WebTools == nil || !*body.WebTools {
@@ -1175,6 +1203,9 @@ func toolUsageGuide(name string) string {
 			"Pass only what you want to change; anything you leave out keeps the workflow's current value.\n" +
 			"If the tool reports an unknown parameter, call it again with only the parameters listed in its schema."
 	default:
+		if guide := skillToolUsageGuide(name); guide != "" {
+			return guide
+		}
 		return ""
 	}
 }

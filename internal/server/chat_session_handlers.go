@@ -23,6 +23,7 @@ type sessionSettingsInput struct {
 	ThinkLevel  any `json:"think_level"`
 	WebTools    any `json:"web_tools"`
 	Artifacts   any `json:"artifacts"`
+	Skills      any `json:"skills"`
 	RAGEnabled  any `json:"rag_enabled"`
 	RAGPaths    any `json:"rag_paths"`
 	RAGEditable any `json:"rag_editable"`
@@ -83,6 +84,9 @@ func (in sessionSettingsInput) mergeInto(dst SessionSettings) SessionSettings {
 	}
 	if in.Artifacts != nil {
 		dst.Artifacts = sessionOptBool(in.Artifacts)
+	}
+	if in.Skills != nil {
+		dst.Skills = sessionOptBool(in.Skills)
 	}
 	if in.RAGEnabled != nil {
 		dst.RAGEnabled = sessionOptBool(in.RAGEnabled)

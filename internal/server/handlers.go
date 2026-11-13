@@ -364,6 +364,8 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"comfyui":                 s.cfg.ComfyUI,
 		"rag":                     s.cfg.RAG,
 		"rag_directory":           s.cfg.RAGDirectory(),
+		"skills":                  s.cfg.Skills,
+		"skills_directories":      s.cfg.SkillsDirectories(),
 		"version":                 s.versionInfo,
 	})
 }
@@ -460,6 +462,11 @@ type patchConfigBody struct {
 	Gateway               *patchGatewayBody      `json:"gateway"`
 	ComfyUI               *config.ComfyUIConfig  `json:"comfyui"`
 	RAG                   *patchRAGBody          `json:"rag"`
+	Skills                *patchSkillsBody       `json:"skills"`
+}
+
+type patchSkillsBody struct {
+	Directories *[]string `json:"directories"`
 }
 
 type patchRAGBody struct {
@@ -537,7 +544,11 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, errors.New("invalid think_level (use auto, off, low, medium, high or max)"))
 			return
 		}
+		prevSkills := s.cfg.ChatDefaults.Skills
 		s.cfg.ChatDefaults = *body.ChatDefaults
+		if s.cfg.ChatDefaults.Skills == nil {
+			s.cfg.ChatDefaults.Skills = prevSkills
+		}
 	}
 	if body.ChatSessions != nil {
 		if body.ChatSessions.OnModelDelete != nil {
@@ -682,10 +693,22 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		s.cfg.RAG = newRAG
 	}
+	var oldSkills config.SkillsConfig
+	skillsTouched := false
+	if body.Skills != nil {
+		oldSkills = s.cfg.Skills
+		skillsTouched = true
+		if body.Skills.Directories != nil {
+			s.cfg.Skills.Directories = config.NormalizeSkillDirectories(*body.Skills.Directories)
+		}
+	}
 
 	if err := s.cfg.Save(); err != nil {
 		if ragTouched {
 			s.cfg.RAG = oldRAG
+		}
+		if skillsTouched {
+			s.cfg.Skills = oldSkills
 		}
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -709,6 +732,8 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		"comfyui":                 s.cfg.ComfyUI,
 		"rag":                     s.cfg.RAG,
 		"rag_directory":           s.cfg.RAGDirectory(),
+		"skills":                  s.cfg.Skills,
+		"skills_directories":      s.cfg.SkillsDirectories(),
 	})
 }
 
@@ -2534,6 +2559,7 @@ type chatRequestBody struct {
 	Options     map[string]any       `json:"options,omitempty"`
 	WebTools    *bool                `json:"web_tools,omitempty"`
 	Artifacts   *bool                `json:"artifacts,omitempty"`
+	Skills      *bool                `json:"skills,omitempty"`
 	ArtifactDir string               `json:"artifact_dir,omitempty"`
 	Width       int                  `json:"width,omitempty"`
 	Height      int                  `json:"height,omitempty"`
@@ -3112,9 +3138,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		thinkVal = string(*body.Think)
 	}
 	comfyOn := body.Comfy != nil && *body.Comfy
-	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v comfy=%v think=%s",
+	skillsOn := s.skillsEnabled(body)
+	log.Printf("[chat] model=%s messages=%d images=%d artifacts=%v web_tools=%v comfy=%v skills=%v think=%s",
 		body.Model, len(body.Messages), imageCount,
-		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, comfyOn, thinkVal)
+		body.Artifacts != nil && *body.Artifacts, body.WebTools != nil && *body.WebTools, comfyOn, skillsOn, thinkVal)
 
 	writeSSEHeaders(w)
 	sink := newSSESink(w, flusher)
@@ -3127,8 +3154,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	// The web loop is the lightweight tool runner: it has the tool-call loop but
 	// none of the artifact filesystem surface, which is exactly what ComfyUI-only
-	// chats want. Exposing ComfyUI without a tool loop would silently never run.
-	if (body.WebTools != nil && *body.WebTools) || comfyOn || s.ragAgentEnabled(r.Context(), body) {
+	// or Skills-only read-only chats want.
+	if (body.WebTools != nil && *body.WebTools) || comfyOn || s.ragAgentEnabled(r.Context(), body) || skillsOn {
 		s.runWebToolAgentLoop(r.Context(), sink, body)
 		return
 	}

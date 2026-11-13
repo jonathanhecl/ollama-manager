@@ -27,6 +27,7 @@ type ChatDefaults struct {
 	NoThink   *bool `json:"no_think,omitempty"`
 	WebTools  *bool `json:"web_tools,omitempty"`
 	Artifacts *bool `json:"artifacts,omitempty"`
+	Skills    *bool `json:"skills,omitempty"`
 }
 
 // ChatSessionsConfig controls the persistent, detached chat sessions: the
@@ -203,6 +204,13 @@ type RAGConfig struct {
 	Directory        string `json:"directory"`
 }
 
+// SkillsConfig holds the settings for Agent Skills directories.
+type SkillsConfig struct {
+	// Directories lists filesystem paths scanned for Agent Skills (folders containing SKILL.md).
+	// Relative paths are resolved next to config.json; "~/" expands to the user home directory.
+	Directories []string `json:"directories"`
+}
+
 // DefaultComfyUIURL is ComfyUI's default listen address.
 const DefaultComfyUIURL = "http://127.0.0.1:8188"
 
@@ -246,6 +254,7 @@ type Config struct {
 	Gateway               GatewayConfig      `json:"gateway"`
 	ComfyUI               ComfyUIConfig      `json:"comfyui"`
 	RAG                   RAGConfig          `json:"rag"`
+	Skills                SkillsConfig       `json:"skills"`
 
 	path string `json:"-"`
 }
@@ -257,6 +266,7 @@ func Defaults() *Config {
 	defaultTopP := 0.9
 	defaultWebTools := false
 	defaultArtifacts := false
+	defaultSkills := false
 	defaultSessions := true
 
 	return &Config{
@@ -274,6 +284,7 @@ func Defaults() *Config {
 			ThinkLevel:   "auto",
 			WebTools:     &defaultWebTools,
 			Artifacts:    &defaultArtifacts,
+			Skills:       &defaultSkills,
 		},
 		ChatSessions: ChatSessionsConfig{
 			Enabled:       &defaultSessions,
@@ -282,6 +293,9 @@ func Defaults() *Config {
 		ComfyUI: ComfyUIConfig{
 			URL:            DefaultComfyUIURL,
 			TimeoutSeconds: DefaultComfyUITimeoutSeconds,
+		},
+		Skills: SkillsConfig{
+			Directories: []string{},
 		},
 	}
 }
@@ -384,6 +398,10 @@ func Load(path string) (*Config, error) {
 	if cfg.ChatDefaults.Artifacts == nil {
 		cfg.ChatDefaults.Artifacts = def.Artifacts
 	}
+	if cfg.ChatDefaults.Skills == nil {
+		cfg.ChatDefaults.Skills = def.Skills
+	}
+	cfg.Skills.Directories = NormalizeSkillDirectories(cfg.Skills.Directories)
 	cfg.ComfyUI = cfg.ComfyUI.Normalize()
 	if cfg.ComfyUI.TimeoutSeconds > 3600 {
 		cfg.ComfyUI.TimeoutSeconds = 3600
@@ -438,6 +456,61 @@ func (c *Config) RAGDirectory() string {
 		return filepath.Clean(dir)
 	}
 	return filepath.Join(filepath.Dir(c.path), dir)
+}
+
+// NormalizeSkillDirectories trims, removes empties, and deduplicates skill
+// directory paths while preserving order. Always returns a non-nil slice.
+func NormalizeSkillDirectories(dirs []string) []string {
+	out := make([]string, 0, len(dirs))
+	seen := make(map[string]bool, len(dirs))
+	for _, raw := range dirs {
+		d := strings.TrimSpace(raw)
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
+}
+
+// SkillsDirectories returns the cleaned, resolved filesystem paths configured
+// for Agent Skills, deduplicated while preserving order.
+func (c *Config) SkillsDirectories() []string {
+	out := make([]string, 0, len(c.Skills.Directories))
+	seen := make(map[string]bool, len(c.Skills.Directories))
+	home, _ := os.UserHomeDir()
+	baseDir := ""
+	if c.path != "" {
+		baseDir = filepath.Dir(c.path)
+	}
+	for _, raw := range c.Skills.Directories {
+		d := strings.TrimSpace(raw)
+		if d == "" {
+			continue
+		}
+		if d == "~" {
+			if home != "" {
+				d = home
+			}
+		} else if strings.HasPrefix(d, "~/") || strings.HasPrefix(d, "~\\") {
+			if home != "" {
+				d = filepath.Join(home, d[2:])
+			}
+		}
+		var resolved string
+		if filepath.IsAbs(d) || baseDir == "" {
+			resolved = filepath.Clean(d)
+		} else {
+			resolved = filepath.Clean(filepath.Join(baseDir, d))
+		}
+		if seen[resolved] {
+			continue
+		}
+		seen[resolved] = true
+		out = append(out, resolved)
+	}
+	return out
 }
 
 // HasPassword reports whether a password is configured.

@@ -57,6 +57,7 @@ type SessionToolEntry struct {
 	URL           string `json:"url,omitempty"`
 	MaxResults    int    `json:"max_results,omitempty"`
 	Path          string `json:"path,omitempty"`
+	Skill         string `json:"skill,omitempty"`
 	Command       string `json:"command,omitempty"`
 	Code          string `json:"code,omitempty"`
 	ArtifactName  string `json:"artifact_name,omitempty"`
@@ -156,6 +157,7 @@ type SessionSettings struct {
 	ThinkLevel  string  `json:"think_level,omitempty"`
 	WebTools    bool    `json:"web_tools"`
 	Artifacts   bool    `json:"artifacts"`
+	Skills      bool    `json:"skills"`
 	// RAGEnabled is the chat-side switch. RAGPaths stores only the safe .db
 	// filenames inside the configured RAG directory, so reopening a session can
 	// validate and reload the same bases without embedding database contents in

@@ -2,7 +2,7 @@
 
 Tiny, fast, and feature-packed Go web server to manage, benchmark, and interact with [Ollama](https://ollama.com) models and external LLMs. **Features an advanced background download queue manager** to queue, pause, resume, and prioritize multiple model downloads sequentially without saturating your bandwidth — solving one of Ollama's biggest limitations.
 
-Chat with your models through retrieval-augmented **knowledge bases (RAG)**, autonomous **web & artifact agents**, detached **background sessions**, and self-hosted **ComfyUI image generation** — all from a single binary.
+Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **Agent Skills (`agentskills.io`)**, autonomous **web & artifact agents**, detached **background sessions**, and self-hosted **ComfyUI image generation** — all from a single binary.
 
 ![ollama-manager Showcase](image.png)
 
@@ -67,6 +67,11 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, aut
   - **Console Diagnostics (`get_artifact_console`)**: automatic capture of sandboxed iframe runtime logs (`console.log`, `console.warn`, `console.error`) for autonomous debugging.
   - **Artifact Project History**: browse past generated artifact workspaces by model and date, reload previous projects, or delete them via UI/API.
 
+- **Agent Skills (`agentskills.io`)**:
+  - **Multi-Directory Discovery** (⚙ Settings → Skills): configure one or more skill folders (`skills.directories`, supporting absolute paths, `~/`, and paths relative to `config.json`) containing `SKILL.md` skills with optional `references/`, `scripts/`, and `assets/` subdirectories.
+  - **Full Catalog & Progressive Disclosure**: enabling **Skills** in Chat (for any `tools`-capable model) automatically injects the entire discovered `<available_skills>` catalog into the system prompt and exposes sandboxed consultation tools (`load_skill`, `list_skill_files`, `read_skill_file`) with path-traversal, symlink-escape, and binary-file protection.
+  - **Read-Only vs. Artifacts Execution**: when `Artifacts` is off, models can only consult skills (and combine them with **Internet** `web_search`/`web_fetch` when enabled) with zero disk writes or command execution; when `Artifacts` is on, models can combine skill instructions with the isolated artifact workspace (`create_artifact`, `write_file`, `exec`, etc.).
+
 - **Knowledge Bases (RAG — Retrieval-Augmented Generation)**:
   - **Semantic Search over Your Own Knowledge**: SQLite-backed knowledge bases whose entries are embedded automatically with any installed Ollama embedding model and retrieved by cosine similarity.
   - **Multi-Media Entries**: each entry holds text, images, or audio — embedded either combined with its text or from attachments only — with a descriptive title and aliases/keywords.
@@ -85,7 +90,7 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, aut
 - **Persistent Background Chat Sessions**:
   - **Detached Runs**: sessions run on the server and keep going after you close the tab; reopen, continue, export, or delete them later.
   - **Message Queues**: messages sent while a model is busy are queued, promotable, and never dropped or duplicated.
-  - **Capability-Based Tool Gating**: artifacts, web tools, ComfyUI, and RAG tools are enabled only for the models that actually support them, for both local and external models.
+  - **Capability-Based Tool Gating**: artifacts, web tools, skills, ComfyUI, and RAG tools are enabled only for the models that actually support them, for both local and external models.
   - **At-a-Glance Badges**: running/queued and unread states are visible next to every model in the list, and sessions are scoped to their model.
   - **Configurable Lifecycle** (`chat_sessions`): enable or disable the feature and choose whether uninstalling a model deletes its sessions or keeps them flagged as missing their model.
 
@@ -191,7 +196,8 @@ On first launch, `config.json` is generated automatically:
     "num_ctx": 0,
     "think_level": "auto",
     "web_tools": false,
-    "artifacts": false
+    "artifacts": false,
+    "skills": false
   },
   "chat_sessions": {
     "enabled": true,
@@ -204,6 +210,9 @@ On first launch, `config.json` is generated automatically:
   "rag": {
     "default_embedding": "",
     "directory": ""
+  },
+  "skills": {
+    "directories": []
   },
   "gateway": {
     "enabled": false,

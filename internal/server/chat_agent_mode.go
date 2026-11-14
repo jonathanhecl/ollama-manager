@@ -758,10 +758,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 	sysPrompt := buildArtifactSystemPrompt(artifactDir, hasVision)
 	comfyOn := s.comfyToolEnabled(body)
 	ragOn := s.ragAgentEnabled(ctx, body)
-	var skills []DiscoveredSkill
-	if body.Skills != nil && *body.Skills {
-		skills = s.listDiscoveredSkills()
-	}
+	skills := s.selectedSkillsForChat(body)
 	skillsOn := len(skills) > 0
 	webOn := body.WebTools != nil && *body.WebTools
 	var mcpTurn *mcpTurnSession
@@ -1142,7 +1139,7 @@ func (s *Server) runArtifactAgentLoop(ctx context.Context, sink chatSink, body c
 				if !skillsOn {
 					toolErr = errors.New("skills are not enabled for this chat")
 				} else {
-					out, toolErr = s.runSkillTool(ctx, n, tc.Function.Arguments)
+					out, toolErr = s.runSkillToolWithAllowed(ctx, n, tc.Function.Arguments, skills)
 				}
 			} else if isWebTool(n) {
 				if body.WebTools == nil || !*body.WebTools {

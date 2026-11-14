@@ -179,11 +179,41 @@ func escapeXMLText(s string) string {
 	return r.Replace(strings.TrimSpace(s))
 }
 
-func (s *Server) skillsEnabled(body chatRequestBody) bool {
+func (s *Server) selectedSkillsForChat(body chatRequestBody) []DiscoveredSkill {
 	if body.Skills == nil || !*body.Skills {
-		return false
+		return nil
 	}
-	return len(s.listDiscoveredSkills()) > 0
+	all := s.listDiscoveredSkills()
+	if len(all) == 0 {
+		return nil
+	}
+	if body.SelectedSkills == nil {
+		return all
+	}
+	if len(*body.SelectedSkills) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(*body.SelectedSkills))
+	for _, raw := range *body.SelectedSkills {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		if name != "" {
+			allowed[name] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	out := make([]DiscoveredSkill, 0, len(all))
+	for _, sk := range all {
+		if allowed[strings.ToLower(strings.TrimSpace(sk.Name))] {
+			out = append(out, sk)
+		}
+	}
+	return out
+}
+
+func (s *Server) skillsEnabled(body chatRequestBody) bool {
+	return len(s.selectedSkillsForChat(body)) > 0
 }
 
 func (s *Server) listDiscoveredSkills() []DiscoveredSkill {
@@ -501,18 +531,25 @@ func extractFirstMarkdownParagraph(body string) string {
 	return truncateRunes(strings.Join(para, " "), 240)
 }
 
-func (s *Server) findSkillByName(name string) (DiscoveredSkill, bool) {
+func (s *Server) findSkillByNameIn(name string, allowed []DiscoveredSkill) (DiscoveredSkill, bool) {
 	target := strings.ToLower(strings.TrimSpace(name))
 	if target == "" {
 		return DiscoveredSkill{}, false
 	}
-	skills := s.listDiscoveredSkills()
+	skills := allowed
+	if skills == nil {
+		skills = s.listDiscoveredSkills()
+	}
 	for _, sk := range skills {
 		if strings.ToLower(sk.Name) == target {
 			return sk, true
 		}
 	}
 	return DiscoveredSkill{}, false
+}
+
+func (s *Server) findSkillByName(name string) (DiscoveredSkill, bool) {
+	return s.findSkillByNameIn(name, nil)
 }
 
 // resolveSkillSafePath ensures relPath resolves strictly inside skillDir without
@@ -641,7 +678,11 @@ func skillToolStartPayload(base map[string]any, name string, args json.RawMessag
 	return base
 }
 
-func (s *Server) runSkillTool(_ context.Context, name string, rawArgs json.RawMessage) (string, error) {
+func (s *Server) runSkillTool(ctx context.Context, name string, rawArgs json.RawMessage) (string, error) {
+	return s.runSkillToolWithAllowed(ctx, name, rawArgs, nil)
+}
+
+func (s *Server) runSkillToolWithAllowed(_ context.Context, name string, rawArgs json.RawMessage, allowed []DiscoveredSkill) (string, error) {
 	m := parseToolArgs(rawArgs)
 	switch name {
 	case "load_skill":
@@ -649,7 +690,7 @@ func (s *Server) runSkillTool(_ context.Context, name string, rawArgs json.RawMe
 		if strings.TrimSpace(skillName) == "" {
 			return "Error: missing 'name' argument for load_skill", nil
 		}
-		sk, ok := s.findSkillByName(skillName)
+		sk, ok := s.findSkillByNameIn(skillName, allowed)
 		if !ok {
 			return fmt.Sprintf("Error: skill %q not found in <available_skills>", skillName), nil
 		}
@@ -683,7 +724,7 @@ func (s *Server) runSkillTool(_ context.Context, name string, rawArgs json.RawMe
 		if strings.TrimSpace(skillName) == "" {
 			return "Error: missing 'skill' argument for list_skill_files", nil
 		}
-		sk, ok := s.findSkillByName(skillName)
+		sk, ok := s.findSkillByNameIn(skillName, allowed)
 		if !ok {
 			return fmt.Sprintf("Error: skill %q not found in <available_skills>", skillName), nil
 		}
@@ -709,7 +750,7 @@ func (s *Server) runSkillTool(_ context.Context, name string, rawArgs json.RawMe
 		if strings.TrimSpace(relPath) == "" {
 			return "Error: missing 'path' argument for read_skill_file", nil
 		}
-		sk, ok := s.findSkillByName(skillName)
+		sk, ok := s.findSkillByNameIn(skillName, allowed)
 		if !ok {
 			return fmt.Sprintf("Error: skill %q not found in <available_skills>", skillName), nil
 		}

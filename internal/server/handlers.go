@@ -2577,8 +2577,9 @@ type chatRequestBody struct {
 	Options     map[string]any       `json:"options,omitempty"`
 	WebTools    *bool                `json:"web_tools,omitempty"`
 	Artifacts   *bool                `json:"artifacts,omitempty"`
-	Skills      *bool                `json:"skills,omitempty"`
-	MCP         *bool                `json:"mcp,omitempty"`
+	Skills         *bool                `json:"skills,omitempty"`
+	SelectedSkills *[]string            `json:"selected_skills"`
+	MCP            *bool                `json:"mcp,omitempty"`
 	MCPServers  []string             `json:"mcp_servers,omitempty"`
 	ArtifactDir string               `json:"artifact_dir,omitempty"`
 	Width       int                  `json:"width,omitempty"`

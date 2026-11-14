@@ -176,10 +176,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 	startedAt := time.Now()
 	comfyOn := s.comfyToolEnabled(body)
 	ragOn := s.ragAgentEnabled(ctx, body)
-	var skills []DiscoveredSkill
-	if body.Skills != nil && *body.Skills {
-		skills = s.listDiscoveredSkills()
-	}
+	skills := s.selectedSkillsForChat(body)
 	skillsOn := len(skills) > 0
 	webOn := body.WebTools != nil && *body.WebTools
 	mcpOn := s.mcpEnabled(body)
@@ -388,7 +385,7 @@ func (s *Server) runWebToolAgentLoop(ctx context.Context, sink chatSink, body ch
 				if !skillsOn {
 					err = errors.New("skills are not enabled for this chat")
 				} else {
-					out, err = s.runSkillTool(ctx, n, tc.Function.Arguments)
+					out, err = s.runSkillToolWithAllowed(ctx, n, tc.Function.Arguments, skills)
 				}
 			} else if isWebTool(n) {
 				if body.WebTools == nil || !*body.WebTools {

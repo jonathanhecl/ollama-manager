@@ -2588,6 +2588,21 @@ let skillsCatalogCache = {
   loaded: false,
 };
 
+let chatSelectedSkills = new Set();
+
+function getSelectedChatSkills() {
+  if (!$("chat-skills")?.checked) return [];
+  const availableNames = new Set((skillsCatalogCache.skills || []).map((sk) => sk.name));
+  const out = [];
+  for (const name of chatSelectedSkills) {
+    if (!skillsCatalogCache.loaded || availableNames.has(name)) {
+      out.push(name);
+    }
+  }
+  out.sort();
+  return out;
+}
+
 async function refreshSkillsCatalog() {
   try {
     const data = await api("/api/skills");
@@ -2596,6 +2611,12 @@ async function refreshSkillsCatalog() {
       skills: Array.isArray(data?.skills) ? data.skills : [],
       loaded: true,
     };
+    const validNames = new Set(skillsCatalogCache.skills.map((sk) => sk.name));
+    for (const name of [...chatSelectedSkills]) {
+      if (!validNames.has(name)) {
+        chatSelectedSkills.delete(name);
+      }
+    }
   } catch (err) {
     console.warn("Failed to load skills catalog:", err);
   }
@@ -2604,22 +2625,114 @@ async function refreshSkillsCatalog() {
   return skillsCatalogCache;
 }
 
+function renderChatSkillsPanel() {
+  const wrap = $("chat-skills-wrap");
+  const toggle = $("chat-skills");
+  const panel = $("chat-skills-panel");
+  const list = $("chat-skills-list");
+  if (!panel || !list) return;
+
+  const showPanel = Boolean(wrap && !wrap.hidden && toggle?.checked);
+  panel.hidden = !showPanel;
+  if (!showPanel) return;
+
+  if (!skillsCatalogCache.loaded) {
+    list.innerHTML = "";
+    const loadingEl = document.createElement("div");
+    loadingEl.className = "chat-mcp-empty";
+    loadingEl.textContent = "…";
+    list.appendChild(loadingEl);
+    void refreshSkillsCatalog();
+    return;
+  }
+
+  const skills = Array.isArray(skillsCatalogCache.skills) ? skillsCatalogCache.skills : [];
+  list.innerHTML = "";
+  if (!skills.length) {
+    const emptyEl = document.createElement("div");
+    emptyEl.className = "chat-mcp-empty";
+    const msgSpan = document.createElement("span");
+    msgSpan.textContent = t("chat.skills_empty");
+    emptyEl.appendChild(msgSpan);
+
+    const cfgBtn = document.createElement("button");
+    cfgBtn.type = "button";
+    cfgBtn.className = "ghost chat-mcp-cfg-btn";
+    cfgBtn.textContent = t("chat.skills_configure_btn");
+    cfgBtn.addEventListener("click", () => {
+      if (typeof showSettingsView === "function") {
+        void showSettingsView("/settings/skills");
+      }
+    });
+    emptyEl.appendChild(cfgBtn);
+    list.appendChild(emptyEl);
+    return;
+  }
+
+  skills.forEach((sk) => {
+    const checked = chatSelectedSkills.has(sk.name);
+    const row = document.createElement("div");
+    row.className = `chat-mcp-item${checked ? " is-active" : ""}`;
+
+    const main = document.createElement("div");
+    main.className = "chat-mcp-item-main";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "chat-mcp-item-title";
+    titleEl.textContent = sk.name;
+    main.appendChild(titleEl);
+
+    if (sk.description) {
+      const metaEl = document.createElement("div");
+      metaEl.className = "chat-mcp-item-meta";
+      metaEl.textContent = sk.description;
+      metaEl.title = sk.description;
+      main.appendChild(metaEl);
+    }
+
+    const switchLabel = document.createElement("label");
+    switchLabel.className = "switch chat-mcp-item-switch";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "chat-skills-item-check";
+    input.dataset.skillName = sk.name;
+    input.checked = checked;
+    const slider = document.createElement("span");
+    slider.className = "switch-slider";
+    switchLabel.appendChild(input);
+    switchLabel.appendChild(slider);
+
+    row.appendChild(main);
+    row.appendChild(switchLabel);
+    list.appendChild(row);
+  });
+}
+
 function updateSkillsChatUI() {
   const wrap = $("chat-skills-wrap");
   const toggle = $("chat-skills");
   const badge = $("chat-skills-count-badge");
-  const count = skillsCatalogCache.skills.length;
+  const totalCount = skillsCatalogCache.skills.length;
+  const selectedCount = getSelectedChatSkills().length;
+
   if (badge) {
-    badge.textContent = String(count);
-    badge.hidden = !skillsCatalogCache.loaded;
+    if (toggle?.checked && totalCount > 0) {
+      badge.textContent = `${selectedCount}/${totalCount}`;
+      badge.hidden = false;
+    } else if (skillsCatalogCache.loaded) {
+      badge.textContent = String(totalCount);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
   }
   const navBadge = $("skills-nav-badge");
   if (navBadge) {
-    navBadge.textContent = String(count);
-    navBadge.hidden = count === 0;
+    navBadge.textContent = String(totalCount);
+    navBadge.hidden = totalCount === 0;
   }
   if (wrap) {
-    if (skillsCatalogCache.loaded && count === 0) {
+    if (skillsCatalogCache.loaded && totalCount === 0) {
       wrap.title = t("chat.skills_empty_hint");
     } else {
       wrap.title = t("chat.skills_hint");
@@ -2627,6 +2740,81 @@ function updateSkillsChatUI() {
   }
   if (toggle && wrap) {
     toggle.title = wrap.title;
+  }
+
+  renderChatSkillsPanel();
+}
+
+async function chatSkillsSyncSession() {
+  if (typeof chatSessionId === "undefined" || !chatSessionId) return;
+  const skillsOn = Boolean($("chat-skills")?.checked);
+  const selectedSkills = skillsOn ? getSelectedChatSkills() : [];
+  try {
+    await api(`/api/chat/sessions/${encodeURIComponent(chatSessionId)}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skills: skillsOn, selected_skills: selectedSkills }),
+    });
+  } catch (err) {
+    toast(String(err && err.message ? err.message : err), "error");
+  }
+}
+
+function chatSkillsSetEnabled(enabled, saveModelOptions = true) {
+  const nextOn = Boolean(enabled);
+  const toggle = $("chat-skills");
+  if (toggle) toggle.checked = nextOn;
+  // Toggling Skills interactively starts with every discovered skill at false.
+  chatSelectedSkills.clear();
+  updateSkillsChatUI();
+  if (saveModelOptions && typeof saveChatOptionsForCurrentModel === "function") {
+    saveChatOptionsForCurrentModel();
+  }
+  void chatSkillsSyncSession();
+}
+
+function applyChatSkillsOptions(opts) {
+  const skillsOn = Boolean(opts?.skills);
+  chatSelectedSkills = new Set(
+    skillsOn && Array.isArray(opts?.selected_skills)
+      ? opts.selected_skills.map((s) => String(s || "").trim()).filter(Boolean)
+      : []
+  );
+  const toggle = $("chat-skills");
+  if (toggle) {
+    toggle.checked = skillsOn;
+  }
+  updateSkillsChatUI();
+}
+
+function bindSkillsControls() {
+  const chatToggle = $("chat-skills");
+  const chatList = $("chat-skills-list");
+
+  if (chatToggle && !chatToggle._bound) {
+    chatToggle._bound = true;
+    chatToggle.addEventListener("change", () => {
+      chatSkillsSetEnabled(chatToggle.checked, true);
+    });
+  }
+  if (chatList && !chatList._bound) {
+    chatList._bound = true;
+    chatList.addEventListener("change", (ev) => {
+      const target = ev.target;
+      if (!target || !target.classList || !target.classList.contains("chat-skills-item-check")) return;
+      const name = target.dataset.skillName;
+      if (!name) return;
+      if (target.checked) {
+        chatSelectedSkills.add(name);
+      } else {
+        chatSelectedSkills.delete(name);
+      }
+      updateSkillsChatUI();
+      if (typeof saveChatOptionsForCurrentModel === "function") {
+        saveChatOptionsForCurrentModel();
+      }
+      void chatSkillsSyncSession();
+    });
   }
 }
 
@@ -2821,6 +3009,7 @@ function skillsSettingsInit(cfg) {
 
 if (typeof document !== "undefined") {
   const initSkillsBoot = () => {
+    bindSkillsControls();
     refreshSkillsCatalog().catch(() => {});
   };
   if (document.readyState === "loading") {

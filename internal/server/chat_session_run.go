@@ -264,6 +264,10 @@ func (s *Server) buildSessionBody(ctx context.Context, sess *ChatSession, caps s
 	if st.Skills && caps.CanTools && !caps.IsImage {
 		yes := true
 		body.Skills = &yes
+		if st.SelectedSkills != nil {
+			cp := append([]string{}, *st.SelectedSkills...)
+			body.SelectedSkills = &cp
+		}
 	}
 	if st.MCP && len(st.MCPServers) > 0 && caps.CanTools && !caps.IsImage {
 		yes := true

@@ -4792,6 +4792,7 @@ function getCurrentChatOptions() {
     web_tools: $("chat-web-tools")?.checked ?? false,
     artifacts: $("chat-artifacts")?.checked ?? false,
     skills: $("chat-skills")?.checked ?? false,
+    selected_skills: ($("chat-skills")?.checked && typeof getSelectedChatSkills === "function") ? getSelectedChatSkills() : [],
     mcp: $("chat-mcp")?.checked ?? false,
     mcp_servers: ($("chat-mcp")?.checked && typeof getSelectedChatMcpServers === "function") ? getSelectedChatMcpServers() : [],
     rag_enabled: typeof chatRagOptionPayload === "function" ? chatRagOptionPayload().rag_enabled : !!chatRagEnabled,
@@ -4876,6 +4877,9 @@ function areChatOptionsDefault(modelName, opts) {
     if (Boolean(current.web_tools) !== Boolean(defaults.web_tools)) return false;
     if (Boolean(current.artifacts) !== Boolean(defaults.artifacts)) return false;
     if (Boolean(current.skills) !== Boolean(defaults.skills)) return false;
+    const curSkills = Array.isArray(current.selected_skills) ? current.selected_skills : [];
+    const defSkills = Array.isArray(defaults.selected_skills) ? defaults.selected_skills : [];
+    if (curSkills.length !== defSkills.length || curSkills.some((x, idx) => x !== defSkills[idx])) return false;
     if (Boolean(current.mcp) !== Boolean(defaults.mcp)) return false;
     const curMcp = Array.isArray(current.mcp_servers) ? current.mcp_servers : [];
     const defMcp = Array.isArray(defaults.mcp_servers) ? defaults.mcp_servers : [];
@@ -4959,6 +4963,7 @@ function resetModelChatOptionsToDefaults() {
   }
 
   if (typeof chatRagSetEnabled === "function") chatRagSetEnabled(false, false);
+  if (typeof chatSkillsSetEnabled === "function") chatSkillsSetEnabled(false, false);
   if (typeof chatMcpSetEnabled === "function") chatMcpSetEnabled(false, false);
   void applyChatDefaultsForModel(modelName, true);
   updateChatCustomOptionsBadge();
@@ -4974,6 +4979,7 @@ function resetAllModelChatOptionsToDefaults() {
 
   const activeChatModel = $("chat-model")?.value;
   if (typeof chatRagSetEnabled === "function") chatRagSetEnabled(false, false);
+  if (typeof chatSkillsSetEnabled === "function") chatSkillsSetEnabled(false, false);
   if (typeof chatMcpSetEnabled === "function") chatMcpSetEnabled(false, false);
   if (activeChatModel) {
     void applyChatDefaultsForModel(activeChatModel, true);
@@ -5010,7 +5016,9 @@ function setChatOptionsValues(opts) {
   if (opts.artifacts !== undefined && $("chat-artifacts")) {
     $("chat-artifacts").checked = !!opts.artifacts;
   }
-  if (opts.skills !== undefined && $("chat-skills")) {
+  if (typeof applyChatSkillsOptions === "function") {
+    applyChatSkillsOptions(opts);
+  } else if (opts.skills !== undefined && $("chat-skills")) {
     $("chat-skills").checked = !!opts.skills;
   }
   if (typeof applyChatMcpOptions === "function") {
@@ -5796,6 +5804,7 @@ async function runChatRequest(assistantMsg) {
   const webToolsOn = !isImageModel && canTools && $("chat-web-tools").checked;
   const artifactsOn = !isImageModel && canTools && $("chat-artifacts").checked;
   const skillsOn = !isImageModel && canTools && Boolean($("chat-skills")?.checked);
+  const selectedSkills = skillsOn && typeof getSelectedChatSkills === "function" ? getSelectedChatSkills() : [];
   const mcpOn = !isImageModel && canTools && Boolean($("chat-mcp")?.checked);
   const mcpServers = mcpOn && typeof getSelectedChatMcpServers === "function" ? getSelectedChatMcpServers() : [];
 
@@ -5831,7 +5840,10 @@ async function runChatRequest(assistantMsg) {
     ...imageParams,
   };
   if (webToolsOn) payload.web_tools = true;
-  if (skillsOn) payload.skills = true;
+  if (skillsOn) {
+    payload.skills = true;
+    payload.selected_skills = selectedSkills;
+  }
   if (mcpOn) {
     payload.mcp = true;
     payload.mcp_servers = mcpServers;

@@ -69,7 +69,7 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **A
 
 - **Agent Skills (`agentskills.io`)**:
   - **Multi-Directory Discovery** (⚙ Settings → Skills): configure one or more skill folders (`skills.directories`, supporting absolute paths, `~/`, and paths relative to `config.json`) containing `SKILL.md` skills with optional `references/`, `scripts/`, and `assets/` subdirectories.
-  - **Full Catalog & Progressive Disclosure**: enabling **Skills** in Chat (for any `tools`-capable model) automatically injects the entire discovered `<available_skills>` catalog into the system prompt and exposes sandboxed consultation tools (`load_skill`, `list_skill_files`, `read_skill_file`) with path-traversal, symlink-escape, and binary-file protection.
+  - **Per-Chat Selective Activation & Progressive Disclosure**: turning on **Skills** in Chat (for any `tools`-capable model) reveals the discovered skills all initialized to `false`, letting you enable only the specific skills for that chat (both in direct chats and persistent background sessions). Only the selected `<available_skills>` catalog is injected into the system prompt and exposed via sandboxed consultation tools (`load_skill`, `list_skill_files`, `read_skill_file`) with path-traversal, symlink-escape, and binary-file protection.
   - **Read-Only vs. Agent Mode Execution**: when `Agent Mode` is off, models can only consult skills (and combine them with **Internet** `web_search`/`web_fetch` when enabled) with zero disk writes or command execution; when `Agent Mode` is on, models can combine skill instructions with the isolated agent workspace (`write_file`, `replace_in_file`, `read_file`, `list_dir`, `exec`, `create_artifact`, etc.).
 
 - **MCP (Model Context Protocol) Client**:

@@ -23,17 +23,18 @@ type sessionSettingsInput struct {
 	ThinkLevel  any `json:"think_level"`
 	WebTools    any `json:"web_tools"`
 	Artifacts   any `json:"artifacts"`
-	Skills      any `json:"skills"`
-	MCP         any `json:"mcp"`
-	MCPServers  any `json:"mcp_servers"`
-	RAGEnabled  any `json:"rag_enabled"`
-	RAGPaths    any `json:"rag_paths"`
-	RAGEditable any `json:"rag_editable"`
-	ImageWidth  any `json:"image_width"`
-	ImageHeight any `json:"image_height"`
-	ImageSteps  any `json:"image_steps"`
-	ImageSeed   any `json:"image_seed"`
-	Comfy       any `json:"comfy"`
+	Skills         any `json:"skills"`
+	SelectedSkills any `json:"selected_skills"`
+	MCP            any `json:"mcp"`
+	MCPServers     any `json:"mcp_servers"`
+	RAGEnabled     any `json:"rag_enabled"`
+	RAGPaths       any `json:"rag_paths"`
+	RAGEditable    any `json:"rag_editable"`
+	ImageWidth     any `json:"image_width"`
+	ImageHeight    any `json:"image_height"`
+	ImageSteps     any `json:"image_steps"`
+	ImageSeed      any `json:"image_seed"`
+	Comfy          any `json:"comfy"`
 	// ComfyWorkflow is the id (or empty for "let the model choose") of the workflow
 	// this session should use by default.
 	ComfyWorkflow any `json:"comfy_workflow"`
@@ -89,6 +90,13 @@ func (in sessionSettingsInput) mergeInto(dst SessionSettings) SessionSettings {
 	}
 	if in.Skills != nil {
 		dst.Skills = sessionOptBool(in.Skills)
+	}
+	if in.SelectedSkills != nil {
+		list := sessionOptSelectedSkills(in.SelectedSkills)
+		dst.SelectedSkills = &list
+	}
+	if !dst.Skills {
+		dst.SelectedSkills = nil
 	}
 	if in.MCP != nil {
 		dst.MCP = sessionOptBool(in.MCP)
@@ -281,9 +289,12 @@ func filterRAGEditable(editable, paths []string) []string {
 	return out
 }
 
-const maxSessionMCPServers = 32
+const (
+	maxSessionMCPServers = 32
+	maxSessionSkills     = 128
+)
 
-func sessionOptMCPServers(v any) []string {
+func sessionOptStringList(v any, maxItems int) []string {
 	var raw []any
 	switch t := v.(type) {
 	case []any:
@@ -295,11 +306,11 @@ func sessionOptMCPServers(v any) []string {
 		}
 	case string:
 		if strings.TrimSpace(t) == "" {
-			return nil
+			return []string{}
 		}
 		raw = []any{t}
 	default:
-		return nil
+		return []string{}
 	}
 	out := make([]string, 0, len(raw))
 	seen := make(map[string]bool, len(raw))
@@ -310,14 +321,23 @@ func sessionOptMCPServers(v any) []string {
 		}
 		seen[name] = true
 		out = append(out, name)
-		if len(out) >= maxSessionMCPServers {
+		if maxItems > 0 && len(out) >= maxItems {
 			break
 		}
 	}
+	return out
+}
+
+func sessionOptMCPServers(v any) []string {
+	out := sessionOptStringList(v, maxSessionMCPServers)
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func sessionOptSelectedSkills(v any) []string {
+	return sessionOptStringList(v, maxSessionSkills)
 }
 
 type createSessionRequest struct {

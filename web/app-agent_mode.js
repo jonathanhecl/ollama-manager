@@ -1384,7 +1384,6 @@ function bindChatEvents() {
     "chat-think-level",
     "chat-web-tools",
     "chat-artifacts",
-    "chat-skills",
     "chat-image-width",
     "chat-image-height",
     "chat-image-steps",

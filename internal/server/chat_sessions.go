@@ -160,8 +160,9 @@ type SessionSettings struct {
 	ThinkLevel  string  `json:"think_level,omitempty"`
 	WebTools    bool     `json:"web_tools"`
 	Artifacts   bool     `json:"artifacts"`
-	Skills      bool     `json:"skills"`
-	MCP         bool     `json:"mcp"`
+	Skills         bool      `json:"skills"`
+	SelectedSkills *[]string `json:"selected_skills"`
+	MCP            bool      `json:"mcp"`
 	MCPServers  []string `json:"mcp_servers,omitempty"`
 	// RAGEnabled is the chat-side switch. RAGPaths stores only the safe .db
 	// filenames inside the configured RAG directory, so reopening a session can

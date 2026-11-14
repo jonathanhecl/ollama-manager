@@ -403,7 +403,7 @@
             <span class="switch-slider"></span>
           </label>
         </div>
-        <div id="chat-skills-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.skills_hint" title="Give the model access to all configured Agent Skills (read-only unless Agent Mode is enabled).">
+        <div id="chat-skills-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.skills_hint" title="Give the model access to selected Agent Skills (read-only unless Agent Mode is enabled).">
           <div class="switch-label">
             <div class="switch-title-row">
               <span data-i18n="chat.skills">Skills</span>
@@ -411,9 +411,12 @@
             </div>
           </div>
           <label class="switch">
-            <input id="chat-skills" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.skills_hint" title="Give the model access to all configured Agent Skills (read-only unless Agent Mode is enabled).">
+            <input id="chat-skills" type="checkbox" autocomplete="off" data-i18n-attr="title" data-i18n="chat.skills_hint" title="Give the model access to selected Agent Skills (read-only unless Agent Mode is enabled).">
             <span class="switch-slider"></span>
           </label>
+        </div>
+        <div id="chat-skills-panel" class="chat-mcp-panel" hidden>
+          <div id="chat-skills-list" class="chat-mcp-list"></div>
         </div>
         <div id="chat-mcp-wrap" class="field switch-field" hidden data-i18n-attr="title" data-i18n="chat.mcp_hint" title="Connect to selected MCP servers configured in Settings → MCP.">
           <div class="switch-label">

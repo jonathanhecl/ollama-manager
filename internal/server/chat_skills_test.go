@@ -469,3 +469,99 @@ func TestSkillsInArtifactAgentLoop(t *testing.T) {
 		t.Fatalf("artifact content = %q", string(written))
 	}
 }
+
+func TestSelectiveSkillsPerChatAndSession(t *testing.T) {
+	fake := newFakeOllamaRAGAgent()
+	defer fake.Close()
+	srv := newTestServer(t, fake.srv.URL)
+	fake2 := newFakeOllamaRAGAgent()
+	defer fake2.Close()
+	srv2 := newTestServer(t, fake2.srv.URL)
+	t.Chdir(t.TempDir())
+
+	skillsRoot := filepath.Join(t.TempDir(), "skills")
+	writeTestSkillFile(t, filepath.Join(skillsRoot, "brand-voice", "SKILL.md"), "---\nname: brand-voice\ndescription: Company tone rules.\n---\nUse friendly tone.\n")
+	writeTestSkillFile(t, filepath.Join(skillsRoot, "code-review", "SKILL.md"), "---\nname: code-review\ndescription: PR checklist.\n---\nCheck tests.\n")
+
+	srv.cfgMu.Lock()
+	srv.cfg.Skills.Directories = []string{skillsRoot}
+	srv.cfgMu.Unlock()
+	srv2.cfgMu.Lock()
+	srv2.cfg.Skills.Directories = []string{skillsRoot}
+	srv2.cfgMu.Unlock()
+
+	// 1. Explicit empty selected_skills disables skills in /api/chat.
+	fake.chatSteps = []ragAgentChatStep{{content: "plain reply"}}
+	code, sse := postChat(t, srv, map[string]any{
+		"model":           "chat-model:latest",
+		"messages":        []map[string]any{{"role": "user", "content": "hi"}},
+		"skills":          true,
+		"selected_skills": []string{},
+	})
+	if code != http.StatusOK || !strings.Contains(sse, "plain reply") {
+		t.Fatalf("empty selected_skills chat failed: %d %q", code, sse)
+	}
+	reqs := fake.chatRequests()
+	if len(reqs) != 1 || strings.Contains(reqs[0].Messages[0].Content, "<available_skills>") || len(ragAgentToolNames(reqs[0])) != 0 {
+		t.Fatalf("expected plain chat without skills when selected_skills=[], got %+v", reqs)
+	}
+
+	// 2. Selecting only brand-voice hides code-review from catalog AND blocks load_skill("code-review").
+	fake2.chatSteps = []ragAgentChatStep{
+		{toolName: "load_skill", toolArgs: map[string]any{"name": "code-review"}},
+		{toolName: "load_skill", toolArgs: map[string]any{"name": "brand-voice"}},
+		{content: "done"},
+	}
+	code, _ = postChat(t, srv2, map[string]any{
+		"model":           "chat-model:latest",
+		"messages":        []map[string]any{{"role": "user", "content": "write copy"}},
+		"skills":          true,
+		"selected_skills": []string{"brand-voice"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("selective skills chat status = %d", code)
+	}
+	reqs = fake2.chatRequests()
+	if len(reqs) != 3 {
+		t.Fatalf("chat requests = %d, want 3", len(reqs))
+	}
+	sysContent := reqs[0].Messages[0].Content
+	if !strings.Contains(sysContent, "<name>brand-voice</name>") || strings.Contains(sysContent, "<name>code-review</name>") {
+		t.Fatalf("catalog should contain only brand-voice, got: %q", sysContent)
+	}
+	if blocked := lastToolContent(reqs[1], "load_skill"); !strings.Contains(blocked, "not found") {
+		t.Fatalf("expected unselected skill to be blocked, got %q", blocked)
+	}
+	if allowed := lastToolContent(reqs[2], "load_skill"); !strings.Contains(allowed, "Use friendly tone.") {
+		t.Fatalf("expected selected skill to load, got %q", allowed)
+	}
+
+	// 3. Session settings PATCH + JSON round-trip preserves empty vs selected skills.
+	sess := srv.chatSessions.Create("chat-model:latest", defaultSessionSettings())
+
+	patchBody := `{"skills":true,"selected_skills":[]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/"+sess.ID+"/settings", strings.NewReader(patchBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH settings status = %d: %s", rr.Code, rr.Body.String())
+	}
+
+	got := srv.chatSessions.Get(sess.ID)
+	if got == nil || !got.Settings.Skills || got.Settings.SelectedSkills == nil || len(*got.Settings.SelectedSkills) != 0 {
+		t.Fatalf("expected Skills=true and non-nil empty SelectedSkills, got %+v", got)
+	}
+	raw, err := json.Marshal(got.Settings)
+	if err != nil {
+		t.Fatalf("marshal SessionSettings: %v", err)
+	}
+	var roundTrip SessionSettings
+	if err := json.Unmarshal(raw, &roundTrip); err != nil {
+		t.Fatalf("unmarshal SessionSettings: %v", err)
+	}
+	if !roundTrip.Skills || roundTrip.SelectedSkills == nil || len(*roundTrip.SelectedSkills) != 0 {
+		t.Fatalf("expected Skills=true and non-nil empty SelectedSkills after JSON round-trip, got %+v (json=%s)", roundTrip, string(raw))
+	}
+}
+

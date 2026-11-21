@@ -201,6 +201,19 @@ async function doHFSearch(query, append = false) {
   }
 }
 
+function hfListHeadInnerHTML() {
+  return `
+      <span class="hf-col hf-col-model">${escapeHtml(t("col.name"))}</span>
+      <span class="hf-col hf-col-quants">${escapeHtml(t("hf.col_quants"))}</span>
+      <span class="hf-col hf-col-record">${escapeHtml(t("hf.col_record"))}</span>
+      <span class="hf-col hf-col-bench">${escapeHtml(t("hf.col_bench"))}</span>
+      <span class="hf-col hf-col-updated">${escapeHtml(t("hf.col_updated"))}</span>
+      <span class="hf-col hf-col-downloads">${escapeHtml(t("hf.col_downloads"))}</span>
+      <span class="hf-col hf-col-likes">${escapeHtml(t("hf.col_likes"))}</span>
+      <span class="hf-col hf-col-link"></span>
+  `;
+}
+
 function renderHFModelsList() {
   const listEl = $("hf-models-list");
   const emptyEl = $("hf-empty");
@@ -236,18 +249,74 @@ function renderHFModelsList() {
   }
   if (emptyEl) emptyEl.hidden = true;
 
-  const headHTML = `
-    <div class="hf-list-head" aria-hidden="true">
-      <span class="hf-col hf-col-model">${escapeHtml(t("col.name"))}</span>
-      <span class="hf-col hf-col-quants">${escapeHtml(t("hf.col_quants"))}</span>
-      <span class="hf-col hf-col-record">${escapeHtml(t("hf.col_record"))}</span>
-      <span class="hf-col hf-col-bench">${escapeHtml(t("hf.col_bench"))}</span>
-      <span class="hf-col hf-col-updated">${escapeHtml(t("hf.col_updated"))}</span>
-      <span class="hf-col hf-col-downloads">${escapeHtml(t("hf.col_downloads"))}</span>
-      <span class="hf-col hf-col-likes">${escapeHtml(t("hf.col_likes"))}</span>
-      <span class="hf-col hf-col-link"></span>
-    </div>`;
-  listEl.innerHTML = headHTML + filtered.map((m) => hfModelCardHTML(m)).join("");
+  const seenIds = new Set();
+  const ordered = [];
+  for (const m of filtered) {
+    const id = String(m.id || "");
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    ordered.push(m);
+  }
+
+  const lang = typeof window !== "undefined" && window.I18n && typeof window.I18n.getLang === "function"
+    ? window.I18n.getLang()
+    : "";
+  let headEl = listEl.firstElementChild;
+  if (!headEl || !headEl.classList.contains("hf-list-head")) {
+    headEl = document.createElement("div");
+    headEl.className = "hf-list-head";
+    headEl.setAttribute("aria-hidden", "true");
+    headEl.dataset.hfLang = lang;
+    headEl.innerHTML = hfListHeadInnerHTML();
+    listEl.insertBefore(headEl, listEl.firstElementChild || null);
+  } else if (headEl.dataset.hfLang !== lang) {
+    headEl.dataset.hfLang = lang;
+    headEl.innerHTML = hfListHeadInnerHTML();
+  }
+
+  // Remove obsolete cards before positioning so surviving cards stay in place
+  // and do not get shifted via insertBefore (which restarts CSS animations).
+  const existingCards = new Map();
+  for (const child of [...listEl.children]) {
+    if (child === headEl) continue;
+    if (!child.classList.contains("hf-model-row")) {
+      child.remove();
+      continue;
+    }
+    const repoId = child.dataset.repoId;
+    if (!repoId || !seenIds.has(repoId) || existingCards.has(repoId)) {
+      child.remove();
+      continue;
+    }
+    existingCards.set(repoId, child);
+  }
+
+  let cursor = headEl.nextElementSibling;
+  for (const m of ordered) {
+    const data = hfModelCardData(m);
+    let card = existingCards.get(data.repoId);
+    if (card && card.dataset.hfTitleSig === data.titleSig) {
+      if (card.dataset.hfSig !== data.sig) {
+        patchHFModelCard(card, data);
+      }
+    } else {
+      if (card) card.remove();
+      const holder = document.createElement("div");
+      holder.innerHTML = hfModelCardHTMLFromData(data).trim();
+      card = holder.firstElementChild;
+    }
+    if (card !== cursor) {
+      listEl.insertBefore(card, cursor || null);
+    } else {
+      cursor = cursor.nextElementSibling;
+    }
+  }
+  while (cursor) {
+    const next = cursor.nextElementSibling;
+    cursor.remove();
+    cursor = next;
+  }
+
   if (loadMoreWrap) {
     loadMoreWrap.hidden = !hfHasMore;
   }
@@ -489,15 +558,17 @@ function isHFQuantDownloading(pullName) {
   return { isDownloading, isQueued };
 }
 
-function hfModelCardHTML(m) {
-  const author = escapeHtml(m.author || m.id.split("/")[0] || "");
-  const name = escapeHtml(m.name || m.id);
+function hfModelCardData(m) {
+  const repoId = String(m.id || "");
+  const rawAuthor = m.author || repoId.split("/")[0] || "";
+  const rawName = m.name || repoId;
+  const author = escapeHtml(rawAuthor);
+  const name = escapeHtml(rawName);
   const dlCount = Number(m.downloads || 0).toLocaleString();
   const likesCount = Number(m.likes || 0).toLocaleString();
   const rawUpdated = m.last_modified && !m.last_modified.startsWith("0001") ? m.last_modified : null;
   const updatedRelTime = rawUpdated ? fmtRelativeTime(rawUpdated) : "";
   const updatedFullDate = rawUpdated ? fmtDateTimeFull(rawUpdated) : "";
-  const updatedLabel = updatedRelTime && updatedRelTime !== "—" ? (t("hf.updated", { time: updatedRelTime }) || updatedRelTime) : "";
   const updatedTooltip = updatedFullDate && updatedFullDate !== "—" ? (t("hf.updated", { time: updatedFullDate }) || updatedFullDate) : "";
 
   const installStatus = getHFModelInstallStatus(m.id);
@@ -524,11 +595,6 @@ function hfModelCardHTML(m) {
     statusTooltip = t("hf.status_had_tip", { count: installStatus.ghostCount });
   }
 
-  let statusTagHTML = "";
-  if (statusEmoji) {
-    statusTagHTML = `<span class="hf-status-tag" title="${escapeHtml(statusTooltip)}">${statusEmoji}</span>`;
-  }
-
   const qCountText = m.gguf_count > 0 ? t("hf.quants_tag", { n: m.gguf_count }) : t("hf.tag_gguf");
   const updatedCellText = updatedRelTime && updatedRelTime !== "—" ? updatedRelTime : "—";
 
@@ -540,7 +606,7 @@ function hfModelCardHTML(m) {
     ? `<span class="hf-chip hf-chip-bench" title="${escapeHtml(t("hf.bench_overall_label"))}"><span class="hf-row-perf-bench" style="${getHFBenchHeatStyle(installStatus.bestBench)}">🎯 ${installStatus.bestBench.toFixed(1)}</span></span>`
     : `<span class="hf-chip hf-chip-bench hf-chip-empty">—</span>`;
 
-  const hfUrl = `https://huggingface.co/${m.id.split("/").map(encodeURIComponent).join("/")}`;
+  const hfUrl = `https://huggingface.co/${repoId.split("/").map(encodeURIComponent).join("/")}`;
 
   const hfLinkHTML = `<a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="hf-ext-link hf-cell-link" title="${escapeHtml(t("hf.view_on_hf"))}" onclick="event.stopPropagation();">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -555,37 +621,143 @@ function hfModelCardHTML(m) {
   const gatedBadge = isGated ? `<span class="badge badge-warn" title="${escapeHtml(t("hf.gated_badge_tip"))}">${escapeHtml(t("hf.gated_badge"))}</span>` : "";
   const gatedKeyIcon = isGated ? `<span class="hf-gated-key" title="${escapeHtml(t("hf.gated_badge_tip"))}" aria-label="${escapeHtml(t("hf.gated_badge"))}">🔑</span>` : "";
 
-  // Columnar row: model columns are fixed-width cells so the values align
-  // across rows. On mobile the wrappers reflow into a compact card.
-  return `
-    <div class="${cardClass}" data-repo-id="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="${escapeHtml(m.id)}">
-      <div class="hf-cell-model">
-        <div class="hf-cell-model-line">
-          ${statusTagHTML}
-          <div class="hf-row-title-wrap">
-            <div class="hf-row-title-inner">
-              <span class="hf-row-author">${author}/</span>
-              <span class="hf-row-name">${name}</span>${gatedKeyIcon}
-            </div>
-          </div>
-        </div>
-        ${m.has_vision || isGated ? `<div class="hf-cell-caps hf-caps-desktop">${visionBadge}${gatedBadge}</div>` : ""}
-      </div>
-      <div class="hf-cell-chips">
+  const hasDesktopCaps = !!(m.has_vision || isGated);
+  const desktopCapsInnerHTML = `${visionBadge}${gatedBadge}`;
+  const chipsInnerHTML = `
         ${m.has_vision ? `<span class="hf-chip hf-chip-vision hf-caps-mobile">${visionBadge}</span>` : ""}
         ${isGated ? `<span class="hf-chip hf-chip-gated hf-caps-mobile">${gatedBadge}</span>` : ""}
         <span class="hf-chip hf-chip-quants" title="${escapeHtml(t("hf.quants_count", { n: m.gguf_count }) || qCountText)}"><span class="badge badge-subtle"><span class="hf-q-long">${escapeHtml(qCountText)}</span><span class="hf-q-short">${m.gguf_count}q</span></span></span>
         ${recordCell}
         ${benchCell}
-      </div>
-      <span class="hf-cell-updated hf-stat hf-stat-time muted" title="${escapeHtml(updatedTooltip)}"><span class="hf-stat-time-icon hf-cell-ico">🕒</span> <span class="hf-stat-time-text">${escapeHtml(updatedCellText)}</span></span>
-      <div class="hf-cell-footer">
+      `;
+  const footerInnerHTML = `
         <span class="hf-stat hf-stat-downloads" title="${dlCount} ${escapeHtml(t("hf.downloads_count", { n: dlCount }) || "downloads")}"><span class="hf-cell-ico">⬇️</span> ${dlCount}</span>
         <span class="hf-stat hf-stat-likes" title="${likesCount} ${escapeHtml(t("hf.likes_count", { n: likesCount }) || "likes")}"><span class="hf-cell-ico">❤️</span> ${likesCount}</span>
         ${hfLinkHTML}
+      `;
+
+  const lang = typeof window !== "undefined" && window.I18n && typeof window.I18n.getLang === "function"
+    ? window.I18n.getLang()
+    : "";
+  const titleSig = JSON.stringify([rawAuthor, rawName, isGated ? 1 : 0]);
+  const sig = JSON.stringify([
+    cardClass,
+    statusEmoji,
+    statusTooltip,
+    qCountText,
+    m.gguf_count || 0,
+    installStatus.bestTps || 0,
+    installStatus.bestBench ?? null,
+    updatedCellText,
+    updatedTooltip,
+    dlCount,
+    likesCount,
+    m.has_vision ? 1 : 0,
+    isGated ? 1 : 0,
+    lang,
+  ]);
+
+  return {
+    repoId,
+    author,
+    name,
+    cardClass,
+    statusEmoji,
+    statusTooltip,
+    titleSig,
+    sig,
+    chipsInnerHTML,
+    updatedCellText,
+    updatedTooltip,
+    footerInnerHTML,
+    desktopCapsInnerHTML,
+    hasDesktopCaps,
+    gatedKeyIcon,
+  };
+}
+
+function hfModelCardHTMLFromData(data) {
+  const statusTagHTML = data.statusEmoji
+    ? `<span class="hf-status-tag" title="${escapeHtml(data.statusTooltip)}">${data.statusEmoji}</span>`
+    : "";
+
+  // Columnar row: model columns are fixed-width cells so the values align
+  // across rows. On mobile the wrappers reflow into a compact card.
+  return `
+    <div class="${data.cardClass}" data-repo-id="${escapeHtml(data.repoId)}" data-hf-sig="${escapeHtml(data.sig)}" data-hf-title-sig="${escapeHtml(data.titleSig)}" role="button" tabindex="0" aria-label="${escapeHtml(data.repoId)}">
+      <div class="hf-cell-model">
+        <div class="hf-cell-model-line">
+          ${statusTagHTML}
+          <div class="hf-row-title-wrap">
+            <div class="hf-row-title-inner">
+              <span class="hf-row-author">${data.author}/</span>
+              <span class="hf-row-name">${data.name}</span>${data.gatedKeyIcon}
+            </div>
+          </div>
+        </div>
+        ${data.hasDesktopCaps ? `<div class="hf-cell-caps hf-caps-desktop">${data.desktopCapsInnerHTML}</div>` : ""}
       </div>
+      <div class="hf-cell-chips">${data.chipsInnerHTML}</div>
+      <span class="hf-cell-updated hf-stat hf-stat-time muted" title="${escapeHtml(data.updatedTooltip)}"><span class="hf-stat-time-icon hf-cell-ico">🕒</span> <span class="hf-stat-time-text">${escapeHtml(data.updatedCellText)}</span></span>
+      <div class="hf-cell-footer">${data.footerInnerHTML}</div>
     </div>
   `;
+}
+
+function hfModelCardHTML(m) {
+  return hfModelCardHTMLFromData(hfModelCardData(m));
+}
+
+function patchHFModelCard(card, data) {
+  if (card.className !== data.cardClass) card.className = data.cardClass;
+  card.dataset.hfSig = data.sig;
+
+  const modelLine = card.querySelector(".hf-cell-model-line");
+  if (modelLine) {
+    let tagEl = modelLine.querySelector(".hf-status-tag");
+    if (data.statusEmoji) {
+      if (!tagEl) {
+        tagEl = document.createElement("span");
+        tagEl.className = "hf-status-tag";
+        const titleWrap = modelLine.querySelector(".hf-row-title-wrap");
+        modelLine.insertBefore(tagEl, titleWrap || null);
+      }
+      if (tagEl.textContent !== data.statusEmoji) tagEl.textContent = data.statusEmoji;
+      if (tagEl.title !== data.statusTooltip) tagEl.title = data.statusTooltip;
+    } else if (tagEl) {
+      tagEl.remove();
+    }
+  }
+
+  const cellModel = card.querySelector(".hf-cell-model");
+  if (cellModel) {
+    let desktopCaps = cellModel.querySelector(".hf-cell-caps.hf-caps-desktop");
+    if (data.hasDesktopCaps) {
+      if (!desktopCaps) {
+        desktopCaps = document.createElement("div");
+        desktopCaps.className = "hf-cell-caps hf-caps-desktop";
+        cellModel.appendChild(desktopCaps);
+      }
+      desktopCaps.innerHTML = data.desktopCapsInnerHTML;
+    } else if (desktopCaps) {
+      desktopCaps.remove();
+    }
+  }
+
+  const chipsEl = card.querySelector(".hf-cell-chips");
+  if (chipsEl) chipsEl.innerHTML = data.chipsInnerHTML;
+
+  const updatedEl = card.querySelector(".hf-cell-updated");
+  if (updatedEl) {
+    if (updatedEl.title !== data.updatedTooltip) updatedEl.title = data.updatedTooltip;
+    const updatedTextEl = updatedEl.querySelector(".hf-stat-time-text");
+    if (updatedTextEl && updatedTextEl.textContent !== data.updatedCellText) {
+      updatedTextEl.textContent = data.updatedCellText;
+    }
+  }
+
+  const footerEl = card.querySelector(".hf-cell-footer");
+  if (footerEl) footerEl.innerHTML = data.footerInnerHTML;
 }
 
 async function openHFModelDetail(repoId) {
@@ -791,6 +963,7 @@ function renderHFQuantsTable(m) {
 
   const ggufFiles = Array.isArray(m.gguf_files) ? m.gguf_files : [];
   if (ggufFiles.length === 0) {
+    delete tbody.dataset.hfRepoId;
     renderHFQuantsSummary([]);
     tbody.innerHTML = `
       <tr>
@@ -861,7 +1034,11 @@ function renderHFQuantsTable(m) {
 
   renderHFQuantsSummary(rows);
 
-  tbody.innerHTML = rows.map((row) => {
+  const lang = typeof window !== "undefined" && window.I18n && typeof window.I18n.getLang === "function"
+    ? window.I18n.getLang()
+    : "";
+
+  const rowEntries = rows.map((row) => {
     const f = row.file;
     const fit = row.fit;
     const pullName = row.pullName;
@@ -913,8 +1090,12 @@ function renderHFQuantsTable(m) {
     const rowClasses = ["hf-quant-row"];
     if (isRec) rowClasses.push("hf-row-recommended");
     if (isInstalled) rowClasses.push("hf-row-installed");
+    const rowClass = rowClasses.join(" ");
     const hasPerf = (Number(usageRecord?.record_tokens_per_sec) > 0) || (typeof usageRecord?.bench_overall === "number" && isFinite(usageRecord?.bench_overall));
     const usageClass = hasPerf ? "hf-cell-usage has-perf" : "hf-cell-usage no-perf";
+    const usageHtml = hfQuantUsageHTML(usageRecord);
+    const fitHtml = `<span class="badge ${fit.badgeClass}" title="${escapeHtml(fit.label + " — " + fit.desc)}">${escapeHtml(fit.shortLabel || fit.label)}</span>`;
+    const sizeText = fmtBytes(f.size_bytes);
 
     // Other files sharing this quantization scheme (e.g. NEO vs NEO-MAX). HF
     // resolves the bare `:scheme` tag to this row's file only, so the rest are
@@ -927,27 +1108,108 @@ function renderHFQuantsTable(m) {
          </details>`
       : "";
 
-    return `
-      <tr class="${rowClasses.join(" ")}">
-        <td class="hf-cell-quant-file">
-          <div class="hf-quant-header-row">
-            <span class="hf-quant-name mono">${escapeHtml(f.quant)}</span>
-            ${quantBadges ? `<span class="hf-quant-badges">${quantBadges}</span>` : ""}
-          </div>
-          <div class="hf-filename-track" title="${escapeHtml(f.filename)}">
-            <span class="hf-filename-text mono">${escapeHtml(f.filename)}</span>
-          </div>
-          ${extraVariantsHtml}
-        </td>
-        <td class="hf-cell-size mono">${fmtBytes(f.size_bytes)}</td>
-        <td class="hf-cell-fit">
-          <span class="badge ${fit.badgeClass}" title="${escapeHtml(fit.label + " — " + fit.desc)}">${escapeHtml(fit.shortLabel || fit.label)}</span>
-        </td>
-        <td class="${usageClass}">${hfQuantUsageHTML(usageRecord)}</td>
-        <td class="hf-cell-action">${statusBtn}</td>
-      </tr>
-    `;
-  }).join("");
+    const rowSig = JSON.stringify([
+      rowClass,
+      quantBadges,
+      fit.badgeClass,
+      fit.label,
+      fit.desc,
+      fit.shortLabel || "",
+      sizeText,
+      usageClass,
+      usageHtml,
+      statusBtn,
+      lang,
+    ]);
+
+    return {
+      file: f,
+      pullName,
+      rowClass,
+      quantBadges,
+      fitHtml,
+      sizeText,
+      usageClass,
+      usageHtml,
+      statusBtn,
+      extraVariantsHtml,
+      rowSig,
+    };
+  });
+
+  const repoId = String(m.id || "");
+  const existingRows = [...tbody.querySelectorAll("tr.hf-quant-row")];
+  const canReuse =
+    tbody.dataset.hfRepoId === repoId &&
+    existingRows.length === rowEntries.length &&
+    rowEntries.every((entry, idx) =>
+      existingRows[idx].dataset.pullName === entry.pullName &&
+      existingRows[idx].dataset.hfQuantFilename === String(entry.file.filename || "")
+    );
+
+  if (canReuse) {
+    // Patch mutable cells in-place so .hf-filename-text marquees and open
+    // <details class="hf-extra-variants"> survive status/stats updates.
+    rowEntries.forEach((entry, idx) => {
+      const tr = existingRows[idx];
+      if (tr.dataset.hfQuantSig === entry.rowSig) return;
+      tr.className = entry.rowClass;
+      tr.dataset.hfQuantSig = entry.rowSig;
+
+      const headerRow = tr.querySelector(".hf-quant-header-row");
+      if (headerRow) {
+        let badgesEl = headerRow.querySelector(".hf-quant-badges");
+        if (entry.quantBadges) {
+          if (!badgesEl) {
+            badgesEl = document.createElement("span");
+            badgesEl.className = "hf-quant-badges";
+            headerRow.appendChild(badgesEl);
+          }
+          badgesEl.innerHTML = entry.quantBadges;
+        } else if (badgesEl) {
+          badgesEl.remove();
+        }
+      }
+
+      const sizeEl = tr.querySelector(".hf-cell-size");
+      if (sizeEl && sizeEl.textContent !== entry.sizeText) sizeEl.textContent = entry.sizeText;
+
+      const fitEl = tr.querySelector(".hf-cell-fit");
+      if (fitEl) fitEl.innerHTML = entry.fitHtml;
+
+      const usageEl = tr.querySelector(".hf-cell-usage");
+      if (usageEl) {
+        usageEl.className = entry.usageClass;
+        usageEl.innerHTML = entry.usageHtml;
+      }
+
+      const actionEl = tr.querySelector(".hf-cell-action");
+      if (actionEl) actionEl.innerHTML = entry.statusBtn;
+    });
+  } else {
+    tbody.dataset.hfRepoId = repoId;
+    tbody.innerHTML = rowEntries.map((entry) => {
+      const f = entry.file;
+      return `
+        <tr class="${entry.rowClass}" data-pull-name="${escapeHtml(entry.pullName)}" data-hf-quant-filename="${escapeHtml(f.filename || "")}" data-hf-quant-sig="${escapeHtml(entry.rowSig)}">
+          <td class="hf-cell-quant-file">
+            <div class="hf-quant-header-row">
+              <span class="hf-quant-name mono">${escapeHtml(f.quant)}</span>
+              ${entry.quantBadges ? `<span class="hf-quant-badges">${entry.quantBadges}</span>` : ""}
+            </div>
+            <div class="hf-filename-track" title="${escapeHtml(f.filename)}">
+              <span class="hf-filename-text mono">${escapeHtml(f.filename)}</span>
+            </div>
+            ${entry.extraVariantsHtml}
+          </td>
+          <td class="hf-cell-size mono">${entry.sizeText}</td>
+          <td class="hf-cell-fit">${entry.fitHtml}</td>
+          <td class="${entry.usageClass}">${entry.usageHtml}</td>
+          <td class="hf-cell-action">${entry.statusBtn}</td>
+        </tr>
+      `;
+    }).join("");
+  }
 
   updateHFQuantMarquees();
 }

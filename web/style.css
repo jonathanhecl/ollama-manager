@@ -12801,6 +12801,7 @@ button.chat-send:disabled:hover {
   align-items: baseline;
   gap: 0;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .hf-row-author {
@@ -13642,6 +13643,8 @@ button.chat-send:disabled:hover {
     display: flex;
     flex-wrap: wrap;
     white-space: normal;
+    flex-shrink: 1;
+    max-width: 100%;
   }
 
   .hf-row-name {

@@ -392,29 +392,74 @@ function textForSpeech(raw) {
   return s;
 }
 
+const marqueeRafIds = typeof WeakMap !== "undefined" ? new WeakMap() : null;
+
 function updateMarquee(trackEl, textEl) {
   if (!trackEl || !textEl) return;
-  textEl.classList.remove("is-bouncing");
-  textEl.style.removeProperty("--marquee-dist");
-  textEl.style.removeProperty("--marquee-dur");
-  textEl.style.transform = "";
 
-  requestAnimationFrame(() => {
-    if (!trackEl || !textEl) return;
+  if (marqueeRafIds && typeof cancelAnimationFrame === "function") {
+    const pendingId = marqueeRafIds.get(textEl);
+    if (pendingId !== undefined) {
+      cancelAnimationFrame(pendingId);
+      marqueeRafIds.delete(textEl);
+    }
+  }
+
+  const schedule = typeof requestAnimationFrame === "function"
+    ? requestAnimationFrame
+    : (cb) => cb();
+
+  let finished = false;
+  const rafId = schedule(() => {
+    finished = true;
+    if (marqueeRafIds) marqueeRafIds.delete(textEl);
+    if (!trackEl || !textEl || trackEl.isConnected === false || textEl.isConnected === false) return;
+
     const trackWidth = trackEl.clientWidth;
+    if (trackWidth <= 0) return;
+
     const textWidth = textEl.scrollWidth;
     const overflow = textWidth - trackWidth;
+    const textSig = textEl.textContent || "";
 
     if (overflow > 2) {
-      const dist = overflow + 8;
+      const dist = Math.ceil(overflow) + 8;
       const duration = Math.max(4, Math.min(16, dist / 20));
-      textEl.style.setProperty("--marquee-dist", `-${dist}px`);
-      textEl.style.setProperty("--marquee-dur", `${duration}s`);
-      textEl.classList.add("is-bouncing");
+      const distVal = `-${dist}px`;
+      const durVal = `${Number(duration.toFixed(2))}s`;
+      const prevDist = textEl.style.getPropertyValue("--marquee-dist");
+      const prevDur = textEl.style.getPropertyValue("--marquee-dur");
+      const prevText = textEl.dataset ? textEl.dataset.marqueeText : undefined;
+      const isBouncing = textEl.classList.contains("is-bouncing");
+
+      if (isBouncing && prevDist === distVal && prevDur === durVal && prevText === textSig) {
+        return;
+      }
+
+      textEl.style.setProperty("--marquee-dist", distVal);
+      textEl.style.setProperty("--marquee-dur", durVal);
+      if (textEl.dataset) textEl.dataset.marqueeText = textSig;
+
+      if (isBouncing && prevText !== undefined && prevText !== textSig) {
+        // Text on a reused node changed (e.g. Chat model selector): restart cleanly from 0%.
+        textEl.classList.remove("is-bouncing");
+        void textEl.offsetWidth;
+        textEl.classList.add("is-bouncing");
+      } else if (!isBouncing) {
+        textEl.classList.add("is-bouncing");
+      }
     } else {
-      textEl.classList.remove("is-bouncing");
+      if (textEl.classList.contains("is-bouncing")) textEl.classList.remove("is-bouncing");
+      if (textEl.style.getPropertyValue("--marquee-dist")) textEl.style.removeProperty("--marquee-dist");
+      if (textEl.style.getPropertyValue("--marquee-dur")) textEl.style.removeProperty("--marquee-dur");
+      if (textEl.style.transform) textEl.style.transform = "";
+      if (textEl.dataset && "marqueeText" in textEl.dataset) delete textEl.dataset.marqueeText;
     }
   });
+
+  if (marqueeRafIds && !finished && rafId !== undefined) {
+    marqueeRafIds.set(textEl, rafId);
+  }
 }
 
 function getModelUrlKey(model) {

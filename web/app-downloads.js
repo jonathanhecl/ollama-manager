@@ -70,7 +70,7 @@ function connectJobsStream() {
         refreshModels().then(() => {
           // Re-render HF cards after models are updated so the card shows
           // the correct installed (green) / previously had (orange) color.
-          if (typeof renderHFModelsList === "function") {
+          if (typeof currentView !== "undefined" && currentView === "hf" && typeof renderHFModelsList === "function") {
             try { renderHFModelsList(); } catch {}
           }
           if (typeof hfActiveModel !== "undefined" && hfActiveModel && typeof renderHFQuantsTable === "function" && !$("hf-detail-modal")?.hidden) {
@@ -129,6 +129,24 @@ function throttleRenderTable() {
   }, 300);
 }
 
+function hfJobStateBucket(status) {
+  if (status === "running") return "running";
+  if (status === "queued" || status === "paused") return "queued";
+  return "";
+}
+
+function computeHFJobsFingerprint() {
+  if (typeof jobs === "undefined" || !jobs) return "";
+  const parts = [];
+  for (const j of jobs.values()) {
+    const bucket = hfJobStateBucket(j?.status);
+    if (bucket) parts.push(`${j.name || ""}=${bucket}`);
+  }
+  parts.sort();
+  return parts.join("|");
+}
+
+let lastHFJobsFingerprint = null;
 let hfRenderThrottled = false;
 let hfRenderPending = false;
 function throttleHFRender() {
@@ -136,7 +154,9 @@ function throttleHFRender() {
   hfRenderThrottled = true;
   hfRenderPending = false;
   try {
-    if (typeof renderHFModelsList === "function") renderHFModelsList();
+    if (typeof currentView !== "undefined" && currentView === "hf" && typeof renderHFModelsList === "function") {
+      renderHFModelsList();
+    }
     if (typeof hfActiveModel !== "undefined" && hfActiveModel && typeof renderHFQuantsTable === "function" && !$("hf-detail-modal")?.hidden) {
       renderHFQuantsTable(hfActiveModel);
     }
@@ -154,7 +174,11 @@ function onJobsChanged() {
   updateDownloadsBadge();
   if (!$("downloads-modal").hidden) renderDownloads();
   throttleRenderTable(); // Update main model list to show/hide pending downloads
-  throttleHFRender();
+  const hfFp = computeHFJobsFingerprint();
+  if (hfFp !== lastHFJobsFingerprint) {
+    lastHFJobsFingerprint = hfFp;
+    throttleHFRender();
+  }
 }
 
 // Re-fetch the authoritative job list so the jobs Map reflects the server's

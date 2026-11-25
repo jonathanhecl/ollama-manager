@@ -52,6 +52,10 @@ type Server struct {
 	// Guards mutations to cfg done by /api/config endpoints.
 	cfgMu sync.RWMutex
 
+	// stopFixBackupRoot overrides where the stop-fix engine stores the
+	// previous Modelfile (tests point it at a temporary directory).
+	stopFixBackupRoot string
+
 	// Managed gateway listener state. The gateway runs on its own
 	// listener so config changes can be applied live (hot-apply) without
 	// restarting the whole process. gwMu guards gwSrv/gwAddr/gwListening.
@@ -291,6 +295,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/running/unload-all", s.requireAuth(s.handleUnloadAllRunning))
 	mux.Handle("POST /api/model-repair/preview", s.requireAuth(s.handleRepairPreview))
 	mux.Handle("POST /api/model-repair/apply", s.requireAuth(s.handleRepairApply))
+	mux.Handle("POST /api/model-stop-fix/preview", s.requireAuth(s.handleStopFixPreview))
+	mux.Handle("POST /api/model-stop-fix/apply", s.requireAuth(s.handleStopFixApply))
 	mux.Handle("GET /api/models/{name...}", s.requireAuth(s.handleShowModel))
 	mux.Handle("POST /api/models/unload", s.requireAuth(s.handleUnloadModel))
 	mux.Handle("POST /api/models/archive", s.requireAuth(s.handleArchiveModel))

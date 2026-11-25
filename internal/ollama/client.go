@@ -184,6 +184,7 @@ type ChatOnceResponse struct {
 	Model              string      `json:"model"`
 	Message            ChatMessage `json:"message"`
 	Done               bool        `json:"done"`
+	DoneReason         string      `json:"done_reason,omitempty"`
 	PromptEvalCount    int         `json:"prompt_eval_count"`
 	EvalCount          int         `json:"eval_count"`
 	PromptEvalDuration int64       `json:"prompt_eval_duration"`
@@ -212,8 +213,11 @@ type CreateRequest struct {
 	Parameters map[string]any    `json:"parameters,omitempty"`
 	Renderer   string            `json:"renderer,omitempty"`
 	Parser     string            `json:"parser,omitempty"`
-	Modelfile  string            `json:"modelfile,omitempty"`
-	Stream     bool              `json:"stream"`
+	License    any               `json:"license,omitempty"`
+	// Modelfile is ignored by recent Ollama servers, which only honour the
+	// structured fields above; it is kept for older builds.
+	Modelfile string `json:"modelfile,omitempty"`
+	Stream    bool   `json:"stream"`
 }
 
 // ChatChunk is one streamed NDJSON object from /api/chat.

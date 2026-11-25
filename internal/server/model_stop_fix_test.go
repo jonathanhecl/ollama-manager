@@ -86,11 +86,17 @@ func (f *stopFixFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	case "/api/chat":
 		var body struct {
-			Options map[string]any `json:"options"`
+			Options map[string]any  `json:"options"`
+			Think   json.RawMessage `json:"think"`
 		}
 		raw, _ := io.ReadAll(r.Body)
 		if err := json.Unmarshal(raw, &body); err != nil {
 			f.t.Fatalf("decode chat body: %v", err)
+		}
+		// Forcing think=false breaks imported Jinja templates that raise when
+		// reasoning_effort is empty, so the probe must leave it to the model.
+		if len(body.Think) > 0 {
+			f.t.Errorf("probe must not force think, got %s", body.Think)
 		}
 		f.mu.Lock()
 		stops := append([]string(nil), f.stops...)

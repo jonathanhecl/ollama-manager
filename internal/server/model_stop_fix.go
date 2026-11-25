@@ -175,13 +175,14 @@ func (s *Server) probeStops(ctx context.Context, model, prompt string, stops []s
 	case stops != nil:
 		opts["stop"] = stops
 	}
-	think := ollama.ThinkLevel("off")
 	probeCtx, cancel := context.WithTimeout(ctx, stopFixProbeTimeout)
 	defer cancel()
+	// Thinking is left at the model default on purpose: some imported templates
+	// raise when reasoning_effort is forced to an empty value (think=false), and
+	// the probe must reproduce a normal chat turn.
 	resp, err := s.ollama.ChatOnce(probeCtx, ollama.ChatRequest{
 		Model:    model,
 		Messages: []ollama.ChatMessage{{Role: "user", Content: prompt}},
-		Think:    &think,
 		Options:  opts,
 	})
 	if err != nil {

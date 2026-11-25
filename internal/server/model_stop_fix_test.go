@@ -18,14 +18,15 @@ import (
 // (unload). Creating the model rewrites the stop list it reports and applies,
 // so the verification probe after an apply sees the rebuilt model.
 type stopFixFake struct {
-	t         *testing.T
-	full      string
-	template  string
-	base      string
-	mu        sync.Mutex
-	stops     []string
-	called    [][]string
-	createdAt []ollama.CreateRequest
+	t               *testing.T
+	full            string
+	template        string
+	base            string
+	mu              sync.Mutex
+	failAfterCreate bool
+	stops           []string
+	called          [][]string
+	createdAt       []ollama.CreateRequest
 }
 
 const stopFixFakeTemplate = `{{- range .Messages }}<|im_start|>{{ .Role }}
@@ -104,7 +105,13 @@ func (f *stopFixFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.called = append(f.called, stops)
 		f.mu.Unlock()
+		f.mu.Lock()
+		broken := f.failAfterCreate && len(f.createdAt) > 0
+		f.mu.Unlock()
 		content := simulateStops(f.full, stops)
+		if broken {
+			content = ""
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"model":       "test-model",
 			"done":        true,
@@ -364,6 +371,7 @@ func TestBuildStopFixCreateRequestPreservesModelConfig(t *testing.T) {
 
 	show.Modelfile = "FROM /blobs/sha256-1111\nTEMPLATE \"\"\"x\"\"\"\nPARAMETER stop \"a\"\n" +
 		"FROM /blobs/sha256-2222\n"
+	show.ProjectorInfo = map[string]json.RawMessage{"projector_type": json.RawMessage(`"mmproj"`)}
 	req, err = buildStopFixCreateRequest("vision-model", show, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -378,6 +386,13 @@ func TestBuildStopFixCreateRequestPreservesModelConfig(t *testing.T) {
 	show.Modelfile = "FROM /blobs/sha256-1111\nFROM /blobs/sha256-2222\nFROM /blobs/sha256-3333\n"
 	if _, err := buildStopFixCreateRequest("split", show, nil); err == nil {
 		t.Fatal("split GGUF should be rejected")
+	}
+
+	// Two blobs without a projector are two shards of one split GGUF.
+	show.ProjectorInfo = nil
+	show.Modelfile = "FROM /blobs/sha256-1111\nFROM /blobs/sha256-2222\n"
+	if _, err := buildStopFixCreateRequest("two-shards", show, nil); err == nil {
+		t.Fatal("split GGUF without projector should be rejected")
 	}
 }
 
@@ -413,6 +428,41 @@ func TestApplyStopFixRebuildsAndVerifies(t *testing.T) {
 	last := fake.called[len(fake.called)-1]
 	if !slices.Contains(last, "<|im_end|>") {
 		t.Fatalf("verification used stops %v", last)
+	}
+}
+
+func TestApplyStopFixRestoresTheModelWhenVerificationFails(t *testing.T) {
+	fake := newStopFixFake(t, "Hello! How can I help you today?", []string{"Hello"})
+	fake.failAfterCreate = true
+	srv := newStopFixTestServer(t, fake, t.TempDir())
+
+	preview, _, err := srv.buildStopFixPreview(t.Context(), "test-model", "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.NeedsFix {
+		t.Fatalf("fixture should need a fix: %+v", preview)
+	}
+	_, err = srv.applyStopFix(t.Context(), stopFixRequest{
+		Model:   "test-model",
+		Prompt:  "hi",
+		Stops:   &preview.ProposedStops,
+		Confirm: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "restored") {
+		t.Fatalf("err = %v, want a restore report", err)
+	}
+	if len(fake.createdAt) != 2 {
+		t.Fatalf("create calls = %d, want the fix plus the restore", len(fake.createdAt))
+	}
+	var restored []string
+	if list, ok := fake.createdAt[1].Parameters["stop"].([]any); ok {
+		for _, item := range list {
+			restored = append(restored, item.(string))
+		}
+	}
+	if !slices.Equal(restored, []string{"Hello"}) {
+		t.Fatalf("restore stops = %#v", fake.createdAt[1].Parameters["stop"])
 	}
 }
 

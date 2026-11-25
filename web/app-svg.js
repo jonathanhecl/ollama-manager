@@ -3854,6 +3854,19 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
     ? `<span class="chat-model-used mono">${escapeHtml(m.model)}</span>`
     : "";
   const hideActions = (m.role === "assistant" && m.streaming) || m._awaitingServerTurn || (m.role === "assistant" && isImageModel) || isEditingUser || speechOnlyReply;
+  // A reply that came back empty because a stop sequence matched before the
+  // first character is the imported-model stop bug; offer the auto-fix.
+  const blankStopReply = m.role === "assistant" && !m.streaming && !m._awaitingServerTurn && !m.stopped &&
+    String(m.doneReason || "").toLowerCase() === "stop" &&
+    !String(m.content || "").trim() && !String(m.thinkContent || "").trim() &&
+    !!m.model && !modelCaps(m.model).has("image") && !isImageModel && !speechOnlyReply &&
+    !(typeof modelByName === "function" && modelByName(m.model)?.is_external);
+  const stopFixBlock = blankStopReply
+    ? `<div class="chat-oom-hint chat-stopfix-hint">
+        <p class="chat-oom-hint-text">${escapeHtml(t("chat.stopfix_hint"))}</p>
+        <button type="button" class="chat-stopfix-btn" data-msg-id="${escapeHtml(m.id)}" data-model="${escapeHtml(m.model)}">${escapeHtml(t("chat.stopfix_btn"))}</button>
+      </div>`
+    : "";
   const ttsPlaying = m.id === speakingMsgId;
   const ttsLabel = ttsPlaying ? t("chat.tts_stop") : t("chat.tts_play");
   const ttsBtn = hideActions ? "" : `<button type="button" class="btn-icon chat-tts-btn${ttsPlaying ? " active" : ""}" data-msg-id="${escapeHtml(m.id)}" title="${escapeHtml(ttsLabel)}" aria-label="${escapeHtml(ttsLabel)}">
@@ -3934,6 +3947,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
       </header>
       ${meta.length ? `<div class="chat-msg-meta-line"><span class="chat-meta mono">${escapeHtml(meta.join(" · "))}</span></div>` : ""}
       ${contentBlock}
+      ${stopFixBlock}
       ${files ? `<div class="chat-file-list">${files}</div>` : ""}
       ${speechBlock}
       ${artifactBadge}

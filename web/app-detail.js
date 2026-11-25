@@ -598,6 +598,7 @@ function extractStopTokens(modelfile) {
 
 function renderRepairEntry(d) {
   const resetBtnHtml = `<button type="button" class="ghost reset-analytics-btn" data-name="${escapeHtml(d.name)}" title="${escapeHtml(t("detail.reset_analytics_title"))}">⚠️ ${escapeHtml(t("detail.reset_analytics_btn"))}</button>`;
+  const stopFixBtn = `<button type="button" class="ghost repair-open-stopfix" data-name="${escapeHtml(d.name)}">🩹 ${escapeHtml(t("repair.stopfix_btn"))}</button>`;
   if (isFixedModelName(d.name)) {
     const base = d.base_model || fixedBaseName(d.name);
     return `<div class="detail-section repair-entry">
@@ -605,8 +606,10 @@ function renderRepairEntry(d) {
       <div class="repair-note">${escapeHtml(t("repair.fixed_note", { base }))}</div>
       <div class="repair-entry-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
         <button type="button" class="ghost repair-open-base" data-base="${escapeHtml(base)}">${escapeHtml(t("repair.open_base"))}</button>
+        ${stopFixBtn}
         ${resetBtnHtml}
       </div>
+      <div class="repair-note repair-stopfix-note">${escapeHtml(t("repair.stopfix_note"))}</div>
     </div>`;
   }
   const target = fixedModelName(d.name);
@@ -615,8 +618,10 @@ function renderRepairEntry(d) {
     <div class="repair-note">${escapeHtml(t("repair.entry_note", { name: target }))}</div>
     <div class="repair-entry-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button type="button" class="ghost repair-open-modal">${escapeHtml(t("repair.options_btn"))}</button>
+      ${stopFixBtn}
       ${resetBtnHtml}
     </div>
+    <div class="repair-note repair-stopfix-note">${escapeHtml(t("repair.stopfix_note"))}</div>
   </div>`;
 }
 
@@ -725,6 +730,13 @@ function bindRepairEntry(d) {
   const openModal = document.querySelector(".repair-open-modal");
   if (openModal) {
     openModal.addEventListener("click", () => openRepairModal(d));
+  }
+  const stopFixBtn = document.querySelector(".repair-open-stopfix");
+  if (stopFixBtn) {
+    stopFixBtn.addEventListener("click", () => {
+      const name = stopFixBtn.dataset.name || d.name;
+      if (name && typeof openStopFixModal === "function") openStopFixModal(name, "", "");
+    });
   }
   const resetBtn = document.querySelector(".reset-analytics-btn");
   if (resetBtn) {

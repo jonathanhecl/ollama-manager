@@ -995,6 +995,23 @@ function bindChatEvents() {
       }
       return;
     }
+    const stopFixB = e.target.closest(".chat-stopfix-btn");
+    if (stopFixB) {
+      e.preventDefault();
+      const id = stopFixB.getAttribute("data-msg-id") || "";
+      const model = stopFixB.getAttribute("data-model") || "";
+      if (!model || typeof openStopFixModal !== "function") return;
+      let prompt = "";
+      const idx = chatMessages.findIndex((x) => x.id === id);
+      for (let i = idx - 1; i >= 0; i--) {
+        if (chatMessages[i].role !== "user") continue;
+        if ((chatMessages[i].attachments || []).length > 0) continue;
+        prompt = String(chatMessages[i].content || "");
+        break;
+      }
+      openStopFixModal(model, prompt, id);
+      return;
+    }
     const ttsB = e.target.closest(".chat-tts-btn");
     if (ttsB) {
       e.preventDefault();

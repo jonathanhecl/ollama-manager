@@ -3424,6 +3424,176 @@ button.chat-edit-attach-thumb-wrap:hover {
   color: #fff;
 }
 
+.chat-stopfix-btn {
+  align-self: flex-start;
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.chat-stopfix-btn:hover {
+  background: rgba(96, 165, 250, 0.26);
+  color: #fff;
+}
+
+/* ---------- Stop-token auto-fix ---------- */
+.stopfix-modal-card {
+  width: min(880px, 94vw);
+}
+.stopfix-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stopfix-model {
+  font-size: 12px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.stopfix-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.stopfix-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid rgba(148, 163, 184, 0.35);
+  border-top-color: var(--accent, #60a5fa);
+  animation: stopfixspin 0.8s linear infinite;
+}
+@keyframes stopfixspin {
+  to { transform: rotate(360deg); }
+}
+.stopfix-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.stopfix-diff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.stopfix-removed {
+  color: var(--bad);
+  border-color: #5a2a2a;
+  background: #1f1212;
+}
+.stopfix-added {
+  color: var(--good);
+  border-color: #2c4a3a;
+  background: #112018;
+}
+.stopfix-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.stopfix-warning {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+.stopfix-ok {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--good);
+}
+.stopfix-probes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.stopfix-probe {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  background: var(--panel, rgba(148, 163, 184, 0.06));
+  min-width: 0;
+}
+.stopfix-probe-title {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.stopfix-reply {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+  font-family: var(--mono);
+}
+.stopfix-empty {
+  font-size: 12.5px;
+  color: var(--bad);
+  font-style: italic;
+}
+.stopfix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.stopfix-table th,
+.stopfix-table td {
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.stopfix-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stopfix-stop {
+  word-break: break-all;
+}
+.stopfix-stops-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.stopfix-modelfile {
+  margin-top: 6px;
+  min-height: 180px;
+}
+.stopfix-details summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.stopfix-apply-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stopfix-backup {
+  font-size: 11.5px;
+  word-break: break-all;
+}
+.repair-stopfix-note {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+
 .chat-file-list {
   margin-top: 6px;
 }

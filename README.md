@@ -26,6 +26,7 @@ Chat with your models through retrieval-augmented **knowledge bases (RAG)**, **A
 - **Model Management & Repair**:
   - **Comprehensive Catalog**: real-time list of installed models with family, parameter count, quantization, model size, context length, last used timestamp, record tok/s, and loaded status (VRAM/RAM).
   - **Model Repair & Vision Projector Attach**: inspect, test, and patch community models with missing tool templates, thinking tags, or invalid Markdown stop tokens. Attach `mmproj` vision projectors to add vision capabilities with **proactive disk space verification** before downloading.
+  - **Stop-Token Auto-Fix**: a reply that comes back empty with `done_reason: stop` (typical of Hugging Face imports whose `PARAMETER stop` does not match the tokens the model emits) offers **Fix stop tokens** right in the chat, and the same action lives in the model's Repair section. The app probes the model with and without its stops, tests each candidate terminator on its own, keeps only the ones that never cut the answer, and rebuilds the model in place with the same template, system prompt, renderer, parser, parameters and license. The previous Modelfile is saved under `stop-fix-backups/` next to `config.json`.
   - **Memory & VRAM Management**: unload individual models or unload all active models from VRAM/RAM with one click.
   - **Model Archiving & Uninstall History**: archive rarely used models or review uninstalled models with optional deletion reason notes.
   - **Full Model Inspector**: view raw Modelfiles, Jinja/Go templates, licenses, parameters, and architecture details.
@@ -325,6 +326,8 @@ Ollama serves text-to-speech from `POST /v1/audio/speech` with models whose capa
 | `GET` | `/api/rags/{id}/media/{entry}/{type}` | Serve an entry's attached image or audio |
 | `POST` | `/api/model-repair/preview` | Preview patched Modelfile (tools, templates, stops, projector disk check) |
 | `POST` | `/api/model-repair/apply` | Apply repair, download mmproj projector, and build `:fixed` model |
+| `POST` | `/api/model-stop-fix/preview` | Probe a model with and without its stop tokens, report the offending stops and the proposed list |
+| `POST` | `/api/model-stop-fix/apply` | Rebuild a model in place with the chosen stop tokens (backs up the previous Modelfile) |
 | `GET` | `/api/artifacts/{digest}/{timestamp}/{path}` | Serve sandboxed Agent Mode workspace files and live web preview |
 | `DELETE` | `/api/artifacts/{digest}/{timestamp}` | Delete a specific Agent Mode workspace |
 | `POST` | `/api/artifacts/console` | Relay runtime console logs from the Agent Mode live preview iframe to the model |

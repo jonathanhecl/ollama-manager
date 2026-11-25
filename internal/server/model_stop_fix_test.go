@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -27,6 +28,8 @@ type stopFixFake struct {
 	stops           []string
 	called          [][]string
 	createdAt       []ollama.CreateRequest
+	copies          [][2]string
+	deleted         []string
 }
 
 const stopFixFakeTemplate = `{{- range .Messages }}<|im_start|>{{ .Role }}
@@ -136,6 +139,29 @@ func (f *stopFixFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.stops = append([]string(nil), v...)
 		}
 		f.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
+	case "/api/copy":
+		var body struct {
+			Source      string `json:"source"`
+			Destination string `json:"destination"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			f.t.Fatalf("decode copy body: %v", err)
+		}
+		f.mu.Lock()
+		f.copies = append(f.copies, [2]string{body.Source, body.Destination})
+		f.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
+	case "/api/delete":
+		var body struct {
+			Model string `json:"model"`
+			Name  string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			f.mu.Lock()
+			f.deleted = append(f.deleted, cmp.Or(body.Model, body.Name))
+			f.mu.Unlock()
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "success"})
 	case "/api/generate":
 		writeJSON(w, http.StatusOK, map[string]any{"done": true, "done_reason": "unload"})
@@ -337,29 +363,25 @@ SYSTEM """be nice"""
 	}
 }
 
-func TestBuildStopFixCreateRequestPreservesModelConfig(t *testing.T) {
+func TestBuildStopFixCreateRequestInheritsTheModelAndOnlyReplacesStops(t *testing.T) {
 	fake := newStopFixFake(t, "Hello", []string{"Hello"})
 	show := &ollama.ShowResponse{
 		Modelfile:  rewriteModelfileStops(fake.base, fake.stops),
-		Template:   fake.template,
+		Template:   `{%- set effort_map = {"low": 0.2} -%}{%- raise_exception("x") -%}`,
 		Parameters: fake.parametersLocked(),
 		License:    "MIT",
 	}
-	req, err := buildStopFixCreateRequest("test-model", show, []string{"<|im_end|>"})
+	req, err := buildStopFixCreateRequest("test-model", "test-model:stopfix-src", show, []string{"<|im_end|>"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req.Model != "test-model" || req.Files["model.gguf"] != "sha256:aaaabbbb" {
+	if req.Model != "test-model" || req.From != "test-model:stopfix-src" {
 		t.Fatalf("unexpected create request: %+v", req)
 	}
-	if req.Renderer != "qwen3.5" || req.Parser != "qwen3.5" {
-		t.Fatalf("renderer/parser lost: %q/%q", req.Renderer, req.Parser)
-	}
-	if req.Template != fake.template {
-		t.Fatal("template not preserved")
-	}
-	if req.License != "MIT" {
-		t.Fatalf("license = %v", req.License)
+	// Inheriting the manifest is what keeps Hugging Face Jinja templates (which
+	// Ollama cannot re-parse) and every other directive intact.
+	if len(req.Files) != 0 || req.Template != "" || req.System != "" || req.Renderer != "" || req.Parser != "" {
+		t.Fatalf("rebuild must only override parameters: %+v", req)
 	}
 	stops, _ := req.Parameters["stop"].([]string)
 	if !slices.Equal(stops, []string{"<|im_end|>"}) {
@@ -369,30 +391,35 @@ func TestBuildStopFixCreateRequestPreservesModelConfig(t *testing.T) {
 		t.Fatalf("temperature lost: %#v", req.Parameters["temperature"])
 	}
 
-	show.Modelfile = "FROM /blobs/sha256-1111\nTEMPLATE \"\"\"x\"\"\"\nPARAMETER stop \"a\"\n" +
-		"FROM /blobs/sha256-2222\n"
-	show.ProjectorInfo = map[string]json.RawMessage{"projector_type": json.RawMessage(`"mmproj"`)}
-	req, err = buildStopFixCreateRequest("vision-model", show, nil)
+	req, err = buildStopFixCreateRequest("test-model", "test-model:stopfix-src", show, nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if req.Files["mmproj.gguf"] != "sha256:2222" {
-		t.Fatalf("projector blob missing: %+v", req.Files)
 	}
 	if stops, ok := req.Parameters["stop"].([]string); !ok || len(stops) != 0 {
 		t.Fatalf("cleared stops should be an explicit empty list, got %#v", req.Parameters["stop"])
 	}
+}
 
-	show.Modelfile = "FROM /blobs/sha256-1111\nFROM /blobs/sha256-2222\nFROM /blobs/sha256-3333\n"
-	if _, err := buildStopFixCreateRequest("split", show, nil); err == nil {
-		t.Fatal("split GGUF should be rejected")
+func TestBuildStopFixCreateRequestRejectsModelsWithoutBlob(t *testing.T) {
+	fake := newStopFixFake(t, "Hello", nil)
+	fake.base = "FROM cloud-model:latest\nTEMPLATE \"\"\"{{ .Prompt }}\"\"\"\n"
+	show := &ollama.ShowResponse{Modelfile: fake.base}
+	if _, err := buildStopFixCreateRequest("cloud-model", "cloud-model:stopfix-src", show, nil); err == nil {
+		t.Fatal("a model without GGUF blob must be rejected")
 	}
+}
 
-	// Two blobs without a projector are two shards of one split GGUF.
-	show.ProjectorInfo = nil
-	show.Modelfile = "FROM /blobs/sha256-1111\nFROM /blobs/sha256-2222\n"
-	if _, err := buildStopFixCreateRequest("two-shards", show, nil); err == nil {
-		t.Fatal("split GGUF without projector should be rejected")
+func TestStopFixSnapshotTag(t *testing.T) {
+	cases := map[string]string{
+		"qwen3:4b":                 "qwen3:stopfix-src",
+		"hf.co/a/b:Q4_K_M":         "hf.co/a/b:stopfix-src",
+		"a/b/model":                "a/b/model:stopfix-src",
+		"huggingface.co/x/y:IQ2_M": "huggingface.co/x/y:stopfix-src",
+	}
+	for in, want := range cases {
+		if got := stopFixSnapshotTag(in); got != want {
+			t.Fatalf("stopFixSnapshotTag(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -415,6 +442,15 @@ func TestApplyStopFixRebuildsAndVerifies(t *testing.T) {
 	}
 	if len(fake.createdAt) != 1 {
 		t.Fatalf("create calls = %d", len(fake.createdAt))
+	}
+	if len(fake.copies) != 1 || fake.copies[0] != [2]string{"test-model", "test-model:stopfix-src"} {
+		t.Fatalf("copies = %v", fake.copies)
+	}
+	if fake.createdAt[0].From != "test-model:stopfix-src" {
+		t.Fatalf("rebuild inherited from %q", fake.createdAt[0].From)
+	}
+	if !slices.Contains(fake.deleted, "test-model:stopfix-src") {
+		t.Fatalf("snapshot was not deleted: %v", fake.deleted)
 	}
 	if result.Verify.Empty {
 		t.Fatalf("verify probe still blank: %+v", result.Verify)

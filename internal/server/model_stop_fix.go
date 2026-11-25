@@ -279,11 +279,11 @@ func (s *Server) buildStopFixPreview(ctx context.Context, model, prompt string) 
 
 	_, currentStops := parseShowParameters(show.Parameters)
 	prompt = normalizeStopFixPrompt(prompt)
-	_, blobErr := stopFixBlobPlan(show)
+	localErr := stopFixLocalModel(show)
 	preview := &stopFixPreview{
 		Model:         model,
 		Prompt:        prompt,
-		Supported:     blobErr == nil,
+		Supported:     localErr == nil,
 		Diagnosis:     stopFixDiagnosisOK,
 		CurrentStops:  append([]string{}, currentStops...),
 		ProposedStops: append([]string{}, currentStops...),
@@ -292,8 +292,8 @@ func (s *Server) buildStopFixPreview(ctx context.Context, model, prompt string) 
 	}
 	if !preview.Supported {
 		preview.Diagnosis = stopFixDiagnosisUnsupported
-		if blobErr != nil {
-			preview.Notes = append(preview.Notes, blobErr.Error()+"; the stop fix only works on single-file local models.")
+		if localErr != nil {
+			preview.Notes = append(preview.Notes, localErr.Error()+"; the stop fix only works on local GGUF models.")
 		}
 		preview.Modelfile = displayModelfile(show.Modelfile, currentStops)
 		return preview, show, nil
@@ -473,72 +473,52 @@ func displayModelfile(modelfile string, stops []string) string {
 // Apply
 // ---------------------------------------------------------------------------
 
-// stopFixBlobPlan maps the model's blobs to create files. A second blob is only
-// accepted when Ollama reports a projector: a two-shard split GGUF would
-// otherwise be mislabelled as a vision projector and the rebuild would produce
-// a broken model.
-func stopFixBlobPlan(show *ollama.ShowResponse) (map[string]string, error) {
-	blobs := extractBlobs(show.Modelfile)
-	if len(blobs) == 0 {
-		return nil, errors.New("model has no GGUF blob to rebuild from (remote or cloud model)")
+// stopFixLocalModel reports whether the model can be rebuilt in place. Only
+// local GGUF models qualify: remote/cloud models and safetensors imports have
+// no GGUF blob to inherit from.
+func stopFixLocalModel(show *ollama.ShowResponse) error {
+	if len(extractBlobs(show.Modelfile)) == 0 {
+		return errors.New("model has no GGUF blob to rebuild from (remote, cloud or non-GGUF model)")
 	}
-	if len(blobs) > 2 {
-		return nil, fmt.Errorf("the model is stored as %d GGUF shards; split GGUFs cannot be rebuilt automatically", len(blobs))
-	}
-	if len(blobs) == 2 && len(show.ProjectorInfo) == 0 {
-		return nil, errors.New("the model has two GGUF blobs but no vision projector; this looks like a split GGUF, which cannot be rebuilt automatically")
-	}
-	files := map[string]string{"model.gguf": blobDigest(blobs[0])}
-	if len(blobs) == 2 {
-		files["mmproj.gguf"] = blobDigest(blobs[1])
-	}
-	for name, digest := range files {
-		if digest == "" {
-			return nil, fmt.Errorf("unreadable blob reference for %s", name)
-		}
-	}
-	return files, nil
+	return nil
 }
 
-// buildStopFixCreateRequest rebuilds the model from its own GGUF blob(s) with
-// the same template, system, renderer, parser and parameters, only replacing
-// the stop list. Building from the blob avoids inheriting the broken stops of
-// the previous manifest.
-func buildStopFixCreateRequest(model string, show *ollama.ShowResponse, stops []string) (ollama.CreateRequest, error) {
-	files, err := stopFixBlobPlan(show)
-	if err != nil {
+// buildStopFixCreateRequest rebuilds the model from a snapshot of itself and
+// overrides only the stop list. Inheriting the manifest keeps the template
+// (including Hugging Face Jinja templates that Ollama cannot re-parse), system
+// prompt, renderer, parser, license, messages and every other parameter
+// byte-for-byte identical to the model the user already has.
+func buildStopFixCreateRequest(model, source string, show *ollama.ShowResponse, stops []string) (ollama.CreateRequest, error) {
+	if err := stopFixLocalModel(show); err != nil {
 		return ollama.CreateRequest{}, err
 	}
-
 	params, _ := parseShowParameters(show.Parameters)
 	delete(params, "stop")
 	if len(stops) > 0 {
-		params["stop"] = append([]string(nil), stops...)
+		params["stop"] = append([]string{}, stops...)
 	} else {
-		// An explicit empty list keeps the rebuilt model stop-free instead of
-		// letting Ollama re-apply architecture defaults.
+		// An explicit empty list removes the inherited stops instead of letting
+		// Ollama keep them or re-apply architecture defaults.
 		params["stop"] = []string{}
 	}
-
-	system := strings.TrimSpace(show.System)
-	if system == "" {
-		system = strings.TrimSpace(extractModelfileSystem(show.Modelfile))
-	}
-
-	req := ollama.CreateRequest{
+	return ollama.CreateRequest{
 		Model:      model,
-		Files:      files,
-		Template:   show.Template,
-		System:     system,
+		From:       source,
 		Parameters: params,
-		Renderer:   extractLineDirective(show.Modelfile, "RENDERER"),
-		Parser:     extractLineDirective(show.Modelfile, "PARSER"),
 		Stream:     false,
+	}, nil
+}
+
+// stopFixSnapshotTag is the temporary name used to snapshot a model before it
+// is rebuilt in place. Inheriting from the copy avoids reading the manifest
+// that is being overwritten.
+func stopFixSnapshotTag(model string) string {
+	slash := strings.LastIndex(model, "/")
+	colon := strings.LastIndex(model, ":")
+	if colon > slash {
+		return model[:colon] + ":stopfix-src"
 	}
-	if strings.TrimSpace(show.License) != "" {
-		req.License = show.License
-	}
-	return req, nil
+	return model + ":stopfix-src"
 }
 
 func (s *Server) stopFixBackupDir() string {
@@ -612,7 +592,19 @@ func (s *Server) applyStopFix(ctx context.Context, req stopFixRequest) (*stopFix
 		stops = preview.ProposedStops
 	}
 
-	createReq, err := buildStopFixCreateRequest(model, show, stops)
+	// Snapshot the model first: the rebuild inherits from the copy, so the
+	// manifest being overwritten is never read halfway, and the same copy is
+	// the restore source if the rebuild does not answer.
+	snapshot := stopFixSnapshotTag(model)
+	_ = s.ollama.Delete(ctx, snapshot)
+	if err := s.ollama.Copy(ctx, model, snapshot); err != nil {
+		return nil, fmt.Errorf("snapshot %s before rebuilding: %w", model, err)
+	}
+	defer func() {
+		_ = s.ollama.Delete(context.WithoutCancel(ctx), snapshot)
+	}()
+
+	createReq, err := buildStopFixCreateRequest(model, snapshot, show, stops)
 	if err != nil {
 		return nil, err
 	}
@@ -649,7 +641,7 @@ func (s *Server) applyStopFix(ctx context.Context, req stopFixRequest) (*stopFix
 	if err != nil || verify.Empty {
 		// The rebuilt model does not answer: put the previous one back instead
 		// of leaving the user with a model that is worse than before.
-		restoreErr := s.restoreStopFix(ctx, model, show)
+		restoreErr := s.restoreStopFix(ctx, model, snapshot, show)
 		reason := "the rebuilt model did not answer"
 		if err != nil {
 			reason = fmt.Sprintf("verification probe failed: %v", err)
@@ -668,14 +660,14 @@ func (s *Server) applyStopFix(ctx context.Context, req stopFixRequest) (*stopFix
 	}, nil
 }
 
-// restoreStopFix rebuilds the model exactly as it was before the fix, using the
+// restoreStopFix rebuilds the model exactly as it was before the fix, from the
 // snapshot taken before the first create.
-func (s *Server) restoreStopFix(ctx context.Context, model string, original *ollama.ShowResponse) error {
+func (s *Server) restoreStopFix(ctx context.Context, model, snapshot string, original *ollama.ShowResponse) error {
 	if original == nil {
 		return errors.New("no snapshot of the previous model")
 	}
 	_, originalStops := parseShowParameters(original.Parameters)
-	req, err := buildStopFixCreateRequest(model, original, originalStops)
+	req, err := buildStopFixCreateRequest(model, snapshot, original, originalStops)
 	if err != nil {
 		return err
 	}

@@ -289,6 +289,22 @@ func (c *Client) Delete(ctx context.Context, name string) error {
 	return checkStatus(resp)
 }
 
+// Copy duplicates a model manifest. Blobs are content-addressed and shared, so
+// the copy costs no extra disk; it is used to snapshot a model before an
+// in-place rebuild.
+func (c *Client) Copy(ctx context.Context, source, destination string) error {
+	body, _ := json.Marshal(map[string]string{
+		"source":      source,
+		"destination": destination,
+	})
+	resp, err := c.do(ctx, http.MethodPost, "/api/copy", bytes.NewReader(body), "application/json")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return checkStatus(resp)
+}
+
 // Unload asks Ollama to evict a model from memory (keep_alive=0).
 func (c *Client) Unload(ctx context.Context, name string) error {
 	body, _ := json.Marshal(map[string]any{

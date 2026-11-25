@@ -139,10 +139,7 @@ func parseShowParameters(text string) (map[string]any, []string) {
 			stops = append(stops, fmt.Sprint(parsed))
 			continue
 		}
-		if existing, seen := params[name]; seen {
-			// Repeated scalar parameters keep the last value, matching Ollama.
-			_ = existing
-		}
+		// Repeated scalar parameters keep the last value, matching Ollama.
 		params[name] = parsed
 	}
 	return params, stops
@@ -196,9 +193,7 @@ func (s *Server) probeStops(ctx context.Context, model, prompt string, stops []s
 		EvalCount:  resp.EvalCount,
 		Empty:      strings.TrimSpace(resp.Message.Content) == "" && strings.TrimSpace(resp.Message.Thinking) == "",
 	}
-	if len(res.Content) > stopFixMaxProbeChars {
-		res.Content = res.Content[:stopFixMaxProbeChars]
-	}
+	res.Content = truncateRunes(res.Content, stopFixMaxProbeChars)
 	return res, nil
 }
 
@@ -467,9 +462,7 @@ func displayModelfile(modelfile string, stops []string) string {
 			rewritten = rewritten[:idx] + "LICENSE \"\"\"(preserved, not shown)\"\"\"" + rest[end+3:]
 		}
 	}
-	if len(rewritten) > 16*1024 {
-		rewritten = rewritten[:16*1024] + "\n# … truncated for display\n"
-	}
+	rewritten = truncateRunes(rewritten, 16*1024)
 	return rewritten
 }
 
@@ -634,7 +627,7 @@ func (s *Server) applyStopFix(ctx context.Context, req stopFixRequest) (*stopFix
 		}
 	}
 
-	verify, err := s.probeStops(ctx, model, req.Prompt, nil, false)
+	verify, err := s.probeStops(ctx, model, normalizeStopFixPrompt(req.Prompt), nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("model rebuilt but verification failed: %w (previous Modelfile saved to %s)", err, backup)
 	}

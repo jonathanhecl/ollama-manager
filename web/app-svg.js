@@ -3859,6 +3859,7 @@ function renderSingleChatMessageHTML(m, i, lastUserMsgIdx) {
   const blankStopReply = m.role === "assistant" && !m.streaming && !m._awaitingServerTurn && !m.stopped &&
     String(m.doneReason || "").toLowerCase() === "stop" &&
     !String(m.content || "").trim() && !String(m.thinkContent || "").trim() &&
+    !(m.toolLog && m.toolLog.length) &&
     !!m.model && !modelCaps(m.model).has("image") && !isImageModel && !speechOnlyReply &&
     !(typeof modelByName === "function" && modelByName(m.model)?.is_external);
   const stopFixBlock = blankStopReply

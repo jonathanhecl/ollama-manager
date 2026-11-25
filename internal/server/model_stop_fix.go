@@ -27,11 +27,14 @@ import (
 // with a single candidate stop tells whether that candidate is the culprit.
 
 const (
-	stopFixNumPredict     = 64
-	stopFixMaxCandidates  = 10
-	stopFixMaxPromptRunes = 400
-	stopFixProbeTimeout   = 180 * time.Second
-	stopFixMaxProbeChars  = 4000
+	stopFixNumPredict = 64
+	// A thinking model can spend the whole first budget reasoning before it
+	// emits any visible text; the baseline probe retries with this budget.
+	stopFixNumPredictRetry = 256
+	stopFixMaxCandidates   = 10
+	stopFixMaxPromptRunes  = 400
+	stopFixProbeTimeout    = 180 * time.Second
+	stopFixMaxProbeChars   = 4000
 )
 
 const (
@@ -73,7 +76,11 @@ type stopFixProbeResult struct {
 	Content    string `json:"content"`
 	DoneReason string `json:"done_reason,omitempty"`
 	EvalCount  int    `json:"eval_count,omitempty"`
-	Empty      bool   `json:"empty"`
+	// Empty means the model produced no visible answer.
+	Empty bool `json:"empty"`
+	// Reasoning reports that the model produced thinking tokens, so an empty
+	// reply is "still reasoning", not "answers nothing".
+	Reasoning bool `json:"reasoning,omitempty"`
 }
 
 type stopFixCandidate struct {
@@ -165,8 +172,30 @@ func normalizeStopFixPrompt(prompt string) string {
 // option stop is an empty list, which makes Ollama ignore every stop parameter
 // baked into the model. With stops!=nil only those stop sequences apply.
 func (s *Server) probeStops(ctx context.Context, model, prompt string, stops []string, clear bool) (stopFixProbeResult, error) {
+	res, err := s.probeStopsOnce(ctx, model, prompt, stops, clear, stopFixNumPredict)
+	if err != nil {
+		return res, err
+	}
+	// Retry only when the reply was empty while the model still had tokens to
+	// spend (it was reasoning, or it hit the cap). A probe that comes back empty
+	// because a stop matched before the first character ends with done=stop and
+	// no reasoning, which is exactly the verdict we want to record.
+	if !res.Empty || (!res.Reasoning && res.DoneReason != "length") {
+		return res, nil
+	}
+	retry, rerr := s.probeStopsOnce(ctx, model, prompt, stops, clear, stopFixNumPredictRetry)
+	if rerr != nil {
+		return res, nil
+	}
+	if retry.Empty {
+		retry.Reasoning = retry.Reasoning || res.Reasoning
+	}
+	return retry, nil
+}
+
+func (s *Server) probeStopsOnce(ctx context.Context, model, prompt string, stops []string, clear bool, numPredict int) (stopFixProbeResult, error) {
 	opts := map[string]any{
-		"num_predict": stopFixNumPredict,
+		"num_predict": numPredict,
 		"temperature": 0,
 	}
 	switch {
@@ -192,7 +221,8 @@ func (s *Server) probeStops(ctx context.Context, model, prompt string, stops []s
 		Content:    resp.Message.Content,
 		DoneReason: resp.DoneReason,
 		EvalCount:  resp.EvalCount,
-		Empty:      strings.TrimSpace(resp.Message.Content) == "" && strings.TrimSpace(resp.Message.Thinking) == "",
+		Empty:      strings.TrimSpace(resp.Message.Content) == "",
+		Reasoning:  strings.TrimSpace(resp.Message.Thinking) != "",
 	}
 	res.Content = truncateRunes(res.Content, stopFixMaxProbeChars)
 	return res, nil
@@ -318,7 +348,11 @@ func (s *Server) buildStopFixPreview(ctx context.Context, model, prompt string) 
 	preview.NoStopProbe = plain
 	if plain.Empty {
 		preview.Diagnosis = stopFixDiagnosisTemplate
-		preview.Notes = append(preview.Notes, "The model also stays blank with every stop removed, so the stop parameters are not the cause.")
+		if plain.Reasoning {
+			preview.Notes = append(preview.Notes, "With every stop removed the model only produced reasoning and no visible answer, so the stop tokens cannot be judged.")
+		} else {
+			preview.Notes = append(preview.Notes, "The model also stays blank with every stop removed, so the stop parameters are not the cause.")
+		}
 		preview.Warnings = append(preview.Warnings, "This looks like a template, renderer or prompt-format problem. Fix the template from Repair options instead of the stop tokens.")
 		preview.Modelfile = displayModelfile(show.Modelfile, currentStops)
 		return preview, show, nil
@@ -327,7 +361,7 @@ func (s *Server) buildStopFixPreview(ctx context.Context, model, prompt string) 
 	preview.Diagnosis = stopFixDiagnosisStops
 	preview.NeedsFix = true
 	preview.Notes = append(preview.Notes,
-		fmt.Sprintf("The reply is blank with the current %d stop token(s) but complete when no stop applies (%d tokens).", len(currentStops), plain.EvalCount))
+		fmt.Sprintf("The reply is blank with the current %d stop token(s); with every stop disabled the model answered (%d tokens).", len(currentStops), plain.EvalCount))
 
 	// Candidate order: tokens the model really emitted, then the current stops,
 	// then tokens the template mentions.

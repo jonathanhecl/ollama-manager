@@ -25,6 +25,7 @@ type stopFixFake struct {
 	base            string
 	mu              sync.Mutex
 	failAfterCreate bool
+	reasoningBudget int
 	stops           []string
 	called          [][]string
 	createdAt       []ollama.CreateRequest
@@ -116,7 +117,20 @@ func (f *stopFixFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		f.mu.Lock()
 		broken := f.failAfterCreate && len(f.createdAt) > 0
+		reasoningBudget := f.reasoningBudget
 		f.mu.Unlock()
+		if reasoningBudget > 0 {
+			if np, _ := body.Options["num_predict"].(float64); int(np) <= reasoningBudget {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"model":       "test-model",
+					"done":        true,
+					"done_reason": "length",
+					"eval_count":  int(np),
+					"message":     map[string]any{"role": "assistant", "content": "", "thinking": "let me think about it"},
+				})
+				return
+			}
+		}
 		content := simulateStops(f.full, stops)
 		if broken {
 			content = ""
@@ -252,6 +266,49 @@ func TestStopFixPreviewHealthyModelDoesNotProbeCandidates(t *testing.T) {
 	}
 	if len(fake.called) != 1 {
 		t.Fatalf("healthy model should run one probe, ran %d", len(fake.called))
+	}
+}
+
+func TestStopFixPreviewRetriesWhenTheModelIsStillThinking(t *testing.T) {
+	fake := newStopFixFake(t, "Hello! How can I help you today?<|im_end|>", []string{"Hello"})
+	fake.reasoningBudget = stopFixNumPredict
+	srv := newStopFixTestServer(t, fake, t.TempDir())
+
+	preview, _, err := srv.buildStopFixPreview(t.Context(), "test-model", "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.NoStopProbe.Empty || preview.NoStopProbe.Reasoning {
+		t.Fatalf("the retry should return visible text, got %+v", preview.NoStopProbe)
+	}
+	if preview.Diagnosis != stopFixDiagnosisStops || !preview.NeedsFix {
+		t.Fatalf("diagnosis = %q needs_fix=%v, want stops/true", preview.Diagnosis, preview.NeedsFix)
+	}
+	if !slices.Contains(preview.ProposedStops, "<|im_end|>") {
+		t.Fatalf("proposed stops %v", preview.ProposedStops)
+	}
+}
+
+func TestStopFixPreviewDoesNotJudgeStopsWhenTheModelOnlyReasons(t *testing.T) {
+	fake := newStopFixFake(t, "Hello! How can I help you today?", []string{"Hello"})
+	fake.reasoningBudget = stopFixNumPredictRetry
+	srv := newStopFixTestServer(t, fake, t.TempDir())
+
+	preview, _, err := srv.buildStopFixPreview(t.Context(), "test-model", "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.NeedsFix || len(preview.ProposedStops) != len(preview.CurrentStops) {
+		t.Fatalf("must not propose stops without a visible answer: %+v", preview)
+	}
+	if preview.Diagnosis != stopFixDiagnosisTemplate {
+		t.Fatalf("diagnosis = %q, want template", preview.Diagnosis)
+	}
+	if !preview.NoStopProbe.Reasoning {
+		t.Fatalf("no-stop probe should report rule=%v", preview.NoStopProbe)
+	}
+	if len(preview.Candidates) != 0 {
+		t.Fatalf("no candidates should be tested, got %v", preview.Candidates)
 	}
 }
 

@@ -23,9 +23,12 @@ function stopFixDiagnosisLabel(diagnosis) {
   return t(key) || diagnosis;
 }
 
-function probePreview(text) {
-  const value = String(text || "").trim();
-  if (!value) return `<span class="stopfix-empty">${escapeHtml(t("stopfix.blank"))}</span>`;
+function probePreview(probe) {
+  const value = String(probe?.content || "").trim();
+  if (!value) {
+    const label = probe?.reasoning ? t("stopfix.reasoning_only") : t("stopfix.blank");
+    return `<span class="stopfix-empty">${escapeHtml(label)}</span>`;
+  }
   const capped = value.length > 600 ? value.slice(0, 600) + "…" : value;
   return `<pre class="stopfix-reply">${escapeHtml(capped)}</pre>`;
 }
@@ -52,11 +55,11 @@ function renderStopFixPreview(preview) {
   const probeBlock = `<div class="stopfix-probes">
     <div class="stopfix-probe">
       <div class="stopfix-probe-title">${escapeHtml(t("stopfix.probe_current"))}</div>
-      ${probePreview(preview.current_probe?.content)}
+      ${probePreview(preview.current_probe)}
     </div>
     <div class="stopfix-probe">
       <div class="stopfix-probe-title">${escapeHtml(t("stopfix.probe_nostop"))}</div>
-      ${probePreview(preview.no_stop_probe?.content)}
+      ${probePreview(preview.no_stop_probe)}
     </div>
   </div>`;
 
@@ -173,7 +176,7 @@ async function applyStopFix() {
         <p class="stopfix-ok">✅ ${escapeHtml(t("stopfix.applied", { name: model }))}</p>
         <div class="stopfix-probe">
           <div class="stopfix-probe-title">${escapeHtml(t("stopfix.probe_after"))}</div>
-          ${probePreview(reply)}
+          ${probePreview({ content: reply })}
         </div>
         ${res?.backup_path ? `<p class="muted stopfix-backup">${escapeHtml(t("stopfix.backup", { path: res.backup_path }))}</p>` : ""}`;
     }
